@@ -1,0 +1,1 @@
+/// abstract, connect to receive market data (live or mock)
