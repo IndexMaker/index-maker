@@ -3,7 +3,7 @@
 ## Business Analysis
 
 ### Processes
-<img src="./solver-processes_v1.jpg">
+<img src="./solver-processes_v1.jpg" width=600>
 
 #### Maintain Inventory
 <img src="./solver-maintain-inventory_v1.jpg">
@@ -15,3 +15,8 @@
 
 ### Components
 <img src="./solver-components_v1.jpg">
+
+### Collaboration
+
+#### Seting Weights
+<img src="solver-collab-set-weights.jpg">

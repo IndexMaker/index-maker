@@ -1,1 +1,3 @@
 /target
+*.bkp
+.DS_Store
