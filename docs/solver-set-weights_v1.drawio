@@ -1,0 +1,56 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
+  <diagram name="Page-1" id="p1qI3P1JJWTET9B71jgD">
+    <mxGraphModel dx="1985" dy="745" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="lKpyGIid2QutJreNuN7U-2" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="lKpyGIid2QutJreNuN7U-4" target="kA4vwrbO1YtXu7-1UwPb-1" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="89.97714285714278" y="663.8" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-3" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="lKpyGIid2QutJreNuN7U-4" target="lKpyGIid2QutJreNuN7U-11" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-4" value="Set Curator Weights&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;business process&amp;gt;&amp;gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#000000;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="-250" y="590" width="270" height="133.75" as="geometry" />
+        </mxCell>
+        <mxCell id="kA4vwrbO1YtXu7-1UwPb-3" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;" edge="1" parent="1" source="lKpyGIid2QutJreNuN7U-5" target="lKpyGIid2QutJreNuN7U-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-5" value="&lt;ul&gt;&lt;li&gt;Each index:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;timestamp&lt;/li&gt;&lt;li&gt;weights&lt;/li&gt;&lt;/ul&gt;&lt;/ul&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="-240" y="400" width="250" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-6" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="lKpyGIid2QutJreNuN7U-7" target="kA4vwrbO1YtXu7-1UwPb-2" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-7" value="We want to set rate limit for how often can curator set the weights&lt;div&gt;(maybe once a day. could be related to delisting on Binance: sell before delisting)&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;" parent="1" vertex="1">
+          <mxGeometry x="-620" y="790" width="300" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-8" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;" parent="1" source="kA4vwrbO1YtXu7-1UwPb-2" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-290.0228571428572" y="663.8" as="sourcePoint" />
+            <mxPoint x="-230" y="657" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-11" value="&lt;div&gt;To accept new weights for an Index from Curator, rebalance the inventory, and inform Users&amp;nbsp;&lt;span style=&quot;background-color: initial;&quot;&gt;about the change in their index value and cost of change.&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="80" y="400" width="210" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-12" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="lKpyGIid2QutJreNuN7U-13" target="kA4vwrbO1YtXu7-1UwPb-1" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="310" y="358.75" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lKpyGIid2QutJreNuN7U-13" value="We want to call mint() on Index whenever there is new quantity of the available for the user (we filled some portion of their order)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;" parent="1" vertex="1">
+          <mxGeometry x="160" y="800" width="240" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="kA4vwrbO1YtXu7-1UwPb-1" value="&lt;span style=&quot;text-wrap: wrap;&quot;&gt;EVM event&lt;/span&gt;&lt;div style=&quot;text-wrap: wrap;&quot;&gt;Solver Weights Set&lt;/div&gt;&lt;div style=&quot;text-wrap: wrap;&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-wrap: wrap;&quot;&gt;&amp;lt;&amp;lt;signal&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="105" y="605" width="160" height="103.75" as="geometry" />
+        </mxCell>
+        <mxCell id="kA4vwrbO1YtXu7-1UwPb-2" value="&lt;span style=&quot;color: rgb(51, 51, 51); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;EVM event&lt;/span&gt;&lt;div style=&quot;forced-color-adjust: none; color: rgb(51, 51, 51); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;Curator Weigths Set&lt;/div&gt;&lt;div style=&quot;forced-color-adjust: none; color: rgb(51, 51, 51); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;br style=&quot;forced-color-adjust: none;&quot;&gt;&lt;/div&gt;&lt;div style=&quot;forced-color-adjust: none; color: rgb(51, 51, 51); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&amp;lt;&amp;lt;trigger&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=35;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;labelBackgroundColor=none;" vertex="1" parent="1">
+          <mxGeometry x="-490" y="605" width="170" height="103.75" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
