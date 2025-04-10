@@ -1,7 +1,4 @@
 
-#[cfg(test)]
-use eyre::Result;
-
 use crate::core::bits::Symbol;
 
 pub struct Asset {
@@ -19,9 +16,17 @@ impl Asset {
     }
 }
 
-#[test]
-fn test_asset() -> Result<()> {
-    let asset_btc = Asset::new("BTC".into());
-    assert_eq!(asset_btc.name.as_ref(), "BTC");
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use eyre::Result;
+
+    use crate::assets::asset::Asset;
+
+    #[test]
+    fn test_asset() -> Result<()> {
+        let asset_btc = Asset::new("BTC".into());
+        assert_eq!(asset_btc.name.as_ref(), "BTC");
+        Ok(())
+    }
+
 }

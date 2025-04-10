@@ -28,17 +28,30 @@ macro_rules! assert_decimal_approx_eq {
     };
 }
 
-#[test]
-fn test_decimal_assert_macro() {
-    let decimal1 = Decimal::from_str_exact("1.00000001").unwrap();
-    let decimal2 = Decimal::from_str_exact("1.00000002").unwrap();
-    let tolerance = Decimal::from_str_exact("0.0000001").unwrap();
+#[cfg(test)]
+mod tests {
+    use rust_decimal::Decimal;
 
-    assert_decimal_approx_eq!(decimal1, decimal2, tolerance); // Should pass
+    #[test]
+    fn test_decimal_assert_macro_passes() {
+        let decimal1 = Decimal::from_str_exact("1.00000001").unwrap();
+        let decimal2 = Decimal::from_str_exact("1.00000002").unwrap();
+        let tolerance = Decimal::from_str_exact("0.0000001").unwrap();
 
-    //let decimal3 = Decimal::from_str_exact("1.0001").unwrap();
-    //let tolerance2 = Decimal::from_str_exact("0.00001").unwrap();
-    // assert_decimal_approx_eq!(decimal1, decimal3, tolerance2); //should panic
+        assert_decimal_approx_eq!(decimal1, decimal2, tolerance); // Should pass
 
-    println!("Approximate equality assertions passed!");
+        println!("Approximate equality assertions passed!");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_decimal_assert_macro_panics() {
+        let decimal1 = Decimal::from_str_exact("1.00000001").unwrap();
+        let decimal2 = Decimal::from_str_exact("1.0001").unwrap();
+        let tolerance2 = Decimal::from_str_exact("0.00001").unwrap();
+        assert_decimal_approx_eq!(decimal1, decimal2, tolerance2); //should panic
+
+        println!("Approximate equality assertions passed!");
+    }
+
 }

@@ -1,6 +1,8 @@
 pub mod core {
     pub mod bits;
     pub mod decimal_macros;
+    pub mod deque_macros;
+    pub mod hashmap_macros;
 }
 
 pub mod assets {
@@ -9,4 +11,5 @@ pub mod assets {
 
 pub mod index {
     pub mod basket;
+    pub mod basket_manager;
 }

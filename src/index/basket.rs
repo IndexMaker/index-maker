@@ -5,9 +5,6 @@ use rust_decimal::Decimal;
 
 use crate::{assets::asset::Asset, core::bits::{Amount, Symbol}};
 
-#[cfg(test)]
-use crate::assert_decimal_approx_eq;
-
 
 /// An asset with its associated weight.
 ///
@@ -186,70 +183,78 @@ impl From<Basket> for Vec<AssetWeight> {
     }
 }
 
-#[test]
-fn test_basket() -> Result<()> {
-    let assert_tolerance = "0.00001".try_into()?;
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+    use eyre::Result;
+    use crate::{assert_decimal_approx_eq, assets::asset::Asset, core::bits::{Amount, Symbol}, index::basket::{AssetWeight, Basket, BasketDefinition}};
 
-    // Define some assets - they will stay
-    let asset_btc = Arc::new(Asset::new("BTC".into()));
-    let asset_eth = Arc::new(Asset::new("ETH".into()));
-    let asset_sol = Arc::new(Asset::new("SOL".into()));
+    #[test]
+    fn test_basket() -> Result<()> {
+        let assert_tolerance = "0.00001".try_into()?;
 
-    // Define basket - it will be consumed when we create Basket
-    let basket_definition = BasketDefinition::try_new([
-        AssetWeight::new(asset_btc.clone(), "0.25".try_into()?),
-        AssetWeight::new(asset_eth.clone(), "0.75".try_into()?) 
-    ])?;
+        // Define some assets - they will stay
+        let asset_btc = Arc::new(Asset::new("BTC".into()));
+        let asset_eth = Arc::new(Asset::new("ETH".into()));
+        let asset_sol = Arc::new(Asset::new("SOL".into()));
 
-    println!("basket_definition = {}", basket_definition);
+        // Define basket - it will be consumed when we create Basket
+        let basket_definition = BasketDefinition::try_new([
+            AssetWeight::new(asset_btc.clone(), "0.25".try_into()?),
+            AssetWeight::new(asset_eth.clone(), "0.75".try_into()?) 
+        ])?;
 
-    // Tell reference prices for assets for in basket quantities computation
-    let individual_prices: HashMap<Symbol, Amount> = [
-        (asset_btc.name.clone(), "50000.0".try_into()?),
-        (asset_eth.name.clone(), "6000.0".try_into()?)
-    ].into();
+        println!("basket_definition = {}", basket_definition);
 
-    // Set target price for computing actual quantites for the basket
-    let target_price = "10000.0".try_into()?;
+        // Tell reference prices for assets for in basket quantities computation
+        let individual_prices: HashMap<Symbol, Amount> = [
+            (asset_btc.name.clone(), "50000.0".try_into()?),
+            (asset_eth.name.clone(), "6000.0".try_into()?)
+        ].into();
 
-    // Create actual basket consuming the definition
-    let basket = Basket::new_with_prices(basket_definition, &individual_prices, target_price)?;
-    
-    println!("basket = {}", basket);
+        // Set target price for computing actual quantites for the basket
+        let target_price = "10000.0".try_into()?;
 
-    assert_decimal_approx_eq!(basket.get_current_price(&individual_prices)?, target_price, assert_tolerance);
+        // Create actual basket consuming the definition
+        let basket = Basket::new_with_prices(basket_definition, &individual_prices, target_price)?;
+        
+        println!("basket = {}", basket);
 
-    // Tell reference prices for assets for in basket quantities computation
-    let individual_prices_updated: HashMap<Symbol, Amount> = [
-        (asset_btc.name.clone(), "55000.0".try_into()?),
-        (asset_eth.name.clone(), "6250.0".try_into()?),
-        (asset_sol.name.clone(), "250.0".try_into()?)
-    ].into();
+        assert_decimal_approx_eq!(basket.get_current_price(&individual_prices)?, target_price, assert_tolerance);
 
-    // Get current price of all the assets in the basket
-    let target_price_updated = basket.get_current_price(&individual_prices_updated)?;
+        // Tell reference prices for assets for in basket quantities computation
+        let individual_prices_updated: HashMap<Symbol, Amount> = [
+            (asset_btc.name.clone(), "55000.0".try_into()?),
+            (asset_eth.name.clone(), "6250.0".try_into()?),
+            (asset_sol.name.clone(), "250.0".try_into()?)
+        ].into();
 
-    // Create new rebalanced basket consuming old basket and new prices
-    let updated_basket = Basket::new_with_prices(basket.try_into()?, &individual_prices_updated, target_price_updated)?;
-    
-    println!("updated_basket = {}", updated_basket);
+        // Get current price of all the assets in the basket
+        let target_price_updated = basket.get_current_price(&individual_prices_updated)?;
 
-    // Assert that quantites were calcualted so that total price of assets matches target price after update
-    assert_decimal_approx_eq!(updated_basket.get_current_price(&individual_prices_updated)?, target_price_updated, assert_tolerance);
+        // Create new rebalanced basket consuming old basket and new prices
+        let updated_basket = Basket::new_with_prices(basket.try_into()?, &individual_prices_updated, target_price_updated)?;
+        
+        println!("updated_basket = {}", updated_basket);
 
-    let mut weights_updated: Vec<AssetWeight> = updated_basket.try_into()?;
+        // Assert that quantites were calcualted so that total price of assets matches target price after update
+        assert_decimal_approx_eq!(updated_basket.get_current_price(&individual_prices_updated)?, target_price_updated, assert_tolerance);
 
-    weights_updated.push(AssetWeight::new(asset_sol, "0.15".try_into()?));
+        let mut weights_updated: Vec<AssetWeight> = updated_basket.try_into()?;
 
-    let basket_definition_updated = BasketDefinition::try_new(weights_updated)?;
-    
-    println!("basket_definition_updated = {}", basket_definition_updated);
+        weights_updated.push(AssetWeight::new(asset_sol, "0.15".try_into()?));
 
-    let updated_basket_2 = Basket::new_with_prices(basket_definition_updated, &individual_prices_updated, target_price_updated)?;
-    
-    println!("updated_basket_2 = {}", updated_basket_2);
-    
-    assert_decimal_approx_eq!(updated_basket_2.get_current_price(&individual_prices_updated)?, target_price_updated, assert_tolerance);
+        let basket_definition_updated = BasketDefinition::try_new(weights_updated)?;
+        
+        println!("basket_definition_updated = {}", basket_definition_updated);
 
-    Ok(())
+        let updated_basket_2 = Basket::new_with_prices(basket_definition_updated, &individual_prices_updated, target_price_updated)?;
+        
+        println!("updated_basket_2 = {}", updated_basket_2);
+        
+        assert_decimal_approx_eq!(updated_basket_2.get_current_price(&individual_prices_updated)?, target_price_updated, assert_tolerance);
+
+        Ok(())
+    }
+
 }
