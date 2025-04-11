@@ -28,8 +28,8 @@ pub struct MockSolver {
     pub index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
     pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
     pub basket_manager: Arc<RwLock<BasketManager>>,
-    pub price_tracker: Arc<dyn PriceTracker>,
-    pub order_book_manager: Arc<dyn OrderBookManager>,
+    pub price_tracker: Arc<RwLock<dyn PriceTracker>>,
+    pub order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
     pub inventory_manager: Arc<RwLock<dyn InventoryManager>>,
 }
 impl MockSolver {
@@ -38,8 +38,8 @@ impl MockSolver {
         index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
         quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
         basket_manager: Arc<RwLock<BasketManager>>,
-        price_tracker: Arc<dyn PriceTracker>,
-        order_book_manager: Arc<dyn OrderBookManager>,
+        price_tracker: Arc<RwLock<dyn PriceTracker>>,
+        order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
         inventory_manager: Arc<RwLock<dyn InventoryManager>>,
     ) -> Self {
         Self {
@@ -121,9 +121,12 @@ mod test {
         let inventory_manager = Arc::new(RwLock::new(MockInventoryManager::new(order_tracker)));
 
         let market_data_connector = Arc::new(RwLock::new(MockMarketDataConnector::new()));
-        let mut order_book_manager =
-            Arc::new(MockOrderBookManager::new(market_data_connector.clone()));
-        let mut price_tracker = Arc::new(MockPriceTracker::new(market_data_connector.clone()));
+        let order_book_manager = Arc::new(RwLock::new(MockOrderBookManager::new(
+            market_data_connector.clone(),
+        )));
+        let price_tracker = Arc::new(RwLock::new(MockPriceTracker::new(
+            market_data_connector.clone(),
+        )));
 
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
@@ -177,13 +180,13 @@ mod test {
             .observer
             .set_observer_fn(move |e| solver_weak_4.upgrade().unwrap().handle_inventory_event(e));
 
-        Arc::get_mut(&mut price_tracker)
-            .unwrap()
+        price_tracker
+            .write()
             .observer
             .set_observer_fn(move |e| solver_weak_5.upgrade().unwrap().handle_price_event(e));
 
-        Arc::get_mut(&mut order_book_manager)
-            .unwrap()
+        order_book_manager
+            .write()
             .observer
             .set_observer_fn(move |e| solver_weak_6.upgrade().unwrap().handle_book_event(e));
 
@@ -200,6 +203,7 @@ mod test {
                 order_book_manager_weak
                     .upgrade()
                     .unwrap()
+                    .write()
                     .handle_market_data(e)
             });
 
@@ -210,7 +214,11 @@ mod test {
             .write()
             .observer
             .add_observer_fn(move |e: &Arc<MarketDataEvent>| {
-                price_tracker_weak.upgrade().unwrap().handle_market_data(e)
+                price_tracker_weak
+                    .upgrade()
+                    .unwrap()
+                    .write()
+                    .handle_market_data(e)
             });
 
         let index_order_manager_weak = Arc::downgrade(&index_order_manager);
