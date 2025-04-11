@@ -14,10 +14,7 @@ macro_rules! assert_decimal_approx_eq {
  right: `{:?}`,
  diff: `{:?}`,
  tolerance: `{:?}`"#,
-                        &*left_val,
-                        &*right_val,
-                        diff,
-                        &*tolerance_val
+                        &*left_val, &*right_val, diff, &*tolerance_val
                     )
                 }
             }
@@ -50,5 +47,4 @@ mod tests {
 
         println!("Approximate equality assertions passed!");
     }
-
 }

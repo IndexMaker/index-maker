@@ -1,59 +1,111 @@
 use std::sync::Arc;
 
-use crate::index::basket::{Basket, BasketDefinition};
+use crate::{
+    core::bits::{Address, Amount, Symbol},
+    index::basket::{Basket, BasketDefinition},
+};
 
 /// call blockchain methods, receive blockchain events
 
+/// On-chain event
 pub enum ChainNotification {
-    CuratorWeightsSet(BasketDefinition)
+    CuratorWeightsSet(BasketDefinition), // ...more
 }
 
-
+/// Connects to some Blockchain
 pub trait ChainConnector {
-    fn set_observer(&mut self, observer: Box<dyn Fn(ChainNotification)>);
     fn solver_weights_set(&self, basket: Arc<Basket>);
+    fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address);
+    // ...more
 }
 
-pub struct MockChainConnector {
-    pub observer: Option<Box<dyn Fn(ChainNotification)>>,
-    pub internal_observer: Box<dyn Fn(Arc<Basket>)>
-}
+/// Mock implementations of the traits
+#[cfg(test)]
+pub mod test_util {
+    use std::sync::Arc;
 
-impl MockChainConnector {
-    pub fn new(internal_observer: Box<dyn Fn(Arc<Basket>)>) -> Self {
-        Self { observer:  None, internal_observer }
+    use crate::{
+        core::{
+            bits::{Address, Amount, Symbol},
+            functional::SingleObserver,
+        },
+        index::basket::Basket,
+    };
+
+    use super::{ChainConnector, ChainNotification};
+
+    /// Internal event so that we can write tests confirming that internal logic is reached
+    pub enum MockChainInternalNotification {
+        SolverWeightsSet(Arc<Basket>),
+        MintIndex {
+            symbol: Symbol,
+            quantity: Amount,
+            receipient: Address,
+        },
     }
 
-    pub fn publish(&mut self, notification: ChainNotification) {
-        if let Some(observer) = &mut self.observer {
-            (*observer)(notification)
+    pub struct MockChainConnector {
+        pub observer: SingleObserver<ChainNotification>,
+        pub internal_observer: SingleObserver<MockChainInternalNotification>,
+    }
+
+    impl MockChainConnector {
+        pub fn new() -> Self {
+            Self {
+                observer: SingleObserver::new(),
+                internal_observer: SingleObserver::new(),
+            }
+        }
+
+        pub fn new_with_observers(
+            observer: SingleObserver<ChainNotification>,
+            internal_observer: SingleObserver<MockChainInternalNotification>,
+        ) -> Self {
+            Self {
+                observer,
+                internal_observer,
+            }
         }
     }
-}
 
-impl ChainConnector for MockChainConnector {
-    fn set_observer(&mut self, observer: Box<dyn Fn(ChainNotification)>) {
-        self.observer = Some(observer);
-    }
+    impl ChainConnector for MockChainConnector {
+        fn solver_weights_set(&self, basket: Arc<Basket>) {
+            self.internal_observer
+                .publish_single(MockChainInternalNotification::SolverWeightsSet(basket));
+        }
 
-    fn solver_weights_set(&self, basket: Arc<Basket>) {
-        (*self.internal_observer)(basket);
+        fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address) {
+            self.internal_observer
+                .publish_single(MockChainInternalNotification::MintIndex {
+                    symbol,
+                    quantity,
+                    receipient,
+                });
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::{mpsc::channel, Arc}};
+    use std::{collections::HashMap, sync::Arc};
 
     use parking_lot::RwLock;
 
     use crate::{
-        assert_hashmap_amounts_eq, assets::asset::Asset,
-        blockchain::chain_connector::ChainNotification, core::bits::{Amount, Symbol}, 
-        index::{basket::{AssetWeight, BasketDefinition}, basket_manager::{BasketManager, BasketNotification}}
+        assert_hashmap_amounts_eq,
+        blockchain::chain_connector::{ChainConnector, ChainNotification},
+        core::{
+            bits::{Amount, Symbol},
+            functional::SingleObserver,
+            test_util::*,
+        },
+        index::{
+            basket::{AssetWeight, BasketDefinition},
+            basket_manager::{BasketManager, BasketNotification},
+        },
     };
 
-    use super::{ChainConnector, MockChainConnector};
+    use super::test_util::*;
 
     // This test demonstrates that it is possible to:
     //  - Receive Curator weights as BasketDefinition
@@ -65,90 +117,131 @@ mod tests {
     //
     #[test]
     fn test_mock_chain_connection() {
-        let (tx, rx) = channel::<Box<dyn FnOnce()>>();
+        let (tx, rx) = get_mock_channel::<Box<dyn FnOnce()>>();
         let tx_2 = tx.clone();
-        let (tx_end, rx_end) = channel::<bool>();
+        let (tx_end, rx_end) = get_mock_channel::<bool>();
 
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
+        let basket_manager_3 = basket_manager.clone();
 
-        let assert_tolerance: Amount = "0.00001".try_into().unwrap();
-        let assert_tolerance_2 = assert_tolerance.clone();
+        let assert_tolerance_1 = get_mock_tolerance();
+        let assert_tolerance_2 = assert_tolerance_1.clone();
 
         // Define some assets - they will stay
-        let asset_btc = Arc::new(Asset::new("BTC".into()));
-        let asset_eth = Arc::new(Asset::new("ETH".into()));
+        let asset_btc = get_mock_asset_1_arc();
+        let asset_eth = get_mock_asset_2_arc();
 
         // Define basket - it will be consumed when we create Basket
         let basket_definition = BasketDefinition::try_new([
-            AssetWeight::new(asset_btc.clone(), "0.25".try_into().unwrap()),
-            AssetWeight::new(asset_eth.clone(), "0.75".try_into().unwrap()) 
-        ]).unwrap();
+            AssetWeight::new(asset_btc.clone(), get_mock_decimal("0.25")),
+            AssetWeight::new(asset_eth.clone(), get_mock_decimal("0.75")),
+        ])
+        .unwrap();
 
-        let mock_chain_connection = Arc::new(RwLock::new(MockChainConnector::new(Box::new(move |basket| {
-            let tx_end = tx_end.clone();
-            tx.send(Box::new(move || {
-                let expected: HashMap<Symbol, Amount> = [
-                    ("BTC".into(), "0.05".try_into().unwrap()),
-                    ("ETH".into(), "1.25".try_into().unwrap()) ].into();
-
-                let quantites: HashMap<Symbol, Amount> = basket.basket_assets.iter()
-                    .map(|ba| (ba.weight.asset.name.clone(), ba.quantity))
-                    .collect();
-
-                assert_hashmap_amounts_eq!(quantites, expected, assert_tolerance_2);
-
-                tx_end.send(true).unwrap();
-            })).unwrap();
-        }))));
-
-        let mock_chain_connection_2 = mock_chain_connection.clone();
-
-        basket_manager.write().set_basket_observer(Box::new(move |notification| {
-            match notification {
-                BasketNotification::BasketAdded(_, basket) => {
-                    mock_chain_connection_2.write().solver_weights_set(basket);
-                }
-                _ => panic!("Expected basket add notification")
-            };
-        }));
-
-        mock_chain_connection.write().set_observer(Box::new(move |notification| {
-            assert!(matches!(notification, ChainNotification::CuratorWeightsSet(_)));
+        let chain_observer = SingleObserver::new_with_observer(Box::new(move |notification| {
+            assert!(matches!(
+                notification,
+                ChainNotification::CuratorWeightsSet(_)
+            ));
             let basket_manager = basket_manager.clone();
             match notification {
                 ChainNotification::CuratorWeightsSet(basket_definition) => {
                     tx_2.send(Box::new(move || {
                         let expected: HashMap<Symbol, Amount> = [
-                                        ("BTC".into(), "0.25".try_into().unwrap()),
-                                        ("ETH".into(), "0.75".try_into().unwrap()) ].into();
+                            (get_mock_asset_name_1(), get_mock_decimal("0.25")),
+                            (get_mock_asset_name_2(), get_mock_decimal("0.75")),
+                        ]
+                        .into();
 
-                        let weights: HashMap<Symbol, Amount> = basket_definition.weights.iter()
-                                        .map(|w| (w.asset.name.clone(), w.weight)).collect();
+                        let weights: HashMap<Symbol, Amount> = basket_definition
+                            .weights
+                            .iter()
+                            .map(|w| (w.asset.name.clone(), w.weight))
+                            .collect();
 
-                        assert_hashmap_amounts_eq!(weights, expected, assert_tolerance);
+                        assert_hashmap_amounts_eq!(weights, expected, assert_tolerance_2);
 
                         // Tell reference prices for assets for in basket quantities computation
                         let individual_prices: HashMap<Symbol, Amount> = [
-                            ("BTC".into(), "50000.0".try_into().unwrap()),
-                            ("ETH".into(), "6000.0".try_into().unwrap())
-                        ].into();
+                            (get_mock_asset_name_1(), get_mock_decimal("50000.0")),
+                            (get_mock_asset_name_2(), get_mock_decimal("6000.0")),
+                        ]
+                        .into();
 
                         // Set target price for computing actual quantites for the basket
-                        let target_price = "10000.0".try_into().unwrap();
+                        let target_price = get_mock_decimal("10000.0");
 
-                        basket_manager.write().set_basket_from_definition("SYB".into(), 
-                            basket_definition, &individual_prices, target_price).unwrap();
-
-                    })).unwrap();
+                        basket_manager
+                            .write()
+                            .set_basket_from_definition(
+                                "SYB".into(),
+                                basket_definition,
+                                &individual_prices,
+                                target_price,
+                            )
+                            .unwrap();
+                    }))
+                    .unwrap();
                 }
             }
         }));
 
-        mock_chain_connection.write().publish(super::ChainNotification::CuratorWeightsSet(basket_definition));
+        let internal_observer = SingleObserver::new_with_observer(Box::new(move |notification| {
+            if let MockChainInternalNotification::SolverWeightsSet(basket) = notification {
+                let tx_end = tx_end.clone();
+                tx.send(Box::new(move || {
+                    let expected: HashMap<Symbol, Amount> = [
+                        (get_mock_asset_name_1(), get_mock_decimal("0.05")),
+                        (get_mock_asset_name_2(), get_mock_decimal("1.25")),
+                    ]
+                    .into();
+
+                    let quantites: HashMap<Symbol, Amount> = basket
+                        .basket_assets
+                        .iter()
+                        .map(|ba| (ba.weight.asset.name.clone(), ba.quantity))
+                        .collect();
+
+                    assert_hashmap_amounts_eq!(quantites, expected, assert_tolerance_1);
+
+                    tx_end.send(true).unwrap();
+                }))
+                .unwrap();
+            }
+        }));
+
+        let mock_chain_connection = Arc::new(MockChainConnector::new_with_observers(
+            chain_observer,
+            internal_observer,
+        ));
+
+        let mock_chain_connection_2 = mock_chain_connection.clone();
+
+        basket_manager_3
+            .write()
+            .set_basket_observer(Box::new(move |notification| {
+                match notification {
+                    BasketNotification::BasketAdded(_, basket) => {
+                        mock_chain_connection_2.solver_weights_set(basket);
+                    }
+                    _ => panic!("Expected basket add notification"),
+                };
+            }));
+
+        mock_chain_connection.mint_index(
+            get_mock_index_name_1(),
+            get_mock_decimal("0.5"),
+            get_mock_address_1(),
+        );
+
+        mock_chain_connection
+            .observer
+            .publish_single(super::ChainNotification::CuratorWeightsSet(
+                basket_definition,
+            ));
 
         rx.try_iter().for_each(|f| f());
 
         assert_eq!(rx_end.recv(), Ok(true));
     }
 }
-
