@@ -29,6 +29,7 @@ impl AssetWeight {
 /// 
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
+#[derive(Clone)]
 pub struct BasketDefinition {
     pub weights: Vec<AssetWeight>
 }

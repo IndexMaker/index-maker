@@ -26,6 +26,10 @@ impl BasketManager {
         }
     }
 
+    pub fn set_basket_observer(&mut self, basket_observer: Box<dyn FnMut(BasketNotification)>) {
+        self.basket_observer = Some(basket_observer);
+    }
+
     pub fn get_basket(&self, symbol: &Symbol) -> Option<&Arc<Basket>> {
         self.baskets.get(symbol)
     }

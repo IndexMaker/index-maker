@@ -13,3 +13,11 @@ pub mod index {
     pub mod basket;
     pub mod basket_manager;
 }
+
+pub mod blockchain {
+    pub mod chain_connector;
+}
+
+pub mod solver {
+    pub mod solver;
+}
