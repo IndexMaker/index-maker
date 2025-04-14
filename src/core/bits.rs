@@ -58,7 +58,7 @@ impl LastPriceEntry {
 }
 
 #[derive(Clone)]
-pub struct PriceLevelEntry {
+pub struct PricePointEntry {
     pub price: Amount,
     pub quantity: Amount,
 }

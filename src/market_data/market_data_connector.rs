@@ -1,4 +1,4 @@
-use crate::core::bits::{Amount, PriceLevelEntry, Symbol};
+use crate::core::bits::{Amount, PricePointEntry, Symbol};
 use eyre::Result;
 
 /// abstract, connect to receive market data (live or mock)
@@ -17,7 +17,8 @@ pub enum MarketDataEvent {
     },
     FullOrderBook {
         symbol: Symbol,
-        entry_updates: Vec<PriceLevelEntry>,
+        bid_updates: Vec<PricePointEntry>,
+        ask_updates: Vec<PricePointEntry>,
     },
 }
 
@@ -41,7 +42,7 @@ pub mod test_util {
     use parking_lot::RwLock;
 
     use crate::core::{
-        bits::{Amount, PriceLevelEntry, Symbol},
+        bits::{Amount, PricePointEntry, Symbol},
         functional::MultiObserver,
     };
 
@@ -92,11 +93,17 @@ pub mod test_util {
         }
 
         /// receive market data from exchange (-> OrderBookManager)
-        pub fn notify_full_order_book(&self, symbol: Symbol, entry_updates: Vec<PriceLevelEntry>) {
+        pub fn notify_full_order_book(
+            &self,
+            symbol: Symbol,
+            bid_updates: Vec<PricePointEntry>,
+            ask_updates: Vec<PricePointEntry>,
+        ) {
             self.observer
                 .publish_many(&Arc::new(MarketDataEvent::FullOrderBook {
                     symbol,
-                    entry_updates,
+                    bid_updates,
+                    ask_updates,
                 }));
         }
 
@@ -127,17 +134,17 @@ pub mod test_util {
 mod test {
     use std::{
         collections::HashSet,
-        sync::{
-            atomic::Ordering,
-            Arc,
-        },
+        sync::{atomic::Ordering, Arc},
     };
 
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{PriceLevelEntry, Symbol},
-            test_util::{flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_decimal, test_mock_atomic_bool},
+            bits::{PricePointEntry, Symbol},
+            test_util::{
+                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2,
+                get_mock_atomic_bool_pair, get_mock_decimal, test_mock_atomic_bool,
+            },
         },
         market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
     };
@@ -145,9 +152,9 @@ mod test {
     use super::test_util::MockMarketDataConnector;
 
     /// Test MockMarketDataConnector
-    /// 
+    ///
     /// These tests confirm that mock can be reliably used in other tests.
-    /// 
+    ///
     #[test]
     fn test_mock_market_data_connector() {
         let mut connector = MockMarketDataConnector::new();
@@ -204,28 +211,29 @@ mod test {
                     }
                     MarketDataEvent::FullOrderBook {
                         symbol,
-                        entry_updates,
+                        bid_updates,
+                        ask_updates,
                     } => {
                         flag_mock_atomic_bool(&called_for_fob_inner);
                         let tolerance = get_mock_decimal("0.001");
                         assert_eq!(symbol, &get_mock_asset_name_1());
                         assert_decimal_approx_eq!(
-                            entry_updates[0].price,
+                            ask_updates[0].price,
                             get_mock_decimal("3.10"),
                             tolerance
                         );
                         assert_decimal_approx_eq!(
-                            entry_updates[0].quantity,
+                            ask_updates[0].quantity,
                             get_mock_decimal("4.25"),
                             tolerance
                         );
                         assert_decimal_approx_eq!(
-                            entry_updates[1].price,
+                            ask_updates[1].price,
                             get_mock_decimal("3.20"),
                             tolerance
                         );
                         assert_decimal_approx_eq!(
-                            entry_updates[1].quantity,
+                            ask_updates[1].quantity,
                             get_mock_decimal("7.55"),
                             tolerance
                         );
@@ -253,12 +261,13 @@ mod test {
 
         connector.notify_full_order_book(
             get_mock_asset_name_1(),
+            vec![],
             vec![
-                PriceLevelEntry {
+                PricePointEntry {
                     price: get_mock_decimal("3.10"),
                     quantity: get_mock_decimal("4.25"),
                 },
-                PriceLevelEntry {
+                PricePointEntry {
                     price: get_mock_decimal("3.20"),
                     quantity: get_mock_decimal("7.55"),
                 },

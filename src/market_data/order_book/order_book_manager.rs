@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::core::bits::{Amount, Symbol};
+use eyre::Result;
 
 /// manage order books across markets
 pub enum OrderBookEvent {
@@ -25,23 +26,23 @@ pub trait OrderBookManager {
         &self,
         symbols: &HashMap<Symbol, Amount>,
         threshold: Amount,
-    ) -> HashMap<Symbol, Amount>;
+    ) -> Result<HashMap<Symbol, Amount>>;
 }
 
 #[cfg(test)]
 pub mod test_util {
-    use std::{collections::HashMap, sync::Arc};
-
+    use eyre::Result;
     use parking_lot::RwLock;
+    use std::{collections::HashMap, sync::Arc};
 
     use crate::{
         core::{
-            bits::{Amount, PriceLevelEntry, Symbol},
+            bits::{Amount, PricePointEntry, Side, Symbol},
             functional::SingleObserver,
         },
         market_data::{
             market_data_connector::{MarketDataConnector, MarketDataEvent},
-            order_book::order_book::OrderBook,
+            order_book::order_book::PricePointBook,
         },
     };
 
@@ -50,7 +51,7 @@ pub mod test_util {
     pub struct MockOrderBookManager {
         pub observer: SingleObserver<OrderBookEvent>,
         pub market_data_connector: Arc<RwLock<dyn MarketDataConnector>>,
-        pub order_books: HashMap<Symbol, OrderBook>,
+        pub order_books: HashMap<Symbol, PricePointBook>,
     }
     impl MockOrderBookManager {
         pub fn new(market_data_connector: Arc<RwLock<dyn MarketDataConnector>>) -> Self {
@@ -71,7 +72,12 @@ pub mod test_util {
         }
 
         /// Update order books
-        fn update_order_book(&self, _symbol: &Symbol, _entry_updates: &Vec<PriceLevelEntry>) {
+        fn update_order_book(
+            &self,
+            _symbol: &Symbol,
+            _bid_updates: &Vec<PricePointEntry>,
+            _ask_updates: &Vec<PricePointEntry>,
+        ) {
             // 1. find order book for symbol
             // 2. update order book
             // 3. fire an event that book is updated
@@ -83,9 +89,10 @@ pub mod test_util {
             match event {
                 MarketDataEvent::FullOrderBook {
                     symbol,
-                    entry_updates,
+                    bid_updates,
+                    ask_updates,
                 } => {
-                    self.update_order_book(symbol, entry_updates);
+                    self.update_order_book(symbol, bid_updates, ask_updates);
                 }
                 _ => (),
             }
@@ -96,17 +103,17 @@ pub mod test_util {
             &self,
             symbols: &HashMap<Symbol, Amount>,
             threshold: Amount,
-        ) -> HashMap<Symbol, Amount> {
+        ) -> Result<HashMap<Symbol, Amount>> {
             let mut result = HashMap::new();
             // get liquidity for each symbol
             for (symbol, price) in symbols {
                 if let Some(order_book) = self.order_books.get(&symbol) {
                     // get liquidity from order book
-                    let liquidity = order_book.get_liquidity(price, threshold);
+                    let liquidity = order_book.get_liquidity(Side::Sell, price, threshold)?;
                     result.insert(symbol.clone(), liquidity);
                 }
             }
-            result
+            Ok(result)
         }
     }
 }
