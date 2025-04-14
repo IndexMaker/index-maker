@@ -23,8 +23,7 @@ use super::{
 /// (from order tracker) calculate best internal-portfolio rebalancing orders,
 /// which will (partly) fill (some of the) ordered indexes.  Any position that
 /// wasn't matched against ordered indexes shouldn't be kept for too long.
-pub trait Solver {}
-pub struct MockSolver {
+pub struct Solver {
     pub chain_connector: Arc<RwLock<dyn ChainConnector>>,
     pub index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
     pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
@@ -33,7 +32,7 @@ pub struct MockSolver {
     pub order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
     pub inventory_manager: Arc<RwLock<dyn InventoryManager>>,
 }
-impl MockSolver {
+impl Solver {
     pub fn new(
         chain_connector: Arc<RwLock<dyn ChainConnector>>,
         index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
@@ -172,8 +171,6 @@ impl MockSolver {
     }
 }
 
-impl Solver for MockSolver {}
-
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -234,7 +231,7 @@ mod test {
 
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
-        let solver = Arc::new(MockSolver::new(
+        let solver = Arc::new(Solver::new(
             chain_connector.clone(),
             index_order_manager.clone(),
             quote_request_manager.clone(),

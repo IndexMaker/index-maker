@@ -237,6 +237,7 @@ mod test {
                             get_mock_decimal("7.55"),
                             tolerance
                         );
+                        assert_eq!(bid_updates.len(), 0);
                     }
                 };
             });
