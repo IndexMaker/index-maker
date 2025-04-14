@@ -55,6 +55,7 @@ pub mod test_util {
                 ServerEvent::NewQuoteRequest => {
                     self.new_quote_request(());
                 }
+                ServerEvent::CancelQuoteRequest => todo!(),
                 _ => (),
             }
         }
@@ -62,7 +63,7 @@ pub mod test_util {
 
     impl QuoteRequestManager for MockQuoteRequestManager {
         // provide method to respond to QR
-        fn respond_quote(&mut self, quote: ()) {
+        fn respond_quote(&mut self, _quote: ()) {
             todo!()
         }
     }

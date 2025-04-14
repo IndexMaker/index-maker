@@ -1,13 +1,14 @@
-use crate::core::bits::{Amount, Symbol};
+use crate::core::bits::{Amount, PriceLevelEntry, Symbol};
+use eyre::Result;
 
 /// abstract, connect to receive market data (live or mock)
 pub enum MarketDataEvent {
     TopOfBook {
         symbol: Symbol,
-        bid: Amount,
-        ask: Amount,
-        bid_quantity: Amount,
-        ask_quantity: Amount,
+        best_bid_price: Amount,
+        best_ask_price: Amount,
+        best_bid_quantity: Amount,
+        best_ask_quantity: Amount,
     },
     Trade {
         symbol: Symbol,
@@ -16,21 +17,31 @@ pub enum MarketDataEvent {
     },
     FullOrderBook {
         symbol: Symbol,
-        price_levels: (),
+        entry_updates: Vec<PriceLevelEntry>,
     },
 }
+
 pub trait MarketDataConnector {
     /// Subscribe to set of symbols
-    fn subscribe(&self, symbols: &[Symbol]);
+    fn subscribe(&self, symbols: &[Symbol]) -> Result<()>;
 }
 
 #[cfg(test)]
 pub mod test_util {
 
-    use std::sync::Arc;
+    use std::{
+        collections::HashSet,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+    };
+
+    use eyre::{eyre, Result};
+    use parking_lot::RwLock;
 
     use crate::core::{
-        bits::{Amount, Symbol},
+        bits::{Amount, PriceLevelEntry, Symbol},
         functional::MultiObserver,
     };
 
@@ -38,52 +49,223 @@ pub mod test_util {
 
     pub struct MockMarketDataConnector {
         pub observer: MultiObserver<Arc<MarketDataEvent>>,
+        pub symbols: RwLock<HashSet<Symbol>>,
+        pub is_connected: AtomicBool,
     }
 
     impl MockMarketDataConnector {
         pub fn new() -> Self {
             Self {
                 observer: MultiObserver::new(),
+                symbols: RwLock::new(HashSet::new()),
+                is_connected: AtomicBool::new(false),
             }
         }
 
         /// receive market data from exchange (-> PriceTracker)
-        pub fn notify_top_of_book(&self, _market_data: ()) {
+        pub fn notify_top_of_book(
+            &self,
+            symbol: Symbol,
+            best_bid_price: Amount,
+            best_ask_price: Amount,
+            best_bid_quantity: Amount,
+            best_ask_quantity: Amount,
+        ) {
             self.observer
                 .publish_many(&Arc::new(MarketDataEvent::TopOfBook {
-                    symbol: Symbol::default(),
-                    bid: Amount::default(),
-                    ask: Amount::default(),
-                    bid_quantity: Amount::default(),
-                    ask_quantity: Amount::default(),
+                    symbol,
+                    best_bid_price,
+                    best_ask_price,
+                    best_bid_quantity,
+                    best_ask_quantity,
                 }));
         }
 
         /// receive market data from exchange (-> PriceTracker)
-        pub fn notify_trade(&self, _trade: ()) {
+        pub fn notify_trade(&self, symbol: Symbol, price: Amount, quantity: Amount) {
             self.observer
                 .publish_many(&Arc::new(MarketDataEvent::Trade {
-                    symbol: Symbol::default(),
-                    price: Amount::default(),
-                    quantity: Amount::default(),
+                    symbol,
+                    price,
+                    quantity,
                 }));
         }
 
         /// receive market data from exchange (-> OrderBookManager)
-        pub fn notify_full_order_book(&self, _book: ()) {
+        pub fn notify_full_order_book(&self, symbol: Symbol, entry_updates: Vec<PriceLevelEntry>) {
             self.observer
                 .publish_many(&Arc::new(MarketDataEvent::FullOrderBook {
-                    symbol: Symbol::default(),
-                    price_levels: (),
+                    symbol,
+                    entry_updates,
                 }));
         }
 
         /// Connect to exchange (-> Binance)
-        pub fn connect(&mut self) {}
+        pub fn connect(&mut self) {
+            self.is_connected.store(true, Ordering::Relaxed);
+        }
     }
 
     impl MarketDataConnector for MockMarketDataConnector {
-        /// Subscribe to set of symbols
-        fn subscribe(&self, _symbols: &[Symbol]) {}
+        /// Subscribe to set of symbols (TBD: potentially async)
+        fn subscribe(&self, symbols: &[Symbol]) -> Result<()> {
+            if self.is_connected.load(Ordering::Relaxed) {
+                // this is mock, so we only want to know the symbols that user wanted to subscribe to
+                let mut write_symbols = self.symbols.write();
+                for symbol in symbols {
+                    write_symbols.insert(symbol.clone());
+                }
+                Ok(())
+            } else {
+                Err(eyre!("Cannot subscribe while not connected!"))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{
+        collections::HashSet,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+    };
+
+    use crate::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::{PriceLevelEntry, Symbol},
+            test_util::{get_mock_asset_name_1, get_mock_asset_name_2, get_mock_decimal},
+        },
+        market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
+    };
+
+    use super::test_util::MockMarketDataConnector;
+
+    #[test]
+    fn test_mock_market_data_connector() {
+        let mut connector = MockMarketDataConnector::new();
+
+        assert!(matches!(
+            connector.subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()]),
+            Err(_)
+        ));
+
+        connector.connect();
+        assert!(connector.is_connected.load(Ordering::Relaxed));
+
+        assert!(matches!(
+            connector.subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()]),
+            Ok(())
+        ));
+
+        let expected = HashSet::from([get_mock_asset_name_1(), get_mock_asset_name_2()]);
+        let got: HashSet<Symbol> = connector.symbols.read().iter().cloned().collect();
+
+        assert_eq!(got, expected);
+
+        let called_for_tob = Arc::new(AtomicBool::new(false));
+        let called_for_tob_inner = called_for_tob.clone();
+
+        let called_for_trade = Arc::new(AtomicBool::new(false));
+        let called_for_trade_inner = called_for_trade.clone();
+
+        let called_for_fob = Arc::new(AtomicBool::new(false));
+        let called_for_fob_inner = called_for_fob.clone();
+
+        connector
+            .observer
+            .add_observer_fn(move |e: &Arc<MarketDataEvent>| {
+                match &**e {
+                    MarketDataEvent::TopOfBook {
+                        symbol,
+                        best_bid_price,
+                        best_ask_price,
+                        best_bid_quantity,
+                        best_ask_quantity,
+                    } => {
+                        called_for_tob_inner.store(true, Ordering::Relaxed);
+                        assert_eq!(symbol, &get_mock_asset_name_1());
+                        assert_eq!(best_bid_price, &get_mock_decimal("1"));
+                        assert_eq!(best_ask_price, &get_mock_decimal("2"));
+                        assert_eq!(best_bid_quantity, &get_mock_decimal("10"));
+                        assert_eq!(best_ask_quantity, &get_mock_decimal("20"));
+                    }
+                    MarketDataEvent::Trade {
+                        symbol,
+                        price,
+                        quantity,
+                    } => {
+                        called_for_trade_inner.store(true, Ordering::Relaxed);
+                        assert_eq!(symbol, &get_mock_asset_name_2());
+                        assert_eq!(price, &get_mock_decimal("5"));
+                        assert_eq!(quantity, &get_mock_decimal("2"));
+                    }
+                    MarketDataEvent::FullOrderBook {
+                        symbol,
+                        entry_updates,
+                    } => {
+                        called_for_fob_inner.store(true, Ordering::Relaxed);
+                        let tolerance = get_mock_decimal("0.001");
+                        assert_eq!(symbol, &get_mock_asset_name_1());
+                        assert_decimal_approx_eq!(
+                            entry_updates[0].price,
+                            get_mock_decimal("3.10"),
+                            tolerance
+                        );
+                        assert_decimal_approx_eq!(
+                            entry_updates[0].quantity,
+                            get_mock_decimal("4.25"),
+                            tolerance
+                        );
+                        assert_decimal_approx_eq!(
+                            entry_updates[1].price,
+                            get_mock_decimal("3.20"),
+                            tolerance
+                        );
+                        assert_decimal_approx_eq!(
+                            entry_updates[1].quantity,
+                            get_mock_decimal("7.55"),
+                            tolerance
+                        );
+                    }
+                };
+            });
+
+        connector.notify_top_of_book(
+            get_mock_asset_name_1(),
+            get_mock_decimal("1"),
+            get_mock_decimal("2"),
+            get_mock_decimal("10"),
+            get_mock_decimal("20"),
+        );
+
+        assert!(called_for_tob.load(Ordering::Relaxed));
+
+        connector.notify_trade(
+            get_mock_asset_name_2(),
+            get_mock_decimal("5"),
+            get_mock_decimal("2"),
+        );
+
+        assert!(called_for_trade.load(Ordering::Relaxed));
+
+        connector.notify_full_order_book(
+            get_mock_asset_name_1(),
+            vec![
+                PriceLevelEntry {
+                    price: get_mock_decimal("3.10"),
+                    quantity: get_mock_decimal("4.25"),
+                },
+                PriceLevelEntry {
+                    price: get_mock_decimal("3.20"),
+                    quantity: get_mock_decimal("7.55"),
+                },
+            ],
+        );
+
+        assert!(called_for_fob.load(Ordering::Relaxed));
     }
 }

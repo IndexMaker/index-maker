@@ -12,6 +12,12 @@ pub struct OrderId();
 #[derive(Default)]
 pub struct ClientOrderId();
 
+#[derive(Clone)]
+pub struct PriceLevelEntry {
+    pub price: Amount,
+    pub quantity: Amount,
+}
+
 #[derive(Default)]
 pub struct LotId();
 

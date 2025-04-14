@@ -74,8 +74,8 @@ pub mod test_util {
 
         /// receive fill reports from Order Tracker
         pub fn handle_fill_report(&self, _report: OrderTrackerNotification) {
-            // 1. match against lots
-            // 2. allocate new lots
+            // 1. match against lots (in case of Sell), P&L report
+            // 2. allocate new lots, store Cost/Fees
             self.notify_lots(&[Lot::default()]);
         }
     }

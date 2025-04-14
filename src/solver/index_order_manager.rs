@@ -78,6 +78,7 @@ pub mod test_util {
                 ServerEvent::NewIndexOrder => {
                     self.new_index_order(());
                 }
+                ServerEvent::CancelIndexOrder => todo!(),
                 _ => (),
             }
         }

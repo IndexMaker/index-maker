@@ -68,12 +68,18 @@ pub mod test_util {
             match event {
                 MarketDataEvent::TopOfBook {
                     symbol,
-                    bid,
-                    ask,
-                    bid_quantity,
-                    ask_quantity,
+                    best_bid_price,
+                    best_ask_price,
+                    best_bid_quantity,
+                    best_ask_quantity,
                 } => {
-                    self.calculate_prices(symbol, bid, ask, bid_quantity, ask_quantity);
+                    self.calculate_prices(
+                        symbol,
+                        best_bid_price,
+                        best_ask_price,
+                        best_bid_quantity,
+                        best_ask_quantity,
+                    );
                 }
                 MarketDataEvent::Trade {
                     symbol,

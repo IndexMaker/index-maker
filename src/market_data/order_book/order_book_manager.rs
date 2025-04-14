@@ -36,7 +36,7 @@ pub mod test_util {
 
     use crate::{
         core::{
-            bits::{Amount, Symbol},
+            bits::{Amount, PriceLevelEntry, Symbol},
             functional::SingleObserver,
         },
         market_data::{
@@ -71,7 +71,7 @@ pub mod test_util {
         }
 
         /// Update order books
-        fn update_order_book(&self, _symbol: &Symbol, _price_levels: &()) {
+        fn update_order_book(&self, _symbol: &Symbol, _entry_updates: &Vec<PriceLevelEntry>) {
             // 1. find order book for symbol
             // 2. update order book
             // 3. fire an event that book is updated
@@ -83,9 +83,9 @@ pub mod test_util {
             match event {
                 MarketDataEvent::FullOrderBook {
                     symbol,
-                    price_levels,
+                    entry_updates,
                 } => {
-                    self.update_order_book(symbol, price_levels);
+                    self.update_order_book(symbol, entry_updates);
                 }
                 _ => (),
             }

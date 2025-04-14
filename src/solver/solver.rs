@@ -184,7 +184,7 @@ mod test {
         },
         order_sender::{
             order_connector::test_util::MockOrderConnector,
-            order_tracker::{self, test_util::MockOrderTracker},
+            order_tracker::test_util::MockOrderTracker,
         },
         server::server::{test_util::MockServer, ServerEvent},
         solver::{
@@ -370,6 +370,6 @@ mod test {
         // subscribe to symbol/USDC markets
         market_data_connector
             .write()
-            .subscribe(&[Symbol::default()]);
+            .subscribe(&[Symbol::default()]).unwrap();
     }
 }
