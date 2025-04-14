@@ -85,22 +85,18 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
-        blockchain::chain_connector::test_util::MockChainConnector,
-        market_data::{
-            market_data_connector::{test_util::MockMarketDataConnector, MarketDataEvent},
+        blockchain::chain_connector::test_util::MockChainConnector, core::bits::Symbol, market_data::{
+            market_data_connector::{test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent},
             order_book::order_book_manager::test_util::MockOrderBookManager,
             price_tracker::test_util::MockPriceTracker,
-        },
-        order_sender::{
+        }, order_sender::{
             order_connector::test_util::MockOrderConnector,
-            order_tracker::test_util::MockOrderTracker,
-        },
-        server::server::{test_util::MockServer, ServerEvent},
-        solver::{
+            order_tracker::{self, test_util::MockOrderTracker},
+        }, server::server::{test_util::MockServer, ServerEvent}, solver::{
             index_order_manager::test_util::MockIndexOrderManager,
             index_quote_manager::test_util::MockQuoteRequestManager,
             inventory_manager::test_util::MockInventoryManager,
-        },
+        }
     };
 
     use super::*;
@@ -116,9 +112,11 @@ mod test {
         The production version will make use of channels, and dispatch, but we need to
         be careful to ensure FIFO event ordering.
         */
-        let order_connector = Arc::new(MockOrderConnector::new());
-        let order_tracker = Arc::new(MockOrderTracker::new(order_connector));
-        let inventory_manager = Arc::new(RwLock::new(MockInventoryManager::new(order_tracker)));
+        let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
+        let order_tracker = Arc::new(RwLock::new(MockOrderTracker::new(order_connector.clone())));
+        let inventory_manager = Arc::new(RwLock::new(MockInventoryManager::new(
+            order_tracker.clone(),
+        )));
 
         let market_data_connector = Arc::new(RwLock::new(MockMarketDataConnector::new()));
         let order_book_manager = Arc::new(RwLock::new(MockOrderBookManager::new(
@@ -247,5 +245,34 @@ mod test {
                     .write()
                     .handle_server_message(e)
             });
+
+        let inventory_manager_weak = Arc::downgrade(&inventory_manager);
+
+        order_tracker.write().observer.set_observer_fn(move |e| {
+            inventory_manager_weak
+                .upgrade()
+                .unwrap()
+                .write()
+                .handle_fill_report(e)
+        });
+
+        let order_tracker_weak = Arc::downgrade(&order_tracker);
+
+        order_connector.write().observer.set_observer_fn(move |e| {
+            order_tracker_weak
+                .upgrade()
+                .unwrap()
+                .write()
+                .handle_order_notification(e);
+        });
+
+        // connect to exchange
+        order_connector.write().connect();
+    
+        // connect to exchange
+        market_data_connector.write().connect();
+
+        // subscribe to symbol/USDC markets
+        market_data_connector.write().subscribe(&[Symbol::default()]);
     }
 }
