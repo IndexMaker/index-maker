@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Amount, ClientOrderId, Symbol},
+    core::bits::{Amount, ClientOrderId, PriceType, Symbol},
     index::basket_manager::BasketManager,
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -29,7 +29,7 @@ pub struct MockSolver {
     pub index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
     pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
     pub basket_manager: Arc<RwLock<BasketManager>>,
-    pub price_tracker: Arc<RwLock<dyn PriceTracker>>,
+    pub price_tracker: Arc<RwLock<PriceTracker>>,
     pub order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
     pub inventory_manager: Arc<RwLock<dyn InventoryManager>>,
 }
@@ -39,7 +39,7 @@ impl MockSolver {
         index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
         quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
         basket_manager: Arc<RwLock<BasketManager>>,
-        price_tracker: Arc<RwLock<dyn PriceTracker>>,
+        price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
         inventory_manager: Arc<RwLock<dyn InventoryManager>>,
     ) -> Self {
@@ -81,13 +81,13 @@ impl MockSolver {
         // ...
 
         // receive current prices from Price Tracker
-        let prices = self.price_tracker.read().get_prices(&symbols);
+        let prices = self.price_tracker.read().get_prices(PriceType::BestAsk, &symbols);
 
         // receive available liquidity from Order Book Manager
         let _liquidity = self
             .order_book_manager
             .read()
-            .get_liquidity(&prices, threshold);
+            .get_liquidity(&prices.prices, threshold);
 
         // Compute: Orders to send to update inventory
         // ...
@@ -107,13 +107,13 @@ impl MockSolver {
         let threshold = Amount::default();
 
         // receive current prices from Price Tracker
-        let prices = self.price_tracker.read().get_prices(&symbols);
+        let prices = self.price_tracker.read().get_prices(PriceType::VolumeWeighted, &symbols);
 
         // receive available liquidity from Order Book Manager
         let _liquidity = self
             .order_book_manager
             .read()
-            .get_liquidity(&prices, threshold);
+            .get_liquidity(&prices.prices, threshold);
 
         // Compute: Quote with cost
         // ...
@@ -180,7 +180,6 @@ mod test {
                 test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
             },
             order_book::order_book_manager::test_util::MockOrderBookManager,
-            price_tracker::test_util::MockPriceTracker,
         },
         order_sender::{
             order_connector::test_util::MockOrderConnector,
@@ -217,9 +216,7 @@ mod test {
         let order_book_manager = Arc::new(RwLock::new(MockOrderBookManager::new(
             market_data_connector.clone(),
         )));
-        let price_tracker = Arc::new(RwLock::new(MockPriceTracker::new(
-            market_data_connector.clone(),
-        )));
+        let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
 
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));

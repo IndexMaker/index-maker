@@ -128,7 +128,7 @@ mod test {
     use std::{
         collections::HashSet,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::Ordering,
             Arc,
         },
     };
@@ -137,13 +137,17 @@ mod test {
         assert_decimal_approx_eq,
         core::{
             bits::{PriceLevelEntry, Symbol},
-            test_util::{get_mock_asset_name_1, get_mock_asset_name_2, get_mock_decimal},
+            test_util::{flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_decimal, test_mock_atomic_bool},
         },
         market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
     };
 
     use super::test_util::MockMarketDataConnector;
 
+    /// Test MockMarketDataConnector
+    /// 
+    /// These tests confirm that mock can be reliably used in other tests.
+    /// 
     #[test]
     fn test_mock_market_data_connector() {
         let mut connector = MockMarketDataConnector::new();
@@ -166,14 +170,9 @@ mod test {
 
         assert_eq!(got, expected);
 
-        let called_for_tob = Arc::new(AtomicBool::new(false));
-        let called_for_tob_inner = called_for_tob.clone();
-
-        let called_for_trade = Arc::new(AtomicBool::new(false));
-        let called_for_trade_inner = called_for_trade.clone();
-
-        let called_for_fob = Arc::new(AtomicBool::new(false));
-        let called_for_fob_inner = called_for_fob.clone();
+        let (called_for_tob, called_for_tob_inner) = get_mock_atomic_bool_pair();
+        let (called_for_trade, called_for_trade_inner) = get_mock_atomic_bool_pair();
+        let (called_for_fob, called_for_fob_inner) = get_mock_atomic_bool_pair();
 
         connector
             .observer
@@ -186,7 +185,7 @@ mod test {
                         best_bid_quantity,
                         best_ask_quantity,
                     } => {
-                        called_for_tob_inner.store(true, Ordering::Relaxed);
+                        flag_mock_atomic_bool(&called_for_tob_inner);
                         assert_eq!(symbol, &get_mock_asset_name_1());
                         assert_eq!(best_bid_price, &get_mock_decimal("1"));
                         assert_eq!(best_ask_price, &get_mock_decimal("2"));
@@ -198,7 +197,7 @@ mod test {
                         price,
                         quantity,
                     } => {
-                        called_for_trade_inner.store(true, Ordering::Relaxed);
+                        flag_mock_atomic_bool(&called_for_trade_inner);
                         assert_eq!(symbol, &get_mock_asset_name_2());
                         assert_eq!(price, &get_mock_decimal("5"));
                         assert_eq!(quantity, &get_mock_decimal("2"));
@@ -207,7 +206,7 @@ mod test {
                         symbol,
                         entry_updates,
                     } => {
-                        called_for_fob_inner.store(true, Ordering::Relaxed);
+                        flag_mock_atomic_bool(&called_for_fob_inner);
                         let tolerance = get_mock_decimal("0.001");
                         assert_eq!(symbol, &get_mock_asset_name_1());
                         assert_decimal_approx_eq!(
@@ -242,7 +241,7 @@ mod test {
             get_mock_decimal("20"),
         );
 
-        assert!(called_for_tob.load(Ordering::Relaxed));
+        assert!(test_mock_atomic_bool(&called_for_tob));
 
         connector.notify_trade(
             get_mock_asset_name_2(),
@@ -250,7 +249,7 @@ mod test {
             get_mock_decimal("2"),
         );
 
-        assert!(called_for_trade.load(Ordering::Relaxed));
+        assert!(test_mock_atomic_bool(&called_for_trade));
 
         connector.notify_full_order_book(
             get_mock_asset_name_1(),
@@ -266,6 +265,6 @@ mod test {
             ],
         );
 
-        assert!(called_for_fob.load(Ordering::Relaxed));
+        assert!(test_mock_atomic_bool(&called_for_fob));
     }
 }

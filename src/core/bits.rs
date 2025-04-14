@@ -12,6 +12,51 @@ pub struct OrderId();
 #[derive(Default)]
 pub struct ClientOrderId();
 
+#[derive(Clone, Copy)]
+pub enum PriceType {
+    BestBid,
+    BestAsk,
+    LastTrade,
+    MidPoint,
+    VolumeWeighted,
+}
+
+#[derive(Clone)]
+pub struct LastPriceEntry {
+    pub best_bid_price: Option<Amount>,
+    pub best_ask_price: Option<Amount>,
+    pub best_bid_quantity: Amount,
+    pub best_ask_quantity: Amount,
+    pub last_trade_price: Option<Amount>,
+    pub last_trade_quantity: Amount,
+    //...could also add EMAs here
+}
+
+impl LastPriceEntry {
+    pub fn mid_point(&self) -> Option<Amount> {
+        self.best_bid_price?
+            .checked_add(self.best_ask_price?)?
+            .checked_div(Amount::TWO)
+    }
+
+    pub fn volume_weighted(&self) -> Option<Amount> {
+        self.best_bid_price?
+            .checked_mul(self.best_bid_quantity)?
+            .checked_add(self.best_ask_price?.checked_mul(self.best_ask_quantity)?)?
+            .checked_div(self.best_bid_quantity.checked_add(self.best_ask_quantity)?)
+    }
+
+    pub fn get_price(&self, price_type: PriceType) -> Option<Amount> {
+        match price_type {
+            PriceType::BestBid => self.best_bid_price,
+            PriceType::BestAsk => self.best_ask_price,
+            PriceType::LastTrade => self.last_trade_price,
+            PriceType::MidPoint => self.mid_point(),
+            PriceType::VolumeWeighted => self.volume_weighted(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PriceLevelEntry {
     pub price: Amount,

@@ -1,6 +1,5 @@
 use std::sync::{
-    mpsc::{channel, Receiver, Sender},
-    Arc,
+    atomic::{AtomicBool, Ordering}, mpsc::{channel, Receiver, Sender}, Arc
 };
 
 use alloy::primitives::address;
@@ -57,4 +56,22 @@ pub fn get_mock_channel<T>() -> (Sender<T>, Receiver<T>) {
 
 pub fn get_mock_setup_arc<T>(arc: &mut Arc<T>) -> &mut T {
     Arc::get_mut(arc).unwrap()
+}
+
+pub fn get_mock_atomic_bool_pair() -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+    let called_1 = Arc::new(AtomicBool::new(false));
+    let called_2 = called_1.clone();
+    (called_1, called_2)
+}
+
+pub fn flag_mock_atomic_bool(value: &AtomicBool) {
+    value.store(true, Ordering::Relaxed);
+}
+
+pub fn reset_flag_mock_atomic_bool(value: &AtomicBool) {
+    value.store(false, Ordering::Relaxed);
+}
+
+pub fn test_mock_atomic_bool(value: &AtomicBool) -> bool {
+    value.load(Ordering::Relaxed)
 }
