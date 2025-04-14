@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Amount, ClientOrderId, PriceType, Symbol},
+    core::bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
     index::basket_manager::BasketManager,
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -81,13 +81,16 @@ impl MockSolver {
         // ...
 
         // receive current prices from Price Tracker
-        let prices = self.price_tracker.read().get_prices(PriceType::BestAsk, &symbols);
+        let prices = self
+            .price_tracker
+            .read()
+            .get_prices(PriceType::BestAsk, &symbols);
 
         // receive available liquidity from Order Book Manager
-        let _liquidity = self
-            .order_book_manager
-            .read()
-            .get_liquidity(&prices.prices, threshold);
+        let _liquidity =
+            self.order_book_manager
+                .read()
+                .get_liquidity(Side::Sell, &prices.prices, threshold);
 
         // Compute: Orders to send to update inventory
         // ...
@@ -107,13 +110,16 @@ impl MockSolver {
         let threshold = Amount::default();
 
         // receive current prices from Price Tracker
-        let prices = self.price_tracker.read().get_prices(PriceType::VolumeWeighted, &symbols);
+        let prices = self
+            .price_tracker
+            .read()
+            .get_prices(PriceType::VolumeWeighted, &symbols);
 
         // receive available liquidity from Order Book Manager
-        let _liquidity = self
-            .order_book_manager
-            .read()
-            .get_liquidity(&prices.prices, threshold);
+        let _liquidity =
+            self.order_book_manager
+                .read()
+                .get_liquidity(Side::Sell, &prices.prices, threshold);
 
         // Compute: Quote with cost
         // ...
@@ -174,12 +180,12 @@ mod test {
 
     use crate::{
         blockchain::chain_connector::test_util::MockChainConnector,
-        core::bits::Symbol,
+        core::{bits::Symbol, test_util::get_mock_decimal},
         market_data::{
             market_data_connector::{
                 test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
             },
-            order_book::order_book_manager::test_util::MockOrderBookManager,
+            order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
             order_connector::test_util::MockOrderConnector,
@@ -198,6 +204,7 @@ mod test {
     #[test]
     #[ignore = "Not implemented yet. Only SBE design."]
     fn sbe_solver() {
+        let tolerance = get_mock_decimal("0.0001");
         /*
         NOTES:
         This SBE is to demonstrate general structure of the application.
@@ -213,9 +220,7 @@ mod test {
         )));
 
         let market_data_connector = Arc::new(RwLock::new(MockMarketDataConnector::new()));
-        let order_book_manager = Arc::new(RwLock::new(MockOrderBookManager::new(
-            market_data_connector.clone(),
-        )));
+        let order_book_manager = Arc::new(RwLock::new(PricePointBookManager::new(tolerance)));
         let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
 
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
@@ -367,6 +372,7 @@ mod test {
         // subscribe to symbol/USDC markets
         market_data_connector
             .write()
-            .subscribe(&[Symbol::default()]).unwrap();
+            .subscribe(&[Symbol::default()])
+            .unwrap();
     }
 }

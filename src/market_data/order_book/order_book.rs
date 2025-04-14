@@ -265,7 +265,7 @@ pub mod test {
             get_mock_decimal("30.0"),
             tolerance
         );
-        
+
         // Test that book with Buy and Sell side, has liquidity on the Buy side
         let update_result = book.update_entries(
             &vec![
@@ -300,7 +300,7 @@ pub mod test {
             get_mock_decimal("110.0"),
             tolerance
         );
-        
+
         // Test that price point entry can be removed and updated
         let update_result = book.update_entries(
             &vec![],
@@ -331,6 +331,5 @@ pub mod test {
             get_mock_decimal("25.0"),
             tolerance
         );
-        
     }
 }

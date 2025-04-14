@@ -164,7 +164,9 @@ mod test {
         core::{
             bits::{Amount, PriceType, Symbol},
             test_util::{
-                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_decimal, reset_flag_mock_atomic_bool, test_mock_atomic_bool
+                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2,
+                get_mock_atomic_bool_pair, get_mock_decimal, reset_flag_mock_atomic_bool,
+                test_mock_atomic_bool,
             },
         },
         market_data::market_data_connector::MarketDataEvent,
@@ -261,9 +263,9 @@ mod test {
             price: get_mock_decimal("700.50"),
             quantity: get_mock_decimal("400.00"),
         });
-        
+
         assert!(test_mock_atomic_bool(&called_notify));
-        
+
         let prices = price_tracker.get_prices(PriceType::LastTrade, &symbols);
 
         assert_eq!(prices.missing_symbols, [get_mock_asset_name_1()]);

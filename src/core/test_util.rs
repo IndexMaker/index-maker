@@ -1,5 +1,7 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering}, mpsc::{channel, Receiver, Sender}, Arc
+    atomic::{AtomicBool, Ordering},
+    mpsc::{channel, Receiver, Sender},
+    Arc,
 };
 
 use alloy::primitives::address;

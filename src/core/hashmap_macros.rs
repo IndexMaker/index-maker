@@ -17,7 +17,10 @@ macro_rules! assert_hashmap_amounts_eq {
                     None => panic!("Checked subtraction failed"),
                 };
                 if diff > $tolerance {
-                    panic!("Values for key '{}' differ by more than tolerance {} ~ {}", key, actual_value, expected_value);
+                    panic!(
+                        "Values for key '{}' differ by more than tolerance {} ~ {}",
+                        key, actual_value, expected_value
+                    );
                 }
             } else {
                 panic!("Key '{}' not found in actual HashMap", key);
