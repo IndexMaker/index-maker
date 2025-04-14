@@ -13,7 +13,7 @@ pub struct OrderId();
 pub struct ClientOrderId();
 
 #[derive(Default)]
-pub struct  LotId();
+pub struct LotId();
 
 #[derive(Default)]
 pub struct Lot {
@@ -24,10 +24,14 @@ pub struct Lot {
     pub original_quantity: Amount,
     pub original_price_in_usdc: Amount,
     pub created_timestamp: DateTime<Utc>,
-    pub updated_timestamp:  DateTime<Utc>
+    pub updated_timestamp: DateTime<Utc>,
+}
+
+#[derive(Clone, Copy)]
+pub enum Side {
+    Buy,
+    Sell,
 }
 
 #[derive(Default)]
-pub struct Order {
-
-}
+pub struct Order {}

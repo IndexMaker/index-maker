@@ -29,7 +29,7 @@ pub mod test_util {
             bits::{Address, Amount, Symbol},
             functional::SingleObserver,
         },
-        index::basket::Basket,
+        index::basket::{Basket, BasketDefinition},
     };
 
     use super::{ChainConnector, ChainNotification};
@@ -55,6 +55,19 @@ pub mod test_util {
                 observer: SingleObserver::new(),
                 internal_observer: SingleObserver::new(),
             }
+        }
+
+        /// Receive events from chain
+        pub fn connect(&mut self) {
+            // connect to blockchain
+        }
+
+        /// Notify about on chain events
+        pub fn notify_curator_weights_set(&self, basket_definition: BasketDefinition) {
+            self.observer
+                .publish_single(super::ChainNotification::CuratorWeightsSet(
+                    basket_definition,
+                ));
         }
 
         pub fn new_with_observers(
@@ -210,10 +223,10 @@ mod tests {
             }
         }));
 
-        let mock_chain_connection = Arc::new(MockChainConnector::new_with_observers(
+        let mock_chain_connection = Arc::new(RwLock::new(MockChainConnector::new_with_observers(
             chain_observer,
             internal_observer,
-        ));
+        )));
 
         let mock_chain_connection_2 = mock_chain_connection.clone();
 
@@ -222,23 +235,22 @@ mod tests {
             .set_basket_observer(Box::new(move |notification| {
                 match notification {
                     BasketNotification::BasketAdded(_, basket) => {
-                        mock_chain_connection_2.solver_weights_set(basket);
+                        mock_chain_connection_2.write().solver_weights_set(basket);
                     }
                     _ => panic!("Expected basket add notification"),
                 };
             }));
 
-        mock_chain_connection.mint_index(
+        mock_chain_connection.write().mint_index(
             get_mock_index_name_1(),
             get_mock_decimal("0.5"),
             get_mock_address_1(),
         );
 
+        mock_chain_connection.write().connect();
         mock_chain_connection
-            .observer
-            .publish_single(super::ChainNotification::CuratorWeightsSet(
-                basket_definition,
-            ));
+            .read()
+            .notify_curator_weights_set(basket_definition);
 
         rx.try_iter().for_each(|f| f());
 

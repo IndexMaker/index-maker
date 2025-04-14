@@ -7,7 +7,10 @@ pub enum ServerEvent {
     CustodyToAccount,
 }
 
-pub trait Server {}
+pub trait Server {
+    /// provide methods for sending FIX responses
+    fn respond_with(&mut self, message: ());
+}
 
 #[cfg(test)]
 pub mod test_util {
@@ -28,7 +31,23 @@ pub mod test_util {
                 observers: MultiObserver::new(),
             }
         }
+
+        /// Receive FIX messages from clients
+        pub fn start_server() {
+            todo!()
+        }
+
+        /// Notify about FIX messages
+        pub fn notify_fix_message(&self, _fix_message: ()) {
+            // for each FIX message type there will be Server Event
+            self.observers.publish_many(&Arc::new(
+                ServerEvent::NewIndexOrder, // ...more event types
+            ));
+        }
     }
 
-    impl Server for MockServer {}
+    impl Server for MockServer {
+        /// provide methods for sending FIX responses
+        fn respond_with(&mut self, _message: ()) {}
+    }
 }

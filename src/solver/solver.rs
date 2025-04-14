@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
+    core::bits::{Amount, ClientOrderId, Symbol},
     index::basket_manager::BasketManager,
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -53,28 +54,115 @@ impl MockSolver {
         }
     }
 
-    pub fn handle_chain_event(&self, _notification: ChainNotification) {
-        todo!()
+    /// Core thinking function
+    pub fn solve(&self) {
+        // receive Index Orders
+        let _index_orders = self.index_order_manager.read().get_pending_order_requests();
+
+        // Compute symbols and threshold
+        // ...
+
+        let symbols = [];
+        let threshold = Amount::default();
+
+        // receive list of open lots from Inventory Manager
+        let _open_lots = self.inventory_manager.read().get_open_lots(&symbols);
+
+        // Compute: Allocate open lots to Index Orders
+        // ...
+        // TBD: Should Solver or Inventory Manager be allocating lots to index orders?
+
+        // Send back to Index Order Manager fills if any
+        self.index_order_manager
+            .write()
+            .fill_order_request(ClientOrderId::default(), Amount::default());
+
+        // Compute: Remaining quantity
+        // ...
+
+        // receive current prices from Price Tracker
+        let prices = self.price_tracker.read().get_prices(&symbols);
+
+        // receive available liquidity from Order Book Manager
+        let _liquidity = self
+            .order_book_manager
+            .read()
+            .get_liquidity(&prices, threshold);
+
+        // Compute: Orders to send to update inventory
+        // ...
+
+        // Send order requests to Inventory Manager
+        // ...throttle these: send one or few smaller ones
+        // TBD: Should throttling be done here in Solver or in Inventory Manager
+        self.inventory_manager.write().new_order(());
     }
 
+    /// Quoting function (fast)
+    pub fn quote(&self, _quote_request: ()) {
+        // Compute symbols and threshold
+        // ...
+
+        let symbols = [];
+        let threshold = Amount::default();
+
+        // receive current prices from Price Tracker
+        let prices = self.price_tracker.read().get_prices(&symbols);
+
+        // receive available liquidity from Order Book Manager
+        let _liquidity = self
+            .order_book_manager
+            .read()
+            .get_liquidity(&prices, threshold);
+
+        // Compute: Quote with cost
+        // ...
+
+        // send back quote
+        self.quote_request_manager.write().respond_quote(());
+    }
+
+    pub fn handle_chain_event(&self, notification: ChainNotification) {
+        match notification {
+            ChainNotification::CuratorWeightsSet(basket_definition) => {
+                if let Err(_) = self.basket_manager.write().set_basket_from_definition(
+                    Symbol::default(), // <- name of an Index
+                    basket_definition,
+                    &HashMap::new(),   // <- get current prices from price tracker
+                    Amount::default(), // <- calculate target price
+                ) {
+                    todo!("Implement error logging")
+                } else {
+                    // Recalculate position and send adequate orders
+                    self.solve();
+                }
+            }
+        }
+    }
+
+    /// receive Index Order
     pub fn handle_index_order(&self, _notification: IndexOrderEvent) {
-        todo!()
+        self.solve();
     }
 
+    // receive QR
     pub fn handle_quote_request(&self, _notification: QuoteRequestEvent) {
-        todo!()
+        self.quote(());
     }
 
+    /// Receive fill notifications
     pub fn handle_inventory_event(&self, _notification: InventoryEvent) {
-        todo!()
+        self.solve();
     }
 
+    /// receive current prices from Price Tracker
     pub fn handle_price_event(&self, _notification: PriceEvent) {
-        todo!()
+        self.solve();
     }
 
+    /// receive available liquidity from Order Book Manager
     pub fn handle_book_event(&self, _notification: OrderBookEvent) {
-        todo!()
+        self.solve();
     }
 }
 
@@ -85,18 +173,25 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
-        blockchain::chain_connector::test_util::MockChainConnector, core::bits::Symbol, market_data::{
-            market_data_connector::{test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent},
+        blockchain::chain_connector::test_util::MockChainConnector,
+        core::bits::Symbol,
+        market_data::{
+            market_data_connector::{
+                test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
+            },
             order_book::order_book_manager::test_util::MockOrderBookManager,
             price_tracker::test_util::MockPriceTracker,
-        }, order_sender::{
+        },
+        order_sender::{
             order_connector::test_util::MockOrderConnector,
             order_tracker::{self, test_util::MockOrderTracker},
-        }, server::server::{test_util::MockServer, ServerEvent}, solver::{
+        },
+        server::server::{test_util::MockServer, ServerEvent},
+        solver::{
             index_order_manager::test_util::MockIndexOrderManager,
             index_quote_manager::test_util::MockQuoteRequestManager,
             inventory_manager::test_util::MockInventoryManager,
-        }
+        },
     };
 
     use super::*;
@@ -268,11 +363,13 @@ mod test {
 
         // connect to exchange
         order_connector.write().connect();
-    
+
         // connect to exchange
         market_data_connector.write().connect();
 
         // subscribe to symbol/USDC markets
-        market_data_connector.write().subscribe(&[Symbol::default()]);
+        market_data_connector
+            .write()
+            .subscribe(&[Symbol::default()]);
     }
 }

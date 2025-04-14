@@ -84,7 +84,6 @@ pub mod test_util {
 
     impl MarketDataConnector for MockMarketDataConnector {
         /// Subscribe to set of symbols
-        fn subscribe(&self, _symbols: &[Symbol]) {
-        }
+        fn subscribe(&self, _symbols: &[Symbol]) {}
     }
 }
