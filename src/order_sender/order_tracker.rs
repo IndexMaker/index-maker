@@ -1,1 +1,374 @@
+use std::sync::Arc;
+
+use eyre::{eyre, Result};
+use std::collections::{hash_map::Entry, HashMap};
+
+use crossbeam::atomic::AtomicCell;
+use parking_lot::RwLock;
+
+use crate::core::bits::{Amount, ClientOrderId, Order, OrderId, Symbol};
+use crate::{
+    core::functional::SingleObserver,
+    order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
+};
+
 /// track orders that we sent to
+pub enum OrderTrackerNotification {
+    Fill {
+        order_id: OrderId,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        price_filled: Amount,
+        quantity_filled: Amount,
+        original_quantity: Amount,
+        quantity_remaining: Amount,
+    },
+    Cancel {
+        order_id: OrderId,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        quantity_cancelled: Amount,
+        original_quantity: Amount,
+        quantity_remaining: Amount,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub enum OrderStatus {
+    Live { quantity_remaining: Amount },
+    Cancelled { quantity_remaining: Amount },
+    SendFailed,
+}
+
+pub struct OrderEntry {
+    pub order: Arc<Order>,
+    status: AtomicCell<OrderStatus>,
+}
+
+impl OrderEntry {
+    pub fn new(order: &Arc<Order>) -> Self {
+        Self {
+            order: order.clone(),
+            status: AtomicCell::new(OrderStatus::Live {
+                quantity_remaining: order.quantity,
+            }),
+        }
+    }
+
+    pub fn set_status(&self, status: OrderStatus) {
+        self.status.store(status);
+    }
+
+    pub fn get_status(&self) -> OrderStatus {
+        self.status.load()
+    }
+}
+
+pub struct OrderTracker {
+    pub observer: SingleObserver<OrderTrackerNotification>,
+    pub order_connector: Arc<RwLock<dyn OrderConnector>>,
+    pub orders: HashMap<OrderId, Arc<OrderEntry>>,
+    pub tolerance: Amount,
+}
+
+impl OrderTracker {
+    pub fn new(order_connector: Arc<RwLock<dyn OrderConnector>>, tolerance: Amount) -> Self {
+        Self {
+            observer: SingleObserver::new(),
+            order_connector,
+            orders: HashMap::new(),
+            tolerance,
+        }
+    }
+
+    fn update_order_status(
+        &mut self,
+        order_id: OrderId,
+        quantity: Amount,
+    ) -> Result<(Arc<OrderEntry>, Amount)> {
+        match self.orders.entry(order_id) {
+            // We're receiving a Fill or Cancel for an order, so we should be able to find it our records
+            Entry::Occupied(entry) => {
+                let order_entry = entry.get();
+                match order_entry.get_status() {
+                    // It makes sense that only live orders can be filled or cancelled
+                    OrderStatus::Live { quantity_remaining } => {
+                        if let Some(quantity_remaining) = quantity_remaining.checked_sub(quantity) {
+                            // Should the remaining quantity on the order be zero, we deem it cancelled
+                            if quantity_remaining < self.tolerance {
+                                order_entry
+                                    .set_status(OrderStatus::Cancelled { quantity_remaining });
+                            } else {
+                                // ...otherwise there is quantity left, and we deem it alive
+                                order_entry.set_status(OrderStatus::Live { quantity_remaining });
+                            }
+                            // We return quantity remaining to avoid unnecessary matching of status by the caller
+                            Ok((order_entry.clone(), quantity_remaining))
+                        } else {
+                            Err(eyre!("Math overflow"))
+                        }
+                    }
+                    _ => Err(eyre!(
+                        "We shouldn't be getting fills for an order that was cancelled"
+                    )),
+                }
+            }
+            Entry::Vacant(_) => Err(eyre!("Untracked order")),
+        }
+    }
+
+    /// Receive execution reports from OrderConnector
+    pub fn handle_order_notification(&mut self, notification: OrderConnectorNotification) {
+        match notification {
+            OrderConnectorNotification::Fill {
+                order_id,
+                symbol,
+                price,
+                quantity,
+            } => {
+                // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
+                match self.update_order_status(order_id.clone(), quantity) {
+                    Ok((order_entry, quantity_remaining)) => {
+                        // Notify about fills sending notification to subscriber (-> Inventory Manager)
+                        self.observer
+                            .publish_single(OrderTrackerNotification::Fill {
+                                order_id: order_id,
+                                client_order_id: order_entry.order.client_order_id.clone(),
+                                symbol: symbol,
+                                original_quantity: order_entry.order.quantity,
+                                price_filled: price,
+                                quantity_filled: quantity,
+                                quantity_remaining,
+                            });
+                    }
+                    Err(_) => {
+                        // TBD: publish to error observer
+                    }
+                }
+            }
+            OrderConnectorNotification::Cancel {
+                order_id,
+                symbol,
+                quantity,
+            } => {
+                // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
+                match self.update_order_status(order_id.clone(), quantity) {
+                    Ok((order_entry, quantity_remaining)) => {
+                        // Notify about fills sending notification to subscriber (-> Inventory Manager)
+                        self.observer
+                            .publish_single(OrderTrackerNotification::Cancel {
+                                order_id: order_id,
+                                client_order_id: order_entry.order.client_order_id.clone(),
+                                symbol: symbol,
+                                original_quantity: order_entry.order.quantity,
+                                quantity_cancelled: quantity,
+                                quantity_remaining,
+                            });
+                    }
+                    Err(_) => {
+                        // TBD: publish to error observer
+                    }
+                }
+            }
+        }
+    }
+
+    /// Receive new order requests from InventoryManager
+    pub fn new_order(&mut self, order: Arc<Order>) -> Result<()> {
+        match self.orders.entry(order.order_id.clone()) {
+            Entry::Occupied(_) => Err(eyre!("Order already sent with ID {}", order.order_id)),
+            Entry::Vacant(entry) => {
+                // We create an entry in our records to book keeping
+                let order_entry = Arc::new(OrderEntry {
+                    order: order.clone(),
+                    status: AtomicCell::new(OrderStatus::Live {
+                        quantity_remaining: order.quantity,
+                    }),
+                });
+                entry.insert(order_entry.clone());
+                // ...and then we send the order after the entry added to our records
+                match self.order_connector.write().send_order(&order) {
+                    Err(err) => {
+                        // ...so that we can track if order sending failed too
+                        order_entry.status.store(OrderStatus::SendFailed);
+                        Err(err)
+                    }
+                    // ...or succeeded
+                    Ok(_) => Ok(()),
+                    // Node: caller has assigned some OrderID to this order, so we don't return any value
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use parking_lot::RwLock;
+
+    use crate::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::{ClientOrderId, Order, OrderId, Side},
+            test_util::{
+                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
+                get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+            },
+        },
+        order_sender::order_connector::{
+            test_util::MockOrderConnector, OrderConnectorNotification,
+        },
+    };
+
+    use super::{OrderTracker, OrderTrackerNotification};
+
+    #[test]
+    fn test_order_tracker() {
+        let (defer_1, deferred_actions) = get_mock_defer_channel();
+        let defer_2 = defer_1.clone();
+        let defer_3 = defer_1.clone();
+
+        let (flag_fill_1, flag_fill_2) = get_mock_atomic_bool_pair();
+        let (flag_cancel_1, flag_cancel_2) = get_mock_atomic_bool_pair();
+
+        let tolerance = get_mock_decimal("0.0001");
+        let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
+
+        let order_price = get_mock_decimal("100.0");
+        let order_quantity = get_mock_decimal("50.0");
+        let fill_quantity = order_quantity
+            .checked_mul(get_mock_decimal("0.75"))
+            .unwrap();
+        let cancel_quantity = order_quantity.checked_sub(fill_quantity).unwrap();
+
+        let order_1 = Arc::new(Order {
+            order_id: OrderId("Mock01".into()),
+            client_order_id: ClientOrderId("MockOrder".into()),
+            symbol: get_mock_asset_name_1(),
+            price: order_price,
+            quantity: order_quantity,
+            side: Side::Buy,
+        });
+
+        let order_2 = order_1.clone();
+
+        // Let's provide internal (mocked) implementation of the Order Connector
+        // It will fill some portion of the order, and it will cancel the rest.
+        let order_connector_weak = Arc::downgrade(&order_connector);
+        order_connector
+            .write()
+            .implementor
+            .set_observer_fn(move |e: Arc<Order>| {
+                let order_connector = order_connector_weak.upgrade().unwrap();
+                defer_1
+                    .send(Box::new(move || {
+                        order_connector.write().notify_fill(
+                            e.order_id.clone(),
+                            e.symbol.clone(),
+                            e.price,
+                            fill_quantity,
+                        );
+                        order_connector.write().notify_cancel(
+                            e.order_id.clone(),
+                            e.symbol.clone(),
+                            cancel_quantity,
+                        );
+                    }))
+                    .unwrap();
+            });
+
+        // Let's setup our Order Tracker (unit under test)
+        let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
+            order_connector.clone(),
+            tolerance,
+        )));
+
+        // We need to connect events from Order Connector to -> Order Tracker
+        let order_tracker_weak = Arc::downgrade(&order_tracker);
+        order_connector
+            .write()
+            .observer
+            .set_observer_fn(move |e: OrderConnectorNotification| {
+                let order_tracker = order_tracker_weak.upgrade().unwrap();
+                defer_2
+                    .send(Box::new(move || {
+                        order_tracker.write().handle_order_notification(e);
+                    }))
+                    .unwrap();
+            });
+
+        // We will expect some events in return
+        order_tracker
+            .write()
+            .observer
+            .set_observer_fn(move |e: OrderTrackerNotification| {
+                let order = order_2.clone();
+                let flag_fill = flag_fill_2.clone();
+                let flag_cancel = flag_cancel_2.clone();
+                defer_3
+                    .send(Box::new(move || match e {
+                        OrderTrackerNotification::Fill {
+                            order_id,
+                            client_order_id,
+                            symbol,
+                            price_filled,
+                            quantity_filled,
+                            original_quantity,
+                            quantity_remaining,
+                        } => {
+                            flag_mock_atomic_bool(&flag_fill);
+                            assert_eq!(order_id, order.order_id);
+                            assert_eq!(client_order_id, order.client_order_id);
+                            assert_eq!(symbol, order.symbol);
+                            assert_eq!(price_filled, order_price);
+                            assert_eq!(quantity_filled, fill_quantity);
+                            assert_eq!(original_quantity, order.quantity);
+                            assert_decimal_approx_eq!(
+                                quantity_remaining,
+                                order.quantity.checked_sub(fill_quantity).unwrap(),
+                                tolerance
+                            );
+                        }
+                        OrderTrackerNotification::Cancel {
+                            order_id,
+                            client_order_id,
+                            symbol,
+                            quantity_cancelled,
+                            original_quantity,
+                            quantity_remaining,
+                        } => {
+                            flag_mock_atomic_bool(&flag_cancel);
+                            assert_eq!(order_id, order.order_id);
+                            assert_eq!(client_order_id, order.client_order_id);
+                            assert_eq!(symbol, order.symbol);
+                            assert_eq!(quantity_cancelled, cancel_quantity);
+                            assert_eq!(original_quantity, order.quantity);
+                            assert_decimal_approx_eq!(
+                                quantity_remaining,
+                                order
+                                    .quantity
+                                    .checked_sub(fill_quantity)
+                                    .and_then(|x| x.checked_sub(cancel_quantity))
+                                    .unwrap(),
+                                tolerance
+                            );
+                        }
+                    }))
+                    .unwrap();
+            });
+
+        order_tracker
+            .write()
+            .new_order(order_1.clone())
+            .expect("Failed to send order");
+
+        run_mock_deferred(deferred_actions);
+
+        test_mock_atomic_bool(&flag_fill_1);
+
+        test_mock_atomic_bool(&flag_fill_1);
+        test_mock_atomic_bool(&flag_cancel_1);
+    }
+}

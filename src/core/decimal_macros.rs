@@ -1,6 +1,3 @@
-#[cfg(test)]
-use rust_decimal::Decimal;
-
 #[macro_export]
 macro_rules! assert_decimal_approx_eq {
     ($left:expr, $right:expr, $tolerance:expr $(,)?) => {
@@ -17,10 +14,7 @@ macro_rules! assert_decimal_approx_eq {
  right: `{:?}`,
  diff: `{:?}`,
  tolerance: `{:?}`"#,
-                        &*left_val,
-                        &*right_val,
-                        diff,
-                        &*tolerance_val
+                        &*left_val, &*right_val, diff, &*tolerance_val
                     )
                 }
             }
@@ -53,5 +47,4 @@ mod tests {
 
         println!("Approximate equality assertions passed!");
     }
-
 }

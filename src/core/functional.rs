@@ -1,0 +1,146 @@
+/// Every notification is handled only once, and so then can be moved!
+pub trait NotificationHandlerOnce<T> {
+    fn handle_notification(&self, notification: T);
+}
+
+impl<F, T> NotificationHandlerOnce<T> for F
+where
+    F: Fn(T),
+{
+    fn handle_notification(&self, notification: T) {
+        (self)(notification)
+    }
+}
+
+pub struct SingleObserver<T> {
+    observer: Option<Box<dyn NotificationHandlerOnce<T>>>,
+}
+
+impl<T> SingleObserver<T> {
+    pub fn new() -> Self {
+        Self { observer: None }
+    }
+
+    pub fn new_with_observer(observer: Box<dyn NotificationHandlerOnce<T>>) -> Self {
+        Self {
+            observer: Some(observer),
+        }
+    }
+
+    /// There is only single observer that can be set, and so we call it 'set'
+    pub fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<T>>) {
+        self.observer = Some(observer);
+    }
+
+    pub fn set_observer_fn(&mut self, observer: impl NotificationHandlerOnce<T> + 'static) {
+        self.set_observer(Box::new(observer));
+    }
+
+    /// There will be only one handler, and so we call it 'single'
+    pub fn publish_single(&self, notification: T) {
+        if let Some(observer) = &self.observer {
+            observer.handle_notification(notification);
+        }
+    }
+}
+
+/// Notifications can be handled by multiple handler, and so they must be passed
+/// by reference
+pub trait NotificationHandler<T> {
+    fn handle_notification(&self, notification: &T);
+}
+
+impl<F, T> NotificationHandler<T> for F
+where
+    F: Fn(&T),
+{
+    fn handle_notification(&self, notification: &T) {
+        (self)(notification)
+    }
+}
+
+pub struct MultiObserver<T> {
+    observers: Vec<Box<dyn NotificationHandler<T>>>,
+}
+
+impl<T> MultiObserver<T> {
+    pub fn new() -> Self {
+        Self { observers: vec![] }
+    }
+
+    pub fn new_with_observers(observers: Vec<Box<dyn NotificationHandler<T>>>) -> Self {
+        Self { observers }
+    }
+
+    /// There can be multiple observers, and so we call it 'add'
+    pub fn add_observer(&mut self, observer: Box<dyn NotificationHandler<T>>) {
+        self.observers.push(observer);
+    }
+
+    pub fn add_observer_fn(&mut self, observer: impl NotificationHandler<T> + 'static) {
+        self.observers.push(Box::new(observer));
+    }
+
+    /// There can be multiple observers, and so we call it 'many'
+    pub fn publish_many(&self, notification: &T) {
+        for observer in &self.observers {
+            observer.handle_notification(notification);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::channel;
+
+    use crate::core::functional::MultiObserver;
+
+    use super::{NotificationHandlerOnce, SingleObserver};
+
+    #[test]
+    fn test_notification_handler_fn() {
+        let _: Box<dyn NotificationHandlerOnce<i32>> = Box::new(|_: i32| {});
+    }
+
+    #[test]
+    fn test_single_observer_1() {
+        let (tx, rx) = channel::<i32>();
+        let mut observer = SingleObserver::<i32>::new();
+        observer.set_observer(Box::new(move |x: i32| {
+            assert_eq!(tx.send(x), Ok(()));
+        }));
+        observer.publish_single(10);
+        assert_eq!(10, rx.recv().unwrap());
+    }
+
+    #[test]
+    fn test_single_observer_2() {
+        let (tx, rx) = channel::<i32>();
+        let observer = SingleObserver::<i32>::new_with_observer(Box::new(move |x: i32| {
+            assert_eq!(tx.send(x), Ok(()));
+        }));
+        observer.publish_single(10);
+        assert_eq!(10, rx.recv().unwrap());
+    }
+
+    #[test]
+    fn test_multi_observer_1() {
+        let (tx, rx) = channel::<i32>();
+        let mut observer = MultiObserver::<i32>::new();
+        observer.add_observer(Box::new(move |x: &i32| {
+            assert_eq!(tx.send(*x), Ok(()));
+        }));
+        observer.publish_many(&10);
+        assert_eq!(10, rx.recv().unwrap());
+    }
+
+    #[test]
+    fn test_multi_observer_2() {
+        let (tx, rx) = channel::<i32>();
+        let observer = MultiObserver::<i32>::new_with_observers(vec![Box::new(move |x: &i32| {
+            assert_eq!(tx.send(*x), Ok(()));
+        })]);
+        observer.publish_many(&10);
+        assert_eq!(10, rx.recv().unwrap());
+    }
+}

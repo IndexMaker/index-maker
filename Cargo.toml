@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+alloy = "0.14.0"
+chrono = "0.4.40"
+crossbeam = "0.8.4"
 eyre = "0.6.12"
+intrusive-collections = "0.9.7"
 itertools = "0.14.0"
 parking_lot = "0.12.3"
 rust_decimal = "1.37.1"
