@@ -138,13 +138,13 @@ pub mod test {
             .set_observer_fn(move |e: Arc<Order>| {
                 let order_connector = order_connector_2.upgrade().unwrap();
                 tx_1.send(Box::new(move || {
-                    order_connector.write().notify_fill(
+                    order_connector.read().notify_fill(
                         e.order_id.clone(),
                         e.symbol.clone(),
                         e.price,
                         fill_quantity,
                     );
-                    order_connector.write().notify_cancel(
+                    order_connector.read().notify_cancel(
                         e.order_id.clone(),
                         e.symbol.clone(),
                         cancel_quantity,

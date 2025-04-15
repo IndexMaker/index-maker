@@ -30,7 +30,7 @@ pub struct Solver {
     pub basket_manager: Arc<RwLock<BasketManager>>,
     pub price_tracker: Arc<RwLock<PriceTracker>>,
     pub order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
-    pub inventory_manager: Arc<RwLock<dyn InventoryManager>>,
+    pub inventory_manager: Arc<RwLock<InventoryManager>>,
 }
 impl Solver {
     pub fn new(
@@ -40,7 +40,7 @@ impl Solver {
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
-        inventory_manager: Arc<RwLock<dyn InventoryManager>>,
+        inventory_manager: Arc<RwLock<InventoryManager>>,
     ) -> Self {
         Self {
             chain_connector,
@@ -191,7 +191,6 @@ mod test {
         solver::{
             index_order_manager::test_util::MockIndexOrderManager,
             index_quote_manager::test_util::MockQuoteRequestManager,
-            inventory_manager::test_util::MockInventoryManager,
         },
     };
 
@@ -211,7 +210,7 @@ mod test {
         */
         let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
         let order_tracker = Arc::new(RwLock::new(OrderTracker::new(order_connector.clone(), tolerance)));
-        let inventory_manager = Arc::new(RwLock::new(MockInventoryManager::new(
+        let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
             order_tracker.clone(),
         )));
 
