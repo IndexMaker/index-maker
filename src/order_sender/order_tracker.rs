@@ -6,7 +6,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
-use crate::core::bits::{Amount, ClientOrderId, Order, OrderId, Symbol};
+use crate::core::bits::{Amount, ClientOrderId, LotId, Order, OrderId, Side, Symbol};
 use crate::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
@@ -17,7 +17,9 @@ pub enum OrderTrackerNotification {
     Fill {
         order_id: OrderId,
         client_order_id: ClientOrderId,
+        lot_id: LotId,
         symbol: Symbol,
+        side: Side,
         price_filled: Amount,
         quantity_filled: Amount,
         original_quantity: Amount,
@@ -27,6 +29,7 @@ pub enum OrderTrackerNotification {
         order_id: OrderId,
         client_order_id: ClientOrderId,
         symbol: Symbol,
+        side: Side,
         quantity_cancelled: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
@@ -122,7 +125,9 @@ impl OrderTracker {
         match notification {
             OrderConnectorNotification::Fill {
                 order_id,
+                lot_id,
                 symbol,
+                side,
                 price,
                 quantity,
             } => {
@@ -132,9 +137,11 @@ impl OrderTracker {
                         // Notify about fills sending notification to subscriber (-> Inventory Manager)
                         self.observer
                             .publish_single(OrderTrackerNotification::Fill {
-                                order_id: order_id,
+                                order_id,
+                                lot_id,
                                 client_order_id: order_entry.order.client_order_id.clone(),
-                                symbol: symbol,
+                                symbol,
+                                side,
                                 original_quantity: order_entry.order.quantity,
                                 price_filled: price,
                                 quantity_filled: quantity,
@@ -149,6 +156,7 @@ impl OrderTracker {
             OrderConnectorNotification::Cancel {
                 order_id,
                 symbol,
+                side,
                 quantity,
             } => {
                 // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
@@ -157,9 +165,10 @@ impl OrderTracker {
                         // Notify about fills sending notification to subscriber (-> Inventory Manager)
                         self.observer
                             .publish_single(OrderTrackerNotification::Cancel {
-                                order_id: order_id,
+                                order_id,
                                 client_order_id: order_entry.order.client_order_id.clone(),
-                                symbol: symbol,
+                                symbol,
+                                side,
                                 original_quantity: order_entry.order.quantity,
                                 quantity_cancelled: quantity,
                                 quantity_remaining,
@@ -200,6 +209,10 @@ impl OrderTracker {
             }
         }
     }
+
+    pub fn get_order(&self, order_id: &OrderId) -> Option<Arc<Order>> {
+        self.orders.get(order_id).and_then(|x| Some(x.order.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -211,7 +224,7 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{ClientOrderId, Order, OrderId, Side},
+            bits::{ClientOrderId, LotId, Order, OrderId, Side},
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
                 get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
@@ -253,6 +266,8 @@ mod test {
         });
 
         let order_2 = order_1.clone();
+        let lot_id_1 = LotId("Lot01".into());
+        let lot_id_2 = lot_id_1.clone();
 
         // Let's provide internal (mocked) implementation of the Order Connector
         // It will fill some portion of the order, and it will cancel the rest.
@@ -261,18 +276,22 @@ mod test {
             .write()
             .implementor
             .set_observer_fn(move |e: Arc<Order>| {
+                let lot_id_1 = lot_id_1.clone();
                 let order_connector = order_connector_weak.upgrade().unwrap();
                 defer_1
                     .send(Box::new(move || {
                         order_connector.read().notify_fill(
                             e.order_id.clone(),
+                            lot_id_1.clone(),
                             e.symbol.clone(),
+                            e.side,
                             e.price,
                             fill_quantity,
                         );
                         order_connector.read().notify_cancel(
                             e.order_id.clone(),
                             e.symbol.clone(),
+                            e.side,
                             cancel_quantity,
                         );
                     }))
@@ -305,6 +324,7 @@ mod test {
             .observer
             .set_observer_fn(move |e: OrderTrackerNotification| {
                 let order = order_2.clone();
+                let lot_id_2 = lot_id_2.clone();
                 let flag_fill = flag_fill_2.clone();
                 let flag_cancel = flag_cancel_2.clone();
                 defer_3
@@ -312,7 +332,9 @@ mod test {
                         OrderTrackerNotification::Fill {
                             order_id,
                             client_order_id,
+                            lot_id,
                             symbol,
+                            side,
                             price_filled,
                             quantity_filled,
                             original_quantity,
@@ -320,8 +342,10 @@ mod test {
                         } => {
                             flag_mock_atomic_bool(&flag_fill);
                             assert_eq!(order_id, order.order_id);
+                            assert_eq!(lot_id, lot_id_2);
                             assert_eq!(client_order_id, order.client_order_id);
                             assert_eq!(symbol, order.symbol);
+                            assert_eq!(side, Side::Buy);
                             assert_eq!(price_filled, order_price);
                             assert_eq!(quantity_filled, fill_quantity);
                             assert_eq!(original_quantity, order.quantity);
@@ -335,6 +359,7 @@ mod test {
                             order_id,
                             client_order_id,
                             symbol,
+                            side,
                             quantity_cancelled,
                             original_quantity,
                             quantity_remaining,
@@ -343,6 +368,7 @@ mod test {
                             assert_eq!(order_id, order.order_id);
                             assert_eq!(client_order_id, order.client_order_id);
                             assert_eq!(symbol, order.symbol);
+                            assert_eq!(side, Side::Buy);
                             assert_eq!(quantity_cancelled, cancel_quantity);
                             assert_eq!(original_quantity, order.quantity);
                             assert_decimal_approx_eq!(
