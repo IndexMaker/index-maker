@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use chrono::{DateTime, Utc};
 
 pub type Symbol = string_cache::DefaultAtom; // asset or market name
@@ -6,11 +8,23 @@ pub type Address = alloy::primitives::Address; // address (EVM)
 
 // add things like (de)serialization of Amount from string (...when required)
 
-#[derive(Default)]
-pub struct OrderId();
+#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct OrderId(pub String);
 
-#[derive(Default)]
-pub struct ClientOrderId();
+impl Display for OrderId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OrderID({})", self.0)
+    }
+}
+
+#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct ClientOrderId(pub String);
+
+impl Display for ClientOrderId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ClientOrderID({})", self.0)
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum PriceType {
@@ -70,7 +84,7 @@ pub struct LotId();
 pub struct Lot {
     pub original_order_id: OrderId, // internal order ID, multiple per IndexOrder
     pub original_client_order_id: ClientOrderId, // order ID from FIX message, one per IndexOrder
-    pub lot_id: LotId,
+    pub lot_id: LotId,              // internal lot ID, assigned for this lot
     pub remaining_quantity: Amount,
     pub original_quantity: Amount,
     pub original_price_in_usdc: Amount,
@@ -84,5 +98,11 @@ pub enum Side {
     Sell,
 }
 
-#[derive(Default)]
-pub struct Order {}
+pub struct Order {
+    pub order_id: OrderId,              // internal ID we assign to order
+    pub client_order_id: ClientOrderId, // order ID from FIX message, one per IndexOrder
+    pub symbol: Symbol,                 // asset we want to buy or sell on exchange (-> Binance)
+    pub side: Side,
+    pub price: Amount,
+    pub quantity: Amount,
+}

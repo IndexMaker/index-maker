@@ -185,8 +185,7 @@ mod test {
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
-            order_connector::test_util::MockOrderConnector,
-            order_tracker::test_util::MockOrderTracker,
+            order_connector::test_util::MockOrderConnector, order_tracker::OrderTracker,
         },
         server::server::{test_util::MockServer, ServerEvent},
         solver::{
@@ -211,7 +210,7 @@ mod test {
         be careful to ensure FIFO event ordering.
         */
         let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
-        let order_tracker = Arc::new(RwLock::new(MockOrderTracker::new(order_connector.clone())));
+        let order_tracker = Arc::new(RwLock::new(OrderTracker::new(order_connector.clone(), tolerance)));
         let inventory_manager = Arc::new(RwLock::new(MockInventoryManager::new(
             order_tracker.clone(),
         )));

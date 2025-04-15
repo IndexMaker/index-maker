@@ -1,76 +1,213 @@
-use crate::core::bits::{Amount, OrderId, Symbol};
+use std::sync::Arc;
+
+use crate::core::bits::{Amount, Order, OrderId, Symbol};
+use eyre::Result;
 
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
 pub enum OrderConnectorNotification {
     Fill {
-        symbol: Symbol,
         order_id: OrderId,
+        symbol: Symbol,
         price: Amount,
         quantity: Amount,
     },
     Cancel {
-        symbol: Symbol,
         order_id: OrderId,
+        symbol: Symbol,
         quantity: Amount,
     },
 }
 
 pub trait OrderConnector {
-    /// Send orders
-    fn send_order(&mut self, order: ());
+    // Send order to exchange (-> Binance)
+    fn send_order(&mut self, order: &Arc<Order>) -> Result<()>;
 }
 
 #[cfg(test)]
 pub mod test_util {
+
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
     use crate::core::{
-        bits::{Amount, OrderId, Symbol},
+        bits::{Amount, Order, OrderId, Symbol},
         functional::SingleObserver,
     };
+    use eyre::Result;
 
     use super::{OrderConnector, OrderConnectorNotification};
 
     pub struct MockOrderConnector {
         pub observer: SingleObserver<OrderConnectorNotification>,
+        pub implementor: SingleObserver<Arc<Order>>,
+        pub is_connected: AtomicBool,
     }
 
     impl MockOrderConnector {
         pub fn new() -> Self {
             Self {
                 observer: SingleObserver::new(),
+                implementor: SingleObserver::new(),
+                is_connected: AtomicBool::new(false),
             }
         }
 
         /// Receive fills from exchange, and publish an event to subscrber (-> Order Tracker)
-        pub fn notify_fill(&self, _fill: ()) {
+        pub fn notify_fill(
+            &self,
+            order_id: OrderId,
+            symbol: Symbol,
+            price: Amount,
+            quantity: Amount,
+        ) {
             self.observer
                 .publish_single(OrderConnectorNotification::Fill {
-                    symbol: Symbol::default(),
-                    order_id: OrderId::default(),
-                    price: Amount::default(),
-                    quantity: Amount::default(),
+                    order_id,
+                    symbol,
+                    price,
+                    quantity,
                 });
         }
 
         /// Recive cancel from exchange and publish an event to subscrber (-> Order Tracker)
-        pub fn notify_cancel(&self, _cancel: ()) {
+        pub fn notify_cancel(&self, order_id: OrderId, symbol: Symbol, quantity: Amount) {
             self.observer
                 .publish_single(OrderConnectorNotification::Cancel {
-                    symbol: Symbol::default(),
-                    order_id: OrderId::default(),
-                    quantity: Amount::default(),
+                    order_id,
+                    symbol,
+                    quantity,
                 });
         }
 
         /// Connect to exchange
         pub fn connect(&mut self) {
             // connect to exchange (-> Binance)
+            self.is_connected.store(true, Ordering::Relaxed);
         }
     }
 
     impl OrderConnector for MockOrderConnector {
         /// Send orders
-        fn send_order(&mut self, _order: ()) {
-            // send order to exchange (-> Binance)
+        fn send_order(&mut self, order: &Arc<Order>) -> Result<()> {
+            self.implementor.publish_single(order.clone());
+            Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use std::sync::{atomic::Ordering, Arc};
+
+    use parking_lot::RwLock;
+
+    use crate::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::{ClientOrderId, Order, OrderId, Side},
+            test_util::{
+                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
+                get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+            },
+        },
+    };
+
+    use super::{test_util::MockOrderConnector, OrderConnector, OrderConnectorNotification};
+
+    #[test]
+    fn test_mock_order_connector() {
+        let (flag_1, flag_2) = get_mock_atomic_bool_pair();
+        let (tx_1, rx) = get_mock_defer_channel();
+        let tx_2 = tx_1.clone();
+
+        let order_connector_1 = Arc::new(RwLock::new(MockOrderConnector::new()));
+        let order_connector_2 = order_connector_1.clone();
+
+        let order_price = get_mock_decimal("100.0");
+        let order_quantity = get_mock_decimal("50.0");
+        let fill_quantity = order_quantity
+            .checked_mul(get_mock_decimal("0.75"))
+            .unwrap();
+        let cancel_quantity = order_quantity.checked_sub(fill_quantity).unwrap();
+
+        order_connector_1
+            .write()
+            .implementor
+            .set_observer_fn(move |e: Arc<Order>| {
+                let order_connector = order_connector_2.clone();
+                tx_1.send(Box::new(move || {
+                    order_connector.write().notify_fill(
+                        e.order_id.clone(),
+                        e.symbol.clone(),
+                        e.price,
+                        fill_quantity,
+                    );
+                    order_connector.write().notify_cancel(
+                        e.order_id.clone(),
+                        e.symbol.clone(),
+                        cancel_quantity,
+                    );
+                }))
+                .unwrap();
+            });
+
+        let order_id_1 = OrderId("Mock01".into());
+        let order_id_2 = order_id_1.clone();
+
+        order_connector_1
+            .write()
+            .observer
+            .set_observer_fn(move |e: OrderConnectorNotification| {
+                let flag = flag_2.clone();
+                let order_id_2 = order_id_2.clone();
+                tx_2.send(Box::new(move || {
+                    let tolerance = get_mock_decimal("0.01");
+                    match e {
+                        OrderConnectorNotification::Fill {
+                            symbol,
+                            order_id,
+                            price,
+                            quantity,
+                        } => {
+                            assert_eq!(symbol, get_mock_asset_name_1());
+                            assert_eq!(order_id, order_id_2);
+                            assert_decimal_approx_eq!(price, order_price, tolerance);
+                            assert_decimal_approx_eq!(quantity, fill_quantity, tolerance);
+                        }
+                        OrderConnectorNotification::Cancel {
+                            order_id,
+                            symbol,
+                            quantity,
+                        } => {
+                            flag_mock_atomic_bool(&flag);
+                            assert_eq!(symbol, get_mock_asset_name_1());
+                            assert_eq!(order_id, order_id_2);
+                            assert_decimal_approx_eq!(quantity, cancel_quantity, tolerance);
+                        }
+                    };
+                }))
+                .unwrap();
+            });
+
+        order_connector_1.write().connect();
+
+        assert!(order_connector_1
+            .read()
+            .is_connected
+            .load(Ordering::Relaxed));
+
+        order_connector_1.write().send_order(&Arc::new(Order {
+            order_id: order_id_1.clone(),
+            client_order_id: ClientOrderId("MockOrder".into()),
+            symbol: get_mock_asset_name_1(),
+            side: Side::Buy,
+            price: order_price,
+            quantity: order_quantity,
+        })).unwrap();
+
+        run_mock_deferred(rx);
+        test_mock_atomic_bool(&flag_1);
     }
 }

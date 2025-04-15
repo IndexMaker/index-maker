@@ -31,7 +31,7 @@ pub mod test_util {
 
     use crate::{
         core::{
-            bits::{Amount, ClientOrderId, Lot, LotId, Symbol},
+            bits::{Amount, ClientOrderId, Lot, LotId, Order, OrderId, Side, Symbol},
             functional::SingleObserver,
         },
         order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
@@ -41,12 +41,12 @@ pub mod test_util {
 
     pub struct MockInventoryManager {
         pub observer: SingleObserver<InventoryEvent>,
-        pub order_tracker: Arc<RwLock<dyn OrderTracker>>,
+        pub order_tracker: Arc<RwLock<OrderTracker>>,
         pub lots: VecDeque<Lot>, // only Long side (we're not margin -> we do not support Short side)
     }
 
     impl MockInventoryManager {
-        pub fn new(order_tracker: Arc<RwLock<dyn OrderTracker>>) -> Self {
+        pub fn new(order_tracker: Arc<RwLock<OrderTracker>>) -> Self {
             Self {
                 observer: SingleObserver::new(),
                 order_tracker,
@@ -87,7 +87,14 @@ pub mod test_util {
             // 2. notify if there is any matching lots
             self.allocate_lots(index_order);
             // 3. for remaining quantity send new order requests to order tracker
-            self.order_tracker.write().new_order(());
+            self.order_tracker.write().new_order(Arc::new(Order {
+                order_id: OrderId::default(),
+                client_order_id: ClientOrderId::default(),
+                symbol: Symbol::default(),
+                side: Side::Buy,
+                price: Amount::ZERO,
+                quantity: Amount::ZERO,
+            })).unwrap();
         }
 
         /// provide method to get open lots

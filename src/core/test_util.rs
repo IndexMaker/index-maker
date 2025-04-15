@@ -56,6 +56,14 @@ pub fn get_mock_channel<T>() -> (Sender<T>, Receiver<T>) {
     channel::<T>()
 }
 
+pub fn get_mock_defer_channel() -> (Sender<Box<dyn FnOnce()>>, Receiver<Box<dyn FnOnce()>>) {
+    channel::<Box<dyn FnOnce()>>()
+}
+
+pub fn run_mock_deferred(rx: Receiver<Box<dyn FnOnce()>>) {
+    rx.try_iter().for_each(|f| f());
+}
+
 pub fn get_mock_setup_arc<T>(arc: &mut Arc<T>) -> &mut T {
     Arc::get_mut(arc).unwrap()
 }

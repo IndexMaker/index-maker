@@ -1,4 +1,4 @@
-use eyre::{Result, Report};
+use eyre::{Report, Result};
 use std::collections::HashMap;
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 /// manage order books across markets
 pub enum OrderBookEvent {
     BookUpdate { symbol: Symbol },
-    UpdateError { symbol: Symbol, error: Report }
+    UpdateError { symbol: Symbol, error: Report },
 }
 
 pub trait OrderBookManager {
@@ -48,13 +48,16 @@ impl PricePointBookManager {
     }
 
     fn notify_order_book(&self, symbol: &Symbol) {
-        self.observer
-            .publish_single(OrderBookEvent::BookUpdate { symbol: symbol.clone() });
+        self.observer.publish_single(OrderBookEvent::BookUpdate {
+            symbol: symbol.clone(),
+        });
     }
-    
+
     fn notify_order_book_error(&self, symbol: &Symbol, error: Report) {
-        self.observer
-            .publish_single(OrderBookEvent::UpdateError { symbol: symbol.clone(), error });
+        self.observer.publish_single(OrderBookEvent::UpdateError {
+            symbol: symbol.clone(),
+            error,
+        });
     }
 
     /// Update order books
