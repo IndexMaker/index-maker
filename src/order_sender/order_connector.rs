@@ -123,7 +123,7 @@ pub mod test {
         let tx_2 = tx_1.clone();
 
         let order_connector_1 = Arc::new(RwLock::new(MockOrderConnector::new()));
-        let order_connector_2 = order_connector_1.clone();
+        let order_connector_2 = Arc::downgrade(&order_connector_1);
 
         let order_price = get_mock_decimal("100.0");
         let order_quantity = get_mock_decimal("50.0");
@@ -136,7 +136,7 @@ pub mod test {
             .write()
             .implementor
             .set_observer_fn(move |e: Arc<Order>| {
-                let order_connector = order_connector_2.clone();
+                let order_connector = order_connector_2.upgrade().unwrap();
                 tx_1.send(Box::new(move || {
                     order_connector.write().notify_fill(
                         e.order_id.clone(),
