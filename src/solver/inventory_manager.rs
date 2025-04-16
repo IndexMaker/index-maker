@@ -61,12 +61,7 @@ impl InventoryManager {
     pub fn notify_lots(&self, _lots: &[Lot]) {
         // fire an event to the subscriber (-> Solver)
         //self.observer.publish_single(InventoryEvent::OpenLot {
-        //    order_id: (),
-        //    client_order_id: (),
-        //    lot_id: (),
-        //    symbol: (),
-        //    price: (),
-        //    quantity: (),
+        // todo()
         //});
     }
 
