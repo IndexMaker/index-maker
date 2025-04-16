@@ -264,7 +264,7 @@ pub mod test {
             }))
             .unwrap();
 
-        run_mock_deferred(rx);
+        run_mock_deferred(&rx);
         test_mock_atomic_bool(&flag_1);
     }
 }

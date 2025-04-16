@@ -60,7 +60,7 @@ pub fn get_mock_defer_channel() -> (Sender<Box<dyn FnOnce()>>, Receiver<Box<dyn 
     channel::<Box<dyn FnOnce()>>()
 }
 
-pub fn run_mock_deferred(rx: Receiver<Box<dyn FnOnce()>>) {
+pub fn run_mock_deferred(rx: &Receiver<Box<dyn FnOnce()>>) {
     rx.try_iter().for_each(|f| f());
 }
 

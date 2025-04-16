@@ -416,7 +416,7 @@ mod test {
             .new_order(order_1.clone())
             .expect("Failed to send order");
 
-        run_mock_deferred(deferred_actions);
+        run_mock_deferred(&deferred_actions);
 
         test_mock_atomic_bool(&flag_fill_1);
         test_mock_atomic_bool(&flag_cancel_1);

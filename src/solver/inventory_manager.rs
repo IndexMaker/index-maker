@@ -154,6 +154,7 @@ impl InventoryManager {
         batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<Option<Amount>> {
+        println!("match_lots with {}", quantity_filled);
         // We must close lots on the Long side only, and we do that by selling them (Sell).
         assert_eq!(side, Side::Sell);
 
@@ -161,7 +162,7 @@ impl InventoryManager {
             Entry::Occupied(mut entry) => {
                 let lots = entry.get_mut();
 
-                while let Some(lot) = lots.back().cloned() {
+                while let Some(lot) = lots.front().cloned() {
                     let lot_quantity_remaining = lot.read().remaining_quantity;
 
                     let remaining_quantity = lot_quantity_remaining
@@ -171,7 +172,7 @@ impl InventoryManager {
                     let (matched_lot_quantity, lot_quantity_remaining, finished) =
                         if remaining_quantity < self.tolerance {
                             // We closed the lot
-                            lots.pop_back();
+                            lots.pop_front();
 
                             // ...move it to closed_lots
                             self.closed_lots
@@ -184,14 +185,14 @@ impl InventoryManager {
                                 lot_quantity_remaining,
                                 // there is no quantity remaining on the lot
                                 Amount::ZERO,
-
                                 // check if we should continue
                                 if remaining_quantity < -self.tolerance {
                                     // there is some quantity left to continue matching
-                                    quantity_filled = quantity_filled
-                                        .checked_add(remaining_quantity)
-                                        .ok_or(eyre!("Math overflow"))?;
-
+                                    quantity_filled = -remaining_quantity;
+                                    println!(
+                                        "there is some quantity left to continue matching {}",
+                                        quantity_filled
+                                    );
                                     false
                                 } else {
                                     // fill was fully matched
@@ -200,12 +201,13 @@ impl InventoryManager {
                                 },
                             )
                         } else {
+                            println!("We matched whole quantity of fill {}", quantity_filled);
                             // We matched whole quantity of fill
                             let matched_lot_quantity = quantity_filled;
 
                             // fill was fully matched
                             quantity_filled = Amount::ZERO;
-                            
+
                             // We partly closed the lot
                             (matched_lot_quantity, remaining_quantity, true)
                         };
@@ -223,7 +225,7 @@ impl InventoryManager {
                     });
 
                     lot_write.last_update_timestamp = fill_timestamp;
-                    lot_write.remaining_quantity = remaining_quantity;
+                    lot_write.remaining_quantity = lot_quantity_remaining;
 
                     self.observer.publish_single(InventoryEvent::CloseLot {
                         original_order_id: lot_write.original_order_id.clone(),
@@ -237,15 +239,15 @@ impl InventoryManager {
                         original_price: lot_write.original_price,
                         closing_price: price_filled,
                         closing_fee: fee_paid,
-                        quantity_closed: quantity_filled,
+                        quantity_closed: matched_lot_quantity,
                         original_quantity: lot_write.original_quantity,
-                        quantity_remaining: remaining_quantity,
+                        quantity_remaining: lot_quantity_remaining,
                         original_timestamp: lot_write.created_timestamp,
                         closing_batch_original_quantity: batch_original_quantity,
                         closing_batch_quantity_remaining: batch_quantity_remaining,
                         closing_timestamp: fill_timestamp,
                     });
-                
+
                     if finished {
                         break;
                     }
@@ -409,7 +411,580 @@ impl InventoryManager {
 
 #[cfg(test)]
 mod test {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use chrono::Utc;
+    use parking_lot::RwLock;
+
+    use crate::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::{
+                Amount, AssetOrder, BatchOrder, BatchOrderId, LotId, OrderId, Side, SingleOrder,
+            },
+            test_util::{
+                get_mock_asset_name_1, get_mock_decimal, get_mock_defer_channel, run_mock_deferred,
+            },
+        },
+        order_sender::{
+            order_connector::{
+                test_util::MockOrderConnector, OrderConnectorNotification,
+            },
+            order_tracker::{OrderTracker, OrderTrackerNotification},
+        },
+    };
+
+    use super::{InventoryEvent, InventoryManager};
 
     #[test]
-    fn test_inventory_manager() {}
+    fn test_inventory_manager() {
+        let tolerance = get_mock_decimal("0.000001");
+
+        let (defer_1, deferred) = get_mock_defer_channel();
+        let defer_2 = defer_1.clone();
+        let defer_3 = defer_1.clone();
+        let defer_4 = defer_1.clone();
+        let defer_5 = defer_1.clone();
+        let defer_6 = defer_1.clone();
+
+        let counter_1 = Arc::new(AtomicUsize::new(0));
+        let counter_2 = counter_1.clone();
+
+        let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
+        let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
+            order_connector.clone(),
+            tolerance,
+        )));
+        let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
+            order_tracker.clone(),
+            tolerance,
+        )));
+
+        let buy_timestamp = Utc::now();
+
+        let buy_order_id = OrderId("Order01".into());
+        let buy_batch_order_id = BatchOrderId("Batch01".into());
+        let buy_lot1_id = LotId("Lot01".into());
+        let buy_lot2_id = LotId("Lot02".into());
+
+        let buy_order_price = get_mock_decimal("100.0");
+        let buy_order_quantity = get_mock_decimal("50.0");
+        let buy_fill1_price = get_mock_decimal("99.0");
+        let buy_fill2_price = get_mock_decimal("100.0");
+        let buy_fill1_quantity = get_mock_decimal("10.0");
+        let buy_fill2_quantity = get_mock_decimal("20.0");
+        let buy_fee1 = get_mock_decimal("0.0099");
+        let buy_fee2 = get_mock_decimal("0.0100");
+
+        let sell_timestamp = Utc::now();
+
+        let sell_order_id = OrderId("Order02".into());
+        let sell_batch_order_id = BatchOrderId("Batch02".into());
+        let sell_lot1_id = LotId("Lot03".into());
+
+        let sell_order_price = get_mock_decimal("120.0");
+        let sell_order_quantity = get_mock_decimal("40.0");
+        let sell_fill1_price = get_mock_decimal("125.0");
+        let sell_fill1_quantity = get_mock_decimal("15.0");
+        let sell_fee1 = get_mock_decimal("0.0125");
+
+        let mut closed_lot = None;
+
+        //
+        // Part I. Let's open some lots!
+        //
+        {
+            // Make sure Order Connector sends events to Order Tracker
+            let order_tracker_1 = Arc::downgrade(&order_tracker);
+            order_connector.write().observer.set_observer_fn(
+                move |e: OrderConnectorNotification| {
+                    let order_tracker = order_tracker_1.upgrade().unwrap();
+                    defer_1
+                        .send(Box::new(move || {
+                            order_tracker.write().handle_order_notification(e);
+                        }))
+                        .expect("Failed to defer");
+                },
+            );
+
+            // Make sure Order Tracker sends events to Inventory Manager
+            let inventory_manager_1 = Arc::downgrade(&inventory_manager);
+            order_tracker
+                .write()
+                .observer
+                .set_observer_fn(move |e: OrderTrackerNotification| {
+                    let inventory_manager = inventory_manager_1.upgrade().unwrap();
+                    defer_2
+                        .send(Box::new(move || {
+                            inventory_manager
+                                .write()
+                                .handle_fill_report(e)
+                                .expect("Error handling fill report");
+                        }))
+                        .expect("Failed to defer");
+                });
+
+            // Implement Mock Connector to reply with 2 x Fills
+            let order_connector_1 = Arc::downgrade(&order_connector);
+            let lot1_id_1 = buy_lot1_id.clone();
+            let lot2_id_1 = buy_lot2_id.clone();
+            let timestamp_1 = buy_timestamp.clone();
+            order_connector
+                .write()
+                .implementor
+                .set_observer_fn(move |e: Arc<SingleOrder>| {
+                    let lot1_id = lot1_id_1.clone();
+                    let lot2_id = lot2_id_1.clone();
+                    let timestamp = timestamp_1.clone();
+                    let order_connector = order_connector_1.upgrade().unwrap();
+                    defer_3
+                        .send(Box::new(move || {
+                            order_connector.read().notify_fill(
+                                e.order_id.clone(),
+                                lot1_id,
+                                get_mock_asset_name_1(),
+                                Side::Buy,
+                                buy_fill1_price,
+                                buy_fill1_quantity,
+                                buy_fee1,
+                                timestamp,
+                            );
+                            order_connector.read().notify_fill(
+                                e.order_id.clone(),
+                                lot2_id,
+                                get_mock_asset_name_1(),
+                                Side::Buy,
+                                buy_fill2_price,
+                                buy_fill2_quantity,
+                                buy_fee2,
+                                timestamp,
+                            );
+                        }))
+                        .expect("Failed to defer")
+                });
+
+            let order_id_2 = buy_order_id.clone();
+            let batch_order_id_2 = buy_batch_order_id.clone();
+            let lot1_id_2 = buy_lot1_id.clone();
+            let lot2_id_2 = buy_lot2_id.clone();
+            let timestamp_2 = buy_timestamp.clone();
+            inventory_manager
+                .write()
+                .observer
+                .set_observer_fn(move |e: InventoryEvent| {
+                    let order_id_2 = order_id_2.clone();
+                    let batch_order_id_2 = batch_order_id_2.clone();
+                    let lot1_id_2 = lot1_id_2.clone();
+                    let lot2_id_2 = lot2_id_2.clone();
+                    let timestamp_2 = timestamp_2.clone();
+                    let counter = counter_2.clone();
+                    defer_4
+                        .send(Box::new(move || {
+                            match (counter.fetch_add(1, Ordering::Relaxed), e) {
+                                (
+                                    0,
+                                    InventoryEvent::OpenLot {
+                                        order_id,
+                                        batch_order_id,
+                                        lot_id,
+                                        symbol,
+                                        side,
+                                        price,
+                                        quantity,
+                                        fee,
+                                        original_batch_quantity,
+                                        batch_quantity_remaining,
+                                        timestamp,
+                                    },
+                                ) => {
+                                    assert_eq!(order_id, order_id_2);
+                                    assert_eq!(batch_order_id, batch_order_id_2);
+                                    assert_eq!(lot_id, lot1_id_2);
+                                    assert_eq!(symbol, get_mock_asset_name_1());
+                                    assert!(matches!(side, Side::Buy));
+                                    assert_decimal_approx_eq!(price, buy_fill1_price, tolerance);
+                                    assert_decimal_approx_eq!(
+                                        quantity,
+                                        buy_fill1_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(fee, buy_fee1, tolerance);
+                                    assert_decimal_approx_eq!(
+                                        original_batch_quantity,
+                                        buy_order_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        batch_quantity_remaining,
+                                        buy_order_quantity.checked_sub(buy_fill1_quantity).unwrap(),
+                                        tolerance
+                                    );
+                                    assert_eq!(timestamp, timestamp_2);
+                                }
+                                (
+                                    1,
+                                    InventoryEvent::OpenLot {
+                                        order_id,
+                                        batch_order_id,
+                                        lot_id,
+                                        symbol,
+                                        side,
+                                        price,
+                                        quantity,
+                                        fee,
+                                        original_batch_quantity,
+                                        batch_quantity_remaining,
+                                        timestamp,
+                                    },
+                                ) => {
+                                    assert_eq!(order_id, order_id_2);
+                                    assert_eq!(batch_order_id, batch_order_id_2);
+                                    assert_eq!(lot_id, lot2_id_2);
+                                    assert_eq!(symbol, get_mock_asset_name_1());
+                                    assert!(matches!(side, Side::Buy));
+                                    assert_decimal_approx_eq!(price, buy_fill2_price, tolerance);
+                                    assert_decimal_approx_eq!(
+                                        quantity,
+                                        buy_fill2_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(fee, buy_fee2, tolerance);
+                                    assert_decimal_approx_eq!(
+                                        original_batch_quantity,
+                                        buy_order_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        batch_quantity_remaining,
+                                        buy_order_quantity
+                                            .checked_sub(buy_fill1_quantity)
+                                            .and_then(|x| x.checked_sub(buy_fill2_quantity))
+                                            .unwrap(),
+                                        tolerance
+                                    );
+                                    assert_eq!(timestamp, timestamp_2);
+                                }
+                                _ => panic!("Unexpected count"),
+                            }
+                        }))
+                        .expect("Failed to defer");
+                });
+
+            // Let's send simple batch order to buy single asset
+            inventory_manager
+                .write()
+                .new_order(Arc::new(BatchOrder {
+                    batch_order_id: buy_batch_order_id.clone(),
+                    created_timestamp: buy_timestamp.clone(),
+                    asset_orders: vec![AssetOrder {
+                        order_id: buy_order_id.clone(),
+                        symbol: get_mock_asset_name_1(),
+                        side: Side::Buy,
+                        price: buy_order_price,
+                        quantity: buy_order_quantity,
+                    }],
+                }))
+                .expect("Failed to send order");
+
+            run_mock_deferred(&deferred);
+
+            // We should have received two InventoryEvents
+            assert_eq!(counter_1.load(Ordering::Relaxed), 2);
+            
+            let all_open_lots = inventory_manager.read().get_open_lots(&[get_mock_asset_name_1()]);
+            assert_eq!(all_open_lots.missing_symbols.len(), 0);
+            
+            let lots = all_open_lots.open_lots.get(&get_mock_asset_name_1()).unwrap();
+            assert_eq!(lots.len(), 2);
+
+            closed_lot = lots.get(0).cloned();
+
+            let lot = lots.get(0).unwrap().read();
+            assert_eq!(lot.lot_id, buy_lot1_id);
+            assert_eq!(lot.lot_transactions.len(), 0);
+            
+            // We will close that lot in next part II.
+
+            let lot = lots.get(1).unwrap().read();
+            assert_eq!(lot.lot_id, buy_lot2_id);
+            assert_eq!(lot.lot_transactions.len(), 0);
+        }
+
+        //
+        // Part II. Let's close some lots!
+        //
+        {
+            // Implement Mock Connector to reply with 1 x Fill
+            let order_connector_1 = Arc::downgrade(&order_connector);
+            let lot1_id_1 = sell_lot1_id.clone();
+            let timestamp_1 = sell_timestamp.clone();
+            order_connector
+                .write()
+                .implementor
+                .set_observer_fn(move |e: Arc<SingleOrder>| {
+                    let lot1_id = lot1_id_1.clone();
+                    let timestamp = timestamp_1.clone();
+                    let order_connector = order_connector_1.upgrade().unwrap();
+                    defer_5
+                        .send(Box::new(move || {
+                            order_connector.read().notify_fill(
+                                e.order_id.clone(),
+                                lot1_id,
+                                get_mock_asset_name_1(),
+                                Side::Sell,
+                                sell_fill1_price,
+                                sell_fill1_quantity,
+                                sell_fee1,
+                                timestamp,
+                            );
+                        }))
+                        .expect("Failed to defer")
+                });
+
+            let buy_order_id_1 = buy_order_id.clone();
+            let buy_batch_order_id_1 = buy_batch_order_id.clone();
+            let buy_lot1_id_1 = buy_lot1_id.clone();
+            let buy_lot2_id_1 = buy_lot2_id.clone();
+            let buy_timestamp_1 = buy_timestamp.clone();
+            let sell_order_id_1 = sell_order_id.clone();
+            let sell_batch_order_id_1 = sell_batch_order_id.clone();
+            let sell_lot1_id_1 = sell_lot1_id.clone();
+            let sell_timestamp_1 = sell_timestamp.clone();
+            let counter_2 = counter_1.clone();
+            inventory_manager
+                .write()
+                .observer
+                .set_observer_fn(move |e: InventoryEvent| {
+                    let buy_order_id_1 = buy_order_id_1.clone();
+                    let buy_batch_order_id_1 = buy_batch_order_id_1.clone();
+                    let buy_lot1_id_1 = buy_lot1_id_1.clone();
+                    let buy_lot2_id_1 = buy_lot2_id_1.clone();
+                    let buy_timestamp_1 = buy_timestamp_1.clone();
+                    let sell_order_id_1 = sell_order_id_1.clone();
+                    let sell_batch_order_id_1 = sell_batch_order_id_1.clone();
+                    let sell_lot1_id_1 = sell_lot1_id_1.clone();
+                    let sell_timestamp_1 = sell_timestamp_1.clone();
+                    let counter = counter_2.clone();
+                    defer_6
+                        .send(Box::new(move || {
+                            match (counter.fetch_add(1, Ordering::Relaxed), e) {
+                                (
+                                    2,
+                                    InventoryEvent::CloseLot {
+                                        original_order_id,
+                                        original_batch_order_id,
+                                        original_lot_id,
+                                        closing_order_id,
+                                        closing_batch_order_id,
+                                        closing_lot_id,
+                                        symbol,
+                                        side,
+                                        original_price,
+                                        closing_price,
+                                        closing_fee,
+                                        quantity_closed,
+                                        original_quantity,
+                                        quantity_remaining,
+                                        closing_batch_original_quantity,
+                                        closing_batch_quantity_remaining,
+                                        original_timestamp,
+                                        closing_timestamp,
+                                    },
+                                ) => {
+                                    assert_eq!(original_order_id, buy_order_id_1);
+                                    assert_eq!(original_batch_order_id, buy_batch_order_id_1);
+                                    assert_eq!(original_lot_id, buy_lot1_id_1);
+
+                                    assert_eq!(closing_order_id, sell_order_id_1);
+                                    assert_eq!(closing_batch_order_id, sell_batch_order_id_1);
+                                    assert_eq!(closing_lot_id, sell_lot1_id_1);
+
+                                    assert_eq!(symbol, get_mock_asset_name_1());
+                                    assert!(matches!(side, Side::Buy));
+
+                                    assert_decimal_approx_eq!(
+                                        original_price,
+                                        buy_fill1_price,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        closing_price,
+                                        sell_fill1_price,
+                                        tolerance
+                                    );
+
+                                    assert_decimal_approx_eq!(closing_fee, sell_fee1, tolerance);
+
+                                    assert_decimal_approx_eq!(
+                                        quantity_closed,
+                                        buy_fill1_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        original_quantity,
+                                        buy_fill1_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        quantity_remaining,
+                                        Amount::ZERO,
+                                        tolerance
+                                    );
+
+                                    assert_decimal_approx_eq!(
+                                        closing_batch_original_quantity,
+                                        sell_order_quantity,
+                                        tolerance
+                                    );
+
+                                    assert_decimal_approx_eq!(
+                                        closing_batch_quantity_remaining,
+                                        sell_order_quantity
+                                            .checked_sub(sell_fill1_quantity)
+                                            .unwrap(),
+                                        tolerance
+                                    );
+
+                                    assert_eq!(original_timestamp, buy_timestamp_1);
+                                    assert_eq!(closing_timestamp, sell_timestamp_1);
+                                }
+                                (
+                                    3,
+                                    InventoryEvent::CloseLot {
+                                        original_order_id,
+                                        original_batch_order_id,
+                                        original_lot_id,
+                                        closing_order_id,
+                                        closing_batch_order_id,
+                                        closing_lot_id,
+                                        symbol,
+                                        side,
+                                        original_price,
+                                        closing_price,
+                                        closing_fee,
+                                        quantity_closed,
+                                        original_quantity,
+                                        quantity_remaining,
+                                        closing_batch_original_quantity,
+                                        closing_batch_quantity_remaining,
+                                        original_timestamp,
+                                        closing_timestamp,
+                                    },
+                                ) => {
+                                    assert_eq!(original_order_id, buy_order_id_1);
+                                    assert_eq!(original_batch_order_id, buy_batch_order_id_1);
+                                    assert_eq!(original_lot_id, buy_lot2_id_1);
+
+                                    assert_eq!(closing_order_id, sell_order_id_1);
+                                    assert_eq!(closing_batch_order_id, sell_batch_order_id_1);
+                                    assert_eq!(closing_lot_id, sell_lot1_id_1);
+
+                                    assert_eq!(symbol, get_mock_asset_name_1());
+                                    assert!(matches!(side, Side::Buy));
+
+                                    assert_decimal_approx_eq!(
+                                        original_price,
+                                        buy_fill2_price,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        closing_price,
+                                        sell_fill1_price,
+                                        tolerance
+                                    );
+
+                                    assert_decimal_approx_eq!(closing_fee, sell_fee1, tolerance);
+
+                                    assert_decimal_approx_eq!(
+                                        quantity_closed,
+                                        sell_fill1_quantity
+                                            .checked_sub(buy_fill1_quantity)
+                                            .unwrap(),
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        original_quantity,
+                                        buy_fill2_quantity,
+                                        tolerance
+                                    );
+                                    assert_decimal_approx_eq!(
+                                        quantity_remaining,
+                                        sell_fill1_quantity
+                                            .checked_sub(buy_fill1_quantity)
+                                            .and_then(|x| buy_fill2_quantity.checked_sub(x))
+                                            .unwrap(),
+                                        tolerance
+                                    );
+
+                                    assert_decimal_approx_eq!(
+                                        closing_batch_original_quantity,
+                                        sell_order_quantity,
+                                        tolerance
+                                    );
+
+                                    assert_decimal_approx_eq!(
+                                        closing_batch_quantity_remaining,
+                                        sell_order_quantity
+                                            .checked_sub(sell_fill1_quantity)
+                                            .unwrap(),
+                                        tolerance
+                                    );
+
+                                    assert_eq!(original_timestamp, buy_timestamp_1);
+                                    assert_eq!(closing_timestamp, sell_timestamp_1);
+                                }
+                                _ => panic!("Unexpected count"),
+                            }
+                        }))
+                        .expect("Failed to defer");
+                });
+
+            // Let's send simple batch order to buy single asset
+            inventory_manager
+                .write()
+                .new_order(Arc::new(BatchOrder {
+                    batch_order_id: sell_batch_order_id,
+                    created_timestamp: sell_timestamp,
+                    asset_orders: vec![AssetOrder {
+                        order_id: sell_order_id,
+                        symbol: get_mock_asset_name_1(),
+                        side: Side::Sell,
+                        price: sell_order_price,
+                        quantity: sell_order_quantity,
+                    }],
+                }))
+                .expect("Failed to send order");
+
+            run_mock_deferred(&deferred);
+
+            // We should have received two InventoryEvents
+            assert_eq!(counter_1.load(Ordering::Relaxed), 4);
+
+            let all_open_lots = inventory_manager.read().get_open_lots(&[get_mock_asset_name_1()]);
+            assert_eq!(all_open_lots.missing_symbols.len(), 0);
+
+            let lots = all_open_lots.open_lots.get(&get_mock_asset_name_1()).unwrap();
+            assert_eq!(lots.len(), 1);
+
+            let lot = lots.first().unwrap().read();
+            assert_eq!(lot.lot_id, buy_lot2_id);
+
+            assert_eq!(lot.lot_transactions.len(), 1);
+            let lot_tx = lot.lot_transactions.first().unwrap();
+            assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
+
+            let lot = closed_lot.unwrap();
+            let lot = lot.read();
+
+            assert_eq!(lot.lot_id, buy_lot1_id);
+            assert_eq!(lot.lot_transactions.len(), 1);
+            let lot_tx = lot.lot_transactions.first().unwrap();
+            assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
+
+        }
+            
+    }
 }
