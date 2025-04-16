@@ -10,7 +10,10 @@ use parking_lot::RwLock;
 
 use crate::{
     core::{
-        bits::{Amount, BatchOrder, BatchOrderId, Lot, LotId, OrderId, Side, SingleOrder, Symbol},
+        bits::{
+            Amount, BatchOrder, BatchOrderId, Lot, LotId, LotTransaction, OrderId, Side,
+            SingleOrder, Symbol,
+        },
         functional::SingleObserver,
     },
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
@@ -30,6 +33,7 @@ pub enum InventoryEvent {
         side: Side,
         price: Amount,
         quantity: Amount,
+        fee: Amount,
         original_batch_quantity: Amount,
         batch_quantity_remaining: Amount,
         timestamp: DateTime<Utc>,
@@ -45,9 +49,12 @@ pub enum InventoryEvent {
         side: Side,
         original_price: Amount,     // original price when lot was opened
         closing_price: Amount,      // price in this closing event
+        closing_fee: Amount,        // fee paid for closing event
         quantity_closed: Amount,    // quantity closed in this event
         original_quantity: Amount,  // original quantity when lot was opened
         quantity_remaining: Amount, // quantity remaining in the lot
+        closing_batch_original_quantity: Amount,
+        closing_batch_quantity_remaining: Amount,
         original_timestamp: DateTime<Utc>,
         closing_timestamp: DateTime<Utc>,
     },
@@ -124,6 +131,7 @@ impl InventoryManager {
             side,
             price: price_filled,
             quantity: quantity_filled,
+            fee: fee_paid,
             original_batch_quantity: original_quantity,
             batch_quantity_remaining: quantity_remaining,
             timestamp: fill_timestamp,
@@ -132,28 +140,140 @@ impl InventoryManager {
 
     /// Match fill against remaining quantity within currently open lots.
     /// Returns any unmatched quantity.
-    fn match_lots(&mut self, 
+    fn match_lots(
+        &mut self,
         order_id: OrderId,
         batch_order_id: BatchOrderId,
         lot_id: LotId,
         symbol: Symbol,
         side: Side,
         price_filled: Amount,
-        quantity_filled: Amount,
+        mut quantity_filled: Amount,
         fee_paid: Amount,
-        original_quantity: Amount,
-        quantity_remaining: Amount,
+        batch_original_quantity: Amount,
+        batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
-    ) -> Option<Amount> {
+    ) -> Result<Option<Amount>> {
         // We must close lots on the Long side only, and we do that by selling them (Sell).
         assert_eq!(side, Side::Sell);
 
+        match self.open_lots.entry(symbol.clone()) {
+            Entry::Occupied(mut entry) => {
+                let lots = entry.get_mut();
 
-        todo!("Do lots matching! Move any closed lots from open_lots to closed_lots!")
+                while let Some(lot) = lots.back().cloned() {
+                    let lot_quantity_remaining = lot.read().remaining_quantity;
+
+                    let remaining_quantity = lot_quantity_remaining
+                        .checked_sub(quantity_filled)
+                        .ok_or(eyre!("Math overflow"))?;
+
+                    let (matched_lot_quantity, lot_quantity_remaining, finished) =
+                        if remaining_quantity < self.tolerance {
+                            // We closed the lot
+                            lots.pop_back();
+
+                            // ...move it to closed_lots
+                            self.closed_lots
+                                .entry(symbol.clone())
+                                .and_modify(|closed_lots| closed_lots.push_back(lot.clone()))
+                                .or_insert([lot.clone()].into());
+
+                            (
+                                // we matched whole lot
+                                lot_quantity_remaining,
+                                // there is no quantity remaining on the lot
+                                Amount::ZERO,
+
+                                // check if we should continue
+                                if remaining_quantity < -self.tolerance {
+                                    // there is some quantity left to continue matching
+                                    quantity_filled = quantity_filled
+                                        .checked_add(remaining_quantity)
+                                        .ok_or(eyre!("Math overflow"))?;
+
+                                    false
+                                } else {
+                                    // fill was fully matched
+                                    quantity_filled = Amount::ZERO;
+                                    true
+                                },
+                            )
+                        } else {
+                            // We matched whole quantity of fill
+                            let matched_lot_quantity = quantity_filled;
+
+                            // fill was fully matched
+                            quantity_filled = Amount::ZERO;
+                            
+                            // We partly closed the lot
+                            (matched_lot_quantity, remaining_quantity, true)
+                        };
+
+                    let mut lot_write = lot.write();
+
+                    lot_write.lot_transactions.push(LotTransaction {
+                        order_id: order_id.clone(),
+                        batch_order_id: batch_order_id.clone(),
+                        matched_lot_id: lot_id.clone(),
+                        closing_fee: fee_paid,
+                        closing_price: price_filled,
+                        closing_timestamp: fill_timestamp,
+                        quantity_closed: matched_lot_quantity,
+                    });
+
+                    lot_write.last_update_timestamp = fill_timestamp;
+                    lot_write.remaining_quantity = remaining_quantity;
+
+                    self.observer.publish_single(InventoryEvent::CloseLot {
+                        original_order_id: lot_write.original_order_id.clone(),
+                        original_batch_order_id: lot_write.original_batch_order_id.clone(),
+                        original_lot_id: lot_write.lot_id.clone(),
+                        closing_order_id: order_id.clone(),
+                        closing_batch_order_id: batch_order_id.clone(),
+                        closing_lot_id: lot_id.clone(),
+                        symbol: symbol.clone(),
+                        side: lot_write.side,
+                        original_price: lot_write.original_price,
+                        closing_price: price_filled,
+                        closing_fee: fee_paid,
+                        quantity_closed: quantity_filled,
+                        original_quantity: lot_write.original_quantity,
+                        quantity_remaining: remaining_quantity,
+                        original_timestamp: lot_write.created_timestamp,
+                        closing_batch_original_quantity: batch_original_quantity,
+                        closing_batch_quantity_remaining: batch_quantity_remaining,
+                        closing_timestamp: fill_timestamp,
+                    });
+                
+                    if finished {
+                        break;
+                    }
+                }
+
+                if self.tolerance < quantity_filled {
+                    // We didn't fully match this fill against open lots, which means we're going Short, and
+                    // this should never happen!
+                    Ok(Some(quantity_filled))
+                } else {
+                    // We fully matched the incoming fill against open lots, and no quantity is remaining
+                    // Note: This should be expected reusult.
+                    Ok(None)
+                }
+            }
+            Entry::Vacant(_) => {
+                // We didn't match any lots, because there is no lots open for this symbol, which means
+                // we're going Short, and this should never happen!
+                Ok(Some(quantity_filled))
+            }
+        }
     }
 
     /// receive fill reports from Order Tracker
-    pub fn handle_fill_report(&mut self, notification: OrderTrackerNotification) {
+    pub fn handle_fill_report(
+        &mut self,
+        notification: OrderTrackerNotification,
+    ) -> Result<Option<Amount>> {
         // 1. match against lots (in case of Sell), P&L report
         // 2. allocate new lots, store Cost/Fees
         //self.notify_lots(&[Lot::default()]);
@@ -189,6 +309,8 @@ impl InventoryManager {
                             quantity_remaining,
                             fill_timestamp,
                         );
+                        // We opened new lots, no unmatched quantity to report
+                        Ok(None)
                     }
                     Side::Sell => {
                         // match against open lots, close lots
@@ -205,7 +327,7 @@ impl InventoryManager {
                             original_quantity,
                             quantity_remaining,
                             fill_timestamp,
-                        );
+                        )
                     }
                 }
             }
@@ -226,6 +348,8 @@ impl InventoryManager {
                 // if required. OrderTracker needs to receive cancels from OrderConnector
                 // to track remaining quantity and whether order is live or not, but
                 // aside from that cancells may not be of any interest.
+                // We didn't work with lots, so no unmatched quantity to report.
+                Ok(None)
             }
         }
     }

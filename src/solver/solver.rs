@@ -349,7 +349,7 @@ mod test {
                 .upgrade()
                 .unwrap()
                 .write()
-                .handle_fill_report(e)
+                .handle_fill_report(e).expect("Failed to handle fill report");
         });
 
         let order_tracker_weak = Arc::downgrade(&order_tracker);
