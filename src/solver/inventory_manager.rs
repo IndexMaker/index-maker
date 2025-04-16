@@ -430,9 +430,7 @@ mod test {
             },
         },
         order_sender::{
-            order_connector::{
-                test_util::MockOrderConnector, OrderConnectorNotification,
-            },
+            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
     };
@@ -440,6 +438,34 @@ mod test {
     use super::{InventoryEvent, InventoryManager};
 
     #[test]
+    /// Test that InventoryManager is sane.
+    /// 
+    /// First we send Buy order:
+    /// * Buy  50.0 A @ $100.0
+    /// 
+    /// And we get two fills on it:
+    /// * Fill 10.0 A @ $99.0
+    /// * Fill 20.0 A @ $100.0
+    ///
+    /// The unfilled qty on that order is = 20.0 A
+    /// 
+    /// This creates two lots:
+    /// * Lot01 => 10.0 A @ $99.0
+    /// * Lot02 => 20.0 A @ $100.0
+    ///
+    /// Then I send second order:
+    /// * Sell 40.0 A @ $120.0
+    /// 
+    /// And we get one fill:
+    /// * Fill 15.0 A @ 125.0
+    ///
+    /// And unfilled quantity on that sell is = 25.0
+    /// 
+    /// This matches two lots:
+    ///
+    /// * Lot01 => 10.0 A @ $99.0 against 10.0 A @ $125.0 => closes Lot01
+    /// * Lot02 => 20.0 A @ $100.0 against 5.0 A @ $125.0 => quantity remaining on Lot02  is = 15.0 A
+    /// 
     fn test_inventory_manager() {
         let tolerance = get_mock_decimal("0.000001");
 
@@ -693,11 +719,16 @@ mod test {
 
             // We should have received two InventoryEvents
             assert_eq!(counter_1.load(Ordering::Relaxed), 2);
-            
-            let all_open_lots = inventory_manager.read().get_open_lots(&[get_mock_asset_name_1()]);
+
+            let all_open_lots = inventory_manager
+                .read()
+                .get_open_lots(&[get_mock_asset_name_1()]);
             assert_eq!(all_open_lots.missing_symbols.len(), 0);
-            
-            let lots = all_open_lots.open_lots.get(&get_mock_asset_name_1()).unwrap();
+
+            let lots = all_open_lots
+                .open_lots
+                .get(&get_mock_asset_name_1())
+                .unwrap();
             assert_eq!(lots.len(), 2);
 
             closed_lot = lots.get(0).cloned();
@@ -705,7 +736,7 @@ mod test {
             let lot = lots.get(0).unwrap().read();
             assert_eq!(lot.lot_id, buy_lot1_id);
             assert_eq!(lot.lot_transactions.len(), 0);
-            
+
             // We will close that lot in next part II.
 
             let lot = lots.get(1).unwrap().read();
@@ -963,10 +994,15 @@ mod test {
             // We should have received two InventoryEvents
             assert_eq!(counter_1.load(Ordering::Relaxed), 4);
 
-            let all_open_lots = inventory_manager.read().get_open_lots(&[get_mock_asset_name_1()]);
+            let all_open_lots = inventory_manager
+                .read()
+                .get_open_lots(&[get_mock_asset_name_1()]);
             assert_eq!(all_open_lots.missing_symbols.len(), 0);
 
-            let lots = all_open_lots.open_lots.get(&get_mock_asset_name_1()).unwrap();
+            let lots = all_open_lots
+                .open_lots
+                .get(&get_mock_asset_name_1())
+                .unwrap();
             assert_eq!(lots.len(), 1);
 
             let lot = lots.first().unwrap().read();
@@ -983,8 +1019,6 @@ mod test {
             assert_eq!(lot.lot_transactions.len(), 1);
             let lot_tx = lot.lot_transactions.first().unwrap();
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
-
         }
-            
     }
 }
