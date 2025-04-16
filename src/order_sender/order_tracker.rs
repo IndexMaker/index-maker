@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
 use std::collections::{hash_map::Entry, HashMap};
 
@@ -24,6 +25,7 @@ pub enum OrderTrackerNotification {
         quantity_filled: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
+        fill_timestamp: DateTime<Utc>,
     },
     Cancel {
         order_id: OrderId,
@@ -33,6 +35,7 @@ pub enum OrderTrackerNotification {
         quantity_cancelled: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
+        cancel_timestamp: DateTime<Utc>,
     },
 }
 
@@ -130,6 +133,7 @@ impl OrderTracker {
                 side,
                 price,
                 quantity,
+                timestamp,
             } => {
                 // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
                 match self.update_order_status(order_id.clone(), quantity) {
@@ -146,6 +150,7 @@ impl OrderTracker {
                                 price_filled: price,
                                 quantity_filled: quantity,
                                 quantity_remaining,
+                                fill_timestamp: timestamp
                             });
                     }
                     Err(_) => {
@@ -158,6 +163,7 @@ impl OrderTracker {
                 symbol,
                 side,
                 quantity,
+                timestamp
             } => {
                 // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
                 match self.update_order_status(order_id.clone(), quantity) {
@@ -172,6 +178,7 @@ impl OrderTracker {
                                 original_quantity: order_entry.order.quantity,
                                 quantity_cancelled: quantity,
                                 quantity_remaining,
+                                cancel_timestamp: timestamp
                             });
                     }
                     Err(_) => {
@@ -211,7 +218,9 @@ impl OrderTracker {
     }
 
     pub fn get_order(&self, order_id: &OrderId) -> Option<Arc<Order>> {
-        self.orders.get(order_id).and_then(|x| Some(x.order.clone()))
+        self.orders
+            .get(order_id)
+            .and_then(|x| Some(x.order.clone()))
     }
 }
 
@@ -219,6 +228,7 @@ impl OrderTracker {
 mod test {
     use std::sync::Arc;
 
+    use chrono::Utc;
     use parking_lot::RwLock;
 
     use crate::{
@@ -269,6 +279,8 @@ mod test {
         let lot_id_1 = LotId("Lot01".into());
         let lot_id_2 = lot_id_1.clone();
 
+        let timestamp = Utc::now();
+
         // Let's provide internal (mocked) implementation of the Order Connector
         // It will fill some portion of the order, and it will cancel the rest.
         let order_connector_weak = Arc::downgrade(&order_connector);
@@ -287,12 +299,14 @@ mod test {
                             e.side,
                             e.price,
                             fill_quantity,
+                            timestamp
                         );
                         order_connector.read().notify_cancel(
                             e.order_id.clone(),
                             e.symbol.clone(),
                             e.side,
                             cancel_quantity,
+                            timestamp
                         );
                     }))
                     .unwrap();
@@ -339,6 +353,7 @@ mod test {
                             quantity_filled,
                             original_quantity,
                             quantity_remaining,
+                            fill_timestamp
                         } => {
                             flag_mock_atomic_bool(&flag_fill);
                             assert_eq!(order_id, order.order_id);
@@ -349,6 +364,7 @@ mod test {
                             assert_eq!(price_filled, order_price);
                             assert_eq!(quantity_filled, fill_quantity);
                             assert_eq!(original_quantity, order.quantity);
+                            assert_eq!(fill_timestamp, timestamp);
                             assert_decimal_approx_eq!(
                                 quantity_remaining,
                                 order.quantity.checked_sub(fill_quantity).unwrap(),
@@ -363,6 +379,7 @@ mod test {
                             quantity_cancelled,
                             original_quantity,
                             quantity_remaining,
+                            cancel_timestamp
                         } => {
                             flag_mock_atomic_bool(&flag_cancel);
                             assert_eq!(order_id, order.order_id);
@@ -371,6 +388,7 @@ mod test {
                             assert_eq!(side, Side::Buy);
                             assert_eq!(quantity_cancelled, cancel_quantity);
                             assert_eq!(original_quantity, order.quantity);
+                            assert_eq!(cancel_timestamp, timestamp);
                             assert_decimal_approx_eq!(
                                 quantity_remaining,
                                 order

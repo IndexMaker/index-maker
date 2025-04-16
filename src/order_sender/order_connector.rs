@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::core::bits::{Amount, LotId, Order, OrderId, Side, Symbol};
+use chrono::{DateTime, Utc};
 use eyre::Result;
 
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
@@ -12,12 +13,14 @@ pub enum OrderConnectorNotification {
         side: Side,
         price: Amount,
         quantity: Amount,
+        timestamp: DateTime<Utc>,
     },
     Cancel {
         order_id: OrderId,
         symbol: Symbol,
         side: Side,
         quantity: Amount,
+        timestamp: DateTime<Utc>,
     },
 }
 
@@ -38,6 +41,7 @@ pub mod test_util {
         bits::{Amount, LotId, Order, OrderId, Side, Symbol},
         functional::SingleObserver,
     };
+    use chrono::{DateTime, Utc};
     use eyre::Result;
 
     use super::{OrderConnector, OrderConnectorNotification};
@@ -66,6 +70,7 @@ pub mod test_util {
             side: Side,
             price: Amount,
             quantity: Amount,
+            timestamp: DateTime<Utc>
         ) {
             self.observer
                 .publish_single(OrderConnectorNotification::Fill {
@@ -75,17 +80,26 @@ pub mod test_util {
                     side,
                     price,
                     quantity,
+                    timestamp,
                 });
         }
 
         /// Recive cancel from exchange and publish an event to subscrber (-> Order Tracker)
-        pub fn notify_cancel(&self, order_id: OrderId, symbol: Symbol, side: Side, quantity: Amount) {
+        pub fn notify_cancel(
+            &self,
+            order_id: OrderId,
+            symbol: Symbol,
+            side: Side,
+            quantity: Amount,
+            timestamp: DateTime<Utc>
+        ) {
             self.observer
                 .publish_single(OrderConnectorNotification::Cancel {
                     order_id,
                     symbol,
                     side,
                     quantity,
+                    timestamp,
                 });
         }
 
@@ -109,6 +123,7 @@ pub mod test_util {
 pub mod test {
     use std::sync::{atomic::Ordering, Arc};
 
+    use chrono::Utc;
     use parking_lot::RwLock;
 
     use crate::{
@@ -142,6 +157,8 @@ pub mod test {
         let lot_id_1 = LotId("Lot01".into());
         let lot_id_2 = lot_id_1.clone();
 
+        let timestamp = Utc::now();
+
         order_connector_1
             .write()
             .implementor
@@ -156,12 +173,14 @@ pub mod test {
                         Side::Buy,
                         e.price,
                         fill_quantity,
+                        timestamp
                     );
                     order_connector.read().notify_cancel(
                         e.order_id.clone(),
                         e.symbol.clone(),
                         Side::Buy,
                         cancel_quantity,
+                        timestamp
                     );
                 }))
                 .unwrap();
@@ -177,6 +196,7 @@ pub mod test {
                 let flag = flag_2.clone();
                 let order_id_2 = order_id_2.clone();
                 let lot_id_2 = lot_id_2.clone();
+                let timestamp_2 = timestamp.clone();
                 tx_2.send(Box::new(move || {
                     let tolerance = get_mock_decimal("0.01");
                     match e {
@@ -187,11 +207,13 @@ pub mod test {
                             side,
                             price,
                             quantity,
+                            timestamp,
                         } => {
                             assert_eq!(symbol, get_mock_asset_name_1());
                             assert_eq!(side, Side::Buy);
                             assert_eq!(order_id, order_id_2);
                             assert_eq!(lot_id, lot_id_2);
+                            assert_eq!(timestamp, timestamp_2);
                             assert_decimal_approx_eq!(price, order_price, tolerance);
                             assert_decimal_approx_eq!(quantity, fill_quantity, tolerance);
                         }
@@ -200,11 +222,13 @@ pub mod test {
                             symbol,
                             side,
                             quantity,
+                            timestamp,
                         } => {
                             flag_mock_atomic_bool(&flag);
                             assert_eq!(symbol, get_mock_asset_name_1());
                             assert_eq!(side, Side::Buy);
                             assert_eq!(order_id, order_id_2);
+                            assert_eq!(timestamp, timestamp_2);
                             assert_decimal_approx_eq!(quantity, cancel_quantity, tolerance);
                         }
                     };
@@ -219,14 +243,17 @@ pub mod test {
             .is_connected
             .load(Ordering::Relaxed));
 
-        order_connector_1.write().send_order(&Arc::new(Order {
-            order_id: order_id_1.clone(),
-            client_order_id: ClientOrderId("MockOrder".into()),
-            symbol: get_mock_asset_name_1(),
-            side: Side::Buy,
-            price: order_price,
-            quantity: order_quantity,
-        })).unwrap();
+        order_connector_1
+            .write()
+            .send_order(&Arc::new(Order {
+                order_id: order_id_1.clone(),
+                client_order_id: ClientOrderId("MockOrder".into()),
+                symbol: get_mock_asset_name_1(),
+                side: Side::Buy,
+                price: order_price,
+                quantity: order_quantity,
+            }))
+            .unwrap();
 
         run_mock_deferred(rx);
         test_mock_atomic_bool(&flag_1);

@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 
 use crate::{
@@ -21,6 +22,7 @@ pub enum InventoryEvent {
         symbol: Symbol,
         price: Amount,
         quantity: Amount,
+        timestamp: DateTime<Utc>,
     },
     CloseLot {
         original_order_id: OrderId,
@@ -35,6 +37,8 @@ pub enum InventoryEvent {
         quantity_closed: Amount,    // quantity closed in this event
         original_quantity: Amount,  // original quantity when lot was opened
         quantity_remaining: Amount, // quantity remaining in the lot
+        original_timestamp: DateTime<Utc>,
+        closing_timestamp: DateTime<Utc>,
     },
 }
 
@@ -88,6 +92,7 @@ impl InventoryManager {
                 quantity_filled: _,
                 original_quantity: _,
                 quantity_remaining: _,
+                fill_timestamp: _
             } => {
                 // open or close lot (lot matching)
                 match side {
@@ -109,6 +114,7 @@ impl InventoryManager {
                 quantity_cancelled: _,
                 original_quantity: _,
                 quantity_remaining: _,
+                cancel_timestamp: _
             } => {
                 // TBD: Cancel doesn't open onor close any lots. It's just a
                 // notification to subscriber that order was cancelled
@@ -143,6 +149,9 @@ impl InventoryManager {
 
 #[cfg(test)]
 mod test {
+
     #[test]
-    fn test_inventory_manager() {}
+    fn test_inventory_manager() {
+        
+    }
 }
