@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
+    core::bits::{Amount, BatchOrderId, PriceType, Side, Symbol},
     index::basket_manager::BasketManager,
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -74,7 +74,7 @@ impl Solver {
         // Send back to Index Order Manager fills if any
         self.index_order_manager
             .write()
-            .fill_order_request(ClientOrderId::default(), Amount::default());
+            .fill_order_request(BatchOrderId::default(), Amount::default());
 
         // Compute: Remaining quantity
         // ...
@@ -97,7 +97,7 @@ impl Solver {
         // Send order requests to Inventory Manager
         // ...throttle these: send one or few smaller ones
         // TBD: Should throttling be done here in Solver or in Inventory Manager
-        self.inventory_manager.write().new_order(());
+        self.inventory_manager.write().new_order(todo!());
     }
 
     /// Quoting function (fast)
@@ -209,9 +209,13 @@ mod test {
         be careful to ensure FIFO event ordering.
         */
         let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
-        let order_tracker = Arc::new(RwLock::new(OrderTracker::new(order_connector.clone(), tolerance)));
+        let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
+            order_connector.clone(),
+            tolerance,
+        )));
         let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
             order_tracker.clone(),
+            tolerance,
         )));
 
         let market_data_connector = Arc::new(RwLock::new(MockMarketDataConnector::new()));

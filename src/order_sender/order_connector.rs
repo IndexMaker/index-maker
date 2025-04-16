@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::core::bits::{Amount, LotId, Order, OrderId, Side, Symbol};
+use crate::core::bits::{Amount, LotId, SingleOrder, OrderId, Side, Symbol};
 use chrono::{DateTime, Utc};
 use eyre::Result;
 
@@ -13,6 +13,7 @@ pub enum OrderConnectorNotification {
         side: Side,
         price: Amount,
         quantity: Amount,
+        fee: Amount,
         timestamp: DateTime<Utc>,
     },
     Cancel {
@@ -26,7 +27,7 @@ pub enum OrderConnectorNotification {
 
 pub trait OrderConnector {
     // Send order to exchange (-> Binance)
-    fn send_order(&mut self, order: &Arc<Order>) -> Result<()>;
+    fn send_order(&mut self, order: &Arc<SingleOrder>) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -38,7 +39,7 @@ pub mod test_util {
     };
 
     use crate::core::{
-        bits::{Amount, LotId, Order, OrderId, Side, Symbol},
+        bits::{Amount, LotId, SingleOrder, OrderId, Side, Symbol},
         functional::SingleObserver,
     };
     use chrono::{DateTime, Utc};
@@ -48,7 +49,7 @@ pub mod test_util {
 
     pub struct MockOrderConnector {
         pub observer: SingleObserver<OrderConnectorNotification>,
-        pub implementor: SingleObserver<Arc<Order>>,
+        pub implementor: SingleObserver<Arc<SingleOrder>>,
         pub is_connected: AtomicBool,
     }
 
@@ -70,7 +71,8 @@ pub mod test_util {
             side: Side,
             price: Amount,
             quantity: Amount,
-            timestamp: DateTime<Utc>
+            fee: Amount,
+            timestamp: DateTime<Utc>,
         ) {
             self.observer
                 .publish_single(OrderConnectorNotification::Fill {
@@ -80,6 +82,7 @@ pub mod test_util {
                     side,
                     price,
                     quantity,
+                    fee,
                     timestamp,
                 });
         }
@@ -91,7 +94,7 @@ pub mod test_util {
             symbol: Symbol,
             side: Side,
             quantity: Amount,
-            timestamp: DateTime<Utc>
+            timestamp: DateTime<Utc>,
         ) {
             self.observer
                 .publish_single(OrderConnectorNotification::Cancel {
@@ -112,7 +115,7 @@ pub mod test_util {
 
     impl OrderConnector for MockOrderConnector {
         /// Send orders
-        fn send_order(&mut self, order: &Arc<Order>) -> Result<()> {
+        fn send_order(&mut self, order: &Arc<SingleOrder>) -> Result<()> {
             self.implementor.publish_single(order.clone());
             Ok(())
         }
@@ -129,7 +132,7 @@ pub mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{ClientOrderId, LotId, Order, OrderId, Side},
+            bits::{BatchOrderId, LotId, SingleOrder, OrderId, Side},
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
                 get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
@@ -158,11 +161,12 @@ pub mod test {
         let lot_id_2 = lot_id_1.clone();
 
         let timestamp = Utc::now();
+        let fee = get_mock_decimal("0.10");
 
         order_connector_1
             .write()
             .implementor
-            .set_observer_fn(move |e: Arc<Order>| {
+            .set_observer_fn(move |e: Arc<SingleOrder>| {
                 let lot_id = lot_id_1.clone();
                 let order_connector = order_connector_2.upgrade().unwrap();
                 tx_1.send(Box::new(move || {
@@ -173,14 +177,15 @@ pub mod test {
                         Side::Buy,
                         e.price,
                         fill_quantity,
-                        timestamp
+                        fee,
+                        timestamp,
                     );
                     order_connector.read().notify_cancel(
                         e.order_id.clone(),
                         e.symbol.clone(),
                         Side::Buy,
                         cancel_quantity,
-                        timestamp
+                        timestamp,
                     );
                 }))
                 .unwrap();
@@ -196,6 +201,7 @@ pub mod test {
                 let flag = flag_2.clone();
                 let order_id_2 = order_id_2.clone();
                 let lot_id_2 = lot_id_2.clone();
+                let fee_2 = fee.clone();
                 let timestamp_2 = timestamp.clone();
                 tx_2.send(Box::new(move || {
                     let tolerance = get_mock_decimal("0.01");
@@ -207,6 +213,7 @@ pub mod test {
                             side,
                             price,
                             quantity,
+                            fee,
                             timestamp,
                         } => {
                             assert_eq!(symbol, get_mock_asset_name_1());
@@ -216,6 +223,7 @@ pub mod test {
                             assert_eq!(timestamp, timestamp_2);
                             assert_decimal_approx_eq!(price, order_price, tolerance);
                             assert_decimal_approx_eq!(quantity, fill_quantity, tolerance);
+                            assert_decimal_approx_eq!(fee, fee_2, tolerance);
                         }
                         OrderConnectorNotification::Cancel {
                             order_id,
@@ -245,13 +253,14 @@ pub mod test {
 
         order_connector_1
             .write()
-            .send_order(&Arc::new(Order {
+            .send_order(&Arc::new(SingleOrder {
                 order_id: order_id_1.clone(),
-                client_order_id: ClientOrderId("MockOrder".into()),
+                batch_order_id: BatchOrderId("MockOrder".into()),
                 symbol: get_mock_asset_name_1(),
                 side: Side::Buy,
                 price: order_price,
                 quantity: order_quantity,
+                created_timestamp: timestamp,
             }))
             .unwrap();
 

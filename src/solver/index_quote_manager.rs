@@ -16,7 +16,7 @@ pub mod test_util {
     use parking_lot::RwLock;
 
     use crate::{
-        core::{bits::ClientOrderId, functional::SingleObserver},
+        core::{bits::BatchOrderId, functional::SingleObserver},
         server::server::{Server, ServerEvent},
         solver::index_quote::IndexQuote,
     };
@@ -26,7 +26,7 @@ pub mod test_util {
     pub struct MockQuoteRequestManager {
         pub observer: SingleObserver<QuoteRequestEvent>,
         pub server: Arc<RwLock<dyn Server>>,
-        pub quote_requests: HashMap<ClientOrderId, IndexQuote>,
+        pub quote_requests: HashMap<BatchOrderId, IndexQuote>,
     }
     impl MockQuoteRequestManager {
         pub fn new(server: Arc<RwLock<dyn Server>>) -> Self {

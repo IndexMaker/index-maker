@@ -1,4 +1,4 @@
-use crate::core::bits::{Amount, ClientOrderId, Side, Symbol};
+use crate::core::bits::{Amount, BatchOrderId, Side, Symbol};
 
 pub enum IndexOrderEvent {
     NewIndexOrder {
@@ -6,7 +6,7 @@ pub enum IndexOrderEvent {
         price: Amount,
         quantity: Amount,
         side: Side,
-        client_order_id: ClientOrderId,
+        client_order_id: BatchOrderId,
     },
     CancelIndexOrder {
         client_order_id: (),
@@ -19,7 +19,7 @@ pub trait IndexOrderManager {
     fn get_pending_order_requests(&self) -> Vec<()>;
 
     /// provide a method to fill index order request
-    fn fill_order_request(&mut self, client_order_id: ClientOrderId, fill_amount: Amount);
+    fn fill_order_request(&mut self, client_order_id: BatchOrderId, fill_amount: Amount);
 }
 
 #[cfg(test)]
@@ -30,7 +30,7 @@ pub mod test_util {
 
     use crate::{
         core::{
-            bits::{Amount, ClientOrderId, Side, Symbol},
+            bits::{Amount, BatchOrderId, Side, Symbol},
             functional::SingleObserver,
         },
         server::server::{Server, ServerEvent},
@@ -61,7 +61,7 @@ pub mod test_util {
                     price: Amount::default(),
                     quantity: Amount::default(),
                     side: Side::Buy,
-                    client_order_id: ClientOrderId::default(),
+                    client_order_id: BatchOrderId::default(),
                 });
         }
 
@@ -91,7 +91,7 @@ pub mod test_util {
         }
 
         /// provide a method to fill index order request
-        fn fill_order_request(&mut self, _client_order_id: ClientOrderId, _fill_amount: Amount) {
+        fn fill_order_request(&mut self, _client_order_id: BatchOrderId, _fill_amount: Amount) {
             todo!()
         }
     }
