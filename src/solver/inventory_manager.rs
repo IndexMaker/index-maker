@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use itertools::{partition, Itertools};
+use itertools::partition;
 use parking_lot::RwLock;
 
 use crate::{
@@ -506,6 +506,7 @@ mod test {
         let sell_fee1 = get_mock_decimal("0.0125");
 
         let mut closed_lot = None;
+        assert!(matches!(closed_lot, None));
 
         //
         // Part I. Let's open some lots!

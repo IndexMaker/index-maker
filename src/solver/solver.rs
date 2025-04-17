@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Amount, BatchOrderId, PriceType, Side, Symbol},
+    core::bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
     index::basket_manager::BasketManager,
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -74,7 +74,7 @@ impl Solver {
         // Send back to Index Order Manager fills if any
         self.index_order_manager
             .write()
-            .fill_order_request(BatchOrderId::default(), Amount::default());
+            .fill_order_request(ClientOrderId::default(), Amount::default());
 
         // Compute: Remaining quantity
         // ...
@@ -97,7 +97,7 @@ impl Solver {
         // Send order requests to Inventory Manager
         // ...throttle these: send one or few smaller ones
         // TBD: Should throttling be done here in Solver or in Inventory Manager
-        self.inventory_manager.write().new_order(todo!());
+        //self.inventory_manager.write().new_order();
     }
 
     /// Quoting function (fast)
@@ -229,7 +229,7 @@ mod test {
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(fix_server.clone())));
+        let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(fix_server.clone(), tolerance)));
         let quote_request_manager = Arc::new(RwLock::new(MockQuoteRequestManager::new(
             fix_server.clone(),
         )));
@@ -330,7 +330,7 @@ mod test {
                     .upgrade()
                     .unwrap()
                     .write()
-                    .handle_server_message(e)
+                    .handle_server_message(e).expect("Failed to handle index order");
             });
 
         // QuoteRequestManager internally will

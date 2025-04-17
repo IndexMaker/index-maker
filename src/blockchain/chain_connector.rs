@@ -1,4 +1,4 @@
-use std::{ops::Add, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     core::bits::{Address, Amount, PaymentId, Symbol},
@@ -104,11 +104,11 @@ pub mod test_util {
                 });
         }
 
-        fn get_payment(&self, address: Address, payment_id: PaymentId) -> Option<Payment> {
+        fn get_payment(&self, _address: Address, _payment_id: PaymentId) -> Option<Payment> {
             None
         }
 
-        fn send_payment(&self, address: Address, amount: Amount) {}
+        fn send_payment(&self, _address: Address, _amount: Amount) {}
     }
 }
 

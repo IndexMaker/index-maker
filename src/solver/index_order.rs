@@ -27,6 +27,7 @@ pub struct Payment {
     pub amount: Amount,
 }
 
+#[derive(Clone)]
 pub struct IndexOrderUpdate {
     /// On-chain wallet address
     ///
@@ -38,6 +39,11 @@ pub struct IndexOrderUpdate {
     pub client_order_id: ClientOrderId,
 
     /// An ID of the corresponding payment
+    /// 
+    /// Note: In case of Buy it is an ID allocated for the payment that will
+    /// come from them to cover for the transaction. And in case of Sell, there
+    /// will be ID allocated to identify the payment that we will make to them
+    /// in relationship with this update.
     pub payment_id: PaymentId,
 
     /// Buy or Sell
@@ -50,36 +56,30 @@ pub struct IndexOrderUpdate {
     pub price_threshold: Amount,
 
     /// Quantity of an index to buy or sell
-    pub quantity: Amount,
+    pub original_quantity: Amount,
+
+    /// Quantity remaining after applying matching update
+    pub remaining_quantity: Amount,
+
+    /// Fee for updating the order
+    pub update_fee: Amount,
+    
+    /// Timestamp
+    pub timestamp: DateTime<Utc>,
 }
 
-/// an order to buy/sell index
+/// An order to buy index
 pub struct IndexOrder {
     /// On-chain wallet address
     ///
     /// An address of the first user who had the index created. First buyer.
     pub original_address: Address,
 
-    /// Amount paid into custody
-    pub original_amount_paid_in: Amount,
-
     /// ID of the Index Order assigned by the user (<- FIX)
     pub original_client_order_id: ClientOrderId,
 
-    /// An ID of the corresponding payment
-    pub original_payment_id: PaymentId,
-
     /// An index symbol
     pub symbol: Symbol,
-
-    /// Limit price
-    pub original_price: Amount,
-
-    /// Price max deviation %-age (as fraction) threshold
-    pub original_price_threshold: Amount,
-
-    /// Quantity of an index to buy or sell
-    pub original_quantity: Amount,
 
     /// Time of when this order was created
     pub created_timestamp: DateTime<Utc>,
@@ -87,9 +87,9 @@ pub struct IndexOrder {
     /// Time of the last update to this order
     pub last_update_timestamp: DateTime<Utc>,
 
-    /// A queue of pending updates to this Index Order
-    pub pending_updates: VecDeque<IndexOrderUpdate>,
+    /// Order updates
+    pub order_updates: VecDeque<IndexOrderUpdate>,
 
-    /// A queue of updates applied to this Index Order
-    pub applied_updates: VecDeque<IndexOrderUpdate>,
+    /// Past order updates
+    pub closed_updates: VecDeque<IndexOrderUpdate>,
 }

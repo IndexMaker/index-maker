@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 
-use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
+use crate::core::bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol};
 
 pub enum ServerEvent {
     NewIndexOrder {
         address: Address,
         client_order_id: ClientOrderId,
+        payment_id: PaymentId,
         symbol: Symbol,
         side: Side,
         price: Amount,
@@ -16,6 +17,7 @@ pub enum ServerEvent {
     CancelIndexOrder {
         address: Address,
         client_order_id: ClientOrderId,
+        payment_id: PaymentId,
         symbol: Symbol,
         quantity: Amount,
         timestamp: DateTime<Utc>
