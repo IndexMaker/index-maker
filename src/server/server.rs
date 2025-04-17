@@ -1,8 +1,40 @@
+use chrono::{DateTime, Utc};
+
+use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
+
 pub enum ServerEvent {
-    NewIndexOrder,
-    NewQuoteRequest,
-    CancelIndexOrder,
-    CancelQuoteRequest,
+    NewIndexOrder {
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        price_threshold: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>
+    },
+    CancelIndexOrder {
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        quantity: Amount,
+        timestamp: DateTime<Utc>
+    },
+    NewQuoteRequest {
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        price_threshold: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>
+    },
+    CancelQuoteRequest {
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+    },
     AccountToCustody,
     CustodyToAccount,
 }
@@ -40,9 +72,9 @@ pub mod test_util {
         /// Notify about FIX messages
         pub fn notify_fix_message(&self, _fix_message: ()) {
             // for each FIX message type there will be Server Event
-            self.observers.publish_many(&Arc::new(
-                ServerEvent::NewIndexOrder, // ...more event types
-            ));
+            //self.observers.publish_many(&Arc::new(
+            //    ServerEvent::NewIndexOrder, // ...more event types
+            //));
         }
     }
 

@@ -142,6 +142,13 @@ impl Solver {
                     self.solve();
                 }
             }
+            ChainNotification::PaymentIn {
+                address: _,
+                payment_id: _,
+                amount_paid_in: _,
+            } => {
+                ()
+            }
         }
     }
 
@@ -222,8 +229,7 @@ mod test {
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let index_order_manager =
-            Arc::new(RwLock::new(IndexOrderManager::new(fix_server.clone())));
+        let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(fix_server.clone())));
         let quote_request_manager = Arc::new(RwLock::new(MockQuoteRequestManager::new(
             fix_server.clone(),
         )));
@@ -346,7 +352,8 @@ mod test {
                 .upgrade()
                 .unwrap()
                 .write()
-                .handle_fill_report(e).expect("Failed to handle fill report");
+                .handle_fill_report(e)
+                .expect("Failed to handle fill report");
         });
 
         let order_tracker_weak = Arc::downgrade(&order_tracker);

@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{ops::Add, sync::Arc};
 
 use crate::{
-    core::bits::{Address, Amount, Symbol},
+    core::bits::{Address, Amount, PaymentId, Symbol},
     index::basket::{Basket, BasketDefinition},
+    solver::index_order::Payment,
 };
 
 /// call blockchain methods, receive blockchain events
@@ -10,13 +11,19 @@ use crate::{
 /// On-chain event
 pub enum ChainNotification {
     CuratorWeightsSet(BasketDefinition), // ...more
+    PaymentIn {
+        address: Address,
+        payment_id: PaymentId,
+        amount_paid_in: Amount,
+    },
 }
 
 /// Connects to some Blockchain
 pub trait ChainConnector {
     fn solver_weights_set(&self, basket: Arc<Basket>);
     fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address);
-    // ...more
+    fn get_payment(&self, address: Address, payment_id: PaymentId) -> Option<Payment>;
+    fn send_payment(&self, address: Address, amount: Amount);
 }
 
 /// Mock implementations of the traits
@@ -26,10 +33,11 @@ pub mod test_util {
 
     use crate::{
         core::{
-            bits::{Address, Amount, Symbol},
+            bits::{Address, Amount, PaymentId, Symbol},
             functional::SingleObserver,
         },
         index::basket::{Basket, BasketDefinition},
+        solver::index_order::Payment,
     };
 
     use super::{ChainConnector, ChainNotification};
@@ -95,6 +103,12 @@ pub mod test_util {
                     receipient,
                 });
         }
+
+        fn get_payment(&self, address: Address, payment_id: PaymentId) -> Option<Payment> {
+            None
+        }
+
+        fn send_payment(&self, address: Address, amount: Amount) {}
     }
 }
 
@@ -196,6 +210,11 @@ mod tests {
                     }))
                     .unwrap();
                 }
+                ChainNotification::PaymentIn {
+                    address: _,
+                    payment_id: _,
+                    amount_paid_in: _,
+                } => (),
             }
         }));
 

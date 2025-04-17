@@ -52,10 +52,23 @@ pub mod test_util {
         /// receive QR
         pub fn handle_server_message(&mut self, notification: &ServerEvent) {
             match notification {
-                ServerEvent::NewQuoteRequest => {
+                ServerEvent::NewQuoteRequest {
+                    address: _,
+                    client_order_id: _,
+                    symbol: _,
+                    side: _,
+                    price: _,
+                    price_threshold: _,
+                    quantity: _,
+                    timestamp: _,
+                } => {
                     self.new_quote_request(());
                 }
-                ServerEvent::CancelQuoteRequest => todo!(),
+                ServerEvent::CancelQuoteRequest {
+                    address: _,
+                    client_order_id: _,
+                    symbol: _,
+                } => (),
                 _ => (),
             }
         }

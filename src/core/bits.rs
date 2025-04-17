@@ -84,18 +84,31 @@ impl Display for BatchOrderId {
 }
 
 
-/// IndexOrderId is intended to be used for index orders (<- FIX)
+/// ClientOrderId is intended to be used for index orders and quote requests (<- FIX)
 /// 
-/// User will put ID on their Index Order.
+/// User will put ID on their requests.
 #[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct IndexOrderId(pub String);
+pub struct ClientOrderId(pub String);
 
-impl Display for IndexOrderId {
+impl Display for ClientOrderId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IndexOrderId({})", self.0)
+        write!(f, "ClientOrderId({})", self.0)
     }
 }
 
+
+/// PaymentId is intended to be used for payments (<-> Blockchain)
+/// 
+/// On-chain transactions will produce this ID. It is a confirmation of the payment
+/// either from then to us, or from us to them.
+#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct PaymentId(pub String);
+
+impl Display for PaymentId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PaymentId({})", self.0)
+    }
+}
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///

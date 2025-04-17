@@ -1,20 +1,6 @@
-use crate::core::bits::{Amount, BatchOrderId, Side, Symbol};
-
-pub enum IndexOrderEvent {
-    NewIndexOrder {
-        symbol: Symbol,
-        price: Amount,
-        quantity: Amount,
-        side: Side,
-        client_order_id: BatchOrderId,
-    },
-    CancelIndexOrder {
-        client_order_id: (),
-    },
-}
-
 use std::{collections::HashMap, sync::Arc};
 
+use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 
 use crate::{
@@ -23,10 +9,30 @@ use crate::{
     solver::index_order::IndexOrder,
 };
 
+use crate::core::bits::{Address, Amount, BatchOrderId, ClientOrderId, Side, Symbol};
+
+pub enum IndexOrderEvent {
+    NewIndexOrder {
+        address: Address,
+        index_order_id: ClientOrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        price_threshold: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    CancelIndexOrder {
+        address: Address,
+        index_order_id: ClientOrderId,
+        quantity: Amount,
+    },
+}
+
 pub struct IndexOrderManager {
     pub observer: SingleObserver<IndexOrderEvent>,
     pub server: Arc<RwLock<dyn Server>>,
-    pub index_orders: HashMap<Symbol, IndexOrder>,
+    pub index_orders: HashMap<Address, HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
 }
 
 /// manage index orders, receive orders and route into solver
@@ -40,14 +46,14 @@ impl IndexOrderManager {
     }
 
     pub fn notify_index_order(&self, _index_order: ()) {
-        self.observer
-            .publish_single(IndexOrderEvent::NewIndexOrder {
-                symbol: Symbol::default(),
-                price: Amount::default(),
-                quantity: Amount::default(),
-                side: Side::Buy,
-                client_order_id: BatchOrderId::default(),
-            });
+        //self.observer
+        //    .publish_single(IndexOrderEvent::NewIndexOrder {
+        //        symbol: Symbol::default(),
+        //        price: Amount::default(),
+        //        quantity: Amount::default(),
+        //        side: Side::Buy,
+        //        client_order_id: BatchOrderId::default(),
+        //    });
     }
 
     fn new_index_order(&mut self, _order: ()) {
@@ -60,10 +66,25 @@ impl IndexOrderManager {
     /// receive index order requests from (FIX) Server
     pub fn handle_server_message(&mut self, notification: &ServerEvent) {
         match notification {
-            ServerEvent::NewIndexOrder => {
+            ServerEvent::NewIndexOrder {
+                address: _,
+                client_order_id: _,
+                symbol: _,
+                side: _,
+                price: _,
+                price_threshold: _,
+                quantity: _,
+                timestamp: _,
+            } => {
                 self.new_index_order(());
             }
-            ServerEvent::CancelIndexOrder => todo!(),
+            ServerEvent::CancelIndexOrder {
+                address: _,
+                client_order_id: _,
+                symbol: _,
+                quantity: _,
+                timestamp: _,
+            } => todo!(),
             _ => (),
         }
     }
@@ -72,7 +93,7 @@ impl IndexOrderManager {
     pub fn fill_order_request(&mut self, _client_order_id: BatchOrderId, _fill_amount: Amount) {
         todo!()
     }
-    
+
     /// provide a method to list pending index order requests
     pub fn get_pending_order_requests(&self) -> Vec<()> {
         todo!()
