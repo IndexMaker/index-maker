@@ -60,6 +60,8 @@ pub struct PricePointEntry {
 }
 
 /// OrderId is intended to be used for exchange orders (-> Binance)
+/// 
+/// This is an ID for an individual order produced from order batch.
 #[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
 pub struct OrderId(pub String);
 
@@ -69,7 +71,9 @@ impl Display for OrderId {
     }
 }
 
-/// BatchOrderId is intended to be used for index orders (<- FIX)
+/// BatchOrderId is intended to be used internally (<- Solver)
+/// 
+/// Solver will produce order batches to be taken from market.
 #[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
 pub struct BatchOrderId(pub String);
 
@@ -78,6 +82,20 @@ impl Display for BatchOrderId {
         write!(f, "BatchOrderId({})", self.0)
     }
 }
+
+
+/// IndexOrderId is intended to be used for index orders (<- FIX)
+/// 
+/// User will put ID on their Index Order.
+#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct IndexOrderId(pub String);
+
+impl Display for IndexOrderId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IndexOrderId({})", self.0)
+    }
+}
+
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///
@@ -104,6 +122,15 @@ impl Display for LotId {
 pub enum Side {
     Buy,
     Sell,
+}
+
+impl Side {
+    pub fn opposite_side(&self) -> Side {
+        match self {
+            Self::Buy => Self::Sell,
+            Self::Sell => Self::Buy
+        }
+    }
 }
 
 /// Single leg of a Batch Order

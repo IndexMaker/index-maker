@@ -96,9 +96,6 @@ impl InventoryManager {
         quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) {
-        // We must open lots on the Long side (Buy) only as we don't support short-selling.
-        assert_eq!(side, Side::Buy);
-
         let lot = Arc::new(RwLock::new(Lot {
             original_order_id: order_id.clone(),
             original_batch_order_id: batch_order_id.clone(),
@@ -154,15 +151,16 @@ impl InventoryManager {
         batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<Option<Amount>> {
-        println!("match_lots with {}", quantity_filled);
-        // We must close lots on the Long side only, and we do that by selling them (Sell).
-        assert_eq!(side, Side::Sell);
-
+        let opposite_side = side.opposite_side();
         match self.open_lots.entry(symbol.clone()) {
             Entry::Occupied(mut entry) => {
                 let lots = entry.get_mut();
 
                 while let Some(lot) = lots.front().cloned() {
+                    if opposite_side != lot.read().side {
+                        break;
+                    }
+
                     let lot_quantity_remaining = lot.read().remaining_quantity;
 
                     let remaining_quantity = lot_quantity_remaining
@@ -272,10 +270,7 @@ impl InventoryManager {
     }
 
     /// receive fill reports from Order Tracker
-    pub fn handle_fill_report(
-        &mut self,
-        notification: OrderTrackerNotification,
-    ) -> Result<Option<Amount>> {
+    pub fn handle_fill_report(&mut self, notification: OrderTrackerNotification) -> Result<()> {
         // 1. match against lots (in case of Sell), P&L report
         // 2. allocate new lots, store Cost/Fees
         //self.notify_lots(&[Lot::default()]);
@@ -293,45 +288,38 @@ impl InventoryManager {
                 quantity_remaining,
                 fill_timestamp,
             } => {
-                // open or close lot (lot matching)
-                match side {
-                    Side::Buy => {
-                        // open new lot
-                        // send OpenLot event to subscriber (-> Solver)
-                        self.create_lot(
-                            order_id,
-                            batch_order_id,
-                            lot_id,
-                            symbol,
-                            side,
-                            price_filled,
-                            quantity_filled,
-                            fee_paid,
-                            original_quantity,
-                            quantity_remaining,
-                            fill_timestamp,
-                        );
-                        // We opened new lots, no unmatched quantity to report
-                        Ok(None)
-                    }
-                    Side::Sell => {
-                        // match against open lots, close lots
-                        // send CloseLot event to subscriber (-> Solver)
-                        self.match_lots(
-                            order_id,
-                            batch_order_id,
-                            lot_id,
-                            symbol,
-                            side,
-                            price_filled,
-                            quantity_filled,
-                            fee_paid,
-                            original_quantity,
-                            quantity_remaining,
-                            fill_timestamp,
-                        )
-                    }
+                // match against open lots, close lots
+                // send CloseLot event to subscriber (-> Solver)
+                if let Some(unmatched_quantity) = self.match_lots(
+                    order_id.clone(),
+                    batch_order_id.clone(),
+                    lot_id.clone(),
+                    symbol.clone(),
+                    side,
+                    price_filled,
+                    quantity_filled,
+                    fee_paid,
+                    original_quantity,
+                    quantity_remaining,
+                    fill_timestamp,
+                )? {
+                    // open new lot
+                    // send OpenLot event to subscriber (-> Solver)
+                    self.create_lot(
+                        order_id,
+                        batch_order_id,
+                        lot_id,
+                        symbol,
+                        side,
+                        price_filled,
+                        unmatched_quantity,
+                        fee_paid,
+                        original_quantity,
+                        quantity_remaining,
+                        fill_timestamp,
+                    );
                 }
+                Ok(())
             }
 
             OrderTrackerNotification::Cancel {
@@ -351,7 +339,7 @@ impl InventoryManager {
                 // to track remaining quantity and whether order is live or not, but
                 // aside from that cancells may not be of any interest.
                 // We didn't work with lots, so no unmatched quantity to report.
-                Ok(None)
+                Ok(())
             }
         }
     }
@@ -439,33 +427,33 @@ mod test {
 
     #[test]
     /// Test that InventoryManager is sane.
-    /// 
+    ///
     /// First we send Buy order:
     /// * Buy  50.0 A @ $100.0
-    /// 
+    ///
     /// And we get two fills on it:
     /// * Fill 10.0 A @ $99.0
     /// * Fill 20.0 A @ $100.0
     ///
     /// The unfilled qty on that order is = 20.0 A
-    /// 
+    ///
     /// This creates two lots:
     /// * Lot01 => 10.0 A @ $99.0
     /// * Lot02 => 20.0 A @ $100.0
     ///
     /// Then I send second order:
     /// * Sell 40.0 A @ $120.0
-    /// 
+    ///
     /// And we get one fill:
     /// * Fill 15.0 A @ 125.0
     ///
     /// And unfilled quantity on that sell is = 25.0
-    /// 
+    ///
     /// This matches two lots:
     ///
     /// * Lot01 => 10.0 A @ $99.0 against 10.0 A @ $125.0 => closes Lot01
     /// * Lot02 => 20.0 A @ $100.0 against 5.0 A @ $125.0 => quantity remaining on Lot02  is = 15.0 A
-    /// 
+    ///
     fn test_inventory_manager() {
         let tolerance = get_mock_decimal("0.000001");
 

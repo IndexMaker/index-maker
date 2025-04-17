@@ -25,7 +25,7 @@ use super::{
 /// wasn't matched against ordered indexes shouldn't be kept for too long.
 pub struct Solver {
     pub chain_connector: Arc<RwLock<dyn ChainConnector>>,
-    pub index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
+    pub index_order_manager: Arc<RwLock<IndexOrderManager>>,
     pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
     pub basket_manager: Arc<RwLock<BasketManager>>,
     pub price_tracker: Arc<RwLock<PriceTracker>>,
@@ -35,7 +35,7 @@ pub struct Solver {
 impl Solver {
     pub fn new(
         chain_connector: Arc<RwLock<dyn ChainConnector>>,
-        index_order_manager: Arc<RwLock<dyn IndexOrderManager>>,
+        index_order_manager: Arc<RwLock<IndexOrderManager>>,
         quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
@@ -188,10 +188,7 @@ mod test {
             order_connector::test_util::MockOrderConnector, order_tracker::OrderTracker,
         },
         server::server::{test_util::MockServer, ServerEvent},
-        solver::{
-            index_order_manager::test_util::MockIndexOrderManager,
-            index_quote_manager::test_util::MockQuoteRequestManager,
-        },
+        solver::index_quote_manager::test_util::MockQuoteRequestManager,
     };
 
     use super::*;
@@ -226,7 +223,7 @@ mod test {
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
         let index_order_manager =
-            Arc::new(RwLock::new(MockIndexOrderManager::new(fix_server.clone())));
+            Arc::new(RwLock::new(IndexOrderManager::new(fix_server.clone())));
         let quote_request_manager = Arc::new(RwLock::new(MockQuoteRequestManager::new(
             fix_server.clone(),
         )));
