@@ -8,7 +8,7 @@ use eyre::{eyre, Result};
 use parking_lot::RwLock;
 
 use crate::{
-    core::{bits::PaymentId, functional::SingleObserver},
+    core::{bits::PaymentId, functional::{PublishSingle, SingleObserver}},
     server::server::{Server, ServerEvent},
     solver::index_order::IndexOrder,
 };
@@ -181,6 +181,8 @@ impl IndexOrderManager {
                     symbol: symbol.clone(),
                     created_timestamp: timestamp.clone(),
                     last_update_timestamp: timestamp.clone(),
+                    engaged_side: None,
+                    engaged_quantity: None,
                     order_updates: VecDeque::new(),
                     closed_updates: VecDeque::new(),
                 }))

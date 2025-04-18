@@ -34,7 +34,7 @@ pub mod test_util {
     use crate::{
         core::{
             bits::{Address, Amount, PaymentId, Symbol},
-            functional::SingleObserver,
+            functional::{PublishSingle, SingleObserver},
         },
         index::basket::{Basket, BasketDefinition},
         solver::index_order::Payment,

@@ -87,6 +87,12 @@ pub struct IndexOrder {
     /// Time of the last update to this order
     pub last_update_timestamp: DateTime<Utc>,
 
+    /// Side engaged by Solver
+    pub engaged_side: Option<Side>,
+
+    /// Quantity engaged by Solver
+    pub engaged_quantity: Option<Amount>,
+
     /// Order updates
     pub order_updates: VecDeque<IndexOrderUpdate>,
 

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{
     core::{
         bits::{Amount, LastPriceEntry, PriceType, Symbol},
-        functional::SingleObserver,
+        functional::{PublishSingle, SingleObserver},
     },
     market_data::market_data_connector::MarketDataEvent,
 };

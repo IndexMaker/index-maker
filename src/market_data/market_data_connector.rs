@@ -43,7 +43,7 @@ pub mod test_util {
 
     use crate::core::{
         bits::{Amount, PricePointEntry, Symbol},
-        functional::MultiObserver,
+        functional::{MultiObserver, PublishMany},
     };
 
     use super::{MarketDataConnector, MarketDataEvent};

@@ -16,7 +16,7 @@ pub mod test_util {
     use parking_lot::RwLock;
 
     use crate::{
-        core::{bits::BatchOrderId, functional::SingleObserver},
+        core::{bits::BatchOrderId, functional::{PublishSingle, SingleObserver}},
         server::server::{Server, ServerEvent},
         solver::index_quote::IndexQuote,
     };

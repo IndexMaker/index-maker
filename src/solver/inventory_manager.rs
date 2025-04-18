@@ -11,16 +11,18 @@ use parking_lot::RwLock;
 use crate::{
     core::{
         bits::{
-            Amount, BatchOrder, BatchOrderId, Lot, LotId, LotTransaction, OrderId, Side,
+            Amount, BatchOrder, BatchOrderId, OrderId, Side,
             SingleOrder, Symbol,
         },
-        functional::SingleObserver,
+        functional::SingleObserver
     },
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
 };
 
-pub struct GetOpenLotsResponse {
-    pub open_lots: HashMap<Symbol, Vec<Arc<RwLock<Lot>>>>,
+use super::position::{Position, LotId};
+
+pub struct GetPositionsResponse {
+    pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
     pub missing_symbols: Vec<Symbol>,
 }
 
@@ -63,8 +65,7 @@ pub enum InventoryEvent {
 pub struct InventoryManager {
     pub observer: SingleObserver<InventoryEvent>,
     pub order_tracker: Arc<RwLock<OrderTracker>>,
-    pub open_lots: HashMap<Symbol, VecDeque<Arc<RwLock<Lot>>>>,
-    pub closed_lots: HashMap<Symbol, VecDeque<Arc<RwLock<Lot>>>>,
+    pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
     pub tolerance: Amount,
 }
 
@@ -73,8 +74,7 @@ impl InventoryManager {
         Self {
             observer: SingleObserver::new(),
             order_tracker,
-            open_lots: HashMap::new(),
-            closed_lots: HashMap::new(),
+            positions: HashMap::new(),
             tolerance,
         }
     }
@@ -96,43 +96,25 @@ impl InventoryManager {
         quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) {
-        let lot = Arc::new(RwLock::new(Lot {
-            original_order_id: order_id.clone(),
-            original_batch_order_id: batch_order_id.clone(),
-            lot_id: lot_id.clone(),
-            symbol: symbol.clone(),
-            side,
-            original_price: price_filled,
-            original_quantity: quantity_filled,
-            original_fee: fee_paid,
-            remaining_quantity: quantity_filled,
-            created_timestamp: fill_timestamp,
-            last_update_timestamp: fill_timestamp,
-            lot_transactions: Vec::new(),
-        }));
+        let position = self
+            .positions
+            .entry(symbol.clone())
+            .or_insert_with(|| Arc::new(RwLock::new(Position::new(symbol.clone(), side))))
+            .clone();
 
-        match self.open_lots.entry(symbol.clone()) {
-            Entry::Occupied(mut entry) => {
-                entry.get_mut().push_back(lot);
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(vec![lot].into());
-            }
-        };
-
-        self.observer.publish_single(InventoryEvent::OpenLot {
-            order_id,
-            batch_order_id,
-            lot_id,
-            symbol,
+        position.write().create_lot(
+            order_id.clone(),
+            batch_order_id.clone(),
+            lot_id.clone(),
             side,
-            price: price_filled,
-            quantity: quantity_filled,
-            fee: fee_paid,
-            original_batch_quantity: original_quantity,
-            batch_quantity_remaining: quantity_remaining,
-            timestamp: fill_timestamp,
-        });
+            price_filled,
+            quantity_filled,
+            fee_paid,
+            original_quantity,
+            quantity_remaining,
+            fill_timestamp.clone(),
+            &self.observer,
+        );
     }
 
     /// Match fill against remaining quantity within currently open lots.
@@ -145,126 +127,33 @@ impl InventoryManager {
         symbol: Symbol,
         side: Side,
         price_filled: Amount,
-        mut quantity_filled: Amount,
+        quantity_filled: Amount,
         fee_paid: Amount,
         batch_original_quantity: Amount,
         batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<Option<Amount>> {
-        let opposite_side = side.opposite_side();
-        match self.open_lots.entry(symbol.clone()) {
-            Entry::Occupied(mut entry) => {
-                let lots = entry.get_mut();
-
-                while let Some(lot) = lots.front().cloned() {
-                    if opposite_side != lot.read().side {
-                        break;
-                    }
-
-                    let lot_quantity_remaining = lot.read().remaining_quantity;
-
-                    let remaining_quantity = lot_quantity_remaining
-                        .checked_sub(quantity_filled)
-                        .ok_or(eyre!("Math overflow"))?;
-
-                    let (matched_lot_quantity, lot_quantity_remaining, finished) =
-                        if remaining_quantity < self.tolerance {
-                            // We closed the lot
-                            lots.pop_front();
-
-                            // ...move it to closed_lots
-                            self.closed_lots
-                                .entry(symbol.clone())
-                                .and_modify(|closed_lots| closed_lots.push_back(lot.clone()))
-                                .or_insert([lot.clone()].into());
-
-                            (
-                                // we matched whole lot
-                                lot_quantity_remaining,
-                                // there is no quantity remaining on the lot
-                                Amount::ZERO,
-                                // check if we should continue
-                                if remaining_quantity < -self.tolerance {
-                                    // there is some quantity left to continue matching
-                                    quantity_filled = -remaining_quantity;
-                                    println!(
-                                        "there is some quantity left to continue matching {}",
-                                        quantity_filled
-                                    );
-                                    false
-                                } else {
-                                    // fill was fully matched
-                                    quantity_filled = Amount::ZERO;
-                                    true
-                                },
-                            )
-                        } else {
-                            println!("We matched whole quantity of fill {}", quantity_filled);
-                            // We matched whole quantity of fill
-                            let matched_lot_quantity = quantity_filled;
-
-                            // fill was fully matched
-                            quantity_filled = Amount::ZERO;
-
-                            // We partly closed the lot
-                            (matched_lot_quantity, remaining_quantity, true)
-                        };
-
-                    let mut lot_write = lot.write();
-
-                    lot_write.lot_transactions.push(LotTransaction {
-                        order_id: order_id.clone(),
-                        batch_order_id: batch_order_id.clone(),
-                        matched_lot_id: lot_id.clone(),
-                        closing_fee: fee_paid,
-                        closing_price: price_filled,
-                        closing_timestamp: fill_timestamp,
-                        quantity_closed: matched_lot_quantity,
-                    });
-
-                    lot_write.last_update_timestamp = fill_timestamp;
-                    lot_write.remaining_quantity = lot_quantity_remaining;
-
-                    self.observer.publish_single(InventoryEvent::CloseLot {
-                        original_order_id: lot_write.original_order_id.clone(),
-                        original_batch_order_id: lot_write.original_batch_order_id.clone(),
-                        original_lot_id: lot_write.lot_id.clone(),
-                        closing_order_id: order_id.clone(),
-                        closing_batch_order_id: batch_order_id.clone(),
-                        closing_lot_id: lot_id.clone(),
-                        symbol: symbol.clone(),
-                        side: lot_write.side,
-                        original_price: lot_write.original_price,
-                        closing_price: price_filled,
-                        closing_fee: fee_paid,
-                        quantity_closed: matched_lot_quantity,
-                        original_quantity: lot_write.original_quantity,
-                        quantity_remaining: lot_quantity_remaining,
-                        original_timestamp: lot_write.created_timestamp,
-                        closing_batch_original_quantity: batch_original_quantity,
-                        closing_batch_quantity_remaining: batch_quantity_remaining,
-                        closing_timestamp: fill_timestamp,
-                    });
-
-                    if finished {
-                        break;
-                    }
-                }
-
-                if self.tolerance < quantity_filled {
-                    // We didn't fully match this fill against open lots, which means we're going Short, and
-                    // this should never happen!
-                    Ok(Some(quantity_filled))
-                } else {
-                    // We fully matched the incoming fill against open lots, and no quantity is remaining
-                    // Note: This should be expected reusult.
-                    Ok(None)
-                }
-            }
-            Entry::Vacant(_) => {
-                // We didn't match any lots, because there is no lots open for this symbol, which means
-                // we're going Short, and this should never happen!
-                Ok(Some(quantity_filled))
+        // Find position for symbol
+        match self.positions.get(&symbol) {
+            // Position not found
+            None => Ok(Some(quantity_filled)),
+            Some(position) => {
+                // Match lots
+                position.write().match_lots(
+                    order_id,
+                    batch_order_id,
+                    lot_id,
+                    symbol,
+                    side,
+                    price_filled,
+                    quantity_filled,
+                    fee_paid,
+                    batch_original_quantity,
+                    batch_quantity_remaining,
+                    fill_timestamp,
+                    &self.observer,
+                    self.tolerance
+                )
             }
         }
     }
@@ -371,17 +260,17 @@ impl InventoryManager {
     }
 
     /// provide method to get open lots
-    pub fn get_open_lots(&self, symbols: &[Symbol]) -> GetOpenLotsResponse {
+    pub fn get_positions(&self, symbols: &[Symbol]) -> GetPositionsResponse {
         // Optimistic: we should be able to find all symbols
-        let mut open_lots = HashMap::with_capacity(symbols.len());
+        let mut positions = HashMap::with_capacity(symbols.len());
 
         // ...but first we copy all symbols into a Vec
         let mut missing_symbols = symbols.to_vec();
 
         // ...and then we should collect open lots, and find the missing ones
         let partition_point = partition(&mut missing_symbols, |symbol| {
-            if let Some(lots) = self.open_lots.get(symbol) {
-                open_lots.insert(symbol.clone(), lots.iter().cloned().collect());
+            if let Some(position) = self.positions.get(symbol) {
+                positions.insert(symbol.clone(), position.clone());
                 false
             } else {
                 true
@@ -390,8 +279,8 @@ impl InventoryManager {
 
         missing_symbols.splice(partition_point.., []);
 
-        GetOpenLotsResponse {
-            open_lots,
+        GetPositionsResponse {
+            positions,
             missing_symbols,
         }
     }
@@ -411,7 +300,7 @@ mod test {
         assert_decimal_approx_eq,
         core::{
             bits::{
-                Amount, AssetOrder, BatchOrder, BatchOrderId, LotId, OrderId, Side, SingleOrder,
+                Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder,
             },
             test_util::{
                 get_mock_asset_name_1, get_mock_decimal, get_mock_defer_channel, run_mock_deferred,
@@ -423,7 +312,7 @@ mod test {
         },
     };
 
-    use super::{InventoryEvent, InventoryManager};
+    use super::{InventoryEvent, InventoryManager, LotId};
 
     #[test]
     /// Test that InventoryManager is sane.
@@ -709,15 +598,17 @@ mod test {
             // We should have received two InventoryEvents
             assert_eq!(counter_1.load(Ordering::Relaxed), 2);
 
-            let all_open_lots = inventory_manager
+            let all_positions = inventory_manager
                 .read()
-                .get_open_lots(&[get_mock_asset_name_1()]);
-            assert_eq!(all_open_lots.missing_symbols.len(), 0);
+                .get_positions(&[get_mock_asset_name_1()]);
+            assert_eq!(all_positions.missing_symbols.len(), 0);
 
-            let lots = all_open_lots
-                .open_lots
+            let position = all_positions.positions
                 .get(&get_mock_asset_name_1())
-                .unwrap();
+                .unwrap()
+                .read();
+        
+            let lots = &position.open_lots;
             assert_eq!(lots.len(), 2);
 
             closed_lot = lots.get(0).cloned();
@@ -983,18 +874,20 @@ mod test {
             // We should have received two InventoryEvents
             assert_eq!(counter_1.load(Ordering::Relaxed), 4);
 
-            let all_open_lots = inventory_manager
+            let all_positions = inventory_manager
                 .read()
-                .get_open_lots(&[get_mock_asset_name_1()]);
-            assert_eq!(all_open_lots.missing_symbols.len(), 0);
+                .get_positions(&[get_mock_asset_name_1()]);
+            assert_eq!(all_positions.missing_symbols.len(), 0);
 
-            let lots = all_open_lots
-                .open_lots
+            let position = all_positions.positions
                 .get(&get_mock_asset_name_1())
-                .unwrap();
+                .unwrap()
+                .read();
+            
+            let lots = &position.open_lots;
             assert_eq!(lots.len(), 1);
 
-            let lot = lots.first().unwrap().read();
+            let lot = lots.front().unwrap().read();
             assert_eq!(lot.lot_id, buy_lot2_id);
 
             assert_eq!(lot.lot_transactions.len(), 1);

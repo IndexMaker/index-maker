@@ -65,7 +65,7 @@ impl Solver {
         let threshold = Amount::default();
 
         // receive list of open lots from Inventory Manager
-        let _open_lots = self.inventory_manager.read().get_open_lots(&symbols);
+        let _open_lots = self.inventory_manager.read().get_positions(&symbols);
 
         // Compute: Allocate open lots to Index Orders
         // ...

@@ -7,7 +7,9 @@ use std::collections::{hash_map::Entry, HashMap};
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
-use crate::core::bits::{Amount, BatchOrderId, LotId, SingleOrder, OrderId, Side, Symbol};
+use crate::core::bits::{Amount, BatchOrderId, SingleOrder, OrderId, Side, Symbol};
+use crate::core::functional::PublishSingle;
+use crate::solver::position::LotId;
 use crate::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
@@ -237,7 +239,7 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{BatchOrderId, LotId, SingleOrder, OrderId, Side},
+            bits::{BatchOrderId, OrderId, Side, SingleOrder},
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
                 get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
@@ -245,7 +247,7 @@ mod test {
         },
         order_sender::order_connector::{
             test_util::MockOrderConnector, OrderConnectorNotification,
-        },
+        }, solver::position::LotId,
     };
 
     use super::{OrderTracker, OrderTrackerNotification};

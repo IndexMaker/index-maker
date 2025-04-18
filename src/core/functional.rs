@@ -12,6 +12,10 @@ where
     }
 }
 
+pub trait PublishSingle<T> {
+    fn publish_single(&self, notification: T);
+}
+
 pub struct SingleObserver<T> {
     observer: Option<Box<dyn NotificationHandlerOnce<T>>>,
 }
@@ -35,9 +39,11 @@ impl<T> SingleObserver<T> {
     pub fn set_observer_fn(&mut self, observer: impl NotificationHandlerOnce<T> + 'static) {
         self.set_observer(Box::new(observer));
     }
+}
 
+impl<T> PublishSingle<T> for SingleObserver<T> {
     /// There will be only one handler, and so we call it 'single'
-    pub fn publish_single(&self, notification: T) {
+    fn publish_single(&self, notification: T) {
         if let Some(observer) = &self.observer {
             observer.handle_notification(notification);
         }
@@ -57,6 +63,10 @@ where
     fn handle_notification(&self, notification: &T) {
         (self)(notification)
     }
+}
+
+pub trait PublishMany<T> {
+    fn publish_many(&self, notification: &T);
 }
 
 pub struct MultiObserver<T> {
@@ -80,9 +90,11 @@ impl<T> MultiObserver<T> {
     pub fn add_observer_fn(&mut self, observer: impl NotificationHandler<T> + 'static) {
         self.observers.push(Box::new(observer));
     }
+}
 
+impl<T> PublishMany<T> for MultiObserver<T> {
     /// There can be multiple observers, and so we call it 'many'
-    pub fn publish_many(&self, notification: &T) {
+    fn publish_many(&self, notification: &T) {
         for observer in &self.observers {
             observer.handle_notification(notification);
         }
@@ -93,7 +105,7 @@ impl<T> MultiObserver<T> {
 mod tests {
     use std::sync::mpsc::channel;
 
-    use crate::core::functional::MultiObserver;
+    use crate::core::functional::{MultiObserver, PublishMany, PublishSingle};
 
     use super::{NotificationHandlerOnce, SingleObserver};
 
