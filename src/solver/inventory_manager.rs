@@ -607,6 +607,8 @@ mod test {
                 .get(&get_mock_asset_name_1())
                 .unwrap()
                 .read();
+            
+            assert_eq!(position.balance, get_mock_decimal("30.0"));
         
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 2);
@@ -883,6 +885,8 @@ mod test {
                 .get(&get_mock_asset_name_1())
                 .unwrap()
                 .read();
+
+            assert_eq!(position.balance, get_mock_decimal("15.0"));
             
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 1);

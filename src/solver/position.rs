@@ -255,6 +255,11 @@ impl Position {
                 lot.last_update_timestamp = fill_timestamp;
                 lot.remaining_quantity = lot_quantity_remaining;
 
+                self.balance = match side {
+                    Side::Buy => self.balance.checked_sub(matched_lot_quantity),
+                    Side::Sell => self.balance.checked_sub(matched_lot_quantity)
+                }.ok_or(eyre!("Math overflow"))?;
+
                 observer.publish_single(InventoryEvent::CloseLot {
                     original_order_id: lot.original_order_id.clone(),
                     original_batch_order_id: lot.original_batch_order_id.clone(),
