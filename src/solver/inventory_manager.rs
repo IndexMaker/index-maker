@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::HashMap,
     sync::Arc,
 };
 
@@ -10,16 +10,13 @@ use parking_lot::RwLock;
 
 use crate::{
     core::{
-        bits::{
-            Amount, BatchOrder, BatchOrderId, OrderId, Side,
-            SingleOrder, Symbol,
-        },
-        functional::SingleObserver
+        bits::{Amount, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
+        functional::{PublishSingle, SingleObserver},
     },
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
 };
 
-use super::position::{Position, LotId};
+use super::position::{LotId, Position};
 
 pub struct GetPositionsResponse {
     pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
@@ -95,7 +92,7 @@ impl InventoryManager {
         original_quantity: Amount,
         quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
-    ) {
+    ) -> Result<()> {
         let position = self
             .positions
             .entry(symbol.clone())
@@ -110,11 +107,24 @@ impl InventoryManager {
             price_filled,
             quantity_filled,
             fee_paid,
-            original_quantity,
-            quantity_remaining,
             fill_timestamp.clone(),
-            &self.observer,
-        );
+        )?;
+
+        self.observer.publish_single(InventoryEvent::OpenLot {
+            order_id,
+            batch_order_id,
+            lot_id,
+            symbol: symbol.clone(),
+            side,
+            price: price_filled,
+            quantity: quantity_filled,
+            fee: fee_paid,
+            original_batch_quantity: original_quantity,
+            batch_quantity_remaining: quantity_remaining,
+            timestamp: fill_timestamp,
+        });
+
+        Ok(())
     }
 
     /// Match fill against remaining quantity within currently open lots.
@@ -140,19 +150,37 @@ impl InventoryManager {
             Some(position) => {
                 // Match lots
                 position.write().match_lots(
-                    order_id,
-                    batch_order_id,
-                    lot_id,
-                    symbol,
+                    order_id.clone(),
+                    batch_order_id.clone(),
+                    lot_id.clone(),
                     side,
                     price_filled,
                     quantity_filled,
                     fee_paid,
-                    batch_original_quantity,
-                    batch_quantity_remaining,
-                    fill_timestamp,
-                    &self.observer,
-                    self.tolerance
+                    fill_timestamp.clone(),
+                    self.tolerance,
+                    |lot, quantity_closed| {
+                        self.observer.publish_single(InventoryEvent::CloseLot {
+                            original_order_id: lot.original_order_id.clone(),
+                            original_batch_order_id: lot.original_batch_order_id.clone(),
+                            original_lot_id: lot.lot_id.clone(),
+                            closing_order_id: order_id.clone(),
+                            closing_batch_order_id: batch_order_id.clone(),
+                            closing_lot_id: lot_id.clone(),
+                            symbol: symbol.clone(),
+                            side: side.opposite_side(),
+                            original_price: lot.original_price,
+                            closing_price: price_filled,
+                            closing_fee: fee_paid,
+                            quantity_closed,
+                            original_quantity: lot.original_quantity,
+                            quantity_remaining: lot.remaining_quantity,
+                            original_timestamp: lot.created_timestamp,
+                            closing_batch_original_quantity: batch_original_quantity,
+                            closing_batch_quantity_remaining: batch_quantity_remaining,
+                            closing_timestamp: fill_timestamp,
+                        });
+                    }
                 )
             }
         }
@@ -206,7 +234,7 @@ impl InventoryManager {
                         original_quantity,
                         quantity_remaining,
                         fill_timestamp,
-                    );
+                    )?;
                 }
                 Ok(())
             }
@@ -299,9 +327,7 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{
-                Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder,
-            },
+            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
             test_util::{
                 get_mock_asset_name_1, get_mock_decimal, get_mock_defer_channel, run_mock_deferred,
             },
@@ -603,13 +629,14 @@ mod test {
                 .get_positions(&[get_mock_asset_name_1()]);
             assert_eq!(all_positions.missing_symbols.len(), 0);
 
-            let position = all_positions.positions
+            let position = all_positions
+                .positions
                 .get(&get_mock_asset_name_1())
                 .unwrap()
                 .read();
-            
+
             assert_eq!(position.balance, get_mock_decimal("30.0"));
-        
+
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 2);
 
@@ -881,13 +908,14 @@ mod test {
                 .get_positions(&[get_mock_asset_name_1()]);
             assert_eq!(all_positions.missing_symbols.len(), 0);
 
-            let position = all_positions.positions
+            let position = all_positions
+                .positions
                 .get(&get_mock_asset_name_1())
                 .unwrap()
                 .read();
 
             assert_eq!(position.balance, get_mock_decimal("15.0"));
-            
+
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 1);
 

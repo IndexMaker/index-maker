@@ -4,12 +4,8 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
 use parking_lot::RwLock;
 
-use crate::core::{
-    bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
-    functional::PublishSingle,
-};
+use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, Symbol};
 
-use super::inventory_manager::InventoryEvent;
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///
@@ -130,10 +126,7 @@ impl Position {
         price_filled: Amount,
         quantity_filled: Amount,
         fee_paid: Amount,
-        original_quantity: Amount,
-        quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
-        observer: &impl PublishSingle<InventoryEvent>,
     ) -> Result<()> {
         // Store as open lot
         self.open_lots.push_back(Arc::new(RwLock::new(Lot {
@@ -154,20 +147,6 @@ impl Position {
             Side::Sell => self.balance.checked_sub(quantity_filled),
         }
         .ok_or(eyre!("Math overflow"))?;
-
-        observer.publish_single(InventoryEvent::OpenLot {
-            order_id,
-            batch_order_id,
-            lot_id,
-            symbol: self.symbol.clone(),
-            side,
-            price: price_filled,
-            quantity: quantity_filled,
-            fee: fee_paid,
-            original_batch_quantity: original_quantity,
-            batch_quantity_remaining: quantity_remaining,
-            timestamp: fill_timestamp,
-        });
         Ok(())
     }
 
@@ -176,16 +155,13 @@ impl Position {
         order_id: OrderId,
         batch_order_id: BatchOrderId,
         lot_id: LotId,
-        symbol: Symbol,
         side: Side,
         price_filled: Amount,
         mut quantity_filled: Amount,
         fee_paid: Amount,
-        batch_original_quantity: Amount,
-        batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
-        observer: &impl PublishSingle<InventoryEvent>,
         tolerance: Amount,
+        lot_closed_cb: impl Fn(&Lot, Amount),
     ) -> Result<Option<Amount>> {
         // Match only if opposite side
         if self.side == side {
@@ -260,26 +236,7 @@ impl Position {
                     Side::Sell => self.balance.checked_sub(matched_lot_quantity)
                 }.ok_or(eyre!("Math overflow"))?;
 
-                observer.publish_single(InventoryEvent::CloseLot {
-                    original_order_id: lot.original_order_id.clone(),
-                    original_batch_order_id: lot.original_batch_order_id.clone(),
-                    original_lot_id: lot.lot_id.clone(),
-                    closing_order_id: order_id.clone(),
-                    closing_batch_order_id: batch_order_id.clone(),
-                    closing_lot_id: lot_id.clone(),
-                    symbol: symbol.clone(),
-                    side: self.side,
-                    original_price: lot.original_price,
-                    closing_price: price_filled,
-                    closing_fee: fee_paid,
-                    quantity_closed: matched_lot_quantity,
-                    original_quantity: lot.original_quantity,
-                    quantity_remaining: lot_quantity_remaining,
-                    original_timestamp: lot.created_timestamp,
-                    closing_batch_original_quantity: batch_original_quantity,
-                    closing_batch_quantity_remaining: batch_quantity_remaining,
-                    closing_timestamp: fill_timestamp,
-                });
+                lot_closed_cb(&lot, matched_lot_quantity);
             }
 
             if finished {
