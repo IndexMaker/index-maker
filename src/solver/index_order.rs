@@ -369,6 +369,39 @@ mod test {
 
     use super::IndexOrder;
 
+    /// Test sanity of unengaged IndexOrder
+    ///
+    /// In this test we will confirm that IndexOrder queue is managed correctly
+    /// for case when Solver has not yet engaged with this IndexOrder.
+    ///
+    /// We create two Buy orders:
+    ///    #1 Buy 10 @ $100
+    ///    #2 Buy 20 @ $110
+    ///
+    /// These two orders will open:
+    ///    * Buy 30
+    ///
+    /// Next we create Sell orders:
+    ///    #3 Sell  5 @ $140
+    ///    #4 Sell 20 @ $140
+    ///
+    /// The #3 Sell 5 @ $140 will match against #2 Buy 20 @ $110, leaving #2 Buy 15 @ $110.
+    /// The #4 Sell 20 @ $140 will then match:
+    ///     * fully against remaining #2 Buy 15 @ $110
+    ///     * and partly against #1 Buy 10 @ $100, leaving #1 Buy 5 @ $100.
+    ///
+    /// Then we create Sell order:
+    ///     #5 Sell 20 @ 150
+    ///
+    /// And that order will:
+    ///     * fully match against remaining #1 Buy 5  @ $100
+    ///     * and create order #5 Sell 15 @ $150, flipping order side to Sell
+    ///
+    /// The final result will be that order, which was initially created as Buy,
+    /// now has become Sell order.
+    ///
+    /// Note this is possible only if Solver has not yet engaged in this order.
+    ///
     #[test]
     fn test_index_order_1() {
         let tolerance = get_mock_decimal("0.00001");
@@ -388,25 +421,27 @@ mod test {
         let quantity1 = get_mock_decimal("10.0");
         let timestamp1 = Utc::now();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id1,
-                pay_id1,
-                Side::Buy,
-                price1,
-                price_threshold1,
-                quantity1,
-                timestamp1,
-                tolerance,
-            )
-            .unwrap();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id1,
+                    pay_id1,
+                    Side::Buy,
+                    price1,
+                    price_threshold1,
+                    quantity1,
+                    timestamp1,
+                    tolerance,
+                )
+                .unwrap();
 
-        assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
-        assert_decimal_approx_eq!(quantity_added, quantity1, tolerance);
-        assert!(matches!(order.side, Side::Buy));
-        assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
-        assert_eq!(order.order_updates.len(), 1);
+            assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
+            assert_decimal_approx_eq!(quantity_added, quantity1, tolerance);
+            assert!(matches!(order.side, Side::Buy));
+            assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
+            assert_eq!(order.order_updates.len(), 1);
+        }
 
         // Add another update on Buy side
         let order_id2 = ClientOrderId("Order03".into());
@@ -416,25 +451,27 @@ mod test {
         let quantity2 = get_mock_decimal("20.0");
         let timestamp2 = Utc::now();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id2,
-                pay_id2,
-                Side::Buy,
-                price2,
-                price_threshold2,
-                quantity2,
-                timestamp2,
-                tolerance,
-            )
-            .unwrap();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id2,
+                    pay_id2,
+                    Side::Buy,
+                    price2,
+                    price_threshold2,
+                    quantity2,
+                    timestamp2,
+                    tolerance,
+                )
+                .unwrap();
 
-        assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
-        assert_decimal_approx_eq!(quantity_added, quantity2, tolerance);
-        assert!(matches!(order.side, Side::Buy));
-        assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
-        assert_eq!(order.order_updates.len(), 2);
+            assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
+            assert_decimal_approx_eq!(quantity_added, quantity2, tolerance);
+            assert!(matches!(order.side, Side::Buy));
+            assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
+            assert_eq!(order.order_updates.len(), 2);
+        }
 
         // Add small update on Sell side
         let order_id3 = ClientOrderId("Order04".into());
@@ -444,29 +481,31 @@ mod test {
         let quantity3 = get_mock_decimal("5.0");
         let timestamp3 = Utc::now();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id3,
-                pay_id3,
-                Side::Sell,
-                price3,
-                price_threshold3,
-                quantity3,
-                timestamp3,
-                tolerance,
-            )
-            .unwrap();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id3,
+                    pay_id3,
+                    Side::Sell,
+                    price3,
+                    price_threshold3,
+                    quantity3,
+                    timestamp3,
+                    tolerance,
+                )
+                .unwrap();
 
-        assert_decimal_approx_eq!(quantity_removed, quantity3, tolerance);
-        assert_decimal_approx_eq!(quantity_added, Amount::ZERO, tolerance);
-        assert!(matches!(order.side, Side::Buy));
-        assert_decimal_approx_eq!(
-            order.remaining_quantity,
-            quantity1 + quantity2 - quantity3,
-            tolerance
-        );
-        assert_eq!(order.order_updates.len(), 2);
+            assert_decimal_approx_eq!(quantity_removed, quantity3, tolerance);
+            assert_decimal_approx_eq!(quantity_added, Amount::ZERO, tolerance);
+            assert!(matches!(order.side, Side::Buy));
+            assert_decimal_approx_eq!(
+                order.remaining_quantity,
+                quantity1 + quantity2 - quantity3,
+                tolerance
+            );
+            assert_eq!(order.order_updates.len(), 2);
+        }
 
         // Add bigger update on Sell side
         let order_id4 = ClientOrderId("Order05".into());
@@ -476,29 +515,31 @@ mod test {
         let quantity4 = get_mock_decimal("20.0");
         let timestamp4 = Utc::now();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id4,
-                pay_id4,
-                Side::Sell,
-                price4,
-                price_threshold4,
-                quantity4,
-                timestamp4,
-                tolerance,
-            )
-            .unwrap();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id4,
+                    pay_id4,
+                    Side::Sell,
+                    price4,
+                    price_threshold4,
+                    quantity4,
+                    timestamp4,
+                    tolerance,
+                )
+                .unwrap();
 
-        assert_decimal_approx_eq!(quantity_removed, quantity4, tolerance);
-        assert_decimal_approx_eq!(quantity_added, Amount::ZERO, tolerance);
-        assert!(matches!(order.side, Side::Buy));
-        assert_decimal_approx_eq!(
-            order.remaining_quantity,
-            quantity1 + quantity2 - quantity3 - quantity4,
-            tolerance
-        );
-        assert_eq!(order.order_updates.len(), 1);
+            assert_decimal_approx_eq!(quantity_removed, quantity4, tolerance);
+            assert_decimal_approx_eq!(quantity_added, Amount::ZERO, tolerance);
+            assert!(matches!(order.side, Side::Buy));
+            assert_decimal_approx_eq!(
+                order.remaining_quantity,
+                quantity1 + quantity2 - quantity3 - quantity4,
+                tolerance
+            );
+            assert_eq!(order.order_updates.len(), 1);
+        }
 
         // Another update on Sell side should flip
         let order_id5 = ClientOrderId("Order06".into());
@@ -507,40 +548,71 @@ mod test {
         let price_threshold5 = get_mock_decimal("0.05");
         let quantity5 = get_mock_decimal("20.0");
         let timestamp5 = Utc::now();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id5,
+                    pay_id5,
+                    Side::Sell,
+                    price5,
+                    price_threshold5,
+                    quantity5,
+                    timestamp5,
+                    tolerance,
+                )
+                .unwrap();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id5,
-                pay_id5,
-                Side::Sell,
-                price5,
-                price_threshold5,
-                quantity5,
-                timestamp5,
-                tolerance,
-            )
-            .unwrap();
-
-        assert_decimal_approx_eq!(
-            quantity_removed,
-            quantity1 + quantity2 - quantity3 - quantity4,
-            tolerance
-        );
-        assert_decimal_approx_eq!(
-            quantity_added,
-            quantity5 - (quantity1 + quantity2 - quantity3 - quantity4),
-            tolerance
-        );
-        assert!(matches!(order.side, Side::Sell));
-        assert_decimal_approx_eq!(
-            order.remaining_quantity,
-            quantity5 - (quantity1 + quantity2 - quantity3 - quantity4),
-            tolerance
-        );
-        assert_eq!(order.order_updates.len(), 1);
+            assert_decimal_approx_eq!(
+                quantity_removed,
+                quantity1 + quantity2 - quantity3 - quantity4,
+                tolerance
+            );
+            assert_decimal_approx_eq!(
+                quantity_added,
+                quantity5 - (quantity1 + quantity2 - quantity3 - quantity4),
+                tolerance
+            );
+            assert!(matches!(order.side, Side::Sell));
+            assert_decimal_approx_eq!(
+                order.remaining_quantity,
+                quantity5 - (quantity1 + quantity2 - quantity3 - quantity4),
+                tolerance
+            );
+            assert_eq!(order.order_updates.len(), 1);
+        }
     }
 
+    /// Test sanity of engaged IndexOrder
+    ///
+    /// In this test we will confirm that IndexOrder queue is managed correctly
+    /// for case when Solver has engaged with this IndexOrder.
+    ///
+    /// As in previous test we first create two Buy orders:
+    ///    #1 Buy 10 @ $100
+    ///    #2 Buy 20 @ $110
+    ///
+    /// These two orders will open:
+    ///    * Buy 30
+    ///
+    /// After that we engage Solver in:
+    ///     1.  5 quantity
+    ///     2. 20 quantity
+    ///
+    /// First 1. 5 quantity will engage with #1 Buy 10 @ $100 blocking 5 and leaving 5 remaining.
+    /// Second 2. 20 quantity will engage with:
+    ///     * remaining 5 on #1 Buy 10 @ $100
+    ///     * and 15 on #2 Buy 20 @ $110, leaving 5 remaining
+    /// 
+    /// Next that we create Sell order:
+    ///     #3 Sell 20 @ $140
+    /// 
+    /// This #3 Sell order will:
+    ///     * reduce #2 Buy 20 @ $110 from remaining 5 to 0, while keeping its 15 engaged
+    ///     * and stop any further matching
+    /// 
+    /// As the result both orders #1 and #2 will be fully engaged, and order will stay on Buy side.
+    ///
     #[test]
     fn test_index_order_2() {
         let tolerance = get_mock_decimal("0.00001");
@@ -560,26 +632,27 @@ mod test {
         let quantity1 = get_mock_decimal("10.0");
         let timestamp1 = Utc::now();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id1,
-                pay_id1,
-                Side::Buy,
-                price1,
-                price_threshold1,
-                quantity1,
-                timestamp1,
-                tolerance,
-            )
-            .unwrap();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id1,
+                    pay_id1,
+                    Side::Buy,
+                    price1,
+                    price_threshold1,
+                    quantity1,
+                    timestamp1,
+                    tolerance,
+                )
+                .unwrap();
 
-        assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
-        assert_decimal_approx_eq!(quantity_added, quantity1, tolerance);
-        assert!(matches!(order.side, Side::Buy));
-        assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
-        assert_eq!(order.order_updates.len(), 1);
-
+            assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
+            assert_decimal_approx_eq!(quantity_added, quantity1, tolerance);
+            assert!(matches!(order.side, Side::Buy));
+            assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
+            assert_eq!(order.order_updates.len(), 1);
+        }
         // Add another update on Buy side
         let order_id2 = ClientOrderId("Order03".into());
         let pay_id2 = PaymentId("Pay02".into());
@@ -588,25 +661,27 @@ mod test {
         let quantity2 = get_mock_decimal("20.0");
         let timestamp2 = Utc::now();
 
-        let (quantity_removed, quantity_added) = order
-            .update_order(
-                address,
-                order_id2,
-                pay_id2,
-                Side::Buy,
-                price2,
-                price_threshold2,
-                quantity2,
-                timestamp2,
-                tolerance,
-            )
-            .unwrap();
+        {
+            let (quantity_removed, quantity_added) = order
+                .update_order(
+                    address,
+                    order_id2,
+                    pay_id2,
+                    Side::Buy,
+                    price2,
+                    price_threshold2,
+                    quantity2,
+                    timestamp2,
+                    tolerance,
+                )
+                .unwrap();
 
-        assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
-        assert_decimal_approx_eq!(quantity_added, quantity2, tolerance);
-        assert!(matches!(order.side, Side::Buy));
-        assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
-        assert_eq!(order.order_updates.len(), 2);
+            assert_decimal_approx_eq!(quantity_removed, Amount::ZERO, tolerance);
+            assert_decimal_approx_eq!(quantity_added, quantity2, tolerance);
+            assert!(matches!(order.side, Side::Buy));
+            assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
+            assert_eq!(order.order_updates.len(), 2);
+        }
 
         // Engage in small quantity
         let engage_quantity1 = get_mock_decimal("5");
