@@ -18,7 +18,6 @@ use crate::{
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
-use super::index_order::IndexOrderUpdate;
 
 pub enum IndexOrderEvent {
     NewIndexOrder {
