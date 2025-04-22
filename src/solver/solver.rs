@@ -181,7 +181,7 @@ mod test {
     use std::{any::type_name, sync::Arc, thread};
 
     use crossbeam::{
-        channel::{unbounded, Sender},
+        channel::{bounded, unbounded, Sender},
         select,
     };
 
@@ -231,7 +231,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "Not implemented yet. Only SBE design."]
     fn sbe_solver() {
         let tolerance = get_mock_decimal("0.0001");
 
@@ -247,6 +246,7 @@ mod test {
             unbounded::<OrderTrackerNotification>();
         let (order_connector_sender, order_connector_receiver) =
             unbounded::<OrderConnectorNotification>();
+        let (break_sender, break_receiver) = bounded::<bool>(1);
 
         /*
         NOTES:
@@ -347,22 +347,11 @@ mod test {
             .get_single_observer_mut()
             .set_observer_fn(order_connector_sender);
 
-        // connect to exchange
-        order_connector.write().connect();
-
-        // connect to exchange
-        market_data_connector.write().connect();
-
-        // subscribe to symbol/USDC markets
-        market_data_connector
-            .write()
-            .subscribe(&[Symbol::default()])
-            .unwrap();
-
-        let th_1 = thread::spawn(move || {
+        let event_loop_thread = thread::spawn(move || {
             // Simple dispatch loop
             loop {
                 select! {
+                    recv(break_receiver) -> res => if res.unwrap() { break; },
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
@@ -406,6 +395,21 @@ mod test {
             }
         });
 
-        th_1.join().expect("Error while joining thread");
+
+        // connect to exchange
+        order_connector.write().connect();
+
+        // connect to exchange
+        market_data_connector.write().connect();
+
+        // subscribe to symbol/USDC markets
+        market_data_connector
+            .write()
+            .subscribe(&[Symbol::default()])
+            .unwrap();
+
+        // Complete the test
+        break_sender.send(true).expect("Error terminating test");
+        event_loop_thread.join().expect("Error while joining thread");
     }
 }
