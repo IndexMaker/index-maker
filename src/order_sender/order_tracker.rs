@@ -7,8 +7,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
-use crate::core::bits::{Amount, BatchOrderId, SingleOrder, OrderId, Side, Symbol};
-use crate::core::functional::PublishSingle;
+use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol};
+use crate::core::functional::{IntoObservableSingle, PublishSingle};
 use crate::solver::position::LotId;
 use crate::{
     core::functional::SingleObserver,
@@ -74,7 +74,7 @@ impl OrderEntry {
 }
 
 pub struct OrderTracker {
-    pub observer: SingleObserver<OrderTrackerNotification>,
+    observer: SingleObserver<OrderTrackerNotification>,
     pub order_connector: Arc<RwLock<dyn OrderConnector>>,
     pub orders: HashMap<OrderId, Arc<OrderEntry>>,
     pub tolerance: Amount,
@@ -229,6 +229,12 @@ impl OrderTracker {
     }
 }
 
+impl IntoObservableSingle<OrderTrackerNotification> for OrderTracker {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<OrderTrackerNotification> {
+        &mut self.observer
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -239,15 +245,15 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{BatchOrderId, OrderId, Side, SingleOrder},
-            test_util::{
+            bits::{BatchOrderId, OrderId, Side, SingleOrder}, functional::IntoObservableSingle, test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
                 get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
-            },
+            }
         },
         order_sender::order_connector::{
             test_util::MockOrderConnector, OrderConnectorNotification,
-        }, solver::position::LotId,
+        },
+        solver::position::LotId,
     };
 
     use super::{OrderTracker, OrderTrackerNotification};
@@ -330,7 +336,7 @@ mod test {
         let order_tracker_weak = Arc::downgrade(&order_tracker);
         order_connector
             .write()
-            .observer
+            .get_single_observer_mut()
             .set_observer_fn(move |e: OrderConnectorNotification| {
                 let order_tracker = order_tracker_weak.upgrade().unwrap();
                 defer_2

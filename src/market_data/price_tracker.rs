@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{
     core::{
         bits::{Amount, LastPriceEntry, PriceType, Symbol},
-        functional::{PublishSingle, SingleObserver},
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     market_data::market_data_connector::MarketDataEvent,
 };
@@ -20,7 +20,7 @@ pub struct GetPricesResponse {
 
 /// track referece prices for rebalancing, and price estimations
 pub struct PriceTracker {
-    pub observer: SingleObserver<PriceEvent>,
+    observer: SingleObserver<PriceEvent>,
     pub prices: HashMap<Symbol, LastPriceEntry>,
 }
 
@@ -152,6 +152,12 @@ impl PriceTracker {
             prices,
             missing_symbols,
         }
+    }
+}
+
+impl IntoObservableSingle<PriceEvent> for PriceTracker {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<PriceEvent> {
+        &mut self.observer
     }
 }
 

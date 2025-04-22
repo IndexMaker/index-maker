@@ -12,7 +12,7 @@ pub enum ServerEvent {
         price: Amount,
         price_threshold: Amount,
         quantity: Amount,
-        timestamp: DateTime<Utc>
+        timestamp: DateTime<Utc>,
     },
     CancelIndexOrder {
         address: Address,
@@ -20,7 +20,7 @@ pub enum ServerEvent {
         payment_id: PaymentId,
         symbol: Symbol,
         quantity: Amount,
-        timestamp: DateTime<Utc>
+        timestamp: DateTime<Utc>,
     },
     NewQuoteRequest {
         address: Address,
@@ -30,7 +30,7 @@ pub enum ServerEvent {
         price: Amount,
         price_threshold: Amount,
         quantity: Amount,
-        timestamp: DateTime<Utc>
+        timestamp: DateTime<Utc>,
     },
     CancelQuoteRequest {
         address: Address,
@@ -41,7 +41,7 @@ pub enum ServerEvent {
     CustodyToAccount,
 }
 
-pub trait Server {
+pub trait Server: Send + Sync {
     /// provide methods for sending FIX responses
     fn respond_with(&mut self, message: ());
 }
@@ -51,12 +51,12 @@ pub mod test_util {
 
     use std::sync::Arc;
 
-    use crate::core::functional::MultiObserver;
+    use crate::core::functional::{IntoObservableMany, MultiObserver};
 
     use super::{Server, ServerEvent};
 
     pub struct MockServer {
-        pub observers: MultiObserver<Arc<ServerEvent>>,
+        observers: MultiObserver<Arc<ServerEvent>>,
     }
 
     impl MockServer {
@@ -83,5 +83,11 @@ pub mod test_util {
     impl Server for MockServer {
         /// provide methods for sending FIX responses
         fn respond_with(&mut self, _message: ()) {}
+    }
+
+    impl IntoObservableMany<Arc<ServerEvent>> for MockServer {
+        fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<Arc<ServerEvent>> {
+            &mut self.observers
+        }
     }
 }

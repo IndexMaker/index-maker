@@ -14,7 +14,7 @@ pub enum BasketNotification {
 /// Manages baskets, add, remove, update
 pub struct BasketManager {
     baskets: HashMap<Symbol, Arc<Basket>>,
-    basket_observer: Option<Box<dyn FnMut(BasketNotification)>>,
+    basket_observer: Option<Box<dyn FnMut(BasketNotification) + Send + Sync>>,
 }
 
 impl BasketManager {
@@ -25,7 +25,10 @@ impl BasketManager {
         }
     }
 
-    pub fn set_basket_observer(&mut self, basket_observer: Box<dyn FnMut(BasketNotification)>) {
+    pub fn set_basket_observer(
+        &mut self,
+        basket_observer: Box<dyn FnMut(BasketNotification) + Send + Sync>,
+    ) {
         self.basket_observer = Some(basket_observer);
     }
 

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::Arc,
 };
 
@@ -10,14 +10,13 @@ use parking_lot::RwLock;
 use crate::{
     core::{
         bits::PaymentId,
-        functional::{PublishSingle, SingleObserver},
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{Server, ServerEvent},
     solver::index_order::IndexOrder,
 };
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
-
 
 pub enum IndexOrderEvent {
     NewIndexOrder {
@@ -79,7 +78,7 @@ pub enum IndexOrderEvent {
 }
 
 pub struct IndexOrderManager {
-    pub observer: SingleObserver<IndexOrderEvent>,
+    observer: SingleObserver<IndexOrderEvent>,
     pub server: Arc<RwLock<dyn Server>>,
     pub index_orders: HashMap<Address, HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
     pub tolerance: Amount,
@@ -177,21 +176,23 @@ impl IndexOrderManager {
             symbol
         ))?;
 
-        match index_order.write().cancel_updates(quantity, self.tolerance)? {
+        match index_order
+            .write()
+            .cancel_updates(quantity, self.tolerance)?
+        {
             (order_cancelled, quantity_cancelled) => {
                 self.observer
-                            .publish_single(IndexOrderEvent::CancelIndexOrder {
-                                address,
-                                client_order_id,
-                                payment_id,
-                                symbol,
-                                order_cancelled,
-                                side_cancelled: index_order.read().side,
-                                quantity_cancelled,
-                                timestamp,
-                            });
+                    .publish_single(IndexOrderEvent::CancelIndexOrder {
+                        address,
+                        client_order_id,
+                        payment_id,
+                        symbol,
+                        order_cancelled,
+                        side_cancelled: index_order.read().side,
+                        quantity_cancelled,
+                        timestamp,
+                    });
             }
-            _ => (),
         }
         Ok(())
     }
@@ -247,5 +248,12 @@ impl IndexOrderManager {
     /// provide a method to list pending index order requests
     pub fn get_pending_order_requests(&self) -> Vec<()> {
         todo!()
+    }
+
+}
+
+impl IntoObservableSingle<IndexOrderEvent> for IndexOrderManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<IndexOrderEvent> {
+        &mut self.observer
     }
 }

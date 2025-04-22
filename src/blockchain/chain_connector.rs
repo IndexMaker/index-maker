@@ -34,7 +34,7 @@ pub mod test_util {
     use crate::{
         core::{
             bits::{Address, Amount, PaymentId, Symbol},
-            functional::{PublishSingle, SingleObserver},
+            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
         },
         index::basket::{Basket, BasketDefinition},
         solver::index_order::Payment,
@@ -53,7 +53,7 @@ pub mod test_util {
     }
 
     pub struct MockChainConnector {
-        pub observer: SingleObserver<ChainNotification>,
+        observer: SingleObserver<ChainNotification>,
         pub internal_observer: SingleObserver<MockChainInternalNotification>,
     }
 
@@ -86,6 +86,12 @@ pub mod test_util {
                 observer,
                 internal_observer,
             }
+        }
+    }
+
+    impl IntoObservableSingle<ChainNotification> for MockChainConnector {
+        fn get_single_observer_mut(&mut self) -> &mut SingleObserver<ChainNotification> {
+            &mut self.observer
         }
     }
 
@@ -144,7 +150,7 @@ mod tests {
     //
     #[test]
     fn test_mock_chain_connection() {
-        let (tx, rx) = get_mock_channel::<Box<dyn FnOnce()>>();
+        let (tx, rx) = get_mock_defer_channel();
         let tx_2 = tx.clone();
         let (tx_end, rx_end) = get_mock_channel::<bool>();
 

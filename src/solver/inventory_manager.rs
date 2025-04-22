@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
@@ -11,7 +8,7 @@ use parking_lot::RwLock;
 use crate::{
     core::{
         bits::{Amount, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
-        functional::{PublishSingle, SingleObserver},
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
 };
@@ -60,7 +57,7 @@ pub enum InventoryEvent {
 }
 
 pub struct InventoryManager {
-    pub observer: SingleObserver<InventoryEvent>,
+    observer: SingleObserver<InventoryEvent>,
     pub order_tracker: Arc<RwLock<OrderTracker>>,
     pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
     pub tolerance: Amount,
@@ -180,7 +177,7 @@ impl InventoryManager {
                             closing_batch_quantity_remaining: batch_quantity_remaining,
                             closing_timestamp: fill_timestamp,
                         });
-                    }
+                    },
                 )
             }
         }
@@ -314,6 +311,12 @@ impl InventoryManager {
     }
 }
 
+impl IntoObservableSingle<InventoryEvent> for InventoryManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<InventoryEvent> {
+        &mut self.observer
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::{
@@ -328,6 +331,7 @@ mod test {
         assert_decimal_approx_eq,
         core::{
             bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
+            functional::IntoObservableSingle,
             test_util::{
                 get_mock_asset_name_1, get_mock_decimal, get_mock_defer_channel, run_mock_deferred,
             },
@@ -429,22 +433,23 @@ mod test {
         {
             // Make sure Order Connector sends events to Order Tracker
             let order_tracker_1 = Arc::downgrade(&order_tracker);
-            order_connector.write().observer.set_observer_fn(
-                move |e: OrderConnectorNotification| {
+            order_connector
+                .write()
+                .get_single_observer_mut()
+                .set_observer_fn(move |e: OrderConnectorNotification| {
                     let order_tracker = order_tracker_1.upgrade().unwrap();
                     defer_1
                         .send(Box::new(move || {
                             order_tracker.write().handle_order_notification(e);
                         }))
                         .expect("Failed to defer");
-                },
-            );
+                });
 
             // Make sure Order Tracker sends events to Inventory Manager
             let inventory_manager_1 = Arc::downgrade(&inventory_manager);
             order_tracker
                 .write()
-                .observer
+                .get_single_observer_mut()
                 .set_observer_fn(move |e: OrderTrackerNotification| {
                     let inventory_manager = inventory_manager_1.upgrade().unwrap();
                     defer_2

@@ -603,14 +603,14 @@ mod test {
     /// Second 2. 20 quantity will engage with:
     ///     * remaining 5 on #1 Buy 10 @ $100
     ///     * and 15 on #2 Buy 20 @ $110, leaving 5 remaining
-    /// 
+    ///
     /// Next that we create Sell order:
     ///     #3 Sell 20 @ $140
-    /// 
+    ///
     /// This #3 Sell order will:
     ///     * reduce #2 Buy 20 @ $110 from remaining 5 to 0, while keeping its 15 engaged
     ///     * and stop any further matching
-    /// 
+    ///
     /// As the result both orders #1 and #2 will be fully engaged, and order will stay on Buy side.
     ///
     #[test]

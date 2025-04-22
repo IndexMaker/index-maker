@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre,Result};
+use eyre::{eyre, Result};
 
 pub type Symbol = string_cache::DefaultAtom; // asset or market name
 pub type Amount = rust_decimal::Decimal; // price, quantity, value, or rate
@@ -19,11 +19,9 @@ pub fn sub_amounts(a: Amount, b: Amount) -> Result<Amount> {
 
 /// Add amount to optional amount
 pub fn add_amount_to_optional(a: Option<Amount>, b: Amount) -> Result<Option<Amount>> {
-    let c = match a{
+    let c = match a {
         None => Some(b),
-        Some(a) => {
-            Some(a.checked_add(b).ok_or(eyre!("Match overflow"))?)
-        }
+        Some(a) => Some(a.checked_add(b).ok_or(eyre!("Match overflow"))?),
     };
     Ok(c)
 }
@@ -34,9 +32,7 @@ pub fn add_optional_amounts(a: Option<Amount>, b: Option<Amount>) -> Result<Opti
         (None, None) => None,
         (None, Some(b)) => Some(b),
         (Some(a), None) => Some(a),
-        (Some(a), Some(b)) => {
-            Some(a.checked_add(b).ok_or(eyre!("Match overflow"))?)
-        }
+        (Some(a), Some(b)) => Some(a.checked_add(b).ok_or(eyre!("Match overflow"))?),
     };
     Ok(c)
 }

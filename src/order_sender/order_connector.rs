@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{core::bits::{Amount, OrderId, Side, SingleOrder, Symbol}, solver::position::LotId};
+use crate::{
+    core::bits::{Amount, OrderId, Side, SingleOrder, Symbol},
+    solver::position::LotId,
+};
 use chrono::{DateTime, Utc};
 use eyre::Result;
 
@@ -25,7 +28,7 @@ pub enum OrderConnectorNotification {
     },
 }
 
-pub trait OrderConnector {
+pub trait OrderConnector: Send + Sync {
     // Send order to exchange (-> Binance)
     fn send_order(&mut self, order: &Arc<SingleOrder>) -> Result<()>;
 }
@@ -38,17 +41,20 @@ pub mod test_util {
         Arc,
     };
 
-    use crate::{core::{
-        bits::{Amount, OrderId, Side, SingleOrder, Symbol},
-        functional::{PublishSingle, SingleObserver},
-    }, solver::position::LotId};
+    use crate::{
+        core::{
+            bits::{Amount, OrderId, Side, SingleOrder, Symbol},
+            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        },
+        solver::position::LotId,
+    };
     use chrono::{DateTime, Utc};
     use eyre::Result;
 
     use super::{OrderConnector, OrderConnectorNotification};
 
     pub struct MockOrderConnector {
-        pub observer: SingleObserver<OrderConnectorNotification>,
+        observer: SingleObserver<OrderConnectorNotification>,
         pub implementor: SingleObserver<Arc<SingleOrder>>,
         pub is_connected: AtomicBool,
     }
@@ -120,6 +126,12 @@ pub mod test_util {
             Ok(())
         }
     }
+
+    impl IntoObservableSingle<OrderConnectorNotification> for MockOrderConnector {
+        fn get_single_observer_mut(&mut self) -> &mut SingleObserver<OrderConnectorNotification> {
+            &mut self.observer
+        }
+    }
 }
 
 #[cfg(test)]
@@ -132,12 +144,12 @@ pub mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{BatchOrderId, OrderId, Side, SingleOrder},
-            test_util::{
+            bits::{BatchOrderId, OrderId, Side, SingleOrder}, functional::IntoObservableSingle, test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
                 get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
-            },
-        }, solver::position::LotId,
+            }
+        },
+        solver::position::LotId,
     };
 
     use super::{test_util::MockOrderConnector, OrderConnector, OrderConnectorNotification};
@@ -196,7 +208,7 @@ pub mod test {
 
         order_connector_1
             .write()
-            .observer
+            .get_single_observer_mut()
             .set_observer_fn(move |e: OrderConnectorNotification| {
                 let flag = flag_2.clone();
                 let order_id_2 = order_id_2.clone();

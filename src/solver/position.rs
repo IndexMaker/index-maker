@@ -6,7 +6,6 @@ use parking_lot::RwLock;
 
 use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, Symbol};
 
-
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///
 /// From exchange perspective execution Id is the Id of the *action*, which is to execute an order.
@@ -233,8 +232,9 @@ impl Position {
 
                 self.balance = match side {
                     Side::Buy => self.balance.checked_sub(matched_lot_quantity),
-                    Side::Sell => self.balance.checked_sub(matched_lot_quantity)
-                }.ok_or(eyre!("Math overflow"))?;
+                    Side::Sell => self.balance.checked_sub(matched_lot_quantity),
+                }
+                .ok_or(eyre!("Math overflow"))?;
 
                 lot_closed_cb(&lot, matched_lot_quantity);
             }

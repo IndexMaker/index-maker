@@ -24,22 +24,22 @@ use super::{
 /// which will (partly) fill (some of the) ordered indexes.  Any position that
 /// wasn't matched against ordered indexes shouldn't be kept for too long.
 pub struct Solver {
-    pub chain_connector: Arc<RwLock<dyn ChainConnector>>,
+    pub chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
     pub index_order_manager: Arc<RwLock<IndexOrderManager>>,
-    pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
+    pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
     pub basket_manager: Arc<RwLock<BasketManager>>,
     pub price_tracker: Arc<RwLock<PriceTracker>>,
-    pub order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
+    pub order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     pub inventory_manager: Arc<RwLock<InventoryManager>>,
 }
 impl Solver {
     pub fn new(
-        chain_connector: Arc<RwLock<dyn ChainConnector>>,
+        chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
         index_order_manager: Arc<RwLock<IndexOrderManager>>,
-        quote_request_manager: Arc<RwLock<dyn QuoteRequestManager>>,
+        quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
-        order_book_manager: Arc<RwLock<dyn OrderBookManager>>,
+        order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
     ) -> Self {
         Self {
@@ -146,9 +146,7 @@ impl Solver {
                 address: _,
                 payment_id: _,
                 amount_paid_in: _,
-            } => {
-                ()
-            }
+            } => (),
         }
     }
 
@@ -180,11 +178,23 @@ impl Solver {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
+    use std::{any::type_name, sync::Arc, thread};
+
+    use crossbeam::{
+        channel::{unbounded, Sender},
+        select,
+    };
 
     use crate::{
         blockchain::chain_connector::test_util::MockChainConnector,
-        core::{bits::Symbol, test_util::get_mock_decimal},
+        core::{
+            bits::Symbol,
+            functional::{
+                IntoNotificationHandlerOnceBox, IntoObservableMany, IntoObservableSingle,
+                NotificationHandlerOnce,
+            },
+            test_util::get_mock_decimal,
+        },
         market_data::{
             market_data_connector::{
                 test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
@@ -192,7 +202,8 @@ mod test {
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
-            order_connector::test_util::MockOrderConnector, order_tracker::OrderTracker,
+            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
+            order_tracker::{OrderTracker, OrderTrackerNotification},
         },
         server::server::{test_util::MockServer, ServerEvent},
         solver::index_quote_manager::test_util::MockQuoteRequestManager,
@@ -200,10 +211,43 @@ mod test {
 
     use super::*;
 
+    impl<T> NotificationHandlerOnce<T> for Sender<T>
+    where
+        T: Send + Sync,
+    {
+        fn handle_notification(&self, notification: T) {
+            self.send(notification)
+                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
+        }
+    }
+
+    impl<T> IntoNotificationHandlerOnceBox<T> for Sender<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
+            Box::new(self)
+        }
+    }
+
     #[test]
     #[ignore = "Not implemented yet. Only SBE design."]
     fn sbe_solver() {
         let tolerance = get_mock_decimal("0.0001");
+
+        let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
+        let (index_order_sender, index_order_receiver) = unbounded::<IndexOrderEvent>();
+        let (quote_request_sender, quote_request_receiver) = unbounded::<QuoteRequestEvent>();
+        let (inventory_sender, inventory_receiver) = unbounded::<InventoryEvent>();
+        let (book_sender, book_receiver) = unbounded::<OrderBookEvent>();
+        let (price_sender, price_receiver) = unbounded::<PriceEvent>();
+        let (market_sender, market_receiver) = unbounded::<Arc<MarketDataEvent>>();
+        let (fix_server_sender, fix_server_receiver) = unbounded::<Arc<ServerEvent>>();
+        let (order_tracker_sender, order_tracker_receiver) =
+            unbounded::<OrderTrackerNotification>();
+        let (order_connector_sender, order_connector_receiver) =
+            unbounded::<OrderConnectorNotification>();
+
         /*
         NOTES:
         This SBE is to demonstrate general structure of the application.
@@ -229,7 +273,10 @@ mod test {
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(fix_server.clone(), tolerance)));
+        let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(
+            fix_server.clone(),
+            tolerance,
+        )));
         let quote_request_manager = Arc::new(RwLock::new(MockQuoteRequestManager::new(
             fix_server.clone(),
         )));
@@ -246,125 +293,59 @@ mod test {
             inventory_manager.clone(),
         ));
 
-        let solver_weak_1 = Arc::downgrade(&solver);
-        let solver_weak_2 = solver_weak_1.clone();
-        let solver_weak_3 = solver_weak_1.clone();
-        let solver_weak_4 = solver_weak_1.clone();
-        let solver_weak_5 = solver_weak_1.clone();
-        let solver_weak_6 = solver_weak_1.clone();
-
-        // Solver internally will
-        // 1. To receive events from chain
         chain_connector
             .write()
-            .observer
-            .set_observer_fn(move |e| solver_weak_1.upgrade().unwrap().handle_chain_event(e));
+            .get_single_observer_mut()
+            .set_observer_from(chain_sender);
 
-        // 2. To receive index orders from endpoint (FIX, REST, WS, ...)
         index_order_manager
             .write()
-            .observer
-            .set_observer_fn(move |e| solver_weak_2.upgrade().unwrap().handle_index_order(e));
+            .get_single_observer_mut()
+            .set_observer_from(index_order_sender);
 
-        // 3. To receive index quote request from endpoint (FIX, REST, WS, ...)
         quote_request_manager
             .write()
-            .observer
-            .set_observer_fn(move |e| solver_weak_3.upgrade().unwrap().handle_quote_request(e));
+            .get_single_observer_mut()
+            .set_observer_from(quote_request_sender);
 
         inventory_manager
             .write()
-            .observer
-            .set_observer_fn(move |e| solver_weak_4.upgrade().unwrap().handle_inventory_event(e));
+            .get_single_observer_mut()
+            .set_observer_from(inventory_sender);
 
         price_tracker
             .write()
-            .observer
-            .set_observer_fn(move |e| solver_weak_5.upgrade().unwrap().handle_price_event(e));
+            .get_single_observer_mut()
+            .set_observer_from(price_sender);
 
         order_book_manager
             .write()
-            .observer
-            .set_observer_fn(move |e| solver_weak_6.upgrade().unwrap().handle_book_event(e));
+            .get_single_observer_mut()
+            .set_observer_from(book_sender);
 
-        let order_book_manager_weak = Arc::downgrade(&order_book_manager);
-        let price_tracker_weak = Arc::downgrade(&price_tracker);
-
-        // OrderBookManager internally will
-        // because it will use the connector to subscribe for market data, and
-        // it will register itself as market data observer
         market_data_connector
             .write()
-            .observer
+            .get_multi_observer_mut()
             .add_observer_fn(move |e: &Arc<MarketDataEvent>| {
-                order_book_manager_weak
-                    .upgrade()
-                    .unwrap()
-                    .write()
-                    .handle_market_data(e)
+                market_sender.send(e.clone()).unwrap()
             });
 
-        // PriceTracker internally will
-        // because it will use the connector to subscribe for market data, and
-        // it will register itself as market data observer
-        market_data_connector
-            .write()
-            .observer
-            .add_observer_fn(move |e: &Arc<MarketDataEvent>| {
-                price_tracker_weak
-                    .upgrade()
-                    .unwrap()
-                    .write()
-                    .handle_market_data(e)
-            });
-
-        let index_order_manager_weak = Arc::downgrade(&index_order_manager);
-        let quote_request_manager_weak = Arc::downgrade(&quote_request_manager);
-
-        // IndexOrderManager internally will
         fix_server
             .write()
-            .observers
+            .get_multi_observer_mut()
             .add_observer_fn(move |e: &Arc<ServerEvent>| {
-                index_order_manager_weak
-                    .upgrade()
-                    .unwrap()
-                    .write()
-                    .handle_server_message(e).expect("Failed to handle index order");
+                fix_server_sender.send(e.clone()).unwrap();
             });
 
-        // QuoteRequestManager internally will
-        fix_server
+        order_tracker
             .write()
-            .observers
-            .add_observer_fn(move |e: &Arc<ServerEvent>| {
-                quote_request_manager_weak
-                    .upgrade()
-                    .unwrap()
-                    .write()
-                    .handle_server_message(e)
-            });
+            .get_single_observer_mut()
+            .set_observer_from(order_tracker_sender);
 
-        let inventory_manager_weak = Arc::downgrade(&inventory_manager);
-
-        order_tracker.write().observer.set_observer_fn(move |e| {
-            inventory_manager_weak
-                .upgrade()
-                .unwrap()
-                .write()
-                .handle_fill_report(e)
-                .expect("Failed to handle fill report");
-        });
-
-        let order_tracker_weak = Arc::downgrade(&order_tracker);
-
-        order_connector.write().observer.set_observer_fn(move |e| {
-            order_tracker_weak
-                .upgrade()
-                .unwrap()
-                .write()
-                .handle_order_notification(e);
-        });
+        order_connector
+            .write()
+            .get_single_observer_mut()
+            .set_observer_fn(order_connector_sender);
 
         // connect to exchange
         order_connector.write().connect();
@@ -377,5 +358,54 @@ mod test {
             .write()
             .subscribe(&[Symbol::default()])
             .unwrap();
+
+        let th_1 = thread::spawn(move || {
+            // Simple dispatch loop
+            loop {
+                select! {
+                    recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
+                    recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
+                    recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
+                    recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap()),
+                    recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
+                    recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
+
+                    recv(market_receiver) -> res => {
+                        let e = res.unwrap();
+                        price_tracker
+                            .write()
+                            .handle_market_data(&e);
+
+                        order_book_manager
+                            .write()
+                            .handle_market_data(&e);
+                    },
+                    recv(fix_server_receiver) -> res => {
+                        let e = res.unwrap();
+                        index_order_manager
+                            .write()
+                            .handle_server_message(&e)
+                            .expect("Failed to handle index order");
+
+                        quote_request_manager
+                            .write()
+                            .handle_server_message(&e);
+                    },
+                    recv(order_tracker_receiver) -> res => {
+                        inventory_manager
+                            .write()
+                            .handle_fill_report(res.unwrap())
+                            .expect("Failed to handle fill report");
+                    },
+                    recv(order_connector_receiver) -> res => {
+                        order_tracker
+                            .write()
+                            .handle_order_notification(res.unwrap());
+                    }
+                }
+            }
+        });
+
+        th_1.join().expect("Error while joining thread");
     }
 }

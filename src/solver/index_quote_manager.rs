@@ -1,3 +1,4 @@
+
 pub enum QuoteRequestEvent {
     NewQuoteRequest,
     CancelQuoteRequest,
@@ -16,7 +17,10 @@ pub mod test_util {
     use parking_lot::RwLock;
 
     use crate::{
-        core::{bits::BatchOrderId, functional::{PublishSingle, SingleObserver}},
+        core::{
+            bits::BatchOrderId,
+            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        },
         server::server::{Server, ServerEvent},
         solver::index_quote::IndexQuote,
     };
@@ -24,7 +28,7 @@ pub mod test_util {
     use super::{QuoteRequestEvent, QuoteRequestManager};
 
     pub struct MockQuoteRequestManager {
-        pub observer: SingleObserver<QuoteRequestEvent>,
+        observer: SingleObserver<QuoteRequestEvent>,
         pub server: Arc<RwLock<dyn Server>>,
         pub quote_requests: HashMap<BatchOrderId, IndexQuote>,
     }
@@ -71,6 +75,12 @@ pub mod test_util {
                 } => (),
                 _ => (),
             }
+        }
+    }
+
+    impl IntoObservableSingle<QuoteRequestEvent> for MockQuoteRequestManager {
+        fn get_single_observer_mut(&mut self) -> &mut SingleObserver<QuoteRequestEvent> {
+            &mut self.observer
         }
     }
 

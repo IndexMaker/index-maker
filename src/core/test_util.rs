@@ -56,11 +56,14 @@ pub fn get_mock_channel<T>() -> (Sender<T>, Receiver<T>) {
     channel::<T>()
 }
 
-pub fn get_mock_defer_channel() -> (Sender<Box<dyn FnOnce()>>, Receiver<Box<dyn FnOnce()>>) {
-    channel::<Box<dyn FnOnce()>>()
+pub fn get_mock_defer_channel() -> (
+    Sender<Box<dyn FnOnce() + Send + Sync>>,
+    Receiver<Box<dyn FnOnce() + Send + Sync>>,
+) {
+    channel::<Box<dyn FnOnce() + Send + Sync>>()
 }
 
-pub fn run_mock_deferred(rx: &Receiver<Box<dyn FnOnce()>>) {
+pub fn run_mock_deferred(rx: &Receiver<Box<dyn FnOnce() + Send + Sync>>) {
     rx.try_iter().for_each(|f| f());
 }
 
