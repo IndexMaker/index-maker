@@ -1,11 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use itertools::Itertools;
 use parking_lot::RwLock;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
+    core::bits::{Amount, ClientOrderId, PriceType, Side},
     index::basket_manager::{BasketManager, BasketNotification},
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -220,10 +220,10 @@ impl Solver {
 
 #[cfg(test)]
 mod test {
-    use std::{any::type_name, sync::Arc, thread, time::Duration};
+    use std::{any::type_name, sync::Arc};
 
     use crossbeam::{
-        channel::{bounded, unbounded, Sender},
+        channel::{unbounded, Sender},
         select,
     };
 
