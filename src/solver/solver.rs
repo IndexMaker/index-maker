@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use itertools::Itertools;
 use parking_lot::RwLock;
 
 use crate::{
@@ -128,15 +129,36 @@ impl Solver {
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) {
+        println!("Solver: Handle Chain Event");
         match notification {
-            ChainNotification::CuratorWeightsSet(basket_definition) => {
-                if let Err(_) = self.basket_manager.write().set_basket_from_definition(
-                    Symbol::default(), // <- name of an Index
+            ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
+                let symbols = basket_definition
+                    .weights
+                    .iter()
+                    .map(|w| w.asset.name.clone())
+                    .collect_vec();
+
+                let get_prices_response = self
+                    .price_tracker
+                    .read()
+                    .get_prices(PriceType::VolumeWeighted, symbols.as_slice());
+
+                if !get_prices_response.missing_symbols.is_empty() {
+                    println!(
+                        "Solver: No prices available for some symbols: {:?}",
+                        get_prices_response.missing_symbols
+                    );
+                }
+
+                let target_price = "1000".try_into().unwrap(); // TODO
+
+                if let Err(err) = self.basket_manager.write().set_basket_from_definition(
+                    symbol,
                     basket_definition,
-                    &HashMap::new(),   // <- get current prices from price tracker
-                    Amount::default(), // <- calculate target price
+                    &get_prices_response.prices,
+                    target_price,
                 ) {
-                    todo!("Implement error logging")
+                    println!("Solver: Error while setting curator weights: {err}");
                 }
             }
             ChainNotification::PaymentIn {
@@ -149,32 +171,38 @@ impl Solver {
 
     /// receive Index Order
     pub fn handle_index_order(&self, _notification: IndexOrderEvent) {
-        self.solve();
+        println!("Solver: Handle Index Order");
+        //self.solve();
     }
 
     // receive QR
     pub fn handle_quote_request(&self, _notification: QuoteRequestEvent) {
-        self.quote(());
+        println!("Solver: Handle Quote Request");
+        //self.quote(());
     }
 
     /// Receive fill notifications
     pub fn handle_inventory_event(&self, _notification: InventoryEvent) {
-        self.solve();
+        println!("Solver: Handle Inventory Event");
+        //self.solve();
     }
 
     /// receive current prices from Price Tracker
     pub fn handle_price_event(&self, _notification: PriceEvent) {
-        self.solve();
+        println!("Solver: Handle Price Event");
+        //self.solve();
     }
 
     /// receive available liquidity from Order Book Manager
     pub fn handle_book_event(&self, _notification: OrderBookEvent) {
-        self.solve();
+        println!("Solver: Handle Book Event");
+        //self.solve();
     }
 
+    /// receive basket notification
     pub fn handle_basket_event(&self, notification: BasketNotification) {
-        // solve
-        self.solve();
+        println!("Solver: Handle Basket Notification");
+        //self.solve();
         // TODO: (move this) once solvign is done notify new weights were applied
         match notification {
             BasketNotification::BasketAdded(symbol, basket) => self
@@ -192,7 +220,7 @@ impl Solver {
 
 #[cfg(test)]
 mod test {
-    use std::{any::type_name, sync::Arc, thread};
+    use std::{any::type_name, sync::Arc, thread, time::Duration};
 
     use crossbeam::{
         channel::{bounded, unbounded, Sender},
@@ -200,16 +228,24 @@ mod test {
     };
 
     use crate::{
-        blockchain::chain_connector::test_util::MockChainConnector,
+        blockchain::chain_connector::test_util::{
+            MockChainConnector, MockChainInternalNotification,
+        },
         core::{
-            bits::Symbol,
+            bits::PricePointEntry,
             functional::{
                 IntoNotificationHandlerOnceBox, IntoObservableMany, IntoObservableSingle,
                 NotificationHandlerOnce,
             },
-            test_util::get_mock_decimal,
+            test_util::{
+                get_mock_asset_1_arc, get_mock_asset_2_arc, get_mock_asset_name_1,
+                get_mock_asset_name_2, get_mock_decimal, get_mock_index_name_1,
+            },
         },
-        index::basket_manager::BasketNotification,
+        index::{
+            basket::{AssetWeight, BasketDefinition},
+            basket_manager::BasketNotification,
+        },
         market_data::{
             market_data_connector::{
                 test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
@@ -262,7 +298,6 @@ mod test {
             unbounded::<OrderTrackerNotification>();
         let (order_connector_sender, order_connector_receiver) =
             unbounded::<OrderConnectorNotification>();
-        let (break_sender, break_receiver) = bounded::<bool>(1);
 
         /*
         NOTES:
@@ -369,11 +404,10 @@ mod test {
             .get_single_observer_mut()
             .set_observer_fn(order_connector_sender);
 
-        let event_loop_thread = thread::spawn(move || {
+        let flush_events = move || {
             // Simple dispatch loop
             loop {
                 select! {
-                    recv(break_receiver) -> res => if res.unwrap() { break; },
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
@@ -413,10 +447,18 @@ mod test {
                         order_tracker
                             .write()
                             .handle_order_notification(res.unwrap());
-                    }
+                    },
+                    default => { break; },
                 }
             }
-        });
+        };
+
+        let (mock_chain_sender, _mock_chain_receiver) =
+            unbounded::<MockChainInternalNotification>();
+        chain_connector
+            .write()
+            .internal_observer
+            .set_observer_from(mock_chain_sender);
 
         // connect to exchange
         order_connector.write().connect();
@@ -427,20 +469,109 @@ mod test {
         // subscribe to symbol/USDC markets
         market_data_connector
             .write()
-            .subscribe(&[Symbol::default()])
+            .subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
             .unwrap();
 
-        //chain_connector.write().notify_curator_weights_set(basket_definition);
+        // send some market data
+        // top of the book
+        market_data_connector.write().notify_top_of_book(
+            get_mock_asset_name_1(),
+            get_mock_decimal("90.0"),
+            get_mock_decimal("100.0"),
+            get_mock_decimal("10.0"),
+            get_mock_decimal("20.0"),
+        );
+
+        market_data_connector.write().notify_top_of_book(
+            get_mock_asset_name_2(),
+            get_mock_decimal("295.0"),
+            get_mock_decimal("300.0"),
+            get_mock_decimal("80.0"),
+            get_mock_decimal("50.0"),
+        );
+
+        // last trade
+        market_data_connector.write().notify_trade(
+            get_mock_asset_name_1(),
+            get_mock_decimal("90.0"),
+            get_mock_decimal("5.0"),
+        );
+
+        market_data_connector.write().notify_trade(
+            get_mock_asset_name_2(),
+            get_mock_decimal("300.0"),
+            get_mock_decimal("15.0"),
+        );
+
+        // book depth
+        market_data_connector.write().notify_full_order_book(
+            get_mock_asset_name_1(),
+            vec![
+                PricePointEntry {
+                    price: get_mock_decimal("90.0"),
+                    quantity: get_mock_decimal("10.0"),
+                },
+                PricePointEntry {
+                    price: get_mock_decimal("80.0"),
+                    quantity: get_mock_decimal("40.0"),
+                },
+            ],
+            vec![
+                PricePointEntry {
+                    price: get_mock_decimal("100.0"),
+                    quantity: get_mock_decimal("20.0"),
+                },
+                PricePointEntry {
+                    price: get_mock_decimal("110.0"),
+                    quantity: get_mock_decimal("30.0"),
+                },
+            ],
+        );
+
+        market_data_connector.write().notify_full_order_book(
+            get_mock_asset_name_2(),
+            vec![
+                PricePointEntry {
+                    price: get_mock_decimal("295.0"),
+                    quantity: get_mock_decimal("80.0"),
+                },
+                PricePointEntry {
+                    price: get_mock_decimal("290.0"),
+                    quantity: get_mock_decimal("100.0"),
+                },
+            ],
+            vec![
+                PricePointEntry {
+                    price: get_mock_decimal("300.0"),
+                    quantity: get_mock_decimal("50.0"),
+                },
+                PricePointEntry {
+                    price: get_mock_decimal("305.0"),
+                    quantity: get_mock_decimal("150.0"),
+                },
+            ],
+        );
+
+        // necessary to wait until all market data events are ingested
+        flush_events();
+
+        // define basket
+        let basket_definition = BasketDefinition::try_new(vec![
+            AssetWeight::new(get_mock_asset_1_arc(), get_mock_decimal("0.25")),
+            AssetWeight::new(get_mock_asset_2_arc(), get_mock_decimal("0.75")),
+        ])
+        .unwrap();
+
+        // send basket weights
         chain_connector
             .write()
-            .internal_observer
-            .set_observer_fn(|e| {});
-        fix_server.write().notify_fix_message(());
+            .notify_curator_weights_set(get_mock_index_name_1(), basket_definition);
 
-        // Complete the test
-        break_sender.send(true).expect("Error terminating test");
-        event_loop_thread
-            .join()
-            .expect("Error while joining thread");
+        flush_events();
+
+        // wait for solver to solve...
+        //mock_chain_receiver.recv();
+
+        //fix_server.write().notify_fix_message(());
     }
 }

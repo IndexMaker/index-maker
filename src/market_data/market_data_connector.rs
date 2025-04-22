@@ -145,10 +145,12 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{PricePointEntry, Symbol}, functional::IntoObservableMany, test_util::{
+            bits::{PricePointEntry, Symbol},
+            functional::IntoObservableMany,
+            test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2,
                 get_mock_atomic_bool_pair, get_mock_decimal, test_mock_atomic_bool,
-            }
+            },
         },
         market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
     };

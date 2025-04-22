@@ -145,9 +145,9 @@ mod tests {
         let notifications = Arc::new(RwLock::new(VecDeque::new()));
         let notifiations_2 = notifications.clone();
 
-        basket_manager.get_single_observer_mut().set_observer_fn(move |notification| {
-            notifiations_2.write().push_back(notification)
-        });
+        basket_manager
+            .get_single_observer_mut()
+            .set_observer_fn(move |notification| notifiations_2.write().push_back(notification));
 
         //
         // I. Test that we can create new basket with weights, prices, and target price

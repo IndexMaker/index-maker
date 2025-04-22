@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
@@ -249,7 +246,6 @@ impl IndexOrderManager {
     pub fn get_pending_order_requests(&self) -> Vec<()> {
         todo!()
     }
-
 }
 
 impl IntoObservableSingle<IndexOrderEvent> for IndexOrderManager {

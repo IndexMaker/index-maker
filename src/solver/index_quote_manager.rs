@@ -1,4 +1,3 @@
-
 pub enum QuoteRequestEvent {
     NewQuoteRequest,
     CancelQuoteRequest,

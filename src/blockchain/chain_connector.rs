@@ -10,7 +10,7 @@ use crate::{
 
 /// On-chain event
 pub enum ChainNotification {
-    CuratorWeightsSet(BasketDefinition), // ...more
+    CuratorWeightsSet(Symbol, BasketDefinition), // ...more
     PaymentIn {
         address: Address,
         payment_id: PaymentId,
@@ -71,9 +71,14 @@ pub mod test_util {
         }
 
         /// Notify about on chain events
-        pub fn notify_curator_weights_set(&self, basket_definition: BasketDefinition) {
+        pub fn notify_curator_weights_set(
+            &self,
+            symbol: Symbol,
+            basket_definition: BasketDefinition,
+        ) {
             self.observer
                 .publish_single(super::ChainNotification::CuratorWeightsSet(
+                    symbol,
                     basket_definition,
                 ));
         }
@@ -176,11 +181,11 @@ mod tests {
         let chain_observer = SingleObserver::new_with_observer(Box::new(move |notification| {
             assert!(matches!(
                 notification,
-                ChainNotification::CuratorWeightsSet(_)
+                ChainNotification::CuratorWeightsSet(_, _)
             ));
             let basket_manager = basket_manager.clone();
             match notification {
-                ChainNotification::CuratorWeightsSet(basket_definition) => {
+                ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
                     tx_2.send(Box::new(move || {
                         let expected: HashMap<Symbol, Amount> = [
                             (get_mock_asset_name_1(), get_mock_decimal("0.25")),
@@ -194,6 +199,7 @@ mod tests {
                             .map(|w| (w.asset.name.clone(), w.weight))
                             .collect();
 
+                        assert_eq!(symbol, get_mock_index_name_1());
                         assert_hashmap_amounts_eq!(weights, expected, assert_tolerance_2);
 
                         // Tell reference prices for assets for in basket quantities computation
@@ -281,7 +287,7 @@ mod tests {
         mock_chain_connection.write().connect();
         mock_chain_connection
             .read()
-            .notify_curator_weights_set(basket_definition);
+            .notify_curator_weights_set(get_mock_index_name_1(), basket_definition);
 
         rx.try_iter().for_each(|f| f());
 
