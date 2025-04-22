@@ -220,7 +220,7 @@ impl Solver {
 
 #[cfg(test)]
 mod test {
-    use std::{any::type_name, sync::Arc};
+    use std::{any::type_name, sync::Arc, time::Duration};
 
     use crossbeam::{
         channel::{unbounded, Sender},
@@ -453,8 +453,7 @@ mod test {
             }
         };
 
-        let (mock_chain_sender, _mock_chain_receiver) =
-            unbounded::<MockChainInternalNotification>();
+        let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
         chain_connector
             .write()
             .internal_observer
@@ -570,7 +569,11 @@ mod test {
         flush_events();
 
         // wait for solver to solve...
-        //mock_chain_receiver.recv();
+        let solver_weithgs_set = mock_chain_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive SolverWeightsSet");
+
+        assert!(matches!(solver_weithgs_set, MockChainInternalNotification::SolverWeightsSet(_, _)));
 
         //fix_server.write().notify_fix_message(());
     }
