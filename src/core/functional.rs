@@ -35,6 +35,10 @@ impl<T> SingleObserver<T> {
         }
     }
 
+    pub fn has_observer(&self) -> bool {
+        self.observer.is_some()
+    }
+
     /// There is only single observer that can be set, and so we call it 'set'
     pub fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<T>>) {
         self.observer = Some(observer);
@@ -92,6 +96,10 @@ pub struct MultiObserver<T> {
 impl<T> MultiObserver<T> {
     pub fn new() -> Self {
         Self { observers: vec![] }
+    }
+
+    pub fn has_observers(&self) -> bool {
+        !self.observers.is_empty()
     }
 
     pub fn new_with_observers(observers: Vec<Box<dyn NotificationHandler<T>>>) -> Self {

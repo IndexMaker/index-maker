@@ -5,7 +5,7 @@ use parking_lot::RwLock;
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     core::bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
-    index::basket_manager::BasketManager,
+    index::basket_manager::{BasketManager, BasketNotification},
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{PriceEvent, PriceTracker},
@@ -137,9 +137,6 @@ impl Solver {
                     Amount::default(), // <- calculate target price
                 ) {
                     todo!("Implement error logging")
-                } else {
-                    // Recalculate position and send adequate orders
-                    self.solve();
                 }
             }
             ChainNotification::PaymentIn {
@@ -174,6 +171,23 @@ impl Solver {
     pub fn handle_book_event(&self, _notification: OrderBookEvent) {
         self.solve();
     }
+
+    pub fn handle_basket_event(&self, notification: BasketNotification) {
+        // solve
+        self.solve();
+        // TODO: (move this) once solvign is done notify new weights were applied
+        match notification {
+            BasketNotification::BasketAdded(symbol, basket) => self
+                .chain_connector
+                .write()
+                .solver_weights_set(symbol, basket),
+            BasketNotification::BasketUpdated(symbol, basket) => self
+                .chain_connector
+                .write()
+                .solver_weights_set(symbol, basket),
+            BasketNotification::BasketRemoved(_symbol) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -195,6 +209,7 @@ mod test {
             },
             test_util::get_mock_decimal,
         },
+        index::basket_manager::BasketNotification,
         market_data::{
             market_data_connector::{
                 test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
@@ -241,6 +256,7 @@ mod test {
         let (book_sender, book_receiver) = unbounded::<OrderBookEvent>();
         let (price_sender, price_receiver) = unbounded::<PriceEvent>();
         let (market_sender, market_receiver) = unbounded::<Arc<MarketDataEvent>>();
+        let (basket_sender, basket_receiver) = unbounded::<BasketNotification>();
         let (fix_server_sender, fix_server_receiver) = unbounded::<Arc<ServerEvent>>();
         let (order_tracker_sender, order_tracker_receiver) =
             unbounded::<OrderTrackerNotification>();
@@ -292,6 +308,12 @@ mod test {
             order_book_manager.clone(),
             inventory_manager.clone(),
         ));
+
+        solver
+            .basket_manager
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(basket_sender);
 
         chain_connector
             .write()
@@ -358,6 +380,7 @@ mod test {
                     recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap()),
                     recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
                     recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
+                    recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap()),
 
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
@@ -395,7 +418,6 @@ mod test {
             }
         });
 
-
         // connect to exchange
         order_connector.write().connect();
 
@@ -408,8 +430,17 @@ mod test {
             .subscribe(&[Symbol::default()])
             .unwrap();
 
+        //chain_connector.write().notify_curator_weights_set(basket_definition);
+        chain_connector
+            .write()
+            .internal_observer
+            .set_observer_fn(|e| {});
+        fix_server.write().notify_fix_message(());
+
         // Complete the test
         break_sender.send(true).expect("Error terminating test");
-        event_loop_thread.join().expect("Error while joining thread");
+        event_loop_thread
+            .join()
+            .expect("Error while joining thread");
     }
 }

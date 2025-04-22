@@ -20,7 +20,7 @@ pub enum ChainNotification {
 
 /// Connects to some Blockchain
 pub trait ChainConnector {
-    fn solver_weights_set(&self, basket: Arc<Basket>);
+    fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>);
     fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address);
     fn get_payment(&self, address: Address, payment_id: PaymentId) -> Option<Payment>;
     fn send_payment(&self, address: Address, amount: Amount);
@@ -44,7 +44,7 @@ pub mod test_util {
 
     /// Internal event so that we can write tests confirming that internal logic is reached
     pub enum MockChainInternalNotification {
-        SolverWeightsSet(Arc<Basket>),
+        SolverWeightsSet(Symbol, Arc<Basket>),
         MintIndex {
             symbol: Symbol,
             quantity: Amount,
@@ -96,9 +96,11 @@ pub mod test_util {
     }
 
     impl ChainConnector for MockChainConnector {
-        fn solver_weights_set(&self, basket: Arc<Basket>) {
+        fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
             self.internal_observer
-                .publish_single(MockChainInternalNotification::SolverWeightsSet(basket));
+                .publish_single(MockChainInternalNotification::SolverWeightsSet(
+                    symbol, basket,
+                ));
         }
 
         fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address) {
@@ -129,7 +131,7 @@ mod tests {
         blockchain::chain_connector::{ChainConnector, ChainNotification},
         core::{
             bits::{Amount, Symbol},
-            functional::SingleObserver,
+            functional::{IntoObservableSingle, SingleObserver},
             test_util::*,
         },
         index::{
@@ -207,7 +209,7 @@ mod tests {
                         basket_manager
                             .write()
                             .set_basket_from_definition(
-                                "SYB".into(),
+                                get_mock_index_name_1(),
                                 basket_definition,
                                 &individual_prices,
                                 target_price,
@@ -225,7 +227,7 @@ mod tests {
         }));
 
         let internal_observer = SingleObserver::new_with_observer(Box::new(move |notification| {
-            if let MockChainInternalNotification::SolverWeightsSet(basket) = notification {
+            if let MockChainInternalNotification::SolverWeightsSet(symbol, basket) = notification {
                 let tx_end = tx_end.clone();
                 tx.send(Box::new(move || {
                     let expected: HashMap<Symbol, Amount> = [
@@ -240,6 +242,7 @@ mod tests {
                         .map(|ba| (ba.weight.asset.name.clone(), ba.quantity))
                         .collect();
 
+                    assert_eq!(symbol, get_mock_index_name_1());
                     assert_hashmap_amounts_eq!(quantites, expected, assert_tolerance_1);
 
                     tx_end.send(true).unwrap();
@@ -257,10 +260,13 @@ mod tests {
 
         basket_manager_3
             .write()
-            .set_basket_observer(Box::new(move |notification| {
+            .get_single_observer_mut()
+            .set_observer_fn(Box::new(move |notification| {
                 match notification {
-                    BasketNotification::BasketAdded(_, basket) => {
-                        mock_chain_connection_2.write().solver_weights_set(basket);
+                    BasketNotification::BasketAdded(symbol, basket) => {
+                        mock_chain_connection_2
+                            .write()
+                            .solver_weights_set(symbol, basket);
                     }
                     _ => panic!("Expected basket add notification"),
                 };
