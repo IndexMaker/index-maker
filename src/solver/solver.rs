@@ -222,6 +222,7 @@ impl Solver {
 mod test {
     use std::{any::type_name, sync::Arc, time::Duration};
 
+    use chrono::Utc;
     use crossbeam::{
         channel::{unbounded, Sender},
         select,
@@ -232,14 +233,15 @@ mod test {
             MockChainConnector, MockChainInternalNotification,
         },
         core::{
-            bits::PricePointEntry,
+            bits::{PaymentId, PricePointEntry},
             functional::{
                 IntoNotificationHandlerOnceBox, IntoObservableMany, IntoObservableSingle,
                 NotificationHandlerOnce,
             },
             test_util::{
-                get_mock_asset_1_arc, get_mock_asset_2_arc, get_mock_asset_name_1,
-                get_mock_asset_name_2, get_mock_decimal, get_mock_index_name_1,
+                get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
+                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_decimal,
+                get_mock_index_name_1,
             },
         },
         index::{
@@ -256,7 +258,7 @@ mod test {
             order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
-        server::server::{test_util::MockServer, ServerEvent},
+        server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::index_quote_manager::test_util::MockQuoteRequestManager,
     };
 
@@ -454,10 +456,17 @@ mod test {
         };
 
         let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
+        let (mock_server_sender, mock_server_receiver) = unbounded::<ServerResponse>();
+
         chain_connector
             .write()
             .internal_observer
             .set_observer_from(mock_chain_sender);
+
+        fix_server
+            .write()
+            .internal_observer
+            .set_observer_from(mock_server_sender);
 
         // connect to exchange
         order_connector.write().connect();
@@ -573,8 +582,30 @@ mod test {
             .recv_timeout(Duration::from_secs(1))
             .expect("Failed to receive SolverWeightsSet");
 
-        assert!(matches!(solver_weithgs_set, MockChainInternalNotification::SolverWeightsSet(_, _)));
+        assert!(matches!(
+            solver_weithgs_set,
+            MockChainInternalNotification::SolverWeightsSet(_, _)
+        ));
 
-        //fix_server.write().notify_fix_message(());
+        fix_server
+            .write()
+            .notify_server_event(Arc::new(ServerEvent::NewIndexOrder {
+                address: get_mock_address_1(),
+                client_order_id: ClientOrderId("Order01".into()),
+                payment_id: PaymentId("Pay001".into()),
+                symbol: get_mock_asset_name_1(),
+                side: Side::Buy,
+                price: get_mock_decimal("100.0"),
+                price_threshold: get_mock_decimal("0.05"),
+                quantity: get_mock_decimal("5.0"),
+                timestamp: Utc::now(),
+            }));
+
+        flush_events();
+
+        // this will fail atm
+        //mock_server_receiver
+        //    .recv_timeout(Duration::from_secs(1))
+        //    .expect("Failed to receive ServerResponse");
     }
 }
