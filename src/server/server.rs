@@ -1,15 +1,57 @@
+use chrono::{DateTime, Utc};
+
+use crate::core::bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol};
+
 pub enum ServerEvent {
-    NewIndexOrder,
-    NewQuoteRequest,
-    CancelIndexOrder,
-    CancelQuoteRequest,
+    NewIndexOrder {
+        address: Address,
+        client_order_id: ClientOrderId,
+        payment_id: PaymentId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        price_threshold: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    CancelIndexOrder {
+        address: Address,
+        client_order_id: ClientOrderId,
+        payment_id: PaymentId,
+        symbol: Symbol,
+        quantity: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    NewQuoteRequest {
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        price_threshold: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    CancelQuoteRequest {
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+    },
     AccountToCustody,
     CustodyToAccount,
 }
 
-pub trait Server {
+pub enum ServerResponse {
+    NewIndexOrderAck {
+        address: Address,
+        client_order_id: ClientOrderId,
+        timestamp: DateTime<Utc>,
+    }
+}
+
+pub trait Server: Send + Sync {
     /// provide methods for sending FIX responses
-    fn respond_with(&mut self, message: ());
+    fn respond_with(&mut self, response: ServerResponse);
 }
 
 #[cfg(test)]
@@ -17,18 +59,20 @@ pub mod test_util {
 
     use std::sync::Arc;
 
-    use crate::core::functional::MultiObserver;
+    use crate::core::functional::{IntoObservableMany, MultiObserver, PublishMany, PublishSingle, SingleObserver};
 
-    use super::{Server, ServerEvent};
+    use super::{Server, ServerEvent, ServerResponse};
 
     pub struct MockServer {
-        pub observers: MultiObserver<Arc<ServerEvent>>,
+        observer: MultiObserver<Arc<ServerEvent>>,
+        pub internal_observer: SingleObserver<ServerResponse>,
     }
 
     impl MockServer {
         pub fn new() -> Self {
             Self {
-                observers: MultiObserver::new(),
+                observer: MultiObserver::new(),
+                internal_observer: SingleObserver::new(),
             }
         }
 
@@ -38,16 +82,23 @@ pub mod test_util {
         }
 
         /// Notify about FIX messages
-        pub fn notify_fix_message(&self, _fix_message: ()) {
-            // for each FIX message type there will be Server Event
-            self.observers.publish_many(&Arc::new(
-                ServerEvent::NewIndexOrder, // ...more event types
-            ));
+        /// 
+        /// Real server would parse FIX message, this one just publishes the event as-is.
+        pub fn notify_server_event(&self, server_event: Arc<ServerEvent>) {
+            self.observer.publish_many(&server_event);
         }
     }
 
     impl Server for MockServer {
         /// provide methods for sending FIX responses
-        fn respond_with(&mut self, _message: ()) {}
+        fn respond_with(&mut self, response: ServerResponse) {
+            self.internal_observer.publish_single(response);
+        }
+    }
+
+    impl IntoObservableMany<Arc<ServerEvent>> for MockServer {
+        fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<Arc<ServerEvent>> {
+            &mut self.observer
+        }
     }
 }

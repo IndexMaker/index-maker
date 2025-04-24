@@ -16,7 +16,10 @@ pub mod test_util {
     use parking_lot::RwLock;
 
     use crate::{
-        core::{bits::ClientOrderId, functional::SingleObserver},
+        core::{
+            bits::BatchOrderId,
+            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        },
         server::server::{Server, ServerEvent},
         solver::index_quote::IndexQuote,
     };
@@ -24,9 +27,9 @@ pub mod test_util {
     use super::{QuoteRequestEvent, QuoteRequestManager};
 
     pub struct MockQuoteRequestManager {
-        pub observer: SingleObserver<QuoteRequestEvent>,
+        observer: SingleObserver<QuoteRequestEvent>,
         pub server: Arc<RwLock<dyn Server>>,
-        pub quote_requests: HashMap<ClientOrderId, IndexQuote>,
+        pub quote_requests: HashMap<BatchOrderId, IndexQuote>,
     }
     impl MockQuoteRequestManager {
         pub fn new(server: Arc<RwLock<dyn Server>>) -> Self {
@@ -52,12 +55,31 @@ pub mod test_util {
         /// receive QR
         pub fn handle_server_message(&mut self, notification: &ServerEvent) {
             match notification {
-                ServerEvent::NewQuoteRequest => {
+                ServerEvent::NewQuoteRequest {
+                    address: _,
+                    client_order_id: _,
+                    symbol: _,
+                    side: _,
+                    price: _,
+                    price_threshold: _,
+                    quantity: _,
+                    timestamp: _,
+                } => {
                     self.new_quote_request(());
                 }
-                ServerEvent::CancelQuoteRequest => todo!(),
+                ServerEvent::CancelQuoteRequest {
+                    address: _,
+                    client_order_id: _,
+                    symbol: _,
+                } => (),
                 _ => (),
             }
+        }
+    }
+
+    impl IntoObservableSingle<QuoteRequestEvent> for MockQuoteRequestManager {
+        fn get_single_observer_mut(&mut self) -> &mut SingleObserver<QuoteRequestEvent> {
+            &mut self.observer
         }
     }
 

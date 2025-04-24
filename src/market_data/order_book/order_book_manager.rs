@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{
     core::{
         bits::{Amount, PricePointEntry, Side, Symbol},
-        functional::SingleObserver,
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     market_data::{market_data_connector::MarketDataEvent, order_book::order_book::PricePointBook},
 };
@@ -33,7 +33,7 @@ pub trait OrderBookManager {
 }
 
 pub struct PricePointBookManager {
-    pub observer: SingleObserver<OrderBookEvent>,
+    observer: SingleObserver<OrderBookEvent>,
     pub order_books: HashMap<Symbol, PricePointBook>,
     pub tolerance: Amount,
 }
@@ -117,5 +117,11 @@ impl OrderBookManager for PricePointBookManager {
         }
 
         Ok(result)
+    }
+}
+
+impl IntoObservableSingle<OrderBookEvent> for PricePointBookManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<OrderBookEvent> {
+        &mut self.observer
     }
 }

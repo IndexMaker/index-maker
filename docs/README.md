@@ -20,3 +20,6 @@
 
 #### Seting Weights
 <img src="solver-collab-set-weights.jpg">
+
+#### Making Index Order
+<img src="solver-collab-index-order.jpg">

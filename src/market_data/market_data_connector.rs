@@ -43,13 +43,13 @@ pub mod test_util {
 
     use crate::core::{
         bits::{Amount, PricePointEntry, Symbol},
-        functional::MultiObserver,
+        functional::{IntoObservableMany, MultiObserver, PublishMany},
     };
 
     use super::{MarketDataConnector, MarketDataEvent};
 
     pub struct MockMarketDataConnector {
-        pub observer: MultiObserver<Arc<MarketDataEvent>>,
+        observer: MultiObserver<Arc<MarketDataEvent>>,
         pub symbols: RwLock<HashSet<Symbol>>,
         pub is_connected: AtomicBool,
     }
@@ -128,6 +128,11 @@ pub mod test_util {
             }
         }
     }
+    impl IntoObservableMany<Arc<MarketDataEvent>> for MockMarketDataConnector {
+        fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<Arc<MarketDataEvent>> {
+            &mut self.observer
+        }
+    }
 }
 
 #[cfg(test)]
@@ -141,6 +146,7 @@ mod test {
         assert_decimal_approx_eq,
         core::{
             bits::{PricePointEntry, Symbol},
+            functional::IntoObservableMany,
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2,
                 get_mock_atomic_bool_pair, get_mock_decimal, test_mock_atomic_bool,
@@ -182,7 +188,7 @@ mod test {
         let (called_for_fob, called_for_fob_inner) = get_mock_atomic_bool_pair();
 
         connector
-            .observer
+            .get_multi_observer_mut()
             .add_observer_fn(move |e: &Arc<MarketDataEvent>| {
                 match &**e {
                     MarketDataEvent::TopOfBook {

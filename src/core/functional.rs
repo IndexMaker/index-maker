@@ -1,15 +1,23 @@
 /// Every notification is handled only once, and so then can be moved!
-pub trait NotificationHandlerOnce<T> {
+pub trait NotificationHandlerOnce<T>: Send + Sync {
     fn handle_notification(&self, notification: T);
 }
 
 impl<F, T> NotificationHandlerOnce<T> for F
 where
-    F: Fn(T),
+    F: Fn(T) + Send + Sync,
 {
     fn handle_notification(&self, notification: T) {
         (self)(notification)
     }
+}
+
+pub trait IntoNotificationHandlerOnceBox<T> {
+    fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>>;
+}
+
+pub trait PublishSingle<T> {
+    fn publish_single(&self, notification: T);
 }
 
 pub struct SingleObserver<T> {
@@ -27,6 +35,10 @@ impl<T> SingleObserver<T> {
         }
     }
 
+    pub fn has_observer(&self) -> bool {
+        self.observer.is_some()
+    }
+
     /// There is only single observer that can be set, and so we call it 'set'
     pub fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<T>>) {
         self.observer = Some(observer);
@@ -36,27 +48,45 @@ impl<T> SingleObserver<T> {
         self.set_observer(Box::new(observer));
     }
 
+    pub fn set_observer_from(&mut self, observer: impl IntoNotificationHandlerOnceBox<T>) {
+        self.observer = Some(observer.into_notification_handler_once_box());
+    }
+}
+
+impl<T> PublishSingle<T> for SingleObserver<T> {
     /// There will be only one handler, and so we call it 'single'
-    pub fn publish_single(&self, notification: T) {
+    fn publish_single(&self, notification: T) {
         if let Some(observer) = &self.observer {
             observer.handle_notification(notification);
         }
     }
 }
 
+pub trait IntoObservableSingle<T>: Send + Sync {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<T>;
+}
+
 /// Notifications can be handled by multiple handler, and so they must be passed
 /// by reference
-pub trait NotificationHandler<T> {
+pub trait NotificationHandler<T>: Send + Sync {
     fn handle_notification(&self, notification: &T);
 }
 
 impl<F, T> NotificationHandler<T> for F
 where
-    F: Fn(&T),
+    F: Fn(&T) + Send + Sync,
 {
     fn handle_notification(&self, notification: &T) {
         (self)(notification)
     }
+}
+
+pub trait IntoNotificationHandlerBox<T> {
+    fn into_notification_handler_box(self) -> Box<dyn NotificationHandler<T>>;
+}
+
+pub trait PublishMany<T> {
+    fn publish_many(&self, notification: &T);
 }
 
 pub struct MultiObserver<T> {
@@ -66,6 +96,10 @@ pub struct MultiObserver<T> {
 impl<T> MultiObserver<T> {
     pub fn new() -> Self {
         Self { observers: vec![] }
+    }
+
+    pub fn has_observers(&self) -> bool {
+        !self.observers.is_empty()
     }
 
     pub fn new_with_observers(observers: Vec<Box<dyn NotificationHandler<T>>>) -> Self {
@@ -81,19 +115,30 @@ impl<T> MultiObserver<T> {
         self.observers.push(Box::new(observer));
     }
 
+    pub fn add_observer_from(&mut self, observer: impl IntoNotificationHandlerBox<T>) {
+        self.observers
+            .push(observer.into_notification_handler_box());
+    }
+}
+
+impl<T> PublishMany<T> for MultiObserver<T> {
     /// There can be multiple observers, and so we call it 'many'
-    pub fn publish_many(&self, notification: &T) {
+    fn publish_many(&self, notification: &T) {
         for observer in &self.observers {
             observer.handle_notification(notification);
         }
     }
 }
 
+pub trait IntoObservableMany<T>: Send + Sync {
+    fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<T>;
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc::channel;
 
-    use crate::core::functional::MultiObserver;
+    use crate::core::functional::{MultiObserver, PublishMany, PublishSingle};
 
     use super::{NotificationHandlerOnce, SingleObserver};
 

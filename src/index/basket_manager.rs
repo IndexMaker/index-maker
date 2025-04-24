@@ -1,7 +1,10 @@
 use eyre::{eyre, Result};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::core::bits::{Amount, Symbol};
+use crate::core::{
+    bits::{Amount, Symbol},
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+};
 
 use super::basket::{Basket, BasketDefinition};
 
@@ -14,19 +17,15 @@ pub enum BasketNotification {
 /// Manages baskets, add, remove, update
 pub struct BasketManager {
     baskets: HashMap<Symbol, Arc<Basket>>,
-    basket_observer: Option<Box<dyn FnMut(BasketNotification)>>,
+    observer: SingleObserver<BasketNotification>,
 }
 
 impl BasketManager {
     pub fn new() -> Self {
         Self {
             baskets: HashMap::new(),
-            basket_observer: None,
+            observer: SingleObserver::new(),
         }
-    }
-
-    pub fn set_basket_observer(&mut self, basket_observer: Box<dyn FnMut(BasketNotification)>) {
-        self.basket_observer = Some(basket_observer);
     }
 
     pub fn get_basket(&self, symbol: &Symbol) -> Option<&Arc<Basket>> {
@@ -39,7 +38,7 @@ impl BasketManager {
         self.baskets
             .entry(symbol.clone())
             .and_modify(|value| {
-                if let Some(_) = self.basket_observer {
+                if self.observer.has_observer() {
                     event = Some(BasketNotification::BasketUpdated(
                         symbol.clone(),
                         basket.clone(),
@@ -48,7 +47,7 @@ impl BasketManager {
                 *value = basket.clone();
             })
             .or_insert_with(|| {
-                if let Some(_) = self.basket_observer {
+                if self.observer.has_observer() {
                     event = Some(BasketNotification::BasketAdded(
                         symbol.clone(),
                         basket.clone(),
@@ -57,8 +56,8 @@ impl BasketManager {
                 basket.clone()
             });
 
-        if let (Some(observer), Some(event)) = (&mut self.basket_observer, event) {
-            (*observer)(event);
+        if let Some(e) = event {
+            self.observer.publish_single(e);
         }
     }
 
@@ -83,16 +82,22 @@ impl BasketManager {
             .remove(&symbol)
             .ok_or(eyre!("Basket does not exist {}", symbol))?;
 
-        if let Some(observer) = &mut self.basket_observer {
-            (*observer)(BasketNotification::BasketRemoved(symbol.clone()));
-        }
+        self.observer
+            .publish_single(BasketNotification::BasketRemoved(symbol.clone()));
         Ok(())
+    }
+}
+
+impl IntoObservableSingle<BasketNotification> for BasketManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<BasketNotification> {
+        &mut self.observer
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::assert_deque_single_matches;
+    use crate::core::functional::IntoObservableSingle;
     use crate::index::basket::BasketDefinition;
     use crate::index::basket_manager::{BasketManager, BasketNotification};
     use crate::{
@@ -140,9 +145,9 @@ mod tests {
         let notifications = Arc::new(RwLock::new(VecDeque::new()));
         let notifiations_2 = notifications.clone();
 
-        basket_manager.basket_observer = Some(Box::new(move |notification| {
-            notifiations_2.write().push_back(notification)
-        }));
+        basket_manager
+            .get_single_observer_mut()
+            .set_observer_fn(move |notification| notifiations_2.write().push_back(notification));
 
         //
         // I. Test that we can create new basket with weights, prices, and target price
