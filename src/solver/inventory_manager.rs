@@ -146,7 +146,8 @@ impl InventoryManager {
             None => Ok(Some(quantity_filled)),
             Some(position) => {
                 // Match lots
-                position.write().match_lots(
+                let mut position = position.write();
+                let remaining = position.match_lots(
                     order_id.clone(),
                     batch_order_id.clone(),
                     lot_id.clone(),
@@ -156,29 +157,33 @@ impl InventoryManager {
                     fee_paid,
                     fill_timestamp.clone(),
                     self.tolerance,
-                    |lot, quantity_closed| {
-                        self.observer.publish_single(InventoryEvent::CloseLot {
-                            original_order_id: lot.original_order_id.clone(),
-                            original_batch_order_id: lot.original_batch_order_id.clone(),
-                            original_lot_id: lot.lot_id.clone(),
-                            closing_order_id: order_id.clone(),
-                            closing_batch_order_id: batch_order_id.clone(),
-                            closing_lot_id: lot_id.clone(),
-                            symbol: symbol.clone(),
-                            side: side.opposite_side(),
-                            original_price: lot.original_price,
-                            closing_price: price_filled,
-                            closing_fee: fee_paid,
-                            quantity_closed,
-                            original_quantity: lot.original_quantity,
-                            quantity_remaining: lot.remaining_quantity,
-                            original_timestamp: lot.created_timestamp,
-                            closing_batch_original_quantity: batch_original_quantity,
-                            closing_batch_quantity_remaining: batch_quantity_remaining,
-                            closing_timestamp: fill_timestamp,
-                        });
-                    },
-                )
+                )?;
+
+                position.drain_closed_lots_and_callback_on_updated(|lot| {
+                    let lot = lot.read();
+                    self.observer.publish_single(InventoryEvent::CloseLot {
+                        original_order_id: lot.original_order_id.clone(),
+                        original_batch_order_id: lot.original_batch_order_id.clone(),
+                        original_lot_id: lot.lot_id.clone(),
+                        closing_order_id: order_id.clone(),
+                        closing_batch_order_id: batch_order_id.clone(),
+                        closing_lot_id: lot_id.clone(),
+                        symbol: symbol.clone(),
+                        side: side.opposite_side(),
+                        original_price: lot.original_price,
+                        closing_price: price_filled,
+                        closing_fee: fee_paid,
+                        quantity_closed: lot.get_last_transaction_quantity(),
+                        original_quantity: lot.original_quantity,
+                        quantity_remaining: lot.remaining_quantity,
+                        original_timestamp: lot.created_timestamp,
+                        closing_batch_original_quantity: batch_original_quantity,
+                        closing_batch_quantity_remaining: batch_quantity_remaining,
+                        closing_timestamp: fill_timestamp,
+                    });
+                });
+
+                Ok(remaining)
             }
         }
     }

@@ -257,6 +257,16 @@ impl IndexOrder {
         }
     }
 
+    pub fn solver_cancel(&mut self, reason: &str) {
+        self.closed_updates.extend(self.order_updates.drain(..));
+        todo!("figure this one out - solver didn't like this order")
+    }
+
+    /// Drain
+    pub fn drain_closed_updates(&mut self, cb: &impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
+        self.closed_updates.drain(..).for_each(cb);
+    }
+
     /// Match updates against quantity and cancel
     /// Note that we are cancelling updates in LIFO order
     fn match_cancel(&mut self, mut quantity: Amount, tolerance: Amount) -> Result<Option<Amount>> {

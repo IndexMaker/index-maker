@@ -84,6 +84,16 @@ pub struct Lot {
     /// closed some portion of this lot.
     pub lot_transactions: Vec<LotTransaction>,
 }
+
+impl Lot {
+    pub fn get_last_transaction_quantity(&self) -> Amount {
+        self.lot_transactions
+            .last()
+            .map(|t| t.quantity_closed)
+            .unwrap_or_default()
+    }
+}
+
 pub struct Position {
     /// An asset we received
     pub symbol: Symbol,
@@ -93,6 +103,12 @@ pub struct Position {
 
     /// Balance (>0 if Long, <0 if Short)
     pub balance: Amount,
+
+    /// Time of the first transaction that opened this lot
+    pub created_timestamp: Option<DateTime<Utc>>,
+
+    /// Time of the last transaction matched against this lot
+    pub last_update_timestamp: Option<DateTime<Utc>>,
 
     /// Lots open on the side
     ///
@@ -112,6 +128,8 @@ impl Position {
             symbol,
             side,
             balance: Amount::ZERO,
+            created_timestamp: None,
+            last_update_timestamp: None,
             open_lots: VecDeque::new(),
             closed_lots: VecDeque::new(),
         }
@@ -127,6 +145,10 @@ impl Position {
         fee_paid: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        if self.created_timestamp.is_none() {
+            self.created_timestamp.replace(fill_timestamp);
+        }
+        self.last_update_timestamp.replace(fill_timestamp);
         // Store as open lot
         self.open_lots.push_back(Arc::new(RwLock::new(Lot {
             original_order_id: order_id.clone(),
@@ -160,12 +182,12 @@ impl Position {
         fee_paid: Amount,
         fill_timestamp: DateTime<Utc>,
         tolerance: Amount,
-        lot_closed_cb: impl Fn(&Lot, Amount),
     ) -> Result<Option<Amount>> {
         // Match only if opposite side
         if self.side == side {
             return Ok(Some(quantity_filled));
         }
+        self.last_update_timestamp.replace(fill_timestamp);
         while let Some(lot) = self.open_lots.front().cloned() {
             let lot_quantity_remaining = lot.read().remaining_quantity;
 
@@ -235,8 +257,6 @@ impl Position {
                     Side::Sell => self.balance.checked_sub(matched_lot_quantity),
                 }
                 .ok_or(eyre!("Math overflow"))?;
-
-                lot_closed_cb(&lot, matched_lot_quantity);
             }
 
             if finished {
@@ -253,5 +273,22 @@ impl Position {
             // Note: This should be expected reusult.
             Ok(None)
         }
+    }
+
+    /// Drain and call back on closed lots, and call back on updated lot if any
+    pub fn drain_closed_lots_and_callback_on_updated(
+        &mut self,
+        mut cb: impl FnMut(Arc<RwLock<Lot>>),
+    ) {
+        let ref_cb = &mut cb;
+        self.closed_lots.drain(..).for_each(|lot| ref_cb(lot));
+        self.open_lots.front().iter().for_each(|lot| {
+            let lot_ref = lot.read();
+            if lot_ref.remaining_quantity != lot_ref.original_quantity
+                && Some(lot_ref.last_update_timestamp) == self.last_update_timestamp
+            {
+                ref_cb((*lot).clone());
+            }
+        });
     }
 }

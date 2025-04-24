@@ -1,12 +1,18 @@
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    sync::Arc,
+};
 
-use itertools::Itertools;
-use parking_lot::RwLock;
+use itertools::{partition, Itertools};
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Amount, ClientOrderId, PriceType, Side},
-    index::basket_manager::{BasketManager, BasketNotification},
+    core::bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
+    index::{
+        basket::{self, Basket},
+        basket_manager::{BasketManager, BasketNotification},
+    },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{PriceEvent, PriceTracker},
@@ -14,10 +20,38 @@ use crate::{
 };
 
 use super::{
+    index_order::IndexOrder,
     index_order_manager::{IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
 };
+
+struct MoreOrders<'a> {
+    locked_orders: Vec<RwLockUpgradableReadGuard<'a, IndexOrder>>,
+    symbols: Vec<Symbol>,
+    baskets: HashMap<Symbol, Arc<Basket>>,
+    index_prices: HashMap<Symbol, Amount>,
+    asset_prices: HashMap<Symbol, Amount>,
+}
+
+struct OrderAssetTotals {
+    /// We sum across all Index Orders the quantity of each asset multiplied by
+    /// order quantity
+    asset_total_order_quantity: HashMap<Symbol, Amount>,
+
+    /// We sum across all Index Orders the liquidity of each asset multiplied by
+    /// order quantity as weight
+    asset_total_liquidity: HashMap<Symbol, Amount>,
+}
+
+struct OrderContribution {
+    /// Contribution of the user index order for asset
+    /// (user, index, asset) => contribution
+    asset_contribution_fraction: HashMap<(Address, Symbol, Symbol), Amount>,
+
+    /// (user, index, asset) => asset_total_liquidity x asset_contribution_fraction
+    asset_liquidity_contribution: HashMap<(Address, Symbol, Symbol), Amount>,
+}
 
 /// magic solver, needs to take index orders, and based on prices (from price
 /// tracker) and available liquiduty (depth from order books), and active orders
@@ -25,13 +59,14 @@ use super::{
 /// which will (partly) fill (some of the) ordered indexes.  Any position that
 /// wasn't matched against ordered indexes shouldn't be kept for too long.
 pub struct Solver {
-    pub chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
-    pub index_order_manager: Arc<RwLock<IndexOrderManager>>,
-    pub quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
-    pub basket_manager: Arc<RwLock<BasketManager>>,
-    pub price_tracker: Arc<RwLock<PriceTracker>>,
-    pub order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
-    pub inventory_manager: Arc<RwLock<InventoryManager>>,
+    chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
+    index_order_manager: Arc<RwLock<IndexOrderManager>>,
+    quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
+    basket_manager: Arc<RwLock<BasketManager>>,
+    price_tracker: Arc<RwLock<PriceTracker>>,
+    order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
+    inventory_manager: Arc<RwLock<InventoryManager>>,
+    max_orders: usize,
 }
 impl Solver {
     pub fn new(
@@ -42,6 +77,7 @@ impl Solver {
         price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
+        max_orders: usize,
     ) -> Self {
         Self {
             chain_connector,
@@ -51,22 +87,203 @@ impl Solver {
             price_tracker,
             order_book_manager,
             inventory_manager,
+            max_orders,
+        }
+    }
+
+    fn more_orders<'a>(&self, index_orders: &'a Vec<Arc<RwLock<IndexOrder>>>) -> MoreOrders<'a> {
+        // Lock all Index Orders in the batch - for reading with intention to write
+        let mut locked_orders = index_orders
+            .iter()
+            .map(|order| order.upgradable_read())
+            .collect_vec();
+
+        let basket_manager = self.basket_manager.read();
+        let mut symbols = HashSet::new();
+        let mut baskets = HashMap::new();
+
+        // Collect baskets across all Index Orders in this batch
+        let partition_point = partition(&mut locked_orders, |order| {
+            match baskets.entry(order.symbol.clone()) {
+                Entry::Occupied(_) => true,
+                Entry::Vacant(entry) => match basket_manager.get_basket(&order.symbol) {
+                    Some(basket) => {
+                        entry.insert(basket.clone());
+                        true
+                    }
+                    None => false,
+                },
+            }
+        });
+
+        // Unlocks and remove Index Orders with wrong index symbol
+        locked_orders
+            .splice(partition_point.., [])
+            .for_each(|mut order| {
+                order.with_upgraded(|order| {
+                    order.solver_cancel(format!("Invalid symbol {}", order.symbol).as_str());
+                });
+            });
+
+        // Collect symbols across all baskets in the batch
+        baskets.iter().for_each(|(_, basket)| {
+            basket.basket_assets.iter().for_each(|asset| {
+                symbols.insert(asset.weight.asset.name.clone());
+            });
+        });
+
+        // We don't need set anymore... convert into vector
+        let symbols = symbols.iter().cloned().collect_vec();
+
+        // Get prices for all the assets in this batch of index orders
+        let individual_asset_prices = self
+            .price_tracker
+            .read()
+            .get_prices(PriceType::VolumeWeighted, &symbols);
+
+        if !individual_asset_prices.missing_symbols.is_empty() {
+            todo!("Some assets have missing prices, what are we going to do? Defer probably.");
+        }
+
+        // Collect prices of all indexes in the batch
+        let mut individual_index_prices = HashMap::new();
+        let mut missing_index_prices = HashSet::new();
+
+        // ...we drop baskets if we cannot have price for it
+        baskets.retain(|index_symbol, basket| {
+            match basket.get_current_price(&individual_asset_prices.prices) {
+                Ok(price) => {
+                    individual_index_prices.insert(index_symbol.clone(), price);
+                    true
+                }
+                Err(_) => {
+                    missing_index_prices.insert(index_symbol.clone());
+                    false
+                }
+            }
+        });
+
+        // ...we drop index orders if we cannot get the price for index
+        if !missing_index_prices.is_empty() {
+            locked_orders.retain_mut(|order| {
+                if missing_index_prices.contains(&order.symbol) {
+                    order.with_upgraded(|order| {
+                        order.solver_cancel(
+                            format!("Cannot calcualte index price for {}", order.symbol).as_str(),
+                        );
+                    });
+                    false
+                } else {
+                    true
+                }
+            });
+        };
+
+        MoreOrders {
+            locked_orders,
+            symbols,
+            baskets,
+            index_prices: individual_index_prices,
+            asset_prices: individual_asset_prices.prices,
+        }
+    }
+
+    fn get_order_asset_totals<'a>(&self, more_orders: &MoreOrders) -> OrderAssetTotals {
+        let mut asset_total_order_quantity = HashMap::new();
+        let mut asset_total_liquidity = HashMap::new();
+
+        let order_book_manager = self.order_book_manager.read();
+        more_orders.locked_orders.iter().for_each(|order| {
+            order.order_updates.front().inspect(|update| {
+                let update = update.read();
+                let side = update.side;
+                let price = update.price;
+                let quantity = update.remaining_quantity;
+                let threshold = update.price_threshold;
+                let current_price = more_orders.index_prices.get(&order.symbol).unwrap();
+                let basket = more_orders.baskets.get(&order.symbol).unwrap();
+
+                let target_asset_prices =
+                    HashMap::from_iter(basket.basket_assets.iter().map(|asset| {
+                        let asset_symbol = asset.weight.asset.name.clone();
+                        let asset_price = more_orders.asset_prices.get(&asset_symbol).unwrap();
+
+                        // Note: We're ignoring math overflow here - we think it's ok for solving
+                        let order_quantity = asset
+                            .quantity
+                            .checked_mul(quantity)
+                            .unwrap_or(asset.quantity);
+
+                        let target_asset_price = asset_price
+                            .checked_mul(price)
+                            .and_then(|x| x.checked_div(*current_price))
+                            .unwrap_or(*asset_price);
+
+                        asset_total_order_quantity
+                            .entry(asset.weight.asset.name.clone())
+                            .and_modify(|x: &mut Amount| {
+                                // Note: We're ignoring math overflow here - we think it's ok for solving
+                                *x = x.checked_add(order_quantity).unwrap_or(*x)
+                            })
+                            .or_insert(order_quantity);
+
+                        (asset_symbol, target_asset_price)
+                    }));
+                match order_book_manager.get_liquidity(
+                    side.opposite_side(),
+                    &target_asset_prices,
+                    threshold,
+                ) {
+                    Ok(liquidity) => {
+                        liquidity.iter().for_each(|(symbol, asset_liquidity)| {
+                            // Note: We're ignoring math overflow here - we think it's ok for solving
+                            let order_liquidity = asset_liquidity
+                                .checked_mul(quantity)
+                                .unwrap_or(*asset_liquidity);
+
+                            asset_total_liquidity
+                                .entry(symbol.clone())
+                                .and_modify(|x: &mut Amount| {
+                                    *x = x.checked_add(order_liquidity).unwrap_or(*x)
+                                })
+                                .or_insert(order_liquidity);
+                        });
+                    }
+                    Err(_) => {
+                        // Note: We're ignoring missing data here - we think it's ok for solving
+                    }
+                }
+            });
+        });
+
+        OrderAssetTotals {
+            asset_total_order_quantity,
+            asset_total_liquidity,
         }
     }
 
     /// Core thinking function
     pub fn solve(&self) {
-        // receive Index Orders
-        let _index_orders = self.index_order_manager.read().get_pending_order_requests();
+        // Receive a batch of Index Orders
+        let index_orders = self
+            .index_order_manager
+            .write()
+            .take_index_orders(self.max_orders);
+
+        // Take some new orders
+        let more_orders = self.more_orders(&index_orders);
+
+        // Get totals for assets in all Index Orders
+        let _order_asset_totals = self.get_order_asset_totals(&more_orders);
 
         // Compute symbols and threshold
         // ...
 
-        let symbols = [];
-        let threshold = Amount::default();
-
         // receive list of open lots from Inventory Manager
-        let _positions = self.inventory_manager.read().get_positions(&symbols);
+        let _positions = self
+            .inventory_manager
+            .read()
+            .get_positions(&more_orders.symbols);
 
         // Compute: Allocate open lots to Index Orders
         // ...
@@ -81,16 +298,6 @@ impl Solver {
         // ...
 
         // receive current prices from Price Tracker
-        let prices = self
-            .price_tracker
-            .read()
-            .get_prices(PriceType::BestAsk, &symbols);
-
-        // receive available liquidity from Order Book Manager
-        let _liquidity =
-            self.order_book_manager
-                .read()
-                .get_liquidity(Side::Sell, &prices.prices, threshold);
 
         // Compute: Orders to send to update inventory
         // ...
@@ -344,6 +551,7 @@ mod test {
             price_tracker.clone(),
             order_book_manager.clone(),
             inventory_manager.clone(),
+            4,
         ));
 
         solver

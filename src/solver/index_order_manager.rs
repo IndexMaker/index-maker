@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
@@ -76,9 +76,10 @@ pub enum IndexOrderEvent {
 
 pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
-    pub server: Arc<RwLock<dyn Server>>,
-    pub index_orders: HashMap<Address, HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
-    pub tolerance: Amount,
+    server: Arc<RwLock<dyn Server>>,
+    index_orders: HashMap<Address, HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
+    order_queue: VecDeque<Arc<RwLock<IndexOrder>>>,
+    tolerance: Amount,
 }
 
 /// manage index orders, receive orders and route into solver
@@ -88,6 +89,7 @@ impl IndexOrderManager {
             observer: SingleObserver::new(),
             server,
             index_orders: HashMap::new(),
+            order_queue: VecDeque::new(),
             tolerance,
         }
     }
@@ -114,13 +116,15 @@ impl IndexOrderManager {
         let index_order = user_index_orders
             .entry(symbol.clone())
             .or_insert_with(|| {
-                Arc::new(RwLock::new(IndexOrder::new(
+                let order = Arc::new(RwLock::new(IndexOrder::new(
                     address.clone(),
                     client_order_id.clone(),
                     symbol.clone(),
                     side,
                     timestamp.clone(),
-                )))
+                )));
+                self.order_queue.push_back(order.clone());
+                order
             })
             .clone();
 
@@ -150,7 +154,7 @@ impl IndexOrderManager {
                 quantity_added,
                 timestamp,
             });
-
+        
         Ok(())
     }
 
@@ -243,8 +247,8 @@ impl IndexOrderManager {
     }
 
     /// provide a method to list pending index order requests
-    pub fn get_pending_order_requests(&self) -> Vec<()> {
-        todo!()
+    pub fn take_index_orders(&mut self, max_count: usize) -> Vec<Arc<RwLock<IndexOrder>>> {
+        self.order_queue.drain(..max_count).collect()
     }
 }
 
