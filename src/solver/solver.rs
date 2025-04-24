@@ -1,8 +1,10 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
+    f64::consts::E,
     sync::Arc,
 };
 
+use alloy::serde::quantity;
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 
@@ -34,17 +36,15 @@ struct MoreOrders<'a> {
     asset_prices: HashMap<Symbol, Amount>,
 }
 
-struct OrderAssetTotals {
+struct FindOrderLiquidity {
     /// We sum across all Index Orders the quantity of each asset multiplied by
     /// order quantity
     asset_total_order_quantity: HashMap<Symbol, Amount>,
-
-    /// We sum across all Index Orders the liquidity of each asset multiplied by
-    /// order quantity as weight
-    asset_total_liquidity: HashMap<Symbol, Amount>,
+    /// We calculate weighted average of liquidity across all Index Orders
+    asset_total_weighted_liquidity: HashMap<Symbol, Amount>,
 }
 
-struct OrderContribution {
+struct FindOrderContribution {
     /// Contribution of the user index order for asset
     /// (user, index, asset) => contribution
     asset_contribution_fraction: HashMap<(Address, Symbol, Symbol), Amount>,
@@ -188,78 +188,220 @@ impl Solver {
         }
     }
 
-    fn get_order_asset_totals<'a>(&self, more_orders: &MoreOrders) -> OrderAssetTotals {
+    fn find_order_liquidity(&self, more_orders: &mut MoreOrders) -> FindOrderLiquidity {
         let mut asset_total_order_quantity = HashMap::new();
-        let mut asset_total_liquidity = HashMap::new();
+        let mut asset_total_weighted_liquidity = HashMap::new();
 
         let order_book_manager = self.order_book_manager.read();
-        more_orders.locked_orders.iter().for_each(|order| {
-            order.order_updates.front().inspect(|update| {
+        more_orders.locked_orders.retain_mut(|index_order| {
+            // We'll only pick the first order update from the update queue
+            // Note that we chould use iter() instead of front().inspect() and
+            // take more than one update [TBD]
+            let result = index_order.order_updates.front().and_then(|update| {
                 let update = update.read();
                 let side = update.side;
                 let price = update.price;
-                let quantity = update.remaining_quantity;
+                let order_quantity = update.remaining_quantity;
                 let threshold = update.price_threshold;
-                let current_price = more_orders.index_prices.get(&order.symbol).unwrap();
-                let basket = more_orders.baskets.get(&order.symbol).unwrap();
 
-                let target_asset_prices =
-                    HashMap::from_iter(basket.basket_assets.iter().map(|asset| {
+                // We should be able to get basket and its current price, as in locked_orders
+                // we only keep orders that weren't erroneous
+                let current_price = more_orders.index_prices.get(&index_order.symbol)?;
+                let basket = more_orders.baskets.get(&index_order.symbol)?;
+
+                let target_asset_prices_and_quantites = basket
+                    .basket_assets
+                    .iter()
+                    .map_while(|asset| {
                         let asset_symbol = asset.weight.asset.name.clone();
                         let asset_price = more_orders.asset_prices.get(&asset_symbol).unwrap();
-
-                        // Note: We're ignoring math overflow here - we think it's ok for solving
-                        let order_quantity = asset
-                            .quantity
-                            .checked_mul(quantity)
-                            .unwrap_or(asset.quantity);
-
+                        //
+                        // Formula:
+                        //      quantity of asset to order = quantity of index order
+                        //                                 * quantity of asset in basket
+                        //
+                        let asset_quantity = asset.quantity.checked_mul(order_quantity)?;
+                        //
+                        // Note: While asset prices can move in any direction, here we just assume
+                        // that prices of all assets move proportionally to index price. We know it's
+                        // not accurate, but we think it's good enough estimate to obtain liquidity.
+                        //
+                        // Formula:
+                        //      target price of asset in basket = current price of asset in basket
+                        //                                      * target basket price
+                        //                                      / current basket price
+                        //
                         let target_asset_price = asset_price
                             .checked_mul(price)
-                            .and_then(|x| x.checked_div(*current_price))
-                            .unwrap_or(*asset_price);
+                            .and_then(|x| x.checked_div(*current_price))?;
 
-                        asset_total_order_quantity
-                            .entry(asset.weight.asset.name.clone())
-                            .and_modify(|x: &mut Amount| {
-                                // Note: We're ignoring math overflow here - we think it's ok for solving
-                                *x = x.checked_add(order_quantity).unwrap_or(*x)
-                            })
-                            .or_insert(order_quantity);
+                        match asset_total_order_quantity.entry(asset.weight.asset.name.clone()) {
+                            Entry::Occupied(mut entry) => {
+                                let x: &Amount = entry.get();
+                                entry.insert(x.checked_add(asset_quantity)?);
+                            }
+                            Entry::Vacant(entry) => {
+                                entry.insert(asset_quantity);
+                            }
+                        }
 
-                        (asset_symbol, target_asset_price)
-                    }));
-                match order_book_manager.get_liquidity(
-                    side.opposite_side(),
-                    &target_asset_prices,
-                    threshold,
-                ) {
-                    Ok(liquidity) => {
-                        liquidity.iter().for_each(|(symbol, asset_liquidity)| {
-                            // Note: We're ignoring math overflow here - we think it's ok for solving
-                            let order_liquidity = asset_liquidity
-                                .checked_mul(quantity)
-                                .unwrap_or(*asset_liquidity);
+                        Some((asset_symbol, target_asset_price, asset_quantity))
+                    })
+                    .collect_vec();
 
-                            asset_total_liquidity
-                                .entry(symbol.clone())
-                                .and_modify(|x: &mut Amount| {
-                                    *x = x.checked_add(order_liquidity).unwrap_or(*x)
-                                })
-                                .or_insert(order_liquidity);
-                        });
-                    }
-                    Err(_) => {
-                        // Note: We're ignoring missing data here - we think it's ok for solving
+                // There was some error - math overflow probably, we'll drop that order
+                if target_asset_prices_and_quantites.len() < basket.basket_assets.len() {
+                    return None;
+                }
+
+                // Split out quantities { asset_symbol => (price, quantity) } into { asset_symbol => quantity }
+                let target_asset_quantites = HashMap::<Symbol, Amount>::from_iter(
+                    target_asset_prices_and_quantites
+                        .iter()
+                        .map(|(k, _, q)| (k.clone(), *q)),
+                );
+
+                // Split out prices { asset_symbol => (price, quantity) } into { asset_symbol => price }
+                let target_asset_prices = HashMap::from_iter(
+                    target_asset_prices_and_quantites
+                        .iter()
+                        .map(|(k, p, _)| (k.clone(), *p)),
+                );
+
+                let liquidity = order_book_manager
+                    .get_liquidity(side.opposite_side(), &target_asset_prices, threshold)
+                    .ok()?;
+
+                for (asset_symbol, asset_liquidity) in liquidity {
+                    //
+                    // We're collecting per asset sums, so that we will be able
+                    // to calculate weighted average for asset liquidity. It is weighted
+                    // proportionally to asset contribution in the whole index order batch.
+                    //
+                    // Formula:
+                    //      asset quantity = quantity of asset in basket
+                    //                     * quantity of index order
+                    //
+                    //      asset liquidity = quantity of asset in basket
+                    //                      * quantity of index order
+                    //                      * asset liquidity at price threshold
+                    //
+                    let asset_quantity = target_asset_quantites.get(&asset_symbol)?;
+                    let asset_liquidity = asset_liquidity.checked_mul(*asset_quantity)?;
+
+                    match asset_total_weighted_liquidity.entry(asset_symbol.clone()) {
+                        Entry::Occupied(mut entry) => {
+                            let (weighted_sum, total_weight): &(Amount, Amount) = entry.get();
+                            entry.insert((
+                                weighted_sum.checked_add(asset_liquidity)?,
+                                total_weight.checked_add(*asset_quantity)?,
+                            ));
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert((asset_liquidity, *asset_quantity));
+                        }
                     }
                 }
+                Some(())
             });
+            if let None = result {
+                index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
+                false
+            } else {
+                true
+            }
         });
 
-        OrderAssetTotals {
+        FindOrderLiquidity {
             asset_total_order_quantity,
-            asset_total_liquidity,
+            asset_total_weighted_liquidity: asset_total_weighted_liquidity
+                .into_iter()
+                .map(|(k, (w, s))| (k, w.checked_div(s).unwrap_or(Amount::ZERO)))
+                .collect(),
         }
+    }
+
+    fn find_order_contribution(
+        &self,
+        more_orders: &mut MoreOrders,
+        order_liquidity: &FindOrderLiquidity,
+    ) -> FindOrderContribution {
+        let mut contribution = FindOrderContribution {
+            asset_contribution_fraction: HashMap::new(),
+            asset_liquidity_contribution: HashMap::new(),
+        };
+        // Remove erroneous orders
+        more_orders.locked_orders.retain_mut(|index_order| {
+            let basket = more_orders.baskets.get(&index_order.symbol);
+
+            // Find error
+            let result = index_order.order_updates.front().and_then(|update| {
+                let basket = basket?;
+                let update = update.read();
+                let order_quantity = update.remaining_quantity;
+
+                let count = basket
+                    .basket_assets
+                    .iter()
+                    .map_while(|asset| {
+                        // Formula:
+                        //      quantity of asset in basket for index order = quantity of asset in basket
+                        //                                                  * quantity of index order
+                        let asset_order_quantity = asset.quantity.checked_mul(order_quantity)?;
+
+                        // Total quantiy of asset across all index orders in batch
+                        let asset_symbol = asset.weight.asset.name.clone();
+                        let asset_total_quantity = order_liquidity
+                            .asset_total_order_quantity
+                            .get(&asset_symbol)?;
+
+                        // Weighted sum of asset liquidity for all index orders in batch
+                        let asset_liquidity = order_liquidity
+                            .asset_total_weighted_liquidity
+                            .get(&asset_symbol)?;
+
+                        // Contribution fraction of this index order to total quantity
+                        let asset_contribution_fraction =
+                            asset_order_quantity.checked_div(*asset_total_quantity)?;
+
+                        // Liquidity portion pre-allocated based on contribution fraction
+                        // This is just an estimate to start with some number
+                        let asset_liquidity_contribution =
+                            asset_contribution_fraction.checked_mul(*asset_liquidity)?;
+
+                        // Key = (chain address of a user, symbol of index, symbol of individual asset in basket)
+                        let key = (update.address, index_order.symbol.clone(), asset_symbol);
+
+                        match (
+                            contribution.asset_contribution_fraction.entry(key.clone()),
+                            contribution.asset_liquidity_contribution.entry(key),
+                        ) {
+                            (Entry::Vacant(contribution_entry), Entry::Vacant(liquidity_entry)) => {
+                                // Both need to be inserted
+                                contribution_entry.insert(asset_contribution_fraction);
+                                liquidity_entry.insert(asset_liquidity_contribution);
+                                Some(())
+                            }
+                            _ => None, // error
+                        }
+                    })
+                    .count();
+
+                if count != basket.basket_assets.len() {
+                    // There was some error
+                    None
+                } else {
+                    Some(())
+                }
+            });
+            if let None = result {
+                index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
+                false
+            } else {
+                true
+            }
+        });
+        contribution
     }
 
     /// Core thinking function
@@ -271,10 +413,13 @@ impl Solver {
             .take_index_orders(self.max_orders);
 
         // Take some new orders
-        let more_orders = self.more_orders(&index_orders);
+        let mut more_orders = self.more_orders(&index_orders);
 
         // Get totals for assets in all Index Orders
-        let _order_asset_totals = self.get_order_asset_totals(&more_orders);
+        let order_liquidity = self.find_order_liquidity(&mut more_orders);
+
+        // Now calculate how much liquidity is available per asset proportionally to order contribution
+        let _contribution = self.find_order_contribution(&mut more_orders, &order_liquidity);
 
         // Compute symbols and threshold
         // ...
