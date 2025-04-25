@@ -248,7 +248,7 @@ impl IndexOrderManager {
 
     /// provide a method to list pending index order requests
     pub fn take_index_orders(&mut self, max_count: usize) -> Vec<Arc<RwLock<IndexOrder>>> {
-        self.order_queue.drain(..max_count).collect()
+        self.order_queue.drain(..max_count.min(self.order_queue.len())).collect()
     }
 }
 
