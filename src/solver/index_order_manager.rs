@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, VecDeque}, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
@@ -154,7 +157,7 @@ impl IndexOrderManager {
                 quantity_added,
                 timestamp,
             });
-        
+
         Ok(())
     }
 
@@ -248,7 +251,9 @@ impl IndexOrderManager {
 
     /// provide a method to list pending index order requests
     pub fn take_index_orders(&mut self, max_count: usize) -> Vec<Arc<RwLock<IndexOrder>>> {
-        self.order_queue.drain(..max_count.min(self.order_queue.len())).collect()
+        self.order_queue
+            .drain(..max_count.min(self.order_queue.len()))
+            .collect()
     }
 }
 

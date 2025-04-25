@@ -260,7 +260,10 @@ impl IndexOrder {
     pub fn solver_cancel(&mut self, reason: &str) {
         self.closed_updates.extend(self.order_updates.drain(..));
         //todo!("figure this one out - solver didn't like this order")
-        println!("Error in Order: {} {}", self.original_client_order_id, reason);
+        println!(
+            "Error in Order: {} {}",
+            self.original_client_order_id, reason
+        );
     }
 
     /// Drain
