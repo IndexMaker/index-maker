@@ -1,18 +1,17 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
-    f64::consts::E,
     sync::Arc,
 };
 
-use alloy::serde::quantity;
+use eyre::OptionExt;
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
+    core::bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
     index::{
-        basket::{self, Basket},
+        basket::Basket,
         basket_manager::{BasketManager, BasketNotification},
     },
     market_data::{
@@ -29,7 +28,10 @@ use super::{
 };
 
 struct MoreOrders<'a> {
-    locked_orders: Vec<RwLockUpgradableReadGuard<'a, IndexOrder>>,
+    locked_orders: Vec<(
+        &'a Arc<RwLock<IndexOrder>>,
+        RwLockUpgradableReadGuard<'a, IndexOrder>,
+    )>,
     symbols: Vec<Symbol>,
     baskets: HashMap<Symbol, Arc<Basket>>,
     index_prices: HashMap<Symbol, Amount>,
@@ -46,11 +48,33 @@ struct FindOrderLiquidity {
 
 struct FindOrderContribution {
     /// Contribution of the user index order for asset
-    /// (user, index, asset) => contribution
-    asset_contribution_fraction: HashMap<(Address, Symbol, Symbol), Amount>,
+    /// asset => asset contribution fraction
+    asset_contribution_fraction: HashMap<Symbol, Amount>,
 
-    /// (user, index, asset) => asset_total_liquidity x asset_contribution_fraction
-    asset_liquidity_contribution: HashMap<(Address, Symbol, Symbol), Amount>,
+    /// asset => asset total liquidity x asset contribution fraction
+    asset_liquidity_contribution: HashMap<Symbol, Amount>,
+
+    /// min((asset liquidity contribution / asset quantity for index order) for all assets)
+    order_fraction: Amount,
+
+    /// order fraction x remaining quantity of the index order
+    order_quantity: Amount,
+}
+
+struct EngageOrder {
+    index_order: Arc<RwLock<IndexOrder>>,
+    symbol: Symbol,
+    basket: Arc<Basket>,
+    engaged_quantity: Amount,
+    client_order_id: ClientOrderId,
+}
+
+struct EngagedOrders {
+    engaged_orders: Vec<EngageOrder>,
+    symbols: Vec<Symbol>,
+    baskets: HashMap<Symbol, Arc<Basket>>,
+    index_prices: HashMap<Symbol, Amount>,
+    asset_prices: HashMap<Symbol, Amount>,
 }
 
 /// magic solver, needs to take index orders, and based on prices (from price
@@ -67,6 +91,7 @@ pub struct Solver {
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
     max_orders: usize,
+    tolerance: Amount,
 }
 impl Solver {
     pub fn new(
@@ -78,6 +103,7 @@ impl Solver {
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_orders: usize,
+        tolerance: Amount,
     ) -> Self {
         Self {
             chain_connector,
@@ -88,6 +114,7 @@ impl Solver {
             order_book_manager,
             inventory_manager,
             max_orders,
+            tolerance,
         }
     }
 
@@ -95,7 +122,7 @@ impl Solver {
         // Lock all Index Orders in the batch - for reading with intention to write
         let mut locked_orders = index_orders
             .iter()
-            .map(|order| order.upgradable_read())
+            .map(|order| (order, order.upgradable_read()))
             .collect_vec();
 
         let basket_manager = self.basket_manager.read();
@@ -103,7 +130,7 @@ impl Solver {
         let mut baskets = HashMap::new();
 
         // Collect baskets across all Index Orders in this batch
-        let partition_point = partition(&mut locked_orders, |order| {
+        let partition_point = partition(&mut locked_orders, |(_, order)| {
             match baskets.entry(order.symbol.clone()) {
                 Entry::Occupied(_) => true,
                 Entry::Vacant(entry) => match basket_manager.get_basket(&order.symbol) {
@@ -119,7 +146,7 @@ impl Solver {
         // Unlocks and remove Index Orders with wrong index symbol
         locked_orders
             .splice(partition_point.., [])
-            .for_each(|mut order| {
+            .for_each(|(_, mut order)| {
                 order.with_upgraded(|order| {
                     order.solver_cancel(format!("Invalid symbol {}", order.symbol).as_str());
                 });
@@ -165,7 +192,7 @@ impl Solver {
 
         // ...we drop index orders if we cannot get the price for index
         if !missing_index_prices.is_empty() {
-            locked_orders.retain_mut(|order| {
+            locked_orders.retain_mut(|(_, order)| {
                 if missing_index_prices.contains(&order.symbol) {
                     order.with_upgraded(|order| {
                         order.solver_cancel(
@@ -193,7 +220,7 @@ impl Solver {
         let mut asset_total_weighted_liquidity = HashMap::new();
 
         let order_book_manager = self.order_book_manager.read();
-        more_orders.locked_orders.retain_mut(|index_order| {
+        more_orders.locked_orders.retain_mut(|(_, index_order)| {
             // We'll only pick the first order update from the update queue
             // Note that we chould use iter() instead of front().inspect() and
             // take more than one update [TBD]
@@ -325,13 +352,11 @@ impl Solver {
         &self,
         more_orders: &mut MoreOrders,
         order_liquidity: &FindOrderLiquidity,
-    ) -> FindOrderContribution {
-        let mut contribution = FindOrderContribution {
-            asset_contribution_fraction: HashMap::new(),
-            asset_liquidity_contribution: HashMap::new(),
-        };
+    ) -> HashMap<ClientOrderId, FindOrderContribution> {
+        let mut all_contributions = HashMap::new();
+
         // Remove erroneous orders
-        more_orders.locked_orders.retain_mut(|index_order| {
+        more_orders.locked_orders.retain_mut(|(_, index_order)| {
             let basket = more_orders.baskets.get(&index_order.symbol);
 
             // Find error
@@ -339,6 +364,12 @@ impl Solver {
                 let basket = basket?;
                 let update = update.read();
                 let order_quantity = update.remaining_quantity;
+                let mut contribution = FindOrderContribution {
+                    asset_contribution_fraction: HashMap::new(),
+                    asset_liquidity_contribution: HashMap::new(),
+                    order_fraction: Amount::ONE,
+                    order_quantity: Amount::ZERO,
+                };
 
                 let count = basket
                     .basket_assets
@@ -369,12 +400,33 @@ impl Solver {
                         let asset_liquidity_contribution =
                             asset_contribution_fraction.checked_mul(*asset_liquidity)?;
 
-                        // Key = (chain address of a user, symbol of index, symbol of individual asset in basket)
-                        let key = (update.address, index_order.symbol.clone(), asset_symbol);
+                        //
+                        // Formula:
+                        //      index order fraction = quantity of asset liquidity available
+                        //                           / quantity of asset in basket for index order
+                        //
+                        let temp_order_fraction =
+                            asset_liquidity_contribution.checked_div(asset_order_quantity)?;
+
+                        // Take min(temp_order_fraction for all assets)
+                        contribution.order_fraction =
+                            contribution.order_fraction.min(temp_order_fraction);
+
+                        //
+                        // Formula:
+                        //      possible index order quantity = index order fraction
+                        //                                    * remaining index order quantity
+                        //
+                        contribution.order_quantity =
+                            contribution.order_fraction.checked_mul(order_quantity)?;
 
                         match (
-                            contribution.asset_contribution_fraction.entry(key.clone()),
-                            contribution.asset_liquidity_contribution.entry(key),
+                            contribution
+                                .asset_contribution_fraction
+                                .entry(asset_symbol.clone()),
+                            contribution
+                                .asset_liquidity_contribution
+                                .entry(asset_symbol),
                         ) {
                             (Entry::Vacant(contribution_entry), Entry::Vacant(liquidity_entry)) => {
                                 // Both need to be inserted
@@ -391,6 +443,7 @@ impl Solver {
                     // There was some error
                     None
                 } else {
+                    all_contributions.insert(update.client_order_id.clone(), contribution);
                     Some(())
                 }
             });
@@ -401,11 +454,58 @@ impl Solver {
                 true
             }
         });
-        contribution
+        all_contributions
     }
 
-    /// Core thinking function
-    pub fn solve(&self) {
+    fn engage_orders(
+        &self,
+        more_orders: &mut MoreOrders,
+        contributions: &HashMap<ClientOrderId, FindOrderContribution>,
+    ) -> Vec<EngageOrder> {
+        let mut enagaged_orders = Vec::new();
+        more_orders
+            .locked_orders
+            .retain_mut(|(index_order_arc, index_order)| {
+                let basket = more_orders.baskets.get(&index_order.symbol);
+                let result = index_order.order_updates.front().and_then(|update| {
+                    let update = update.read();
+                    let contribution = contributions.get(&update.client_order_id)?;
+                    Some((update.client_order_id.clone(), contribution.order_quantity))
+                });
+                match result {
+                    Some((client_order_id, quantity)) => index_order
+                        .with_upgraded(|order| order.solver_engage(quantity, self.tolerance))
+                        .and_then(|unmatched_quantity| {
+                            let engaged_quantity =
+                                if let Some(unmatched_quantity) = unmatched_quantity {
+                                    quantity
+                                        .checked_sub(unmatched_quantity)
+                                        .ok_or_eyre("Math overflow")?
+                                } else {
+                                    quantity
+                                };
+                            enagaged_orders.push(EngageOrder {
+                                index_order: index_order_arc.clone(),
+                                symbol: index_order.symbol.clone(),
+                                basket: basket.ok_or_eyre("Basket not found")?.clone(),
+                                engaged_quantity,
+                                client_order_id,
+                            });
+                            Ok(())
+                        })
+                        .map_err(|err| println!("Error: {}", err)) // todo: we need to log errors somewhere
+                        .is_ok(),
+                    None => {
+                        index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
+                        false
+                    }
+                }
+            });
+
+        enagaged_orders
+    }
+
+    fn prepare_more_orders(&self) -> EngagedOrders {
         // Receive a batch of Index Orders
         let index_orders = self
             .index_order_manager
@@ -419,16 +519,34 @@ impl Solver {
         let order_liquidity = self.find_order_liquidity(&mut more_orders);
 
         // Now calculate how much liquidity is available per asset proportionally to order contribution
-        let _contribution = self.find_order_contribution(&mut more_orders, &order_liquidity);
+        let contributions = self.find_order_contribution(&mut more_orders, &order_liquidity);
+
+        // Now let's engage orders
+        // Note: more_orders ends its lifetime after that, all locks are released
+        let engaged_orders = self.engage_orders(&mut more_orders, &contributions);
+        
+        EngagedOrders {
+            engaged_orders,
+            baskets: more_orders.baskets,
+            symbols: more_orders.symbols,
+            asset_prices: more_orders.asset_prices,
+            index_prices: more_orders.index_prices
+        }
+    }
+
+    /// Core thinking function
+    pub fn solve(&self) {
+        // Receive some more orders, and prepare them
+        let engaged_orders = self.prepare_more_orders();
 
         // Compute symbols and threshold
         // ...
 
         // receive list of open lots from Inventory Manager
-        let _positions = self
-            .inventory_manager
-            .read()
-            .get_positions(&more_orders.symbols);
+        //let _positions = self
+        //    .inventory_manager
+        //    .read()
+        //    .get_positions(&more_orders.symbols);
 
         // Compute: Allocate open lots to Index Orders
         // ...
@@ -697,6 +815,7 @@ mod test {
             order_book_manager.clone(),
             inventory_manager.clone(),
             4,
+            tolerance,
         ));
 
         solver
