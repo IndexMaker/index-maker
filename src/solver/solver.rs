@@ -214,7 +214,7 @@ impl Solver {
                     .iter()
                     .map_while(|asset| {
                         let asset_symbol = asset.weight.asset.name.clone();
-                        let asset_price = more_orders.asset_prices.get(&asset_symbol).unwrap();
+                        let asset_price = more_orders.asset_prices.get(&asset_symbol)?;
                         //
                         // Formula:
                         //      quantity of asset to order = quantity of index order
@@ -316,7 +316,7 @@ impl Solver {
             asset_total_order_quantity,
             asset_total_weighted_liquidity: asset_total_weighted_liquidity
                 .into_iter()
-                .map(|(k, (w, s))| (k, w.checked_div(s).unwrap_or(Amount::ZERO)))
+                .filter_map(|(k, (w, s))| w.checked_div(s).map(|x| (k, x)))
                 .collect(),
         }
     }
@@ -349,7 +349,7 @@ impl Solver {
                         //                                                  * quantity of index order
                         let asset_order_quantity = asset.quantity.checked_mul(order_quantity)?;
 
-                        // Total quantiy of asset across all index orders in batch
+                        // Total quantity of asset across all index orders in batch
                         let asset_symbol = asset.weight.asset.name.clone();
                         let asset_total_quantity = order_liquidity
                             .asset_total_order_quantity
