@@ -126,6 +126,7 @@ impl Solver {
     }
 
     fn more_orders<'a>(&self, index_orders: &'a Vec<Arc<RwLock<IndexOrder>>>) -> MoreOrders<'a> {
+        println!("\nMore Orders...");
         // Lock all Index Orders in the batch - for reading with intention to write
         let mut locked_orders = index_orders
             .iter()
@@ -155,7 +156,7 @@ impl Solver {
             .splice(partition_point.., [])
             .for_each(|(_, mut order)| {
                 order.with_upgraded(|order| {
-                    order.solver_cancel(format!("Invalid symbol {}", order.symbol).as_str());
+                    order.solver_cancel(format!("Invalid symbol {:0.5}", order.symbol).as_str());
                 });
             });
 
@@ -182,7 +183,7 @@ impl Solver {
         individual_asset_prices
             .prices
             .iter()
-            .for_each(|(a, p)| println!("individual_asset_prices > ({} p={})", a, p));
+            .for_each(|(a, p)| println!(" * individual_asset_prices > ({:0.5} p={:0.5})", a, p));
 
         // Collect prices of all indexes in the batch
         let mut individual_index_prices = HashMap::new();
@@ -208,7 +209,8 @@ impl Solver {
                 if missing_index_prices.contains(&order.symbol) {
                     order.with_upgraded(|order| {
                         order.solver_cancel(
-                            format!("Cannot calcualte index price for {}", order.symbol).as_str(),
+                            format!("Cannot calcualte index price for {:0.5}", order.symbol)
+                                .as_str(),
                         );
                     });
                     false
@@ -228,6 +230,12 @@ impl Solver {
     }
 
     fn find_order_liquidity(&self, more_orders: &mut MoreOrders) -> FindOrderLiquidity {
+        println!("\nFind Order Liquidity...");
+        println!("   q   quantity");
+        println!("   p   price");
+        println!("   t   threshold");
+        println!("   l   liquidity");
+        println!("");
         let mut asset_total_order_quantity = HashMap::new();
         let mut asset_total_weighted_liquidity = HashMap::new();
 
@@ -249,10 +257,17 @@ impl Solver {
                 let basket = more_orders.baskets.get(&index_order.symbol)?;
 
                 println!(
-                    "index order: {} {:?} p={} q={} t={}",
-                    index_order.symbol, side, price, order_quantity, threshold
+                    " * index order: {:0.5} {} < {} {:?} p={:0.5} q={:0.5} t={:0.5}",
+                    index_order.symbol,
+                    index_order.original_client_order_id,
+                    update.client_order_id,
+                    side,
+                    price,
+                    order_quantity,
+                    threshold
                 );
 
+                println!("\n- Find target asset prices and quantites...\n");
                 let target_asset_prices_and_quantites = basket
                     .basket_assets
                     .iter()
@@ -265,6 +280,12 @@ impl Solver {
                         //                                 * quantity of asset in basket
                         //
                         let asset_quantity = asset.quantity.checked_mul(order_quantity)?;
+
+                        println!(
+                            " * asset_quantity {:5} {:0.5} = {:0.5} * {:0.5}",
+                            asset_symbol, asset_quantity, asset.quantity, order_quantity
+                        );
+
                         //
                         // Note: While asset prices can move in any direction, here we just assume
                         // that prices of all assets move proportionally to index price. We know it's
@@ -280,8 +301,8 @@ impl Solver {
                             .and_then(|x| x.checked_div(*current_price))?;
 
                         println!(
-                            "target_asset_price {} = {} * {} / {}",
-                            asset_symbol, asset_price, price, *current_price
+                            " * target_asset_price {:5} {:0.5} = {:0.5} * {:0.5} / {:0.5}",
+                            asset_symbol, target_asset_price, asset_price, price, *current_price
                         );
 
                         match asset_total_order_quantity.entry(asset.weight.asset.name.clone()) {
@@ -293,11 +314,6 @@ impl Solver {
                                 entry.insert(asset_quantity);
                             }
                         }
-
-                        println!(
-                            "target_asset_prices_and_quantites << ({} p={} q={})",
-                            asset_symbol, target_asset_price, asset_quantity
-                        );
 
                         Some((asset_symbol, target_asset_price, asset_quantity))
                     })
@@ -322,13 +338,15 @@ impl Solver {
                         .map(|(k, p, _)| (k.clone(), *p)),
                 );
 
+                println!("\n- Find liquidity for prices with threshold...\n");
+
                 let liquidity = order_book_manager
                     .get_liquidity(side.opposite_side(), &target_asset_prices, threshold)
                     .ok()?;
 
                 for (asset_symbol, asset_liquidity) in liquidity {
                     println!(
-                        "liquidity > ({} t={} l={})",
+                        " * liquidity >> {:0.5} t={:0.5} l={:0.5}",
                         asset_symbol, threshold, asset_liquidity
                     );
                     //
@@ -348,7 +366,7 @@ impl Solver {
                     let asset_liquidity = asset_liquidity.checked_mul(*asset_quantity)?;
 
                     println!(
-                        "asset_total_weighted_liquidity << ({} l={} q={})",
+                        " * asset_total_weighted_liquidity << {:0.5} l={:0.5} q={:0.5}\n",
                         asset_symbol, asset_liquidity, *asset_quantity
                     );
 
@@ -389,6 +407,15 @@ impl Solver {
         more_orders: &mut MoreOrders,
         order_liquidity: &FindOrderLiquidity,
     ) -> HashMap<ClientOrderId, FindOrderContribution> {
+        println!("\nFind Order Contribution...");
+        println!("   q   asset_order_quantity");
+        println!("   tq  asset_total_quantity");
+        println!("   tl  asset_liquidity");
+        println!("   acf asset_contribution_fraction");
+        println!("   alc asset_liquidity_contribution");
+        println!("   of  order_fraction");
+        println!("   oq  order_quantity");
+        println!("");
         let mut all_contributions = HashMap::new();
 
         // Remove erroneous orders
@@ -457,7 +484,8 @@ impl Solver {
                             contribution.order_fraction.checked_mul(order_quantity)?;
 
 
-                        println!("find_order_contribution: {} q={} tq={} tl={} acf={} alc={} of={} oq={}",
+                        println!(" * find_order_contribution: {} {:0.5} q={:0.5} tq={:0.5} tl={:0.5} acf={:0.5} alc={:0.5} of={:0.5} oq={:0.5}",
+                            update.client_order_id,
                             asset_symbol, asset_order_quantity, asset_total_quantity, asset_liquidity,
                             asset_contribution_fraction,
                             asset_liquidity_contribution,
@@ -506,6 +534,7 @@ impl Solver {
         more_orders: &mut MoreOrders,
         contributions: &HashMap<ClientOrderId, FindOrderContribution>,
     ) -> Vec<EngageOrder> {
+        println!("\nEngage Orders...");
         let mut enagaged_orders = Vec::new();
         more_orders
             .locked_orders
@@ -545,7 +574,7 @@ impl Solver {
                             });
                             Ok(())
                         })
-                        .map_err(|err| println!("Error: {}", err)) // todo: we need to log errors somewhere
+                        .map_err(|err| println!("Error: {:0.5}", err)) // todo: we need to log errors somewhere
                         .is_ok(),
                     None => {
                         index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
@@ -558,6 +587,7 @@ impl Solver {
     }
 
     fn engage_more_orders(&self) -> EngagedOrders {
+        println!("Engage More Orders...");
         // Receive a batch of Index Orders
         let index_orders = self
             .index_order_manager
@@ -587,6 +617,7 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self) {
+        println!("Solve...");
         // Receive some more orders, and prepare them
         let engaged_orders = self.engage_more_orders();
 
@@ -599,6 +630,7 @@ impl Solver {
             .read()
             .get_positions(&engaged_orders.symbols);
 
+        println!("Compute...");
         // Compute: Allocate open lots to Index Orders
         // ...
         // TBD: Should Solver or Inventory Manager be allocating lots to index orders?
@@ -621,6 +653,7 @@ impl Solver {
 
         // TODO: Should throttling be done here in Solver or in Inventory Manager
 
+        println!("Send Order Batches...");
         // TODO: we should generate IDs
         let mut batch_ids = VecDeque::from([BatchOrderId("BatchOrder01".into())]);
         let mut order_ids = VecDeque::from([OrderId("Order01".into()), OrderId("Order02".into())]);
@@ -655,19 +688,19 @@ impl Solver {
 
         for batch in batches {
             println!(
-                "batch: {}",
+                "batch: {:0.5}",
                 batch
                     .asset_orders
                     .iter()
                     .map(|ba| format!(
-                        "{:?} {}: {} @ {}",
+                        "{:?} {:0.5}: {:0.5} @ {:0.5}",
                         ba.side, ba.symbol, ba.quantity, ba.price
                     ))
                     .join("; ")
             );
             if let Err(err) = self.inventory_manager.write().new_order(batch) {
                 // log somewhere this error
-                println!("Error: {}", err)
+                println!("Error: {:0.5}", err)
             }
         }
     }
@@ -700,9 +733,9 @@ impl Solver {
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) {
-        println!("Solver: Handle Chain Event");
         match notification {
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
+                println!("Solver: Handle Chain Event CuratorWeigthsSet {}", symbol);
                 let symbols = basket_definition
                     .weights
                     .iter()
@@ -733,16 +766,56 @@ impl Solver {
                 }
             }
             ChainNotification::PaymentIn {
-                address: _,
+                address,
                 payment_id: _,
-                amount_paid_in: _,
-            } => (),
+                amount_paid_in,
+            } => {
+                println!(
+                    "Solver: Handle Chain Event PaymentIn {} from {}",
+                    amount_paid_in, address
+                );
+            }
         }
     }
 
     /// receive Index Order
-    pub fn handle_index_order(&self, _notification: IndexOrderEvent) {
-        println!("Solver: Handle Index Order");
+    pub fn handle_index_order(&self, notification: IndexOrderEvent) {
+        match notification {
+            IndexOrderEvent::NewIndexOrder {
+                original_client_order_id,
+                address,
+                client_order_id,
+                payment_id,
+                symbol,
+                side,
+                price,
+                price_threshold,
+                quantity_removed,
+                quantity_added,
+                timestamp,
+            } => {
+                println!(
+                    "Solver: Handle Index Order NewIndexOrder {} {} < {} from {}",
+                    symbol, original_client_order_id, client_order_id, address
+                );
+            }
+            IndexOrderEvent::CancelIndexOrder {
+                original_client_order_id,
+                address,
+                client_order_id,
+                payment_id,
+                symbol,
+                order_cancelled,
+                side_cancelled,
+                quantity_cancelled,
+                timestamp,
+            } => {
+                println!(
+                    "Solver: Handle Index Order CancelIndexOrder {} {} < {} from {}",
+                    symbol, original_client_order_id, client_order_id, address
+                );
+            }
+        }
         self.solve();
     }
 
@@ -753,38 +826,114 @@ impl Solver {
     }
 
     /// Receive fill notifications
-    pub fn handle_inventory_event(&self, _notification: InventoryEvent) {
-        println!("Solver: Handle Inventory Event");
+    pub fn handle_inventory_event(&self, notification: InventoryEvent) {
+        match notification {
+            InventoryEvent::OpenLot {
+                order_id,
+                batch_order_id,
+                lot_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                fee,
+                original_batch_quantity,
+                batch_quantity_remaining,
+                timestamp,
+            } => {
+                println!(
+                    "Solver: Handle Inventory Event OpenLot {:?} {:0.5} {:0.5} @ {:0.5} + {:0.5}",
+                    side, symbol, quantity, price, fee
+                );
+            }
+            InventoryEvent::CloseLot {
+                original_order_id,
+                original_batch_order_id,
+                original_lot_id,
+                closing_order_id,
+                closing_batch_order_id,
+                closing_lot_id,
+                symbol,
+                side,
+                original_price,
+                closing_price,
+                closing_fee,
+                quantity_closed,
+                original_quantity,
+                quantity_remaining,
+                closing_batch_original_quantity,
+                closing_batch_quantity_remaining,
+                original_timestamp,
+                closing_timestamp,
+            } => {
+                println!(
+                    "Solver: Handle Inventory Event CloseLot {:?} {:0.5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    side,
+                    symbol,
+                    quantity_closed,
+                    closing_price,
+                    closing_fee,
+                    Amount::ONE_HUNDRED * (original_quantity - quantity_remaining)
+                        / original_quantity
+                );
+            }
+        }
         //self.solve();
     }
 
     /// receive current prices from Price Tracker
-    pub fn handle_price_event(&self, _notification: PriceEvent) {
-        println!("Solver: Handle Price Event");
+    pub fn handle_price_event(&self, notification: PriceEvent) {
+        match notification {
+            PriceEvent::PriceChange { symbol } => {
+                println!("Solver: Handle Price Event {:0.5}", symbol)
+            }
+        };
         //self.solve();
     }
 
     /// receive available liquidity from Order Book Manager
-    pub fn handle_book_event(&self, _notification: OrderBookEvent) {
-        println!("Solver: Handle Book Event");
+    pub fn handle_book_event(&self, notification: OrderBookEvent) {
+        match notification {
+            OrderBookEvent::BookUpdate { symbol } => {
+                println!("Solver: Handle Book Event {:0.5}", symbol);
+            }
+            OrderBookEvent::UpdateError { symbol, error } => {
+                println!(
+                    "Solver: Handle Book Event {:0.5}, Error: {:0.5}",
+                    symbol, error
+                );
+            }
+        }
         //self.solve();
     }
 
     /// receive basket notification
     pub fn handle_basket_event(&self, notification: BasketNotification) {
-        println!("Solver: Handle Basket Notification");
         //self.solve();
         // TODO: (move this) once solvign is done notify new weights were applied
         match notification {
-            BasketNotification::BasketAdded(symbol, basket) => self
-                .chain_connector
-                .write()
-                .solver_weights_set(symbol, basket),
-            BasketNotification::BasketUpdated(symbol, basket) => self
-                .chain_connector
-                .write()
-                .solver_weights_set(symbol, basket),
-            BasketNotification::BasketRemoved(_symbol) => todo!(),
+            BasketNotification::BasketAdded(symbol, basket) => {
+                println!("Solver: Handle Basket Notification BasketAdded {}", symbol);
+                self.chain_connector
+                    .write()
+                    .solver_weights_set(symbol, basket)
+            }
+            BasketNotification::BasketUpdated(symbol, basket) => {
+                println!(
+                    "Solver: Handle Basket Notification BasketUpdated {}",
+                    symbol
+                );
+                self.chain_connector
+                    .write()
+                    .solver_weights_set(symbol, basket)
+            }
+            BasketNotification::BasketRemoved(symbol) => {
+                println!(
+                    "Solver: Handle Basket Notification BasketRemoved {}",
+                    symbol
+                );
+                todo!()
+            }
         }
     }
 }
@@ -842,7 +991,7 @@ mod test {
     {
         fn handle_notification(&self, notification: T) {
             self.send(notification)
-                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
+                .expect(format!("Failed to handle {:0.5}", type_name::<T>()).as_str());
         }
     }
 

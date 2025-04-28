@@ -20,10 +20,13 @@ use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 pub enum IndexOrderEvent {
     NewIndexOrder {
+        // ID of the original NewOrder request
+        original_client_order_id: ClientOrderId,
+
         /// On-chain address of the User
         address: Address,
 
-        // ID od the NewOrder request
+        // ID of the NewOrder request
         client_order_id: ClientOrderId,
 
         /// An ID of the on-chain payment
@@ -51,6 +54,9 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     CancelIndexOrder {
+        // ID of the original NewOrder request
+        original_client_order_id: ClientOrderId,
+
         /// On-chain address of the User
         address: Address,
 
@@ -131,6 +137,8 @@ impl IndexOrderManager {
             })
             .clone();
 
+        let original_client_order_id = index_order.read().original_client_order_id.clone();
+
         // Add update to index order
         let (quantity_removed, quantity_added) = index_order.write().update_order(
             address.clone(),
@@ -146,6 +154,7 @@ impl IndexOrderManager {
 
         self.observer
             .publish_single(IndexOrderEvent::NewIndexOrder {
+                original_client_order_id,
                 address,
                 client_order_id: client_order_id.clone(),
                 payment_id: payment_id.clone(),
@@ -180,6 +189,8 @@ impl IndexOrderManager {
             symbol
         ))?;
 
+        let original_client_order_id = index_order.read().original_client_order_id.clone();
+
         match index_order
             .write()
             .cancel_updates(quantity, self.tolerance)?
@@ -187,6 +198,7 @@ impl IndexOrderManager {
             (order_cancelled, quantity_cancelled) => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
+                        original_client_order_id,
                         address,
                         client_order_id,
                         payment_id,
