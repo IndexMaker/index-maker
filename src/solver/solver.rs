@@ -3,16 +3,17 @@ use std::{
     sync::Arc,
 };
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use eyre::OptionExt;
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use eyre::Result;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     core::bits::{
-        Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PriceType, Side,
-        Symbol,
+        Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
+        PriceType, Side, Symbol,
     },
     index::{
         basket::Basket,
@@ -25,16 +26,65 @@ use crate::{
 };
 
 use super::{
-    index_order::IndexOrder,
     index_order_manager::{IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
 };
 
+enum IndexOrderStatus {
+    Open,
+    Engaged,
+    Closed,
+    InvalidSymbol,
+    MathOverflow,
+}
+
+/// Solver's view of the Index Order
+struct IndexOrderSolver {
+    // ID of the original NewOrder request
+    original_client_order_id: ClientOrderId,
+
+    /// On-chain address of the User
+    address: Address,
+
+    // ID of the NewOrder request
+    client_order_id: ClientOrderId,
+
+    /// An ID of the on-chain payment
+    payment_id: PaymentId,
+
+    /// Symbol of an Index
+    symbol: Symbol,
+
+    /// Side of an order
+    side: Side,
+
+    /// Limit price
+    price: Amount,
+
+    /// Price max deviation %-age (as fraction) threshold
+    price_threshold: Amount,
+
+    /// Quantity remaining on the order to complete
+    remaining_quantity: Amount,
+
+    /// Quantity solver has engaged so far
+    engaged_quantity: Amount,
+
+    /// In-flight quantity in the sent order batch
+    inflight_quantity: Amount,
+
+    /// Time when requested
+    timestamp: DateTime<Utc>,
+
+    // Solver status
+    status: IndexOrderStatus,
+}
+
 struct MoreOrders<'a> {
     locked_orders: Vec<(
-        &'a Arc<RwLock<IndexOrder>>,
-        RwLockUpgradableReadGuard<'a, IndexOrder>,
+        &'a Arc<RwLock<IndexOrderSolver>>,
+        RwLockUpgradableReadGuard<'a, IndexOrderSolver>,
     )>,
     symbols: Vec<Symbol>,
     baskets: HashMap<Symbol, Arc<Basket>>,
@@ -66,7 +116,7 @@ struct FindOrderContribution {
 }
 
 struct EngageOrder {
-    index_order: Arc<RwLock<IndexOrder>>,
+    index_order: Arc<RwLock<IndexOrderSolver>>,
     client_order_id: ClientOrderId,
     symbol: Symbol,
     basket: Arc<Basket>,
@@ -97,6 +147,8 @@ pub struct Solver {
     price_tracker: Arc<RwLock<PriceTracker>>,
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
+    client_orders: RwLock<HashMap<ClientOrderId, Arc<RwLock<IndexOrderSolver>>>>,
+    new_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
     max_orders: usize,
     tolerance: Amount,
 }
@@ -120,12 +172,21 @@ impl Solver {
             price_tracker,
             order_book_manager,
             inventory_manager,
+            client_orders: RwLock::new(HashMap::new()),
+            new_orders: RwLock::new(VecDeque::new()),
             max_orders,
             tolerance,
         }
     }
 
-    fn more_orders<'a>(&self, index_orders: &'a Vec<Arc<RwLock<IndexOrder>>>) -> MoreOrders<'a> {
+    fn set_order_status(&self, order: &mut IndexOrderSolver, status: IndexOrderStatus) {
+        order.status = status;
+    }
+
+    fn more_orders<'a>(
+        &self,
+        index_orders: &'a Vec<Arc<RwLock<IndexOrderSolver>>>,
+    ) -> MoreOrders<'a> {
         println!("\nMore Orders...");
         // Lock all Index Orders in the batch - for reading with intention to write
         let mut locked_orders = index_orders
@@ -156,7 +217,7 @@ impl Solver {
             .splice(partition_point.., [])
             .for_each(|(_, mut order)| {
                 order.with_upgraded(|order| {
-                    order.solver_cancel(format!("Invalid symbol {:0.5}", order.symbol).as_str());
+                    self.set_order_status(order, IndexOrderStatus::InvalidSymbol);
                 });
             });
 
@@ -208,10 +269,7 @@ impl Solver {
             locked_orders.retain_mut(|(_, order)| {
                 if missing_index_prices.contains(&order.symbol) {
                     order.with_upgraded(|order| {
-                        order.solver_cancel(
-                            format!("Cannot calcualte index price for {:0.5}", order.symbol)
-                                .as_str(),
-                        );
+                        self.set_order_status(order, IndexOrderStatus::MathOverflow);
                     });
                     false
                 } else {
@@ -244,8 +302,7 @@ impl Solver {
             // We'll only pick the first order update from the update queue
             // Note that we chould use iter() instead of front().inspect() and
             // take more than one update [TBD]
-            let result = index_order.order_updates.front().and_then(|update| {
-                let update = update.read();
+            let result = Some(&index_order).and_then(|update| {
                 let side = update.side;
                 let price = update.price;
                 let order_quantity = update.remaining_quantity;
@@ -386,7 +443,9 @@ impl Solver {
                 Some(())
             });
             if let None = result {
-                index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
+                index_order.with_upgraded(|order| {
+                    self.set_order_status(order, IndexOrderStatus::MathOverflow)
+                });
                 false
             } else {
                 true
@@ -423,9 +482,8 @@ impl Solver {
             let basket = more_orders.baskets.get(&index_order.symbol);
 
             // Find error
-            let result = index_order.order_updates.front().and_then(|update| {
+            let result = Some(&index_order).and_then(|update| {
                 let basket = basket?;
-                let update = update.read();
                 let order_quantity = update.remaining_quantity;
                 let mut contribution = FindOrderContribution {
                     asset_contribution_fraction: HashMap::new(),
@@ -520,7 +578,7 @@ impl Solver {
                 }
             });
             if let None = result {
-                index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
+                index_order.with_upgraded(|order| self.set_order_status(order, IndexOrderStatus::MathOverflow));
                 false
             } else {
                 true
@@ -540,8 +598,7 @@ impl Solver {
             .locked_orders
             .retain_mut(|(index_order_arc, index_order)| {
                 let basket = more_orders.baskets.get(&index_order.symbol);
-                let result = index_order.order_updates.front().and_then(|update| {
-                    let update = update.read();
+                let result = Some(&index_order).and_then(|update| {
                     let contribution = contributions.get(&update.client_order_id)?;
                     Some((
                         update.client_order_id.clone(),
@@ -552,7 +609,11 @@ impl Solver {
                 });
                 match result {
                     Some((client_order_id, quantity, price, threshold)) => index_order
-                        .with_upgraded(|order| order.solver_engage(quantity, self.tolerance))
+                        .with_upgraded(|order| -> Result<Option<Amount>> {
+                            self.set_order_status(order, IndexOrderStatus::Engaged);
+                            order.engaged_quantity = quantity;
+                            Ok(None)
+                        })
                         .and_then(|unmatched_quantity| {
                             let engaged_quantity =
                                 if let Some(unmatched_quantity) = unmatched_quantity {
@@ -577,7 +638,9 @@ impl Solver {
                         .map_err(|err| println!("Error: {:0.5}", err)) // todo: we need to log errors somewhere
                         .is_ok(),
                     None => {
-                        index_order.with_upgraded(|order| order.solver_cancel("Math overflow"));
+                        index_order.with_upgraded(|order| {
+                            self.set_order_status(order, IndexOrderStatus::MathOverflow)
+                        });
                         false
                     }
                 }
@@ -588,14 +651,15 @@ impl Solver {
 
     fn engage_more_orders(&self) -> EngagedOrders {
         println!("Engage More Orders...");
-        // Receive a batch of Index Orders
-        let index_orders = self
-            .index_order_manager
-            .write()
-            .take_index_orders(self.max_orders);
 
-        // Take some new orders
-        let mut more_orders = self.more_orders(&index_orders);
+        // Receive a batch of new Index Orders
+        let new_orders = (|| {
+            let mut new_orders = self.new_orders.write();
+            let len = new_orders.len();
+            new_orders.drain(..self.max_orders.min(len)).collect_vec()
+        })();
+
+        let mut more_orders = self.more_orders(&new_orders);
 
         // Get totals for assets in all Index Orders
         let order_liquidity = self.find_order_liquidity(&mut more_orders);
@@ -790,30 +854,81 @@ impl Solver {
                 side,
                 price,
                 price_threshold,
-                quantity_removed,
-                quantity_added,
+                quantity,
                 timestamp,
             } => {
                 println!(
                     "Solver: Handle Index Order NewIndexOrder {} {} < {} from {}",
                     symbol, original_client_order_id, client_order_id, address
                 );
+                match self
+                    .client_orders
+                    .write()
+                    .entry(original_client_order_id.clone())
+                {
+                    Entry::Vacant(entry) => {
+                        let solver_order = Arc::new(RwLock::new(IndexOrderSolver {
+                            original_client_order_id: original_client_order_id.clone(),
+                            address,
+                            client_order_id,
+                            payment_id,
+                            symbol,
+                            side,
+                            price,
+                            price_threshold,
+                            remaining_quantity: quantity,
+                            engaged_quantity: Amount::ZERO,
+                            inflight_quantity: Amount::ZERO,
+                            timestamp,
+                            status: IndexOrderStatus::Open
+                        }));
+                        entry.insert(solver_order.clone());
+                        self.new_orders.write().push_back(solver_order);
+                    }
+                    Entry::Occupied(_) => {
+                        todo!();
+                    }
+                }
+            }
+            IndexOrderEvent::UpdateIndexOrder {
+                original_client_order_id,
+                address,
+                client_order_id,
+                quantity_removed: _,
+                quantity_remaining: _,
+                timestamp: _,
+            } => {
+                println!(
+                    "Solver: Handle Index Order UpdateIndexOrder{} < {} from {}",
+                    original_client_order_id, client_order_id, address
+                );
+                todo!();
+            }
+            IndexOrderEvent::EngageIndexOrder {
+                original_client_order_id,
+                address,
+                client_order_id,
+                quantity_engaged: _,
+                quantity_remaining: _,
+                timestamp: _,
+            } => {
+                println!(
+                    "Solver: Handle Index Order EngageIndexOrder{} < {} from {}",
+                    original_client_order_id, client_order_id, address
+                );
+                todo!();
             }
             IndexOrderEvent::CancelIndexOrder {
                 original_client_order_id,
                 address,
                 client_order_id,
-                payment_id,
-                symbol,
-                order_cancelled,
-                side_cancelled,
-                quantity_cancelled,
-                timestamp,
+                timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order CancelIndexOrder {} {} < {} from {}",
-                    symbol, original_client_order_id, client_order_id, address
+                    "Solver: Handle Index Order CancelIndexOrder {} < {} from {}",
+                    original_client_order_id, client_order_id, address
                 );
+                todo!();
             }
         }
         self.solve();
@@ -829,17 +944,17 @@ impl Solver {
     pub fn handle_inventory_event(&self, notification: InventoryEvent) {
         match notification {
             InventoryEvent::OpenLot {
-                order_id,
-                batch_order_id,
-                lot_id,
+                order_id: _,
+                batch_order_id: _,
+                lot_id: _,
                 symbol,
                 side,
                 price,
                 quantity,
                 fee,
-                original_batch_quantity,
-                batch_quantity_remaining,
-                timestamp,
+                original_batch_quantity: _,
+                batch_quantity_remaining: _,
+                timestamp: _,
             } => {
                 println!(
                     "Solver: Handle Inventory Event OpenLot {:?} {:0.5} {:0.5} @ {:0.5} + {:0.5}",
@@ -847,24 +962,24 @@ impl Solver {
                 );
             }
             InventoryEvent::CloseLot {
-                original_order_id,
-                original_batch_order_id,
-                original_lot_id,
-                closing_order_id,
-                closing_batch_order_id,
-                closing_lot_id,
+                original_order_id: _,
+                original_batch_order_id: _,
+                original_lot_id: _,
+                closing_order_id: _,
+                closing_batch_order_id: _,
+                closing_lot_id: _,
                 symbol,
                 side,
-                original_price,
+                original_price: _,
                 closing_price,
                 closing_fee,
                 quantity_closed,
                 original_quantity,
                 quantity_remaining,
-                closing_batch_original_quantity,
-                closing_batch_quantity_remaining,
-                original_timestamp,
-                closing_timestamp,
+                closing_batch_original_quantity: _,
+                closing_batch_quantity_remaining: _,
+                original_timestamp: _,
+                closing_timestamp: _,
             } => {
                 println!(
                     "Solver: Handle Inventory Event CloseLot {:?} {:0.5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
@@ -1159,11 +1274,15 @@ mod test {
                     .unwrap();
             });
 
+        let (solver_tick_sender, solver_tick_receiver) = unbounded();
+        let solver_tick = || solver_tick_sender.send(true).unwrap();
+
         let flush_events = move || {
             // Simple dispatch loop
             loop {
                 select! {
                     recv(deferred) -> res => (res.unwrap())(),
+                    recv(solver_tick_receiver) -> _ => solver.solve(),
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
@@ -1354,6 +1473,10 @@ mod test {
                 quantity: get_mock_decimal("2.5"),
                 timestamp: Utc::now(),
             }));
+
+        flush_events();
+
+        solver_tick();
 
         flush_events();
 

@@ -18,6 +18,8 @@ use crate::{
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
+use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+
 pub enum IndexOrderEvent {
     NewIndexOrder {
         // ID of the original NewOrder request
@@ -44,11 +46,46 @@ pub enum IndexOrderEvent {
         /// Price max deviation %-age (as fraction) threshold
         price_threshold: Amount,
 
-        /// Quantity removed (on opposite side) from existing index order as a result of crossing sides
+        /// Quantity of index requested
+        quantity: Amount,
+
+        /// Time when requested
+        timestamp: DateTime<Utc>,
+    },
+    EngageIndexOrder {
+        // ID of the original NewOrder request
+        original_client_order_id: ClientOrderId,
+
+        /// On-chain address of the User
+        address: Address,
+
+        // ID of the NewOrder request
+        client_order_id: ClientOrderId,
+
+        /// Quantity remaining
+        quantity_engaged: Amount,
+
+        /// Quantity remaining
+        quantity_remaining: Amount,
+
+        /// Time when requested
+        timestamp: DateTime<Utc>,
+    },
+    UpdateIndexOrder {
+        // ID of the original NewOrder request
+        original_client_order_id: ClientOrderId,
+
+        /// On-chain address of the User
+        address: Address,
+
+        // ID of the NewOrder request
+        client_order_id: ClientOrderId,
+
+        /// Quantity removed
         quantity_removed: Amount,
 
-        /// Quantity either created or added to an index order
-        quantity_added: Amount,
+        /// Quantity remaining
+        quantity_remaining: Amount,
 
         /// Time when requested
         timestamp: DateTime<Utc>,
@@ -63,31 +100,24 @@ pub enum IndexOrderEvent {
         /// ID of the Cancel request
         client_order_id: ClientOrderId,
 
-        /// An ID of the on-chain payment
-        payment_id: PaymentId,
-
-        /// Symbol of an Index
-        symbol: Symbol,
-
-        /// Tell if index order was fully cancelled
-        order_cancelled: bool,
-
-        /// Tell on which side was the index order when it was cancelled
-        side_cancelled: Side,
-
-        /// Tell the quantity of the index order that was cancelled
-        quantity_cancelled: Amount,
-
         /// Tell the time when it was cancelled
         timestamp: DateTime<Utc>,
     },
 }
 
+/// Manages Incoming Index Orders
+///
+/// Responsible for pre-processing incomming index orders, so that Solver
+/// will only receive resulting order quantity, e.g. A Sell order would be
+/// self-matched to remove some of the quantity, and if order was not engaged
+/// yet by Solver, then Sell of more quantity than Buy would flip the side
+/// of the order to Sell with overflowing quantity. Solver will not engage
+/// the order when it cannot obtain liquidity from the market, or also when
+/// no sufficient curator token has been received.
 pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
     index_orders: HashMap<Address, HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
-    order_queue: VecDeque<Arc<RwLock<IndexOrder>>>,
     tolerance: Amount,
 }
 
@@ -98,11 +128,12 @@ impl IndexOrderManager {
             observer: SingleObserver::new(),
             server,
             index_orders: HashMap::new(),
-            order_queue: VecDeque::new(),
             tolerance,
         }
     }
 
+    /// We would've received NewOrder request from FIX server, and
+    /// this can be Buy or Sell Index.
     fn new_index_order(
         &mut self,
         address: Address,
@@ -132,7 +163,6 @@ impl IndexOrderManager {
                     side,
                     timestamp.clone(),
                 )));
-                self.order_queue.push_back(order.clone());
                 order
             })
             .clone();
@@ -140,7 +170,7 @@ impl IndexOrderManager {
         let original_client_order_id = index_order.read().original_client_order_id.clone();
 
         // Add update to index order
-        let (quantity_removed, quantity_added) = index_order.write().update_order(
+        let update_order_outcome = index_order.write().update_order(
             address.clone(),
             client_order_id.clone(),
             payment_id.clone(),
@@ -152,24 +182,64 @@ impl IndexOrderManager {
             self.tolerance,
         )?;
 
-        self.observer
-            .publish_single(IndexOrderEvent::NewIndexOrder {
-                original_client_order_id,
-                address,
-                client_order_id: client_order_id.clone(),
-                payment_id: payment_id.clone(),
-                symbol: symbol.clone(),
-                side,
-                price,
-                price_threshold,
-                quantity_removed,
-                quantity_added,
-                timestamp,
-            });
+        match update_order_outcome {
+            UpdateIndexOrderOutcome::Push { new_quantity } => {
+                self.observer
+                    .publish_single(IndexOrderEvent::NewIndexOrder {
+                        original_client_order_id,
+                        address,
+                        client_order_id,
+                        payment_id,
+                        symbol,
+                        side,
+                        price,
+                        price_threshold,
+                        quantity: new_quantity,
+                        timestamp,
+                    });
+            }
+            UpdateIndexOrderOutcome::Reduce {
+                removed_quantity,
+                remaining_quantity,
+            } => {
+                self.observer
+                    .publish_single(IndexOrderEvent::UpdateIndexOrder {
+                        original_client_order_id,
+                        address,
+                        client_order_id,
+                        quantity_removed: removed_quantity,
+                        quantity_remaining: remaining_quantity,
+                        timestamp,
+                    });
+            }
+            UpdateIndexOrderOutcome::Flip { side, new_quantity } => {
+                self.observer
+                    .publish_single(IndexOrderEvent::CancelIndexOrder {
+                        original_client_order_id: original_client_order_id.clone(),
+                        address,
+                        client_order_id: client_order_id.clone(),
+                        timestamp,
+                    });
+                self.observer
+                    .publish_single(IndexOrderEvent::NewIndexOrder {
+                        original_client_order_id,
+                        address,
+                        client_order_id,
+                        payment_id,
+                        symbol,
+                        side,
+                        price,
+                        price_threshold,
+                        quantity: new_quantity,
+                        timestamp,
+                    });
+            }
+        };
 
         Ok(())
     }
 
+    /// We would've received CancelOrder request from FIX server.
     fn cancel_index_order(
         &self,
         address: Address,
@@ -195,17 +265,26 @@ impl IndexOrderManager {
             .write()
             .cancel_updates(quantity, self.tolerance)?
         {
-            (order_cancelled, quantity_cancelled) => {
+            CancelIndexOrderOutcome::Cancel { removed_quantity: _ } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
                         original_client_order_id,
                         address,
                         client_order_id,
-                        payment_id,
-                        symbol,
-                        order_cancelled,
-                        side_cancelled: index_order.read().side,
-                        quantity_cancelled,
+                        timestamp,
+                    });
+            }
+            CancelIndexOrderOutcome::Reduce {
+                removed_quantity,
+                remaining_quantity,
+            } => {
+                self.observer
+                    .publish_single(IndexOrderEvent::UpdateIndexOrder {
+                        original_client_order_id,
+                        address,
+                        client_order_id,
+                        quantity_removed: removed_quantity,
+                        quantity_remaining: remaining_quantity,
                         timestamp,
                     });
             }
@@ -259,13 +338,6 @@ impl IndexOrderManager {
     /// provide a method to fill index order request
     pub fn fill_order_request(&mut self, _client_order_id: ClientOrderId, _fill_amount: Amount) {
         todo!()
-    }
-
-    /// provide a method to list pending index order requests
-    pub fn take_index_orders(&mut self, max_count: usize) -> Vec<Arc<RwLock<IndexOrder>>> {
-        self.order_queue
-            .drain(..max_count.min(self.order_queue.len()))
-            .collect()
     }
 }
 
