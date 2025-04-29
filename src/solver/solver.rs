@@ -360,7 +360,9 @@ impl Solver {
                         //                                      * target basket price
                         //                                      / current basket price
                         //
-                        let target_asset_price = checked_arithmetic!((asset_price + price) / *current_price)?;
+                        let target_asset_price = checked_arithmetic!(
+                            checked_arithmetic!(*asset_price + price) / *current_price
+                        )?;
 
                         println!(
                             " * target_asset_price {:5} {:0.5} = {:0.5} * {:0.5} / {:0.5}",
@@ -370,7 +372,7 @@ impl Solver {
                         match asset_total_order_quantity.entry(asset.weight.asset.name.clone()) {
                             Entry::Occupied(mut entry) => {
                                 let x: &Amount = entry.get();
-                                entry.insert(x.checked_add(asset_quantity)?);
+                                entry.insert(checked_arithmetic!(*x + asset_quantity)?);
                             }
                             Entry::Vacant(entry) => {
                                 entry.insert(asset_quantity);
@@ -425,7 +427,7 @@ impl Solver {
                     //                      * asset liquidity at price threshold
                     //
                     let asset_quantity = target_asset_quantites.get(&asset_symbol)?;
-                    let asset_liquidity = asset_liquidity.checked_mul(*asset_quantity)?;
+                    let asset_liquidity = checked_arithmetic!(*asset_quantity * asset_liquidity)?;
 
                     println!(
                         " * asset_total_weighted_liquidity << {:0.5} l={:0.5} q={:0.5}\n",
@@ -436,8 +438,8 @@ impl Solver {
                         Entry::Occupied(mut entry) => {
                             let (weighted_sum, total_weight): &(Amount, Amount) = entry.get();
                             entry.insert((
-                                weighted_sum.checked_add(asset_liquidity)?,
-                                total_weight.checked_add(*asset_quantity)?,
+                                checked_arithmetic!(*weighted_sum + asset_liquidity)?,
+                                checked_arithmetic!(*total_weight + *asset_quantity)?,
                             ));
                         }
                         Entry::Vacant(entry) => {
@@ -504,7 +506,7 @@ impl Solver {
                         // Formula:
                         //      quantity of asset in basket for index order = quantity of asset in basket
                         //                                                  * quantity of index order
-                        let asset_order_quantity = asset.quantity.checked_mul(order_quantity)?;
+                        let asset_order_quantity = checked_arithmetic!(asset.quantity * order_quantity)?;
 
                         // Total quantity of asset across all index orders in batch
                         let asset_symbol = asset.weight.asset.name.clone();
@@ -519,12 +521,12 @@ impl Solver {
 
                         // Contribution fraction of this index order to total quantity
                         let asset_contribution_fraction =
-                            asset_order_quantity.checked_div(*asset_total_quantity)?;
+                            checked_arithmetic!(asset_order_quantity / *asset_total_quantity)?;
 
                         // Liquidity portion pre-allocated based on contribution fraction
                         // This is just an estimate to start with some number
                         let asset_liquidity_contribution =
-                            asset_contribution_fraction.checked_mul(*asset_liquidity)?;
+                            checked_arithmetic!(asset_contribution_fraction * *asset_liquidity)?;
 
                         //
                         // Formula:
@@ -532,7 +534,7 @@ impl Solver {
                         //                           / quantity of asset in basket for index order
                         //
                         let temp_order_fraction =
-                            asset_liquidity_contribution.checked_div(asset_order_quantity)?;
+                            checked_arithmetic!(asset_liquidity_contribution / asset_order_quantity)?;
 
                         // Take min(temp_order_fraction for all assets)
                         contribution.order_fraction =
@@ -544,7 +546,7 @@ impl Solver {
                         //                                    * remaining index order quantity
                         //
                         contribution.order_quantity =
-                            contribution.order_fraction.checked_mul(order_quantity)?;
+                            checked_arithmetic!(contribution.order_fraction * order_quantity)?;
 
 
                         println!(" * find_order_contribution: {} {:0.5} q={:0.5} tq={:0.5} tl={:0.5} acf={:0.5} alc={:0.5} of={:0.5} oq={:0.5}",

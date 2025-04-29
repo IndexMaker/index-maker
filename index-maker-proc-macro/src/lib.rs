@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, BinOp, Expr};
 use quote::quote;
+use syn::{BinOp, Expr, parse_macro_input};
 
 #[proc_macro]
 pub fn checked_arithmetic(input: TokenStream) -> TokenStream {
@@ -10,6 +10,12 @@ pub fn checked_arithmetic(input: TokenStream) -> TokenStream {
 
     // Match on the binary expression.
     match expr {
+        Expr::Paren(paren_expr) => {
+            // Handle parenthesized expressions recursively
+            let inner_expr = paren_expr.expr;
+            let inner_result = checked_arithmetic(quote!(#inner_expr).into()); // Call macro recursively
+            inner_result
+        }
         Expr::Binary(bin_expr) => {
             let left = bin_expr.left;
             let op = bin_expr.op;

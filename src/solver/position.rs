@@ -2,9 +2,13 @@ use std::{collections::VecDeque, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
+use index_maker_proc_macro::checked_arithmetic;
 use parking_lot::RwLock;
 
-use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, Symbol};
+use crate::core::{
+    bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
+    decimal_ext::{DecimalExt, OptionMathErrExt},
+};
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///
@@ -164,8 +168,8 @@ impl Position {
         })));
         // Update balance
         self.balance = match side {
-            Side::Buy => self.balance.checked_add(quantity_filled),
-            Side::Sell => self.balance.checked_sub(quantity_filled),
+            Side::Buy => checked_arithmetic!(self.balance + quantity_filled),
+            Side::Sell => checked_arithmetic!(self.balance + quantity_filled),
         }
         .ok_or(eyre!("Math overflow"))?;
         Ok(())
@@ -191,9 +195,7 @@ impl Position {
         while let Some(lot) = self.open_lots.front().cloned() {
             let lot_quantity_remaining = lot.read().remaining_quantity;
 
-            let remaining_quantity = lot_quantity_remaining
-                .checked_sub(quantity_filled)
-                .ok_or(eyre!("Math overflow"))?;
+            let remaining_quantity = checked_arithmetic!(lot_quantity_remaining - quantity_filled).ok_or_math_err()?;
 
             let (matched_lot_quantity, lot_quantity_remaining, finished) =
                 if remaining_quantity < tolerance {
@@ -253,8 +255,8 @@ impl Position {
                 lot.remaining_quantity = lot_quantity_remaining;
 
                 self.balance = match side {
-                    Side::Buy => self.balance.checked_sub(matched_lot_quantity),
-                    Side::Sell => self.balance.checked_sub(matched_lot_quantity),
+                    Side::Buy => checked_arithmetic!(self.balance - matched_lot_quantity),
+                    Side::Sell => checked_arithmetic!(self.balance - matched_lot_quantity),
                 }
                 .ok_or(eyre!("Math overflow"))?;
             }
