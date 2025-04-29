@@ -1375,18 +1375,13 @@ mod test {
                     .unwrap();
             });
 
-        let (solver_tick_sender, solver_tick_receiver) = unbounded();
+        let (solver_tick_sender, solver_tick_receiver) = unbounded::<&str>();
         let solver_tick = |msg| solver_tick_sender.send(msg).unwrap();
 
         let flush_events = move || {
             // Simple dispatch loop
             loop {
                 select! {
-                    recv(deferred) -> res => (res.unwrap())(),
-                    recv(solver_tick_receiver) -> res => {
-                        println!("Solver Tick: {}", res.unwrap());
-                        solver.solve();
-                    },
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
@@ -1426,6 +1421,11 @@ mod test {
                         order_tracker
                             .write()
                             .handle_order_notification(res.unwrap());
+                    },
+                    recv(deferred) -> res => (res.unwrap())(),
+                    recv(solver_tick_receiver) -> res => {
+                        println!("Solver Tick: {}", res.unwrap());
+                        solver.solve()
                     },
                     default => { break; },
                 }
