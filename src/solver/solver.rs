@@ -5,14 +5,18 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
+use index_maker_proc_macro::checked_arithmetic;
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::bits::{
-        Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
-        PriceType, Side, Symbol,
+    core::{
+        bits::{
+            Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId,
+            PaymentId, PriceType, Side, Symbol,
+        },
+        decimal_ext::DecimalExt,
     },
     index::{
         basket::Basket,
@@ -339,7 +343,7 @@ impl Solver {
                         //      quantity of asset to order = quantity of index order
                         //                                 * quantity of asset in basket
                         //
-                        let asset_quantity = asset.quantity.checked_mul(order_quantity)?;
+                        let asset_quantity = checked_arithmetic!(asset.quantity * order_quantity)?;
 
                         println!(
                             " * asset_quantity {:5} {:0.5} = {:0.5} * {:0.5}",
@@ -356,9 +360,7 @@ impl Solver {
                         //                                      * target basket price
                         //                                      / current basket price
                         //
-                        let target_asset_price = asset_price
-                            .checked_mul(price)
-                            .and_then(|x| x.checked_div(*current_price))?;
+                        let target_asset_price = checked_arithmetic!((asset_price + price) / *current_price)?;
 
                         println!(
                             " * target_asset_price {:5} {:0.5} = {:0.5} * {:0.5} / {:0.5}",
@@ -1221,7 +1223,7 @@ mod test {
     }
 
     /// Test that solver system is sane
-    /// 
+    ///
     /// Step 1.
     ///     - Send prices for assets (top of the book and last trade)
     ///     - Send book updates for assets (top two levels)
@@ -1243,11 +1245,11 @@ mod test {
     ///         - Orders from the batch will reach OrderConnector, and we fill those orders
     ///         - Solver should receive OpenLot event from InventoryManager
     ///
-    /// TODO: 
+    /// TODO:
     ///   Solver should redistribute any suitable quantity from inventory
     ///   accorting to contribution, and notify IndexOrderManager about filled
     ///   index orders
-    /// 
+    ///
     #[test]
     fn sbe_solver() {
         let tolerance = get_mock_decimal("0.0001");

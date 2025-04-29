@@ -1,3 +1,9 @@
+[workspace]
+members = [
+    ".",
+    "index-maker-proc-macro",
+]
+
 [package]
 name = "index-maker"
 version = "0.1.0"
@@ -7,9 +13,14 @@ edition = "2021"
 alloy = "0.14.0"
 chrono = "0.4.40"
 crossbeam = "0.8.4"
-eyre = "0.6.12"
+eyre = { workspace = true }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
 parking_lot = "0.12.3"
-rust_decimal = "1.37.1"
+rust_decimal = { workspace = true }
 string_cache = "0.8.9"
+index-maker-proc-macro = { path = "./index-maker-proc-macro" }
+
+[workspace.dependencies]
+eyre = "0.6.12"
+rust_decimal = "1.37.1"

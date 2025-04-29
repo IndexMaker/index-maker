@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use alloy::primitives::map::foldhash::quality;
 use chrono::{DateTime, Utc};
-use eyre::Result;
+use eyre::{OptionExt, Result};
+use index_maker_proc_macro::checked_arithmetic;
 use parking_lot::RwLock;
 
-use crate::core::bits::{
-    add_amount_to_optional, add_amounts, sub_amounts, Address, Amount, ClientOrderId, PaymentId,
-    Side, Symbol,
+use crate::core::{
+    bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
+    decimal_ext::{DecimalExt, OptionDecimalExt},
 };
 
 pub enum PaymentDirection {
@@ -211,7 +211,7 @@ impl IndexOrder {
                 if self.engaged_side.is_some() {
                     // Solver is engaged in processing of this order
                     self.remaining_quantity = Amount::ZERO;
-                    let quantity_removed = sub_amounts(quantity, unmatched_quantity)?;
+                    let quantity_removed = checked_arithmetic!(quantity - unmatched_quantity)?;
                     // (quantity removed, quantity added)
                     Ok(UpdateIndexOrderOutcome::Reduce {
                         removed_quantity: quantity_removed,
@@ -232,7 +232,7 @@ impl IndexOrder {
                 }
             } else {
                 // We consumed some number of updates, so we cancelled that quantity
-                self.remaining_quantity = sub_amounts(self.remaining_quantity, quantity)?;
+                self.remaining_quantity = checked_arithmetic!(self.remaining_quantity - quantity)?;
                 // (quantity removed, quantity added)
                 Ok(UpdateIndexOrderOutcome::Reduce {
                     removed_quantity: quantity,
@@ -241,7 +241,7 @@ impl IndexOrder {
             }
         } else {
             // We added some extra quantity on current side
-            self.remaining_quantity = add_amounts(self.remaining_quantity, quantity)?;
+            self.remaining_quantity = checked_arithmetic!(self.remaining_quantity - quantity)?;
             self.order_updates.push_back(index_order_update);
             // (quantity removed, quantity added)
             Ok(UpdateIndexOrderOutcome::Push {
@@ -259,7 +259,7 @@ impl IndexOrder {
         // Match against updates
         if let Some(unmatched_quantity) = self.match_cancel(quantity, tolerance)? {
             // We consumed all available updates
-            let quantity_removed = sub_amounts(quantity, unmatched_quantity)?;
+            let quantity_removed = checked_arithmetic!(quantity - unmatched_quantity)?;
             if self.engaged_side.is_some() {
                 // Solver is engaged in processing of this order
                 self.remaining_quantity = Amount::ZERO;
@@ -274,7 +274,7 @@ impl IndexOrder {
                 })
             }
         } else {
-            self.remaining_quantity = add_amounts(self.remaining_quantity, quantity)?;
+            self.remaining_quantity = checked_arithmetic!(self.remaining_quantity - quantity)?;
             Ok(CancelIndexOrderOutcome::Reduce {
                 removed_quantity: quantity,
                 remaining_quantity: self.remaining_quantity,
@@ -285,13 +285,12 @@ impl IndexOrder {
     /// Engage
     pub fn solver_engage(&mut self, quantity: Amount, tolerance: Amount) -> Result<Option<Amount>> {
         if let Some(unmatched_quantity) = self.match_engage(quantity, tolerance)? {
-            let engaged_quantity = sub_amounts(quantity, unmatched_quantity)?;
-            self.engaged_quantity =
-                add_amount_to_optional(self.engaged_quantity, engaged_quantity)?;
+            let engaged_quantity = checked_arithmetic!(quantity - unmatched_quantity)?;
+            self.engaged_quantity.update_with(|x| x?.checked_add(engaged_quantity))?;
             self.engaged_side = Some(self.side);
             Ok(Some(unmatched_quantity))
         } else {
-            self.engaged_quantity = add_amount_to_optional(self.engaged_quantity, quantity)?;
+            self.engaged_quantity.update_with(|x| x?.checked_add(quantity))?;
             self.engaged_side = Some(self.side);
             Ok(None)
         }
@@ -319,7 +318,7 @@ impl IndexOrder {
             let mut update = update.write();
 
             // quantity remaining on the update
-            let future_remaining_quantity = sub_amounts(update.remaining_quantity, quantity)?;
+            let future_remaining_quantity = checked_arithmetic!(update.remaining_quantity - quantity)?;
 
             if future_remaining_quantity < tolerance {
                 // Check if Solver engaged with this update
@@ -376,12 +375,12 @@ impl IndexOrder {
             // begin transaction on update
             let mut update = update.write();
 
-            let future_remaining_quantity = sub_amounts(update.remaining_quantity, quantity)?;
+            let future_remaining_quantity = checked_arithmetic!(update.remaining_quantity - quantity)?;
 
             if future_remaining_quantity < tolerance {
                 // We can engage with whole remaining quantity on this update
-                update.engaged_quantity =
-                    add_amount_to_optional(update.engaged_quantity, update.remaining_quantity)?;
+                let remaining_quantity = update.remaining_quantity;
+                checked_arithmetic!(update.engaged_quantity += remaining_quantity)?;
 
                 // No quantity remaining on this update
                 update.remaining_quantity = Amount::ZERO;
@@ -399,8 +398,7 @@ impl IndexOrder {
                 }
             } else {
                 // We can engage with whole quantity
-                update.engaged_quantity =
-                    add_amount_to_optional(update.engaged_quantity, quantity)?;
+                checked_arithmetic!(update.engaged_quantity += quantity)?;
                 update.remaining_quantity = future_remaining_quantity;
                 return Ok(None);
             };
@@ -418,7 +416,8 @@ mod test {
         core::{
             bits::{Amount, ClientOrderId, PaymentId, Side},
             test_util::{get_mock_address_1, get_mock_asset_name_1, get_mock_decimal},
-        }, solver::index_order::UpdateIndexOrderOutcome,
+        },
+        solver::index_order::UpdateIndexOrderOutcome,
     };
 
     use super::IndexOrder;
@@ -490,13 +489,15 @@ mod test {
                 )
                 .unwrap();
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Push { new_quantity: _ }));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+            ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Push { new_quantity } => {
                     assert_decimal_approx_eq!(new_quantity, quantity1, tolerance);
-                },
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
@@ -526,13 +527,15 @@ mod test {
                 )
                 .unwrap();
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Push { new_quantity: _ }));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+            ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Push { new_quantity } => {
                     assert_decimal_approx_eq!(new_quantity, quantity2, tolerance);
-                },
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
@@ -562,14 +565,26 @@ mod test {
                 )
                 .unwrap();
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Reduce { removed_quantity: _, remaining_quantity: _ } ));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Reduce {
+                    removed_quantity: _,
+                    remaining_quantity: _
+                }
+            ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Reduce { removed_quantity, remaining_quantity } => {
+                UpdateIndexOrderOutcome::Reduce {
+                    removed_quantity,
+                    remaining_quantity,
+                } => {
                     assert_decimal_approx_eq!(removed_quantity, quantity3, tolerance);
-                    assert_decimal_approx_eq!(remaining_quantity, order.remaining_quantity, tolerance);
-                },
+                    assert_decimal_approx_eq!(
+                        remaining_quantity,
+                        order.remaining_quantity,
+                        tolerance
+                    );
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(
@@ -603,14 +618,26 @@ mod test {
                 )
                 .unwrap();
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Reduce { removed_quantity: _, remaining_quantity: _ } ));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Reduce {
+                    removed_quantity: _,
+                    remaining_quantity: _
+                }
+            ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Reduce { removed_quantity, remaining_quantity } => {
+                UpdateIndexOrderOutcome::Reduce {
+                    removed_quantity,
+                    remaining_quantity,
+                } => {
                     assert_decimal_approx_eq!(removed_quantity, quantity4, tolerance);
-                    assert_decimal_approx_eq!(remaining_quantity, order.remaining_quantity, tolerance);
-                },
+                    assert_decimal_approx_eq!(
+                        remaining_quantity,
+                        order.remaining_quantity,
+                        tolerance
+                    );
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(
@@ -645,14 +672,19 @@ mod test {
 
             let quantity_added = quantity5 - (quantity1 + quantity2 - quantity3 - quantity4);
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Flip { side: _, new_quantity: _ } ));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Flip {
+                    side: _,
+                    new_quantity: _
+                }
+            ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Flip { side, new_quantity } => {
                     assert!(matches!(side, Side::Sell));
                     assert_decimal_approx_eq!(new_quantity, quantity_added, tolerance);
-                },
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Sell));
             assert_decimal_approx_eq!(
@@ -728,13 +760,15 @@ mod test {
                 )
                 .unwrap();
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Push { new_quantity: _ }));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+            ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Push { new_quantity } => {
                     assert_decimal_approx_eq!(new_quantity, quantity1, tolerance);
-                },
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
@@ -763,13 +797,15 @@ mod test {
                 )
                 .unwrap();
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Push { new_quantity: _ }));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+            ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Push { new_quantity } => {
                     assert_decimal_approx_eq!(new_quantity, quantity2, tolerance);
-                },
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
@@ -870,14 +906,26 @@ mod test {
 
             let quantity_removed = quantity2 - (engage_quantity2 - (quantity1 - engage_quantity1));
 
-            assert!(matches!(update_index_order_outcome, UpdateIndexOrderOutcome::Reduce { removed_quantity: _, remaining_quantity: _ }));
+            assert!(matches!(
+                update_index_order_outcome,
+                UpdateIndexOrderOutcome::Reduce {
+                    removed_quantity: _,
+                    remaining_quantity: _
+                }
+            ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Reduce { removed_quantity, remaining_quantity } => {
+                UpdateIndexOrderOutcome::Reduce {
+                    removed_quantity,
+                    remaining_quantity,
+                } => {
                     assert_decimal_approx_eq!(removed_quantity, quantity_removed, tolerance);
-                    assert_decimal_approx_eq!(remaining_quantity, order.remaining_quantity, tolerance);
-                },
+                    assert_decimal_approx_eq!(
+                        remaining_quantity,
+                        order.remaining_quantity,
+                        tolerance
+                    );
+                }
                 _ => assert!(false),
-                
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(order.remaining_quantity, Amount::ZERO, tolerance);
