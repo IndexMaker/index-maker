@@ -54,17 +54,18 @@ pub fn checked_arithmetic(input: TokenStream) -> TokenStream {
                 BinOp::AddAssign(_) => quote! {
                     {
                         // Option<Amount> += Amount -> Amount
+                        // is left is None, then use right
                         let a_val = &mut #left;
                         let b_val = #right;
-                        a_val.update_with(|x| x?.checked_add(b_val))
-                    }
-                },
-                BinOp::SubAssign(_) => quote! {
-                    {
-                        // Option<Amount> += Amount -> Amount
-                        let a_val = &mut #left;
-                        let b_val = #right;
-                        a_val.update_with(|x| x?.checked_sub(b_val))
+                        match a_val {
+                            Some(val) => {
+                                if let Some(r) = val.checked_add(b_val) {
+                                    a_val.replace(r);
+                                    a_val
+                                } else { &None }
+                            },
+                            None => { a_val.replace(b_val); a_val },
+                        }
                     }
                 },
                 _ => {

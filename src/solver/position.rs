@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use index_maker_proc_macro::checked_arithmetic;
 use parking_lot::RwLock;
 
 use crate::core::{
     bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
-    decimal_ext::{DecimalExt, OptionMathErrExt},
+    decimal_ext::DecimalExt,
 };
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
@@ -195,7 +195,7 @@ impl Position {
         while let Some(lot) = self.open_lots.front().cloned() {
             let lot_quantity_remaining = lot.read().remaining_quantity;
 
-            let remaining_quantity = checked_arithmetic!(lot_quantity_remaining - quantity_filled).ok_or_math_err()?;
+            let remaining_quantity = checked_arithmetic!(lot_quantity_remaining - quantity_filled).ok_or_eyre("Math Problem")?;
 
             let (matched_lot_quantity, lot_quantity_remaining, finished) =
                 if remaining_quantity < tolerance {

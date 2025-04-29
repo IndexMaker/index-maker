@@ -361,7 +361,7 @@ impl Solver {
                         //                                      / current basket price
                         //
                         let target_asset_price = checked_arithmetic!(
-                            checked_arithmetic!(*asset_price + price) / *current_price
+                            checked_arithmetic!(*asset_price * price) / *current_price
                         )?;
 
                         println!(

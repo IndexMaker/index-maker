@@ -40,13 +40,3 @@ impl OptionDecimalExt for Option<Decimal> {
         self
     }
 }
-
-pub trait OptionMathErrExt {
-    fn ok_or_math_err(&self) -> Result<Decimal>;
-}
-
-impl OptionMathErrExt for Option<Decimal> {
-    fn ok_or_math_err(&self) -> Result<Decimal> {
-        self.ok_or_eyre("Math overflow")
-    }
-}
