@@ -1,15 +1,13 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
+use alloy::primitives::map::foldhash::quality;
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 
 use crate::{
     core::{
-        bits::PaymentId,
+        bits::{BatchOrderId, PaymentId},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{Server, ServerEvent},
@@ -19,6 +17,23 @@ use crate::{
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+
+pub struct EngagedIndexOrder {
+    // ID of the original NewOrder request
+    pub original_client_order_id: ClientOrderId,
+
+    /// On-chain address of the User
+    pub address: Address,
+
+    // ID of the NewOrder request
+    pub client_order_id: ClientOrderId,
+
+    /// Quantity remaining
+    pub quantity_engaged: Amount,
+
+    /// Quantity remaining
+    pub quantity_remaining: Amount,
+}
 
 pub enum IndexOrderEvent {
     NewIndexOrder {
@@ -53,20 +68,11 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     EngageIndexOrder {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // ID of the batch of engagement
+        batch_order_id: BatchOrderId,
 
-        /// On-chain address of the User
-        address: Address,
-
-        // ID of the NewOrder request
-        client_order_id: ClientOrderId,
-
-        /// Quantity remaining
-        quantity_engaged: Amount,
-
-        /// Quantity remaining
-        quantity_remaining: Amount,
+        // A set of index orders in the engagement batch
+        engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
 
         /// Time when requested
         timestamp: DateTime<Utc>,
@@ -265,7 +271,9 @@ impl IndexOrderManager {
             .write()
             .cancel_updates(quantity, self.tolerance)?
         {
-            CancelIndexOrderOutcome::Cancel { removed_quantity: _ } => {
+            CancelIndexOrderOutcome::Cancel {
+                removed_quantity: _,
+            } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
                         original_client_order_id,
@@ -338,6 +346,54 @@ impl IndexOrderManager {
     /// provide a method to fill index order request
     pub fn fill_order_request(&mut self, _client_order_id: ClientOrderId, _fill_amount: Amount) {
         todo!()
+    }
+
+    pub fn engage_orders(
+        &mut self,
+        batch_order_id: BatchOrderId,
+        engaged_orders: Vec<(Address, ClientOrderId, Symbol, Amount)>,
+    ) -> Result<()> {
+        let mut engage_result = HashMap::new();
+        for (address, client_order_id, symbol, quantity) in engaged_orders {
+            if let Some(index_order) = self
+                .index_orders
+                .get_mut(&address)
+                .and_then(|map| map.get_mut(&symbol))
+            {
+                let mut index_order = index_order.write();
+                let unmatched_quantity = index_order.solver_engage(quantity, self.tolerance)?;
+
+                let quantity_engaged = if let Some(unmatched_quantity) = unmatched_quantity {
+                    quantity.checked_sub(unmatched_quantity)
+                } else {
+                    Some(quantity)
+                };
+
+                if let Some(quantity_engaged) = quantity_engaged {
+                    engage_result.insert(
+                        (address, client_order_id.clone()),
+                        EngagedIndexOrder {
+                            original_client_order_id: index_order.original_client_order_id.clone(),
+                            address,
+                            client_order_id: client_order_id.clone(),
+                            quantity_engaged,
+                            quantity_remaining: index_order.remaining_quantity,
+                        },
+                    );
+                } else {
+                    index_order.solver_cancel("Math overflow");
+                }
+            } else {
+                return Err(eyre!("No such index order {} {}", address, symbol));
+            }
+        }
+        self.observer
+            .publish_single(IndexOrderEvent::EngageIndexOrder {
+                batch_order_id: batch_order_id.clone(),
+                engaged_orders: engage_result,
+                timestamp: Utc::now(),
+            });
+        Ok(())
     }
 }
 

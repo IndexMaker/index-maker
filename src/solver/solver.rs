@@ -4,10 +4,9 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use eyre::OptionExt;
+use eyre::{eyre, Result};
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
-use eyre::Result;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -117,6 +116,8 @@ struct FindOrderContribution {
 
 struct EngageOrder {
     index_order: Arc<RwLock<IndexOrderSolver>>,
+    contribution: FindOrderContribution,
+    address: Address,
     client_order_id: ClientOrderId,
     symbol: Symbol,
     basket: Arc<Basket>,
@@ -127,6 +128,7 @@ struct EngageOrder {
 }
 
 struct EngagedOrders {
+    batch_order_id: BatchOrderId,
     engaged_orders: Vec<EngageOrder>,
     symbols: Vec<Symbol>,
     baskets: HashMap<Symbol, Arc<Basket>>,
@@ -147,8 +149,10 @@ pub struct Solver {
     price_tracker: Arc<RwLock<PriceTracker>>,
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
-    client_orders: RwLock<HashMap<ClientOrderId, Arc<RwLock<IndexOrderSolver>>>>,
-    new_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
+    client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<IndexOrderSolver>>>>,
+    ready_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
+    engagements: RwLock<HashMap<BatchOrderId, EngagedOrders>>,
+    ready_batches: RwLock<VecDeque<BatchOrderId>>,
     max_orders: usize,
     tolerance: Amount,
 }
@@ -173,7 +177,9 @@ impl Solver {
             order_book_manager,
             inventory_manager,
             client_orders: RwLock::new(HashMap::new()),
-            new_orders: RwLock::new(VecDeque::new()),
+            ready_orders: RwLock::new(VecDeque::new()),
+            engagements: RwLock::new(HashMap::new()),
+            ready_batches: RwLock::new(VecDeque::new()),
             max_orders,
             tolerance,
         }
@@ -299,9 +305,6 @@ impl Solver {
 
         let order_book_manager = self.order_book_manager.read();
         more_orders.locked_orders.retain_mut(|(_, index_order)| {
-            // We'll only pick the first order update from the update queue
-            // Note that we chould use iter() instead of front().inspect() and
-            // take more than one update [TBD]
             let result = Some(&index_order).and_then(|update| {
                 let side = update.side;
                 let price = update.price;
@@ -464,7 +467,7 @@ impl Solver {
     fn find_order_contribution(
         &self,
         more_orders: &mut MoreOrders,
-        order_liquidity: &FindOrderLiquidity,
+        order_liquidity: FindOrderLiquidity,
     ) -> HashMap<ClientOrderId, FindOrderContribution> {
         println!("\nFind Order Contribution...");
         println!("   q   asset_order_quantity");
@@ -590,7 +593,7 @@ impl Solver {
     fn engage_orders(
         &self,
         more_orders: &mut MoreOrders,
-        contributions: &HashMap<ClientOrderId, FindOrderContribution>,
+        mut contributions: HashMap<ClientOrderId, FindOrderContribution>,
     ) -> Vec<EngageOrder> {
         println!("\nEngage Orders...");
         let mut enagaged_orders = Vec::new();
@@ -599,45 +602,32 @@ impl Solver {
             .retain_mut(|(index_order_arc, index_order)| {
                 let basket = more_orders.baskets.get(&index_order.symbol);
                 let result = Some(&index_order).and_then(|update| {
-                    let contribution = contributions.get(&update.client_order_id)?;
+                    let contribution = contributions.remove(&update.client_order_id)?;
                     Some((
                         update.client_order_id.clone(),
-                        contribution.order_quantity,
+                        contribution,
                         update.price,
                         update.price_threshold,
                     ))
                 });
-                match result {
-                    Some((client_order_id, quantity, price, threshold)) => index_order
-                        .with_upgraded(|order| -> Result<Option<Amount>> {
-                            self.set_order_status(order, IndexOrderStatus::Engaged);
-                            order.engaged_quantity = quantity;
-                            Ok(None)
-                        })
-                        .and_then(|unmatched_quantity| {
-                            let engaged_quantity =
-                                if let Some(unmatched_quantity) = unmatched_quantity {
-                                    quantity
-                                        .checked_sub(unmatched_quantity)
-                                        .ok_or_eyre("Math overflow")?
-                                } else {
-                                    quantity
-                                };
-                            enagaged_orders.push(EngageOrder {
-                                index_order: index_order_arc.clone(),
-                                client_order_id,
-                                symbol: index_order.symbol.clone(),
-                                basket: basket.ok_or_eyre("Basket not found")?.clone(),
-                                engaged_side: index_order.side,
-                                engaged_quantity,
-                                engaged_price: price,
-                                engaged_threshold: threshold,
-                            });
-                            Ok(())
-                        })
-                        .map_err(|err| println!("Error: {:0.5}", err)) // todo: we need to log errors somewhere
-                        .is_ok(),
-                    None => {
+                match (result, basket) {
+                    (Some((client_order_id, contribution, price, threshold)), Some(basket)) => {
+                        let engaged_quantity = contribution.order_quantity;
+                        enagaged_orders.push(EngageOrder {
+                            index_order: index_order_arc.clone(),
+                            contribution,
+                            address: index_order.address,
+                            client_order_id,
+                            symbol: index_order.symbol.clone(),
+                            basket: basket.clone(),
+                            engaged_side: index_order.side,
+                            engaged_quantity,
+                            engaged_price: price,
+                            engaged_threshold: threshold,
+                        });
+                        true
+                    }
+                    _ => {
                         index_order.with_upgraded(|order| {
                             self.set_order_status(order, IndexOrderStatus::MathOverflow)
                         });
@@ -649,15 +639,19 @@ impl Solver {
         enagaged_orders
     }
 
-    fn engage_more_orders(&self) -> EngagedOrders {
+    fn do_engage_more_orders(&self) -> Option<EngagedOrders> {
         println!("Engage More Orders...");
 
         // Receive a batch of new Index Orders
         let new_orders = (|| {
-            let mut new_orders = self.new_orders.write();
-            let len = new_orders.len();
-            new_orders.drain(..self.max_orders.min(len)).collect_vec()
+            let mut new_orders = self.ready_orders.write();
+            let max_drain = new_orders.len().min(self.max_orders);
+            new_orders.drain(..max_drain).collect_vec()
         })();
+
+        if new_orders.is_empty() {
+            return None;
+        }
 
         let mut more_orders = self.more_orders(&new_orders);
 
@@ -665,59 +659,57 @@ impl Solver {
         let order_liquidity = self.find_order_liquidity(&mut more_orders);
 
         // Now calculate how much liquidity is available per asset proportionally to order contribution
-        let contributions = self.find_order_contribution(&mut more_orders, &order_liquidity);
+        let contributions = self.find_order_contribution(&mut more_orders, order_liquidity);
 
         // Now let's engage orders, and unlock them afterwards
-        let engaged_orders = self.engage_orders(&mut more_orders, &contributions);
+        let engaged_orders = self.engage_orders(&mut more_orders, contributions);
 
-        EngagedOrders {
+        // TODO: Generate it!
+        let batch_order_id = BatchOrderId("Batch001".into());
+
+        Some(EngagedOrders {
+            batch_order_id,
             engaged_orders,
             baskets: more_orders.baskets,
             symbols: more_orders.symbols,
             asset_prices: more_orders.asset_prices,
             index_prices: more_orders.index_prices,
-        }
+        })
     }
 
-    /// Core thinking function
-    pub fn solve(&self) {
-        println!("Solve...");
+    fn engage_more_orders(&self) -> Result<()> {
         // Receive some more orders, and prepare them
-        let engaged_orders = self.engage_more_orders();
+        if let Some(engaged_orders) = self.do_engage_more_orders() {
+            let send_engage = engaged_orders
+                .engaged_orders
+                .iter()
+                .map(|order| {
+                    (
+                        order.address,
+                        order.client_order_id.clone(),
+                        order.symbol.clone(),
+                        order.engaged_quantity,
+                    )
+                })
+                .collect_vec();
 
-        // Compute symbols and threshold
-        // ...
+            let batch_order_id = match self
+                .engagements
+                .write()
+                .entry(engaged_orders.batch_order_id.clone())
+            {
+                Entry::Vacant(entry) => entry.insert(engaged_orders).batch_order_id.clone(),
+                Entry::Occupied(_) => Err(eyre!("Dublicate Batch Id"))?,
+            };
 
-        // receive list of open lots from Inventory Manager
-        let _positions = self
-            .inventory_manager
-            .read()
-            .get_positions(&engaged_orders.symbols);
+            self.index_order_manager
+                .write()
+                .engage_orders(batch_order_id, send_engage)?;
+        }
+        Ok(())
+    }
 
-        println!("Compute...");
-        // Compute: Allocate open lots to Index Orders
-        // ...
-        // TBD: Should Solver or Inventory Manager be allocating lots to index orders?
-
-        // Send back to Index Order Manager fills if any
-        //self.index_order_manager
-        //    .write()
-        //    .fill_order_request(ClientOrderId::default(), Amount::default());
-
-        // Compute: Remaining quantity
-        // ...
-
-        // receive current prices from Price Tracker
-
-        // Compute: Orders to send to update inventory
-        // ...
-
-        // Send order requests to Inventory Manager
-        // ...throttle these: send one or few smaller ones
-
-        // TODO: Should throttling be done here in Solver or in Inventory Manager
-
-        println!("Send Order Batches...");
+    fn send_batch(&self, engaged_orders: &EngagedOrders) -> Result<()> {
         // TODO: we should generate IDs
         let mut batch_ids = VecDeque::from([BatchOrderId("BatchOrder01".into())]);
         let mut order_ids = VecDeque::from([OrderId("Order01".into()), OrderId("Order02".into())]);
@@ -766,6 +758,90 @@ impl Solver {
                 // log somewhere this error
                 println!("Error: {:0.5}", err)
             }
+        }
+        Ok(())
+    }
+
+    fn send_more_batches(&self) -> Result<()> {
+        let engagements = self.engagements.read();
+
+        let new_engagements = (|| {
+            let mut new_batches = self.ready_batches.write();
+            let max_drain = new_batches.len().min(self.max_orders);
+            new_batches
+                .drain(..max_drain)
+                .filter_map(|batch_order_id| engagements.get(&batch_order_id))
+                .collect_vec()
+        })();
+
+        for engaged_orders in new_engagements {
+            self.send_batch(engaged_orders)?;
+        }
+
+        Ok(())
+    }
+
+    /// Core thinking function
+    pub fn solve(&self) {
+        println!("Solve...");
+
+        //
+        // NOTE: We should only engage new orders, and currently not much engaged
+        // otherwise currently engaged orders may consume the liquidity.
+        //
+        // TODO: We may also track open liquidity promised to open orders
+        //
+
+        if let Err(err) = self.engage_more_orders() {
+            eprintln!("Error while engaging more orders: {}", err);
+        }
+
+        //
+        // NOTE: Index Order Manager will fire EngageIndexOrder event(s) and
+        // we should move orders to new queue then, and here we could draw from
+        // that new queue.
+        //
+        // So essentially:
+        //  ( NewIndexOrder event ) => ready_queue =( find liquidity & engage )=> pending_queue
+        //  ( EngageIndexOrder event ) => pending_queue =( move )=> engaged_queue
+        //  ( solve ) => engaged_queue =( send order batch )=>  live_order_map
+        //  ( inventory event ) => live_order_map =( match fill )=>
+
+        // Compute symbols and threshold
+        // ...
+
+        // receive list of open lots from Inventory Manager
+        //let _positions = self
+        //    .inventory_manager
+        //    .read()
+        //    .get_positions(&engaged_orders.symbols);
+
+        println!("Compute...");
+        // Compute: Allocate open lots to Index Orders
+        // ...
+        // TBD: Should Solver or Inventory Manager be allocating lots to index orders?
+
+        // Send back to Index Order Manager fills if any
+        //self.index_order_manager
+        //    .write()
+        //    .fill_order_request(ClientOrderId::default(), Amount::default());
+
+        // Compute: Remaining quantity
+        // ...
+
+        // receive current prices from Price Tracker
+
+        // Compute: Orders to send to update inventory
+        // ...
+
+        // Send order requests to Inventory Manager
+        // ...throttle these: send one or few smaller ones
+
+        // TODO: Should throttling be done here in Solver or in Inventory Manager
+
+        println!("Send Order Batches...");
+        if let Err(err) = self.send_more_batches() {
+            eprintln!("Error while sending more batches: {}", err);
         }
     }
 
@@ -864,7 +940,7 @@ impl Solver {
                 match self
                     .client_orders
                     .write()
-                    .entry(original_client_order_id.clone())
+                    .entry((address, original_client_order_id.clone()))
                 {
                     Entry::Vacant(entry) => {
                         let solver_order = Arc::new(RwLock::new(IndexOrderSolver {
@@ -880,10 +956,10 @@ impl Solver {
                             engaged_quantity: Amount::ZERO,
                             inflight_quantity: Amount::ZERO,
                             timestamp,
-                            status: IndexOrderStatus::Open
+                            status: IndexOrderStatus::Open,
                         }));
                         entry.insert(solver_order.clone());
-                        self.new_orders.write().push_back(solver_order);
+                        self.ready_orders.write().push_back(solver_order);
                     }
                     Entry::Occupied(_) => {
                         todo!();
@@ -905,18 +981,48 @@ impl Solver {
                 todo!();
             }
             IndexOrderEvent::EngageIndexOrder {
-                original_client_order_id,
-                address,
-                client_order_id,
-                quantity_engaged: _,
-                quantity_remaining: _,
+                batch_order_id,
+                engaged_orders,
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order EngageIndexOrder{} < {} from {}",
-                    original_client_order_id, client_order_id, address
+                    "Solver: Handle Index Order EngageIndexOrder {}",
+                    batch_order_id
                 );
-                todo!();
+                match self.engagements.write().get_mut(&batch_order_id) {
+                    Some(engaged_orders_stored) => {
+                        engaged_orders_stored
+                            .engaged_orders
+                            .retain_mut(|engaged_order_stored| {
+                                let mut index_order_stored =
+                                    engaged_order_stored.index_order.write();
+                                match engaged_orders.get(&(
+                                    engaged_order_stored.address,
+                                    engaged_order_stored.client_order_id.clone(),
+                                )) {
+                                    Some(engaged_order) => {
+                                        index_order_stored.remaining_quantity =
+                                            engaged_order.quantity_remaining;
+                                        index_order_stored.engaged_quantity =
+                                            engaged_order.quantity_engaged;
+                                        engaged_order_stored.engaged_quantity =
+                                            engaged_order.quantity_engaged;
+                                    }
+                                    None => {
+                                        self.set_order_status(
+                                            &mut index_order_stored,
+                                            IndexOrderStatus::MathOverflow,
+                                        );
+                                    }
+                                }
+                                true
+                            });
+                    }
+                    None => {
+                        todo!()
+                    }
+                }
+                self.ready_batches.write().push_back(batch_order_id);
             }
             IndexOrderEvent::CancelIndexOrder {
                 original_client_order_id,
@@ -931,7 +1037,6 @@ impl Solver {
                 todo!();
             }
         }
-        self.solve();
     }
 
     // receive QR
@@ -993,7 +1098,6 @@ impl Solver {
                 );
             }
         }
-        //self.solve();
     }
 
     /// receive current prices from Price Tracker
@@ -1003,7 +1107,6 @@ impl Solver {
                 println!("Solver: Handle Price Event {:0.5}", symbol)
             }
         };
-        //self.solve();
     }
 
     /// receive available liquidity from Order Book Manager
@@ -1019,12 +1122,10 @@ impl Solver {
                 );
             }
         }
-        //self.solve();
     }
 
     /// receive basket notification
     pub fn handle_basket_event(&self, notification: BasketNotification) {
-        //self.solve();
         // TODO: (move this) once solvign is done notify new weights were applied
         match notification {
             BasketNotification::BasketAdded(symbol, basket) => {
@@ -1275,14 +1376,17 @@ mod test {
             });
 
         let (solver_tick_sender, solver_tick_receiver) = unbounded();
-        let solver_tick = || solver_tick_sender.send(true).unwrap();
+        let solver_tick = |msg| solver_tick_sender.send(msg).unwrap();
 
         let flush_events = move || {
             // Simple dispatch loop
             loop {
                 select! {
                     recv(deferred) -> res => (res.unwrap())(),
-                    recv(solver_tick_receiver) -> _ => solver.solve(),
+                    recv(solver_tick_receiver) -> res => {
+                        println!("Solver Tick: {}", res.unwrap());
+                        solver.solve();
+                    },
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
@@ -1476,7 +1580,11 @@ mod test {
 
         flush_events();
 
-        solver_tick();
+        solver_tick("We sent NewOrderSingle FIX message");
+
+        flush_events();
+
+        solver_tick("IndexOrderManager responded to EngageOrders");
 
         flush_events();
 
@@ -1502,5 +1610,6 @@ mod test {
         //mock_server_receiver
         //    .recv_timeout(Duration::from_secs(1))
         //    .expect("Failed to receive ServerResponse");
+        println!("Scenario completed.")
     }
 }
