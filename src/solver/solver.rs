@@ -1220,6 +1220,34 @@ mod test {
         }
     }
 
+    /// Test that solver system is sane
+    /// 
+    /// Step 1.
+    ///     - Send prices for assets (top of the book and last trade)
+    ///     - Send book updates for assets (top two levels)
+    ///     - Emit CuratorWeightsSet event from ChainConnector mock
+    ///         - Solver should respond with updating baskets
+    ///         - BasketManager should confirm basket updates
+    ///     - Emit NewOrder event from FIX server mock
+    ///         - Solver should receive NewIndexOrder event
+    /// Tick 1.
+    ///     - Solver engages with new index orders:
+    ///         - Fetching prices and liquidity
+    ///         - Calculating contribution
+    ///         - Engaging in orders with IndexOrderManager
+    ///             - Solver should receive EngageIndexOrder event from IndexOrderManager
+    ///         - Solver will not send order batches yet
+    /// Tick 2.
+    ///     - Solver will not engage with no orders (no new orders)
+    ///     - Solver sends out new order batches:
+    ///         - Orders from the batch will reach OrderConnector, and we fill those orders
+    ///         - Solver should receive OpenLot event from InventoryManager
+    ///
+    /// TODO: 
+    ///   Solver should redistribute any suitable quantity from inventory
+    ///   accorting to contribution, and notify IndexOrderManager about filled
+    ///   index orders
+    /// 
     #[test]
     fn sbe_solver() {
         let tolerance = get_mock_decimal("0.0001");
