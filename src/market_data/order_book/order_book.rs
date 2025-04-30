@@ -1,18 +1,15 @@
 use std::sync::Arc;
 
 use crossbeam::atomic::AtomicCell;
-use safe_math::safe;
 use intrusive_collections::{
     intrusive_adapter,
     rbtree::{Cursor, CursorMut},
     Bound, KeyAdapter, RBTree, RBTreeAtomicLink,
 };
+use overflow::checked;
 use rust_decimal::Decimal;
 
-use crate::core::{
-    bits::{Amount, PricePointEntry, Side},
-    decimal_ext::DecimalExt,
-};
+use crate::core::bits::{Amount, PricePointEntry, Side};
 
 use eyre::{eyre, Ok, Result};
 
@@ -46,12 +43,8 @@ struct PricePointEntriesOps {
 impl PricePointEntriesOps {
     fn try_new(side: Side, tolerance: Amount, price: Amount, threshold: Amount) -> Option<Self> {
         let bound = match side {
-            Side::Buy => safe!(
-                safe!(price - safe!(price * threshold)?) - tolerance
-            )?,
-            Side::Sell => safe!(
-                safe!(price + safe!(price * threshold)?) + tolerance
-            )?,
+            Side::Buy => checked!(checked!(price - checked!(price * threshold)?)? - tolerance)?,
+            Side::Sell => checked!(checked!(price + checked!(price * threshold)?)? + tolerance)?,
         };
         Some(Self { side, bound })
     }
@@ -95,11 +88,9 @@ impl PricePointEntries {
         &mut self,
         price: &Amount,
     ) -> Result<(bool, CursorMut<'_, PricePointBookEntryAdapter>)> {
-        let price_lower =
-            safe!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
+        let price_lower = checked!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
 
-        let price_upper =
-            safe!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
+        let price_upper = checked!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
 
         let cursor = self.entries.lower_bound_mut(Bound::Included(&price_lower));
 
@@ -159,8 +150,8 @@ impl PricePointEntries {
             if ops.is_finished(entry.price) {
                 break;
             }
-            liquidity = safe!(liquidity + entry.quantity.load())
-                .ok_or(eyre!("Math overflow"))?;
+            liquidity =
+                checked!(liquidity + entry.quantity.load()).ok_or(eyre!("Math overflow"))?;
             ops.move_next(&mut cursor);
         }
 

@@ -2,13 +2,10 @@ use std::{collections::VecDeque, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use safe_math::safe;
+use overflow::checked;
 use parking_lot::RwLock;
 
-use crate::core::{
-    bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
-    decimal_ext::DecimalExt,
-};
+use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, Symbol};
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///
@@ -168,8 +165,8 @@ impl Position {
         })));
         // Update balance
         self.balance = match side {
-            Side::Buy => safe!(self.balance + quantity_filled),
-            Side::Sell => safe!(self.balance + quantity_filled),
+            Side::Buy => checked!(self.balance + quantity_filled),
+            Side::Sell => checked!(self.balance + quantity_filled),
         }
         .ok_or(eyre!("Math overflow"))?;
         Ok(())
@@ -195,8 +192,8 @@ impl Position {
         while let Some(lot) = self.open_lots.front().cloned() {
             let lot_quantity_remaining = lot.read().remaining_quantity;
 
-            let remaining_quantity = safe!(lot_quantity_remaining - quantity_filled)
-                .ok_or_eyre("Math Problem")?;
+            let remaining_quantity =
+                checked!(lot_quantity_remaining - quantity_filled).ok_or_eyre("Math Problem")?;
 
             let (matched_lot_quantity, lot_quantity_remaining, finished) =
                 if remaining_quantity < tolerance {
@@ -256,8 +253,8 @@ impl Position {
                 lot.remaining_quantity = lot_quantity_remaining;
 
                 self.balance = match side {
-                    Side::Buy => safe!(self.balance - matched_lot_quantity),
-                    Side::Sell => safe!(self.balance - matched_lot_quantity),
+                    Side::Buy => checked!(self.balance - matched_lot_quantity),
+                    Side::Sell => checked!(self.balance - matched_lot_quantity),
                 }
                 .ok_or(eyre!("Math overflow"))?;
             }

@@ -8,7 +8,6 @@ pub mod blockchain {
 
 pub mod core {
     pub mod bits;
-    pub mod decimal_ext;
     pub mod decimal_macros;
     pub mod deque_macros;
     pub mod functional;
