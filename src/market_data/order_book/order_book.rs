@@ -205,27 +205,26 @@ impl PricePointBook {
 
 #[cfg(test)]
 pub mod test {
+    use rust_decimal::dec;
+
     use crate::{
         assert_decimal_approx_eq,
-        core::{
-            bits::{Amount, PricePointEntry, Side},
-            test_util::get_mock_decimal,
-        },
+        core::bits::{Amount, PricePointEntry, Side},
     };
 
     use super::PricePointBook;
 
     #[test]
     fn test_price_point_order_book() {
-        let tolerance = get_mock_decimal("0.001");
+        let tolerance = dec!(0.001);
 
         let mut book = PricePointBook::new(tolerance);
 
         // Test that empty book has zero liquidity
         let liquidity = book.get_liquidity(
             Side::Sell,
-            &get_mock_decimal("100.00"),
-            get_mock_decimal("0.10"),
+            &dec!(100.00),
+            dec!(0.10),
         );
 
         assert!(matches!(liquidity, Ok(_)));
@@ -236,16 +235,16 @@ pub mod test {
             &vec![],
             &vec![
                 PricePointEntry {
-                    price: get_mock_decimal("100.0"),
-                    quantity: get_mock_decimal("10.0"),
+                    price: dec!(100.0),
+                    quantity: dec!(10.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("110.0"),
-                    quantity: get_mock_decimal("20.0"),
+                    price: dec!(110.0),
+                    quantity: dec!(20.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("120.0"),
-                    quantity: get_mock_decimal("30.0"),
+                    price: dec!(120.0),
+                    quantity: dec!(30.0),
                 },
             ],
         );
@@ -254,15 +253,15 @@ pub mod test {
 
         let liquidity_result = book.get_liquidity(
             Side::Sell,
-            &get_mock_decimal("100.0"),
-            get_mock_decimal("0.10"),
+            &dec!(100.0),
+            dec!(0.10),
         );
 
         assert!(matches!(liquidity_result, Ok(_)));
 
         assert_decimal_approx_eq!(
             liquidity_result.unwrap(),
-            get_mock_decimal("30.0"),
+            dec!(30.0),
             tolerance
         );
 
@@ -270,16 +269,16 @@ pub mod test {
         let update_result = book.update_entries(
             &vec![
                 PricePointEntry {
-                    price: get_mock_decimal("90.0"),
-                    quantity: get_mock_decimal("50.0"),
+                    price: dec!(90.0),
+                    quantity: dec!(50.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("80.0"),
-                    quantity: get_mock_decimal("60.0"),
+                    price: dec!(80.0),
+                    quantity: dec!(60.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("70.0"),
-                    quantity: get_mock_decimal("70.0"),
+                    price: dec!(70.0),
+                    quantity: dec!(70.0),
                 },
             ],
             &vec![],
@@ -289,15 +288,15 @@ pub mod test {
 
         let liquidity_result = book.get_liquidity(
             Side::Buy,
-            &get_mock_decimal("100.0"),
-            get_mock_decimal("0.20"),
+            &dec!(100.0),
+            dec!(0.20),
         );
 
         assert!(matches!(liquidity_result, Ok(_)));
 
         assert_decimal_approx_eq!(
             liquidity_result.unwrap(),
-            get_mock_decimal("110.0"),
+            dec!(110.0),
             tolerance
         );
 
@@ -306,12 +305,12 @@ pub mod test {
             &vec![],
             &vec![
                 PricePointEntry {
-                    price: get_mock_decimal("100.0"),
-                    quantity: get_mock_decimal("0.0"),
+                    price: dec!(100.0),
+                    quantity: dec!(0.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("110.0"),
-                    quantity: get_mock_decimal("25.0"),
+                    price: dec!(110.0),
+                    quantity: dec!(25.0),
                 },
             ],
         );
@@ -320,15 +319,15 @@ pub mod test {
 
         let liquidity_result = book.get_liquidity(
             Side::Sell,
-            &get_mock_decimal("100.0"),
-            get_mock_decimal("0.10"),
+            &dec!(100.0),
+            dec!(0.10),
         );
 
         assert!(matches!(liquidity_result, Ok(_)));
 
         assert_decimal_approx_eq!(
             liquidity_result.unwrap(),
-            get_mock_decimal("25.0"),
+            dec!(25.0),
             tolerance
         );
     }

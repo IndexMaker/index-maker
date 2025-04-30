@@ -140,6 +140,7 @@ pub mod test {
 
     use chrono::Utc;
     use parking_lot::RwLock;
+    use rust_decimal::dec;
 
     use crate::{
         assert_decimal_approx_eq,
@@ -148,7 +149,7 @@ pub mod test {
             functional::IntoObservableSingle,
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
-                get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+                get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
         solver::position::LotId,
@@ -165,17 +166,15 @@ pub mod test {
         let order_connector_1 = Arc::new(RwLock::new(MockOrderConnector::new()));
         let order_connector_2 = Arc::downgrade(&order_connector_1);
 
-        let order_price = get_mock_decimal("100.0");
-        let order_quantity = get_mock_decimal("50.0");
-        let fill_quantity = order_quantity
-            .checked_mul(get_mock_decimal("0.75"))
-            .unwrap();
+        let order_price = dec!(100.0);
+        let order_quantity = dec!(50.0);
+        let fill_quantity = order_quantity.checked_mul(dec!(0.75)).unwrap();
         let cancel_quantity = order_quantity.checked_sub(fill_quantity).unwrap();
-        let lot_id_1 = LotId("Lot01".into());
+        let lot_id_1: LotId = "Lot01".into();
         let lot_id_2 = lot_id_1.clone();
 
         let timestamp = Utc::now();
-        let fee = get_mock_decimal("0.10");
+        let fee = dec!(0.10);
 
         order_connector_1
             .write()
@@ -205,7 +204,7 @@ pub mod test {
                 .unwrap();
             });
 
-        let order_id_1 = OrderId("Mock01".into());
+        let order_id_1: OrderId = "Mock01".into();
         let order_id_2 = order_id_1.clone();
 
         order_connector_1
@@ -218,7 +217,7 @@ pub mod test {
                 let fee_2 = fee.clone();
                 let timestamp_2 = timestamp.clone();
                 tx_2.send(Box::new(move || {
-                    let tolerance = get_mock_decimal("0.01");
+                    let tolerance = dec!(0.01);
                     match e {
                         OrderConnectorNotification::Fill {
                             symbol,
@@ -269,7 +268,7 @@ pub mod test {
             .write()
             .send_order(&Arc::new(SingleOrder {
                 order_id: order_id_1.clone(),
-                batch_order_id: BatchOrderId("MockOrder".into()),
+                batch_order_id: "MockOrder".into(),
                 symbol: get_mock_asset_name_1(),
                 side: Side::Buy,
                 price: order_price,

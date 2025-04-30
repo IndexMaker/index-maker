@@ -142,6 +142,8 @@ mod test {
         sync::{atomic::Ordering, Arc},
     };
 
+    use rust_decimal::dec;
+
     use crate::{
         assert_decimal_approx_eq,
         core::{
@@ -149,7 +151,7 @@ mod test {
             functional::IntoObservableMany,
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2,
-                get_mock_atomic_bool_pair, get_mock_decimal, test_mock_atomic_bool,
+                get_mock_atomic_bool_pair, test_mock_atomic_bool,
             },
         },
         market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
@@ -200,10 +202,10 @@ mod test {
                     } => {
                         flag_mock_atomic_bool(&called_for_tob_inner);
                         assert_eq!(symbol, &get_mock_asset_name_1());
-                        assert_eq!(best_bid_price, &get_mock_decimal("1"));
-                        assert_eq!(best_ask_price, &get_mock_decimal("2"));
-                        assert_eq!(best_bid_quantity, &get_mock_decimal("10"));
-                        assert_eq!(best_ask_quantity, &get_mock_decimal("20"));
+                        assert_eq!(best_bid_price, &dec!(1));
+                        assert_eq!(best_ask_price, &dec!(2));
+                        assert_eq!(best_bid_quantity, &dec!(10));
+                        assert_eq!(best_ask_quantity, &dec!(20));
                     }
                     MarketDataEvent::Trade {
                         symbol,
@@ -212,8 +214,8 @@ mod test {
                     } => {
                         flag_mock_atomic_bool(&called_for_trade_inner);
                         assert_eq!(symbol, &get_mock_asset_name_2());
-                        assert_eq!(price, &get_mock_decimal("5"));
-                        assert_eq!(quantity, &get_mock_decimal("2"));
+                        assert_eq!(price, &dec!(5));
+                        assert_eq!(quantity, &dec!(2));
                     }
                     MarketDataEvent::FullOrderBook {
                         symbol,
@@ -221,28 +223,12 @@ mod test {
                         ask_updates,
                     } => {
                         flag_mock_atomic_bool(&called_for_fob_inner);
-                        let tolerance = get_mock_decimal("0.001");
+                        let tolerance = dec!(0.001);
                         assert_eq!(symbol, &get_mock_asset_name_1());
-                        assert_decimal_approx_eq!(
-                            ask_updates[0].price,
-                            get_mock_decimal("3.10"),
-                            tolerance
-                        );
-                        assert_decimal_approx_eq!(
-                            ask_updates[0].quantity,
-                            get_mock_decimal("4.25"),
-                            tolerance
-                        );
-                        assert_decimal_approx_eq!(
-                            ask_updates[1].price,
-                            get_mock_decimal("3.20"),
-                            tolerance
-                        );
-                        assert_decimal_approx_eq!(
-                            ask_updates[1].quantity,
-                            get_mock_decimal("7.55"),
-                            tolerance
-                        );
+                        assert_decimal_approx_eq!(ask_updates[0].price, dec!(3.10), tolerance);
+                        assert_decimal_approx_eq!(ask_updates[0].quantity, dec!(4.25), tolerance);
+                        assert_decimal_approx_eq!(ask_updates[1].price, dec!(3.20), tolerance);
+                        assert_decimal_approx_eq!(ask_updates[1].quantity, dec!(7.55), tolerance);
                         assert_eq!(bid_updates.len(), 0);
                     }
                 };
@@ -250,19 +236,15 @@ mod test {
 
         connector.notify_top_of_book(
             get_mock_asset_name_1(),
-            get_mock_decimal("1"),
-            get_mock_decimal("2"),
-            get_mock_decimal("10"),
-            get_mock_decimal("20"),
+            dec!(1),
+            dec!(2),
+            dec!(10),
+            dec!(20),
         );
 
         assert!(test_mock_atomic_bool(&called_for_tob));
 
-        connector.notify_trade(
-            get_mock_asset_name_2(),
-            get_mock_decimal("5"),
-            get_mock_decimal("2"),
-        );
+        connector.notify_trade(get_mock_asset_name_2(), dec!(5), dec!(2));
 
         assert!(test_mock_atomic_bool(&called_for_trade));
 
@@ -271,12 +253,12 @@ mod test {
             vec![],
             vec![
                 PricePointEntry {
-                    price: get_mock_decimal("3.10"),
-                    quantity: get_mock_decimal("4.25"),
+                    price: dec!(3.10),
+                    quantity: dec!(4.25),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("3.20"),
-                    quantity: get_mock_decimal("7.55"),
+                    price: dec!(3.20),
+                    quantity: dec!(7.55),
                 },
             ],
         );

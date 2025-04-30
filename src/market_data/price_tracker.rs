@@ -165,14 +165,15 @@ impl IntoObservableSingle<PriceEvent> for PriceTracker {
 mod test {
     use std::collections::HashMap;
 
+    use rust_decimal::dec;
+
     use crate::{
         assert_hashmap_amounts_eq,
         core::{
             bits::{Amount, PriceType, Symbol},
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_asset_name_2,
-                get_mock_atomic_bool_pair, get_mock_decimal, reset_flag_mock_atomic_bool,
-                test_mock_atomic_bool,
+                get_mock_atomic_bool_pair, reset_flag_mock_atomic_bool, test_mock_atomic_bool,
             },
         },
         market_data::market_data_connector::MarketDataEvent,
@@ -204,22 +205,22 @@ mod test {
 
         price_tracker.handle_market_data(&MarketDataEvent::TopOfBook {
             symbol: get_mock_asset_name_1(),
-            best_bid_price: get_mock_decimal("12500.00"),
-            best_ask_price: get_mock_decimal("12500.50"),
-            best_bid_quantity: get_mock_decimal("1500.00"),
-            best_ask_quantity: get_mock_decimal("1000.00"),
+            best_bid_price: dec!(12500.00),
+            best_ask_price: dec!(12500.50),
+            best_bid_quantity: dec!(1500.00),
+            best_ask_quantity: dec!(1000.00),
         });
 
         assert!(test_mock_atomic_bool(&called_notify));
 
-        let tolerance = get_mock_decimal("0.0001");
+        let tolerance = dec!(0.0001);
 
         let prices = price_tracker.get_prices(PriceType::BestBid, &symbols);
 
         assert_eq!(prices.missing_symbols, [get_mock_asset_name_2()]);
         assert_hashmap_amounts_eq!(
             prices.prices,
-            [(get_mock_asset_name_1(), get_mock_decimal("12500.00"))].into(),
+            [(get_mock_asset_name_1(), dec!(12500.00))].into(),
             tolerance
         );
 
@@ -228,7 +229,7 @@ mod test {
         assert_eq!(prices.missing_symbols, [get_mock_asset_name_2()]);
         assert_hashmap_amounts_eq!(
             prices.prices,
-            [(get_mock_asset_name_1(), get_mock_decimal("12500.50"))].into(),
+            [(get_mock_asset_name_1(), dec!(12500.50))].into(),
             tolerance
         );
 
@@ -237,7 +238,7 @@ mod test {
         assert_eq!(prices.missing_symbols, [get_mock_asset_name_2()]);
         assert_hashmap_amounts_eq!(
             prices.prices,
-            [(get_mock_asset_name_1(), get_mock_decimal("12500.25"))].into(),
+            [(get_mock_asset_name_1(), dec!(12500.25))].into(),
             tolerance
         );
 
@@ -246,7 +247,7 @@ mod test {
         assert_eq!(prices.missing_symbols, [get_mock_asset_name_2()]);
         assert_hashmap_amounts_eq!(
             prices.prices,
-            [(get_mock_asset_name_1(), get_mock_decimal("12500.20"))].into(),
+            [(get_mock_asset_name_1(), dec!(12500.20))].into(),
             tolerance
         );
 
@@ -266,8 +267,8 @@ mod test {
 
         price_tracker.handle_market_data(&MarketDataEvent::Trade {
             symbol: get_mock_asset_name_2(),
-            price: get_mock_decimal("700.50"),
-            quantity: get_mock_decimal("400.00"),
+            price: dec!(700.50),
+            quantity: dec!(400.00),
         });
 
         assert!(test_mock_atomic_bool(&called_notify));
@@ -277,7 +278,7 @@ mod test {
         assert_eq!(prices.missing_symbols, [get_mock_asset_name_1()]);
         assert_hashmap_amounts_eq!(
             prices.prices,
-            [(get_mock_asset_name_2(), get_mock_decimal("700.50"))].into(),
+            [(get_mock_asset_name_2(), dec!(700.50))].into(),
             tolerance
         );
     }

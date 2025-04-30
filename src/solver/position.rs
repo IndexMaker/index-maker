@@ -31,6 +31,13 @@ impl Display for LotId {
     }
 }
 
+impl From<&str> for LotId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
+
 pub struct LotTransaction {
     /// ID of the closing order that was executed
     pub order_id: OrderId,

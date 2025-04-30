@@ -75,6 +75,12 @@ impl Display for OrderId {
     }
 }
 
+impl From<&str> for OrderId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
 /// BatchOrderId is intended to be used internally (<- Solver)
 ///
 /// Solver will produce order batches to be taken from market.
@@ -84,6 +90,12 @@ pub struct BatchOrderId(pub String);
 impl Display for BatchOrderId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BatchOrderId({})", self.0)
+    }
+}
+
+impl From<&str> for BatchOrderId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
     }
 }
 
@@ -99,6 +111,12 @@ impl Display for ClientOrderId {
     }
 }
 
+impl From<&str> for ClientOrderId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
 /// PaymentId is intended to be used for payments (<-> Blockchain)
 ///
 /// On-chain transactions will produce this ID. It is a confirmation of the payment
@@ -109,6 +127,12 @@ pub struct PaymentId(pub String);
 impl Display for PaymentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PaymentId({})", self.0)
+    }
+}
+
+impl From<&str> for PaymentId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
     }
 }
 

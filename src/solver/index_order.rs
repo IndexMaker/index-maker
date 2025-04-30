@@ -424,12 +424,13 @@ impl IndexOrder {
 #[cfg(test)]
 mod test {
     use chrono::Utc;
+    use rust_decimal::dec;
 
     use crate::{
         assert_decimal_approx_eq,
         core::{
             bits::{Amount, ClientOrderId, PaymentId, Side},
-            test_util::{get_mock_address_1, get_mock_asset_name_1, get_mock_decimal},
+            test_util::{get_mock_address_1, get_mock_asset_name_1},
         },
         solver::index_order::UpdateIndexOrderOutcome,
     };
@@ -471,21 +472,21 @@ mod test {
     ///
     #[test]
     fn test_index_order_1() {
-        let tolerance = get_mock_decimal("0.00001");
+        let tolerance = dec!(0.00001);
 
         let address = get_mock_address_1();
-        let order_id = ClientOrderId("Order01".into());
+        let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
         let mut order = IndexOrder::new(address, order_id, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
-        let order_id1 = ClientOrderId("Order02".into());
-        let pay_id1 = PaymentId("Pay01".into());
-        let price1 = get_mock_decimal("100.0");
-        let price_threshold1 = get_mock_decimal("0.05");
-        let quantity1 = get_mock_decimal("10.0");
+        let order_id1 = "Order02".into();
+        let pay_id1 = "Pay01".into();
+        let price1 = dec!(100.0);
+        let price_threshold1 = dec!(0.05);
+        let quantity1 = dec!(10.0);
         let timestamp1 = Utc::now();
 
         {
@@ -519,11 +520,11 @@ mod test {
         }
 
         // Add another update on Buy side
-        let order_id2 = ClientOrderId("Order03".into());
-        let pay_id2 = PaymentId("Pay02".into());
-        let price2 = get_mock_decimal("110.0");
-        let price_threshold2 = get_mock_decimal("0.075");
-        let quantity2 = get_mock_decimal("20.0");
+        let order_id2 = "Order03".into();
+        let pay_id2 = "Pay02".into();
+        let price2 = dec!(110.0);
+        let price_threshold2 = dec!(0.075);
+        let quantity2 = dec!(20.0);
         let timestamp2 = Utc::now();
 
         {
@@ -557,11 +558,11 @@ mod test {
         }
 
         // Add small update on Sell side
-        let order_id3 = ClientOrderId("Order04".into());
-        let pay_id3 = PaymentId("Pay03".into());
-        let price3 = get_mock_decimal("140.0");
-        let price_threshold3 = get_mock_decimal("0.05");
-        let quantity3 = get_mock_decimal("5.0");
+        let order_id3 = "Order04".into();
+        let pay_id3 = "Pay03".into();
+        let price3 = dec!(140.0);
+        let price_threshold3 = dec!(0.05);
+        let quantity3 = dec!(5.0);
         let timestamp3 = Utc::now();
 
         {
@@ -610,11 +611,11 @@ mod test {
         }
 
         // Add bigger update on Sell side
-        let order_id4 = ClientOrderId("Order05".into());
-        let pay_id4 = PaymentId("Pay04".into());
-        let price4 = get_mock_decimal("140.0");
-        let price_threshold4 = get_mock_decimal("0.05");
-        let quantity4 = get_mock_decimal("20.0");
+        let order_id4 = "Order05".into();
+        let pay_id4 = "Pay04".into();
+        let price4 = dec!(140.0);
+        let price_threshold4 = dec!(0.05);
+        let quantity4 = dec!(20.0);
         let timestamp4 = Utc::now();
 
         {
@@ -663,11 +664,11 @@ mod test {
         }
 
         // Another update on Sell side should flip
-        let order_id5 = ClientOrderId("Order06".into());
-        let pay_id5 = PaymentId("Pay05".into());
-        let price5 = get_mock_decimal("150.0");
-        let price_threshold5 = get_mock_decimal("0.05");
-        let quantity5 = get_mock_decimal("20.0");
+        let order_id5 = "Order06".into();
+        let pay_id5 = "Pay05".into();
+        let price5 = dec!(150.0);
+        let price_threshold5 = dec!(0.05);
+        let quantity5 = dec!(20.0);
         let timestamp5 = Utc::now();
         {
             let update_index_order_outcome = order
@@ -742,21 +743,21 @@ mod test {
     ///
     #[test]
     fn test_index_order_2() {
-        let tolerance = get_mock_decimal("0.00001");
+        let tolerance = dec!(0.00001);
 
         let address = get_mock_address_1();
-        let order_id = ClientOrderId("Order01".into());
+        let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
         let mut order = IndexOrder::new(address, order_id, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
-        let order_id1 = ClientOrderId("Order02".into());
-        let pay_id1 = PaymentId("Pay01".into());
-        let price1 = get_mock_decimal("100.0");
-        let price_threshold1 = get_mock_decimal("0.05");
-        let quantity1 = get_mock_decimal("10.0");
+        let order_id1 = "Order02".into();
+        let pay_id1 = "Pay01".into();
+        let price1 = dec!(100.0);
+        let price_threshold1 = dec!(0.05);
+        let quantity1 = dec!(10.0);
         let timestamp1 = Utc::now();
 
         {
@@ -789,11 +790,11 @@ mod test {
             assert_eq!(order.order_updates.len(), 1);
         }
         // Add another update on Buy side
-        let order_id2 = ClientOrderId("Order03".into());
-        let pay_id2 = PaymentId("Pay02".into());
-        let price2 = get_mock_decimal("110.0");
-        let price_threshold2 = get_mock_decimal("0.075");
-        let quantity2 = get_mock_decimal("20.0");
+        let order_id2 = "Order03".into();
+        let pay_id2 = "Pay02".into();
+        let price2 = dec!(110.0);
+        let price_threshold2 = dec!(0.075);
+        let quantity2 = dec!(20.0);
         let timestamp2 = Utc::now();
 
         {
@@ -827,7 +828,7 @@ mod test {
         }
 
         // Engage in small quantity
-        let engage_quantity1 = get_mock_decimal("5");
+        let engage_quantity1 = dec!(5);
         {
             let unengaged_quantity1 = order.solver_engage(engage_quantity1, tolerance).unwrap();
             assert!(matches!(unengaged_quantity1, None));
@@ -858,7 +859,7 @@ mod test {
         }
 
         // Engage in larger quantity
-        let engage_quantity2 = get_mock_decimal("20.0");
+        let engage_quantity2 = dec!(20.0);
         {
             let unengaged_quantity2 = order.solver_engage(engage_quantity2, tolerance).unwrap();
             assert!(matches!(unengaged_quantity2, None));
@@ -897,11 +898,11 @@ mod test {
         // Order is engaged on Buy side. We should not be able to flip sides or cancel any engaged quantity.
         {
             // Add bigger update on Sell side
-            let order_id4 = ClientOrderId("Order05".into());
-            let pay_id4 = PaymentId("Pay04".into());
-            let price4 = get_mock_decimal("140.0");
-            let price_threshold4 = get_mock_decimal("0.05");
-            let quantity4 = get_mock_decimal("20.0");
+            let order_id4 = "Order05".into();
+            let pay_id4 = "Pay04".into();
+            let price4 = dec!(140.0);
+            let price_threshold4 = dec!(0.05);
+            let quantity4 = dec!(20.0);
             let timestamp4 = Utc::now();
 
             let update_index_order_outcome = order

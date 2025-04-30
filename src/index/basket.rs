@@ -254,11 +254,12 @@ mod tests {
         index::basket::{AssetWeight, Basket, BasketDefinition},
     };
     use eyre::Result;
+    use rust_decimal::dec;
     use std::{collections::HashMap, sync::Arc};
 
     #[test]
     fn test_basket() -> Result<()> {
-        let assert_tolerance = "0.00001".try_into()?;
+        let assert_tolerance = dec!(0.00001);
 
         // Define some assets - they will stay
         let asset_btc = Arc::new(Asset::new("BTC".into()));
@@ -267,21 +268,21 @@ mod tests {
 
         // Define basket - it will be consumed when we create Basket
         let basket_definition = BasketDefinition::try_new([
-            AssetWeight::new(asset_btc.clone(), "0.25".try_into()?),
-            AssetWeight::new(asset_eth.clone(), "0.75".try_into()?),
+            AssetWeight::new(asset_btc.clone(), dec!(0.25)),
+            AssetWeight::new(asset_eth.clone(), dec!(0.75)),
         ])?;
 
         println!("basket_definition = {}", basket_definition);
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices: HashMap<Symbol, Amount> = [
-            (asset_btc.name.clone(), "50000.0".try_into()?),
-            (asset_eth.name.clone(), "6000.0".try_into()?),
+            (asset_btc.name.clone(), dec!(50000.0)),
+            (asset_eth.name.clone(), dec!(6000.0)),
         ]
         .into();
 
         // Set target price for computing actual quantites for the basket
-        let target_price = "10000.0".try_into()?;
+        let target_price = dec!(10000.0);
 
         // Create actual basket consuming the definition
         let basket = Basket::new_with_prices(basket_definition, &individual_prices, target_price)?;
@@ -296,9 +297,9 @@ mod tests {
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices_updated: HashMap<Symbol, Amount> = [
-            (asset_btc.name.clone(), "55000.0".try_into()?),
-            (asset_eth.name.clone(), "6250.0".try_into()?),
-            (asset_sol.name.clone(), "250.0".try_into()?),
+            (asset_btc.name.clone(), dec!(55000.0)),
+            (asset_eth.name.clone(), dec!(6250.0)),
+            (asset_sol.name.clone(), dec!(250.0)),
         ]
         .into();
 
@@ -323,7 +324,7 @@ mod tests {
 
         let mut weights_updated: Vec<AssetWeight> = updated_basket.try_into()?;
 
-        weights_updated.push(AssetWeight::new(asset_sol, "0.15".try_into()?));
+        weights_updated.push(AssetWeight::new(asset_sol, dec!(0.15)));
 
         let basket_definition_updated = BasketDefinition::try_new(weights_updated)?;
 

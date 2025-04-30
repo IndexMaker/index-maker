@@ -130,6 +130,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use parking_lot::RwLock;
+    use rust_decimal::dec;
 
     use crate::{
         assert_hashmap_amounts_eq,
@@ -173,8 +174,8 @@ mod tests {
 
         // Define basket - it will be consumed when we create Basket
         let basket_definition = BasketDefinition::try_new([
-            AssetWeight::new(asset_btc.clone(), get_mock_decimal("0.25")),
-            AssetWeight::new(asset_eth.clone(), get_mock_decimal("0.75")),
+            AssetWeight::new(asset_btc.clone(), dec!(0.25)),
+            AssetWeight::new(asset_eth.clone(), dec!(0.75)),
         ])
         .unwrap();
 
@@ -188,8 +189,8 @@ mod tests {
                 ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
                     tx_2.send(Box::new(move || {
                         let expected: HashMap<Symbol, Amount> = [
-                            (get_mock_asset_name_1(), get_mock_decimal("0.25")),
-                            (get_mock_asset_name_2(), get_mock_decimal("0.75")),
+                            (get_mock_asset_name_1(), dec!(0.25)),
+                            (get_mock_asset_name_2(), dec!(0.75)),
                         ]
                         .into();
 
@@ -204,13 +205,13 @@ mod tests {
 
                         // Tell reference prices for assets for in basket quantities computation
                         let individual_prices: HashMap<Symbol, Amount> = [
-                            (get_mock_asset_name_1(), get_mock_decimal("50000.0")),
-                            (get_mock_asset_name_2(), get_mock_decimal("6000.0")),
+                            (get_mock_asset_name_1(), dec!(50000.0)),
+                            (get_mock_asset_name_2(), dec!(6000.0)),
                         ]
                         .into();
 
                         // Set target price for computing actual quantites for the basket
-                        let target_price = get_mock_decimal("10000.0");
+                        let target_price = dec!(10000.0);
 
                         basket_manager
                             .write()
@@ -237,8 +238,8 @@ mod tests {
                 let tx_end = tx_end.clone();
                 tx.send(Box::new(move || {
                     let expected: HashMap<Symbol, Amount> = [
-                        (get_mock_asset_name_1(), get_mock_decimal("0.05")),
-                        (get_mock_asset_name_2(), get_mock_decimal("1.25")),
+                        (get_mock_asset_name_1(), dec!(0.05)),
+                        (get_mock_asset_name_2(), dec!(1.25)),
                     ]
                     .into();
 
@@ -280,7 +281,7 @@ mod tests {
 
         mock_chain_connection.write().mint_index(
             get_mock_index_name_1(),
-            get_mock_decimal("0.5"),
+            dec!(0.5),
             get_mock_address_1(),
         );
 

@@ -247,6 +247,7 @@ mod test {
 
     use chrono::Utc;
     use parking_lot::RwLock;
+    use rust_decimal::dec;
 
     use crate::{
         assert_decimal_approx_eq,
@@ -254,8 +255,7 @@ mod test {
             bits::{BatchOrderId, OrderId, Side, SingleOrder},
             functional::IntoObservableSingle,
             test_util::{
-                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
-                get_mock_decimal, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
         order_sender::order_connector::{
@@ -275,22 +275,22 @@ mod test {
         let (flag_fill_1, flag_fill_2) = get_mock_atomic_bool_pair();
         let (flag_cancel_1, flag_cancel_2) = get_mock_atomic_bool_pair();
 
-        let tolerance = get_mock_decimal("0.0001");
+        let tolerance = dec!(0.0001);
         let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
 
         let timestamp = Utc::now();
-        let fee = get_mock_decimal("0.10");
+        let fee = dec!(0.10);
 
-        let order_price = get_mock_decimal("100.0");
-        let order_quantity = get_mock_decimal("50.0");
+        let order_price = dec!(100.0);
+        let order_quantity = dec!(50.0);
         let fill_quantity = order_quantity
-            .checked_mul(get_mock_decimal("0.75"))
+            .checked_mul(dec!(0.75))
             .unwrap();
         let cancel_quantity = order_quantity.checked_sub(fill_quantity).unwrap();
 
         let order_1 = Arc::new(SingleOrder {
-            order_id: OrderId("Mock01".into()),
-            batch_order_id: BatchOrderId("MockOrder".into()),
+            order_id: "Mock01".into(),
+            batch_order_id: "MockOrder".into(),
             symbol: get_mock_asset_name_1(),
             price: order_price,
             quantity: order_quantity,
@@ -299,7 +299,7 @@ mod test {
         });
 
         let order_2 = order_1.clone();
-        let lot_id_1 = LotId("Lot01".into());
+        let lot_id_1: LotId = "Lot01".into();
         let lot_id_2 = lot_id_1.clone();
 
         // Let's provide internal (mocked) implementation of the Order Connector

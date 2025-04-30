@@ -5,9 +5,9 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use safe_math::safe;
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use safe_math::safe;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -360,9 +360,8 @@ impl Solver {
                         //                                      * target basket price
                         //                                      / current basket price
                         //
-                        let target_asset_price = safe!(
-                            safe!(*asset_price * price) / *current_price
-                        )?;
+                        let target_asset_price =
+                            safe!(safe!(*asset_price * price) / *current_price)?;
 
                         println!(
                             " * target_asset_price {:5} {:0.5} = {:0.5} * {:0.5} / {:0.5}",
@@ -669,7 +668,7 @@ impl Solver {
         let engaged_orders = self.engage_orders(&mut more_orders, contributions);
 
         // TODO: Generate it!
-        let batch_order_id = BatchOrderId("Batch001".into());
+        let batch_order_id = "Batch001".into();
 
         Some(EngagedOrders {
             batch_order_id,
@@ -715,8 +714,8 @@ impl Solver {
 
     fn send_batch(&self, engaged_orders: &EngagedOrders) -> Result<()> {
         // TODO: we should generate IDs
-        let mut batch_ids = VecDeque::from([BatchOrderId("BatchOrder01".into())]);
-        let mut order_ids = VecDeque::from([OrderId("Order01".into()), OrderId("Order02".into())]);
+        let mut batch_ids = VecDeque::<BatchOrderId>::from(["BatchOrder01".into()]);
+        let mut order_ids = VecDeque::<OrderId>::from(["Order01".into(), "Order02".into()]);
 
         // TODO: we should compact these batches (and do matrix solving)
         let batches = engaged_orders
@@ -1167,6 +1166,7 @@ mod test {
         channel::{unbounded, Sender},
         select,
     };
+    use rust_decimal::dec;
 
     use crate::{
         assert_decimal_approx_eq,
@@ -1181,7 +1181,7 @@ mod test {
             },
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
-                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_decimal, get_mock_index_name_1,
+                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_index_name_1,
             },
         },
         index::{
@@ -1253,7 +1253,7 @@ mod test {
     ///
     #[test]
     fn sbe_solver() {
-        let tolerance = get_mock_decimal("0.0001");
+        let tolerance = dec!(0.0001);
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (index_order_sender, index_order_receiver) = unbounded::<IndexOrderEvent>();
@@ -1378,9 +1378,9 @@ mod test {
 
         let order_tracker_2 = order_tracker.clone();
 
-        let lot_ids = RwLock::new(VecDeque::from([
-            LotId("Lot01".into()),
-            LotId("Lot02".into()),
+        let lot_ids = RwLock::new(VecDeque::<LotId>::from([
+            "Lot01".into(),
+            "Lot02".into(),
         ]));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded();
@@ -1399,7 +1399,7 @@ mod test {
                             e.side,
                             e.price,
                             e.quantity,
-                            get_mock_decimal("0.01") * e.price * e.quantity,
+                            dec!(0.01) * e.price * e.quantity,
                             e.created_timestamp,
                         )
                     }))
@@ -1492,31 +1492,29 @@ mod test {
         // top of the book
         market_data_connector.write().notify_top_of_book(
             get_mock_asset_name_1(),
-            get_mock_decimal("90.0"),
-            get_mock_decimal("100.0"),
-            get_mock_decimal("10.0"),
-            get_mock_decimal("20.0"),
+            dec!(90.0),
+            dec!(100.0),
+            dec!(10.0),
+            dec!(20.0),
         );
 
         market_data_connector.write().notify_top_of_book(
             get_mock_asset_name_2(),
-            get_mock_decimal("295.0"),
-            get_mock_decimal("300.0"),
-            get_mock_decimal("80.0"),
-            get_mock_decimal("50.0"),
+            dec!(295.0),
+            dec!(300.0),
+            dec!(80.0),
+            dec!(50.0),
         );
 
         // last trade
-        market_data_connector.write().notify_trade(
-            get_mock_asset_name_1(),
-            get_mock_decimal("90.0"),
-            get_mock_decimal("5.0"),
-        );
+        market_data_connector
+            .write()
+            .notify_trade(get_mock_asset_name_1(), dec!(90.0), dec!(5.0));
 
         market_data_connector.write().notify_trade(
             get_mock_asset_name_2(),
-            get_mock_decimal("300.0"),
-            get_mock_decimal("15.0"),
+            dec!(300.0),
+            dec!(15.0),
         );
 
         // book depth
@@ -1524,22 +1522,22 @@ mod test {
             get_mock_asset_name_1(),
             vec![
                 PricePointEntry {
-                    price: get_mock_decimal("90.0"),
-                    quantity: get_mock_decimal("10.0"),
+                    price: dec!(90.0),
+                    quantity: dec!(10.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("80.0"),
-                    quantity: get_mock_decimal("40.0"),
+                    price: dec!(80.0),
+                    quantity: dec!(40.0),
                 },
             ],
             vec![
                 PricePointEntry {
-                    price: get_mock_decimal("100.0"),
-                    quantity: get_mock_decimal("20.0"),
+                    price: dec!(100.0),
+                    quantity: dec!(20.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("110.0"),
-                    quantity: get_mock_decimal("30.0"),
+                    price: dec!(110.0),
+                    quantity: dec!(30.0),
                 },
             ],
         );
@@ -1548,22 +1546,22 @@ mod test {
             get_mock_asset_name_2(),
             vec![
                 PricePointEntry {
-                    price: get_mock_decimal("295.0"),
-                    quantity: get_mock_decimal("80.0"),
+                    price: dec!(295.0),
+                    quantity: dec!(80.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("290.0"),
-                    quantity: get_mock_decimal("100.0"),
+                    price: dec!(290.0),
+                    quantity: dec!(100.0),
                 },
             ],
             vec![
                 PricePointEntry {
-                    price: get_mock_decimal("300.0"),
-                    quantity: get_mock_decimal("50.0"),
+                    price: dec!(300.0),
+                    quantity: dec!(50.0),
                 },
                 PricePointEntry {
-                    price: get_mock_decimal("305.0"),
-                    quantity: get_mock_decimal("150.0"),
+                    price: dec!(305.0),
+                    quantity: dec!(150.0),
                 },
             ],
         );
@@ -1573,8 +1571,8 @@ mod test {
 
         // define basket
         let basket_definition = BasketDefinition::try_new(vec![
-            AssetWeight::new(get_mock_asset_1_arc(), get_mock_decimal("0.8")),
-            AssetWeight::new(get_mock_asset_2_arc(), get_mock_decimal("0.2")),
+            AssetWeight::new(get_mock_asset_1_arc(), dec!(0.8)),
+            AssetWeight::new(get_mock_asset_2_arc(), dec!(0.2)),
         ])
         .unwrap();
 
@@ -1599,13 +1597,13 @@ mod test {
             .write()
             .notify_server_event(Arc::new(ServerEvent::NewIndexOrder {
                 address: get_mock_address_1(),
-                client_order_id: ClientOrderId("Order01".into()),
-                payment_id: PaymentId("Pay001".into()),
+                client_order_id: "Order01".into(),
+                payment_id: "Pay001".into(),
                 symbol: get_mock_index_name_1(),
                 side: Side::Buy,
-                price: get_mock_decimal("1005.0"),
-                price_threshold: get_mock_decimal("0.05"),
-                quantity: get_mock_decimal("2.5"),
+                price: dec!(1005.0),
+                price_threshold: dec!(0.05),
+                quantity: dec!(2.5),
                 timestamp: Utc::now(),
             }));
 
@@ -1619,8 +1617,8 @@ mod test {
 
         flush_events();
 
-        let order1 = order_tracker_2.read().get_order(&OrderId("Order01".into()));
-        let order2 = order_tracker_2.read().get_order(&OrderId("Order02".into()));
+        let order1 = order_tracker_2.read().get_order(&"Order01".into());
+        let order2 = order_tracker_2.read().get_order(&"Order02".into());
 
         assert!(matches!(order1, Some(_)));
         assert!(matches!(order2, Some(_)));
@@ -1632,10 +1630,10 @@ mod test {
         assert_eq!(order1.side, Side::Buy);
         assert_eq!(order2.side, Side::Buy);
 
-        assert_decimal_approx_eq!(order1.price, get_mock_decimal("97.15"), tolerance);
-        assert_decimal_approx_eq!(order1.quantity, get_mock_decimal("20.0"), tolerance);
-        assert_decimal_approx_eq!(order2.price, get_mock_decimal("298.4076923"), tolerance);
-        assert_decimal_approx_eq!(order2.quantity, get_mock_decimal("1.627806563"), tolerance);
+        assert_decimal_approx_eq!(order1.price, dec!(97.15), tolerance);
+        assert_decimal_approx_eq!(order1.quantity, dec!(20.0), tolerance);
+        assert_decimal_approx_eq!(order2.price, dec!(298.4076923), tolerance);
+        assert_decimal_approx_eq!(order2.quantity, dec!(1.627806563), tolerance);
 
         // this will fail atm
         //mock_server_receiver

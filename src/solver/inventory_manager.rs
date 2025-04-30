@@ -331,15 +331,14 @@ mod test {
 
     use chrono::Utc;
     use parking_lot::RwLock;
+    use rust_decimal::dec;
 
     use crate::{
         assert_decimal_approx_eq,
         core::{
             bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
             functional::IntoObservableSingle,
-            test_util::{
-                get_mock_asset_name_1, get_mock_decimal, get_mock_defer_channel, run_mock_deferred,
-            },
+            test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
         },
         order_sender::{
             order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
@@ -379,7 +378,7 @@ mod test {
     /// * Lot02 => 20.0 A @ $100.0 against 5.0 A @ $125.0 => quantity remaining on Lot02  is = 15.0 A
     ///
     fn test_inventory_manager() {
-        let tolerance = get_mock_decimal("0.000001");
+        let tolerance = dec!(0.000001);
 
         let (defer_1, deferred) = get_mock_defer_channel();
         let defer_2 = defer_1.clone();
@@ -403,31 +402,31 @@ mod test {
 
         let buy_timestamp = Utc::now();
 
-        let buy_order_id = OrderId("Order01".into());
-        let buy_batch_order_id = BatchOrderId("Batch01".into());
-        let buy_lot1_id = LotId("Lot01".into());
-        let buy_lot2_id = LotId("Lot02".into());
+        let buy_order_id: OrderId = "Order01".into();
+        let buy_batch_order_id: BatchOrderId = "Batch01".into();
+        let buy_lot1_id: LotId = "Lot01".into();
+        let buy_lot2_id: LotId = "Lot02".into();
 
-        let buy_order_price = get_mock_decimal("100.0");
-        let buy_order_quantity = get_mock_decimal("50.0");
-        let buy_fill1_price = get_mock_decimal("99.0");
-        let buy_fill2_price = get_mock_decimal("100.0");
-        let buy_fill1_quantity = get_mock_decimal("10.0");
-        let buy_fill2_quantity = get_mock_decimal("20.0");
-        let buy_fee1 = get_mock_decimal("0.0099");
-        let buy_fee2 = get_mock_decimal("0.0100");
+        let buy_order_price = dec!(100.0);
+        let buy_order_quantity = dec!(50.0);
+        let buy_fill1_price = dec!(99.0);
+        let buy_fill2_price = dec!(100.0);
+        let buy_fill1_quantity = dec!(10.0);
+        let buy_fill2_quantity = dec!(20.0);
+        let buy_fee1 = dec!(0.0099);
+        let buy_fee2 = dec!(0.0100);
 
         let sell_timestamp = Utc::now();
 
-        let sell_order_id = OrderId("Order02".into());
-        let sell_batch_order_id = BatchOrderId("Batch02".into());
-        let sell_lot1_id = LotId("Lot03".into());
+        let sell_order_id: OrderId = "Order02".into();
+        let sell_batch_order_id: BatchOrderId = "Batch02".into();
+        let sell_lot1_id: LotId = "Lot03".into();
 
-        let sell_order_price = get_mock_decimal("120.0");
-        let sell_order_quantity = get_mock_decimal("40.0");
-        let sell_fill1_price = get_mock_decimal("125.0");
-        let sell_fill1_quantity = get_mock_decimal("15.0");
-        let sell_fee1 = get_mock_decimal("0.0125");
+        let sell_order_price = dec!(120.0);
+        let sell_order_quantity = dec!(40.0);
+        let sell_fill1_price = dec!(125.0);
+        let sell_fill1_quantity = dec!(15.0);
+        let sell_fee1 = dec!(0.0125);
 
         let mut closed_lot = None;
         assert!(matches!(closed_lot, None));
@@ -645,7 +644,7 @@ mod test {
                 .unwrap()
                 .read();
 
-            assert_eq!(position.balance, get_mock_decimal("30.0"));
+            assert_eq!(position.balance, dec!(30.0));
 
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 2);
@@ -924,7 +923,7 @@ mod test {
                 .unwrap()
                 .read();
 
-            assert_eq!(position.balance, get_mock_decimal("15.0"));
+            assert_eq!(position.balance, dec!(15.0));
 
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 1);

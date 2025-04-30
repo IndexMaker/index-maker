@@ -5,17 +5,14 @@ use std::sync::{
 };
 
 use alloy::primitives::address;
+use rust_decimal::dec;
 
 use crate::assets::asset::Asset;
 
 use super::bits::{Address, Amount, Symbol};
 
-pub fn get_mock_decimal(numeric_string: &str) -> Amount {
-    numeric_string.try_into().unwrap()
-}
-
 pub fn get_mock_tolerance() -> Amount {
-    get_mock_decimal("0.00001")
+    dec!(0.00001)
 }
 
 pub fn get_mock_asset_name_1() -> Symbol {
