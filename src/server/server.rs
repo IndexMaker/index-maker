@@ -46,7 +46,7 @@ pub enum ServerResponse {
         address: Address,
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
-    }
+    },
 }
 
 pub trait Server: Send + Sync {
@@ -59,7 +59,9 @@ pub mod test_util {
 
     use std::sync::Arc;
 
-    use crate::core::functional::{IntoObservableMany, MultiObserver, PublishMany, PublishSingle, SingleObserver};
+    use crate::core::functional::{
+        IntoObservableMany, MultiObserver, PublishMany, PublishSingle, SingleObserver,
+    };
 
     use super::{Server, ServerEvent, ServerResponse};
 
@@ -82,7 +84,7 @@ pub mod test_util {
         }
 
         /// Notify about FIX messages
-        /// 
+        ///
         /// Real server would parse FIX message, this one just publishes the event as-is.
         pub fn notify_server_event(&self, server_event: Arc<ServerEvent>) {
             self.observer.publish_many(&server_event);

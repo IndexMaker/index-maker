@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crossbeam::atomic::AtomicCell;
+use safe_math::safe;
 use intrusive_collections::{
     intrusive_adapter,
     rbtree::{Cursor, CursorMut},
@@ -8,7 +9,10 @@ use intrusive_collections::{
 };
 use rust_decimal::Decimal;
 
-use crate::core::bits::{Amount, PricePointEntry, Side};
+use crate::core::{
+    bits::{Amount, PricePointEntry, Side},
+    decimal_ext::DecimalExt,
+};
 
 use eyre::{eyre, Ok, Result};
 
@@ -42,14 +46,13 @@ struct PricePointEntriesOps {
 impl PricePointEntriesOps {
     fn try_new(side: Side, tolerance: Amount, price: Amount, threshold: Amount) -> Option<Self> {
         let bound = match side {
-            Side::Buy => price
-                .checked_sub(price.checked_mul(threshold)?)?
-                .checked_sub(tolerance)?,
-            Side::Sell => price
-                .checked_add(price.checked_mul(threshold)?)?
-                .checked_add(tolerance)?,
+            Side::Buy => safe!(
+                safe!(price - safe!(price * threshold)?) - tolerance
+            )?,
+            Side::Sell => safe!(
+                safe!(price + safe!(price * threshold)?) + tolerance
+            )?,
         };
-
         Some(Self { side, bound })
     }
 
@@ -92,13 +95,11 @@ impl PricePointEntries {
         &mut self,
         price: &Amount,
     ) -> Result<(bool, CursorMut<'_, PricePointBookEntryAdapter>)> {
-        let price_lower = price
-            .checked_sub(self.tolerance)
-            .ok_or(eyre!("Math overflow"))?;
+        let price_lower =
+            safe!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
 
-        let price_upper = price
-            .checked_add(self.tolerance)
-            .ok_or(eyre!("Math overflow"))?;
+        let price_upper =
+            safe!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
 
         let cursor = self.entries.lower_bound_mut(Bound::Included(&price_lower));
 
@@ -158,8 +159,7 @@ impl PricePointEntries {
             if ops.is_finished(entry.price) {
                 break;
             }
-            liquidity = liquidity
-                .checked_add(entry.quantity.load())
+            liquidity = safe!(liquidity + entry.quantity.load())
                 .ok_or(eyre!("Math overflow"))?;
             ops.move_next(&mut cursor);
         }

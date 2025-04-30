@@ -19,13 +19,13 @@ pub fn get_mock_tolerance() -> Amount {
 }
 
 pub fn get_mock_asset_name_1() -> Symbol {
-    "AX1".into()
+    "AX".into()
 }
 pub fn get_mock_asset_name_2() -> Symbol {
-    "AX2".into()
+    "AZ".into()
 }
 pub fn get_mock_asset_name_3() -> Symbol {
-    "AX3".into()
+    "AW".into()
 }
 
 pub fn get_mock_asset_1_arc() -> Arc<Asset> {
@@ -39,13 +39,13 @@ pub fn get_mock_asset_3_arc() -> Arc<Asset> {
 }
 
 pub fn get_mock_index_name_1() -> Symbol {
-    "IX1".into()
+    "IX".into()
 }
 pub fn get_mock_index_name_2() -> Symbol {
-    "IX2".into()
+    "IZ".into()
 }
 pub fn get_mock_index_name_3() -> Symbol {
-    "IX3".into()
+    "IW".into()
 }
 
 pub fn get_mock_address_1() -> Address {

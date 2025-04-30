@@ -1,11 +1,15 @@
 use eyre::{eyre, Report, Result};
+use safe_math::safe;
 use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use crate::{
     assets::asset::Asset,
-    core::bits::{Amount, Symbol},
+    core::{
+        bits::{Amount, Symbol},
+        decimal_ext::DecimalExt,
+    },
 };
 
 /// An asset with its associated weight.
@@ -43,12 +47,12 @@ impl BasketDefinition {
         let weights = weights.into_iter().collect_vec();
         let total_weight = weights
             .iter()
-            .try_fold(Amount::ZERO, |a, x| a.checked_add(x.weight))
+            .try_fold(Amount::ZERO, |a, x| safe!(a + x.weight))
             .ok_or(eyre!("Numeric overflow"))?;
         let weights = weights
             .into_iter()
             .map(|w| {
-                if let Some(weight) = w.weight.checked_div(total_weight) {
+                if let Some(weight) = safe!(w.weight / total_weight) {
                     Some(AssetWeight::new(w.asset, weight))
                 } else {
                     None
@@ -128,10 +132,9 @@ impl Basket {
                 let price: &Amount = individual_prices
                     .get(&weight.asset.name)
                     .unwrap_or(&Amount::ZERO);
-                let quantity = target_price
-                    .checked_div(*price)
-                    .and_then(|x| x.checked_mul(weight.weight))
-                    .unwrap_or_default();
+                let quantity =
+                    safe!(safe!(target_price / *price) * weight.weight)
+                        .unwrap_or_default();
                 BasketAsset {
                     weight,
                     price: *price,
@@ -185,7 +188,7 @@ impl Basket {
                     &ba.weight.asset.name,
                     individual_prices
                         .get(&ba.weight.asset.name)
-                        .and_then(|x| x.checked_mul(ba.quantity)),
+                        .and_then(|x| safe!(*x * ba.quantity)),
                 )
             })
             .collect_vec();
@@ -201,7 +204,7 @@ impl Basket {
         prices
             .iter()
             .map(|x| x.1.unwrap())
-            .try_fold(Decimal::ZERO, |a, x| x.checked_add(a))
+            .try_fold(Decimal::ZERO, |a, x| safe!(x + a))
             .ok_or(eyre!(
                 "Numeric overflow while computing current price of the basket"
             ))
