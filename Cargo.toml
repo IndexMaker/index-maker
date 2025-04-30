@@ -1,7 +1,7 @@
 [workspace]
 members = [
     ".",
-    "index-maker-proc-macro",
+    "proc-macros/safe-math",
 ]
 
 [package]
@@ -19,7 +19,7 @@ itertools = "0.14.0"
 parking_lot = "0.12.3"
 rust_decimal = { workspace = true }
 string_cache = "0.8.9"
-index-maker-proc-macro = { path = "./index-maker-proc-macro" }
+safe-math = { path = "./proc-macros/safe-math" }
 
 [workspace.dependencies]
 eyre = "0.6.12"

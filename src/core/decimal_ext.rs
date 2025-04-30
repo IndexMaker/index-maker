@@ -1,4 +1,3 @@
-use eyre::{OptionExt, Result};
 use rust_decimal::Decimal;
 
 pub trait DecimalExt {
@@ -22,21 +21,5 @@ impl DecimalExt for Option<Decimal> {
         F: FnOnce(&Decimal) -> Option<Decimal>,
     {
         self.and_then(|x| func(&x))
-    }
-}
-
-pub trait OptionDecimalExt {
-    fn update_with<F>(&mut self, func: F) -> &mut Option<Decimal>
-    where
-        F: FnOnce(Option<&Decimal>) -> Option<Decimal>;
-}
-
-impl OptionDecimalExt for Option<Decimal> {
-    fn update_with<F>(&mut self, func: F) -> &mut Option<Decimal>
-    where
-        F: FnOnce(Option<&Decimal>) -> Option<Decimal>,
-    {
-        *self = func(self.as_ref());
-        self
     }
 }

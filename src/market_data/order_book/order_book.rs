@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crossbeam::atomic::AtomicCell;
-use index_maker_proc_macro::checked_arithmetic;
+use safe_math::safe;
 use intrusive_collections::{
     intrusive_adapter,
     rbtree::{Cursor, CursorMut},
@@ -46,11 +46,11 @@ struct PricePointEntriesOps {
 impl PricePointEntriesOps {
     fn try_new(side: Side, tolerance: Amount, price: Amount, threshold: Amount) -> Option<Self> {
         let bound = match side {
-            Side::Buy => checked_arithmetic!(
-                checked_arithmetic!(price - checked_arithmetic!(price * threshold)?) - tolerance
+            Side::Buy => safe!(
+                safe!(price - safe!(price * threshold)?) - tolerance
             )?,
-            Side::Sell => checked_arithmetic!(
-                checked_arithmetic!(price + checked_arithmetic!(price * threshold)?) + tolerance
+            Side::Sell => safe!(
+                safe!(price + safe!(price * threshold)?) + tolerance
             )?,
         };
         Some(Self { side, bound })
@@ -96,10 +96,10 @@ impl PricePointEntries {
         price: &Amount,
     ) -> Result<(bool, CursorMut<'_, PricePointBookEntryAdapter>)> {
         let price_lower =
-            checked_arithmetic!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
+            safe!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
 
         let price_upper =
-            checked_arithmetic!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
+            safe!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
 
         let cursor = self.entries.lower_bound_mut(Bound::Included(&price_lower));
 
@@ -159,7 +159,7 @@ impl PricePointEntries {
             if ops.is_finished(entry.price) {
                 break;
             }
-            liquidity = checked_arithmetic!(liquidity + entry.quantity.load())
+            liquidity = safe!(liquidity + entry.quantity.load())
                 .ok_or(eyre!("Math overflow"))?;
             ops.move_next(&mut cursor);
         }

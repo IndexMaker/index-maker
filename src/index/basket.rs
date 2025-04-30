@@ -1,5 +1,5 @@
 use eyre::{eyre, Report, Result};
-use index_maker_proc_macro::checked_arithmetic;
+use safe_math::safe;
 use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
@@ -47,12 +47,12 @@ impl BasketDefinition {
         let weights = weights.into_iter().collect_vec();
         let total_weight = weights
             .iter()
-            .try_fold(Amount::ZERO, |a, x| checked_arithmetic!(a + x.weight))
+            .try_fold(Amount::ZERO, |a, x| safe!(a + x.weight))
             .ok_or(eyre!("Numeric overflow"))?;
         let weights = weights
             .into_iter()
             .map(|w| {
-                if let Some(weight) = checked_arithmetic!(w.weight / total_weight) {
+                if let Some(weight) = safe!(w.weight / total_weight) {
                     Some(AssetWeight::new(w.asset, weight))
                 } else {
                     None
@@ -133,7 +133,7 @@ impl Basket {
                     .get(&weight.asset.name)
                     .unwrap_or(&Amount::ZERO);
                 let quantity =
-                    checked_arithmetic!(checked_arithmetic!(target_price / *price) * weight.weight)
+                    safe!(safe!(target_price / *price) * weight.weight)
                         .unwrap_or_default();
                 BasketAsset {
                     weight,
@@ -188,7 +188,7 @@ impl Basket {
                     &ba.weight.asset.name,
                     individual_prices
                         .get(&ba.weight.asset.name)
-                        .and_then(|x| checked_arithmetic!(*x * ba.quantity)),
+                        .and_then(|x| safe!(*x * ba.quantity)),
                 )
             })
             .collect_vec();
@@ -204,7 +204,7 @@ impl Basket {
         prices
             .iter()
             .map(|x| x.1.unwrap())
-            .try_fold(Decimal::ZERO, |a, x| checked_arithmetic!(x + a))
+            .try_fold(Decimal::ZERO, |a, x| safe!(x + a))
             .ok_or(eyre!(
                 "Numeric overflow while computing current price of the basket"
             ))

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use index_maker_proc_macro::checked_arithmetic;
+use safe_math::safe;
 use parking_lot::RwLock;
 
 use crate::{
@@ -365,7 +365,7 @@ impl IndexOrderManager {
                 let unmatched_quantity = index_order.solver_engage(quantity, self.tolerance)?;
 
                 let quantity_engaged = if let Some(unmatched_quantity) = unmatched_quantity {
-                    checked_arithmetic!(quantity - unmatched_quantity)
+                    safe!(quantity - unmatched_quantity)
                 } else {
                     Some(quantity)
                 };

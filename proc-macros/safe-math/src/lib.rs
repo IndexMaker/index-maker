@@ -3,7 +3,7 @@ use quote::quote;
 use syn::{BinOp, Expr, parse_macro_input};
 
 #[proc_macro]
-pub fn checked_arithmetic(input: TokenStream) -> TokenStream {
+pub fn safe(input: TokenStream) -> TokenStream {
     // Parse the input as a binary expression.
     let input_clone = input.clone();
     let expr = parse_macro_input!(input as Expr);
@@ -13,7 +13,7 @@ pub fn checked_arithmetic(input: TokenStream) -> TokenStream {
         Expr::Paren(paren_expr) => {
             // Handle parenthesized expressions recursively
             let inner_expr = paren_expr.expr;
-            let inner_result = checked_arithmetic(quote!(#inner_expr).into()); // Call macro recursively
+            let inner_result = safe(quote!(#inner_expr).into()); // Call macro recursively
             inner_result
         }
         Expr::Binary(bin_expr) => {

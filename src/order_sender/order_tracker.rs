@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use index_maker_proc_macro::checked_arithmetic;
+use safe_math::safe;
 use std::collections::{hash_map::Entry, HashMap};
 
 use crossbeam::atomic::AtomicCell;
@@ -107,7 +107,7 @@ impl OrderTracker {
                     // It makes sense that only live orders can be filled or cancelled
                     OrderStatus::Live { quantity_remaining } => {
                         if let Some(quantity_remaining) =
-                            checked_arithmetic!(quantity_remaining - quantity)
+                            safe!(quantity_remaining - quantity)
                         {
                             // Should the remaining quantity on the order be zero, we deem it cancelled
                             if quantity_remaining < self.tolerance {

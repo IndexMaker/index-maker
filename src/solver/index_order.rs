@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, OptionExt, Result};
-use index_maker_proc_macro::checked_arithmetic;
+use eyre::{OptionExt, Result};
+use safe_math::safe;
 use parking_lot::RwLock;
 
 use crate::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
-    decimal_ext::{DecimalExt, OptionDecimalExt},
+    decimal_ext::DecimalExt,
 };
 
 pub enum PaymentDirection {
@@ -211,7 +211,7 @@ impl IndexOrder {
                 if self.engaged_side.is_some() {
                     // Solver is engaged in processing of this order
                     self.remaining_quantity = Amount::ZERO;
-                    let quantity_removed = checked_arithmetic!(quantity - unmatched_quantity)
+                    let quantity_removed = safe!(quantity - unmatched_quantity)
                         .ok_or_eyre("Math Problem")?;
                     // (quantity removed, quantity added)
                     Ok(UpdateIndexOrderOutcome::Reduce {
@@ -233,7 +233,7 @@ impl IndexOrder {
                 }
             } else {
                 // We consumed some number of updates, so we cancelled that quantity
-                self.remaining_quantity = checked_arithmetic!(self.remaining_quantity - quantity)
+                self.remaining_quantity = safe!(self.remaining_quantity - quantity)
                     .ok_or_eyre("Math Problem")?;
                 // (quantity removed, quantity added)
                 Ok(UpdateIndexOrderOutcome::Reduce {
@@ -243,7 +243,7 @@ impl IndexOrder {
             }
         } else {
             // We added some extra quantity on current side
-            self.remaining_quantity = checked_arithmetic!(self.remaining_quantity + quantity)
+            self.remaining_quantity = safe!(self.remaining_quantity + quantity)
                 .ok_or_eyre("Math Problem")?;
             self.order_updates.push_back(index_order_update);
             // (quantity removed, quantity added)
@@ -263,7 +263,7 @@ impl IndexOrder {
         if let Some(unmatched_quantity) = self.match_cancel(quantity, tolerance)? {
             // We consumed all available updates
             let quantity_removed =
-                checked_arithmetic!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
+                safe!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
             if self.engaged_side.is_some() {
                 // Solver is engaged in processing of this order
                 self.remaining_quantity = Amount::ZERO;
@@ -278,7 +278,7 @@ impl IndexOrder {
                 })
             }
         } else {
-            self.remaining_quantity = checked_arithmetic!(self.remaining_quantity + quantity)
+            self.remaining_quantity = safe!(self.remaining_quantity + quantity)
                 .ok_or_eyre("Math Problem")?;
             Ok(CancelIndexOrderOutcome::Reduce {
                 removed_quantity: quantity,
@@ -291,13 +291,13 @@ impl IndexOrder {
     pub fn solver_engage(&mut self, quantity: Amount, tolerance: Amount) -> Result<Option<Amount>> {
         if let Some(unmatched_quantity) = self.match_engage(quantity, tolerance)? {
             let engaged_quantity =
-                checked_arithmetic!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
-            checked_arithmetic!(self.engaged_quantity += engaged_quantity)
+                safe!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
+            safe!(self.engaged_quantity += engaged_quantity)
                 .ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
             Ok(Some(unmatched_quantity))
         } else {
-            checked_arithmetic!(self.engaged_quantity += quantity).ok_or_eyre("Math Problem")?;
+            safe!(self.engaged_quantity += quantity).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
             Ok(None)
         }
@@ -326,7 +326,7 @@ impl IndexOrder {
 
             // quantity remaining on the update
             let future_remaining_quantity =
-                checked_arithmetic!(update.remaining_quantity - quantity)
+                safe!(update.remaining_quantity - quantity)
                     .ok_or_eyre("Math Problem")?;
 
             if future_remaining_quantity < tolerance {
@@ -385,14 +385,14 @@ impl IndexOrder {
             let mut update = update.write();
 
             let future_remaining_quantity =
-                checked_arithmetic!(update.remaining_quantity - quantity)
+                safe!(update.remaining_quantity - quantity)
                     .ok_or_eyre("Math Problem")?;
 
             if future_remaining_quantity < tolerance {
                 // We can engage with whole remaining quantity on this update
                 let remaining_quantity = update.remaining_quantity;
                 println!("Should update!");
-                checked_arithmetic!(update.engaged_quantity += remaining_quantity)
+                safe!(update.engaged_quantity += remaining_quantity)
                     .ok_or_eyre("Math Problem")?;
 
                 // No quantity remaining on this update
@@ -411,7 +411,7 @@ impl IndexOrder {
                 }
             } else {
                 // We can engage with whole quantity
-                checked_arithmetic!(update.engaged_quantity += quantity)
+                safe!(update.engaged_quantity += quantity)
                     .ok_or_eyre("Math Problem")?;
                 update.remaining_quantity = future_remaining_quantity;
                 return Ok(None);
