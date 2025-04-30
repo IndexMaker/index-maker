@@ -250,7 +250,7 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{BatchOrderId, OrderId, Side, SingleOrder},
+            bits::{Side, SingleOrder},
             functional::IntoObservableSingle,
             test_util::{
                 flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,

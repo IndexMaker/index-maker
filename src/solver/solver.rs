@@ -1174,7 +1174,7 @@ mod test {
             MockChainConnector, MockChainInternalNotification,
         },
         core::{
-            bits::{PaymentId, PricePointEntry, SingleOrder},
+            bits::{PricePointEntry, SingleOrder},
             functional::{
                 IntoNotificationHandlerOnceBox, IntoObservableMany, IntoObservableSingle,
                 NotificationHandlerOnce,

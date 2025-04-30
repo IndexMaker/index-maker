@@ -424,7 +424,7 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{Amount, ClientOrderId, PaymentId, Side},
+            bits::{Amount, Side},
             test_util::{get_mock_address_1, get_mock_asset_name_1},
         },
         solver::index_order::UpdateIndexOrderOutcome,
