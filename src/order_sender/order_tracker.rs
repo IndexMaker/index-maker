@@ -2,13 +2,17 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
+use index_maker_proc_macro::checked_arithmetic;
 use std::collections::{hash_map::Entry, HashMap};
 
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
-use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol};
 use crate::core::functional::{IntoObservableSingle, PublishSingle};
+use crate::core::{
+    bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
+    decimal_ext::DecimalExt,
+};
 use crate::solver::position::LotId;
 use crate::{
     core::functional::SingleObserver,
@@ -102,7 +106,9 @@ impl OrderTracker {
                 match order_entry.get_status() {
                     // It makes sense that only live orders can be filled or cancelled
                     OrderStatus::Live { quantity_remaining } => {
-                        if let Some(quantity_remaining) = quantity_remaining.checked_sub(quantity) {
+                        if let Some(quantity_remaining) =
+                            checked_arithmetic!(quantity_remaining - quantity)
+                        {
                             // Should the remaining quantity on the order be zero, we deem it cancelled
                             if quantity_remaining < self.tolerance {
                                 order_entry

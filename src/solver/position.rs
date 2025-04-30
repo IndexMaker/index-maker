@@ -195,7 +195,8 @@ impl Position {
         while let Some(lot) = self.open_lots.front().cloned() {
             let lot_quantity_remaining = lot.read().remaining_quantity;
 
-            let remaining_quantity = checked_arithmetic!(lot_quantity_remaining - quantity_filled).ok_or_eyre("Math Problem")?;
+            let remaining_quantity = checked_arithmetic!(lot_quantity_remaining - quantity_filled)
+                .ok_or_eyre("Math Problem")?;
 
             let (matched_lot_quantity, lot_quantity_remaining, finished) =
                 if remaining_quantity < tolerance {

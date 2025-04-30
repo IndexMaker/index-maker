@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
+use crate::core::decimal_ext::DecimalExt;
 use chrono::{DateTime, Utc};
+use index_maker_proc_macro::checked_arithmetic;
 
 pub type Symbol = string_cache::DefaultAtom; // asset or market name
 pub type Amount = rust_decimal::Decimal; // price, quantity, value, or rate
@@ -30,16 +32,18 @@ pub struct LastPriceEntry {
 
 impl LastPriceEntry {
     pub fn mid_point(&self) -> Option<Amount> {
-        self.best_bid_price?
-            .checked_add(self.best_ask_price?)?
-            .checked_div(Amount::TWO)
+        checked_arithmetic!(
+            checked_arithmetic!(self.best_bid_price + self.best_ask_price?) / Amount::TWO
+        )
     }
 
     pub fn volume_weighted(&self) -> Option<Amount> {
-        self.best_bid_price?
-            .checked_mul(self.best_bid_quantity)?
-            .checked_add(self.best_ask_price?.checked_mul(self.best_ask_quantity)?)?
-            .checked_div(self.best_bid_quantity.checked_add(self.best_ask_quantity)?)
+        checked_arithmetic!(
+            checked_arithmetic!(
+                checked_arithmetic!(self.best_bid_price * self.best_bid_quantity)?
+                    + checked_arithmetic!(self.best_ask_price * self.best_ask_quantity)?
+            )? / checked_arithmetic!(self.best_bid_quantity + self.best_ask_quantity)?
+        )
     }
 
     pub fn get_price(&self, price_type: PriceType) -> Option<Amount> {

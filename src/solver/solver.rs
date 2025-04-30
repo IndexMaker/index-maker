@@ -463,7 +463,7 @@ impl Solver {
             asset_total_order_quantity,
             asset_total_weighted_liquidity: asset_total_weighted_liquidity
                 .into_iter()
-                .filter_map(|(k, (w, s))| w.checked_div(s).map(|x| (k, x)))
+                .filter_map(|(k, (w, s))| checked_arithmetic!(w / s).map(|x| (k, x)))
                 .collect(),
         }
     }

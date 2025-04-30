@@ -211,8 +211,8 @@ impl IndexOrder {
                 if self.engaged_side.is_some() {
                     // Solver is engaged in processing of this order
                     self.remaining_quantity = Amount::ZERO;
-                    let quantity_removed =
-                        checked_arithmetic!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
+                    let quantity_removed = checked_arithmetic!(quantity - unmatched_quantity)
+                        .ok_or_eyre("Math Problem")?;
                     // (quantity removed, quantity added)
                     Ok(UpdateIndexOrderOutcome::Reduce {
                         removed_quantity: quantity_removed,
@@ -233,8 +233,8 @@ impl IndexOrder {
                 }
             } else {
                 // We consumed some number of updates, so we cancelled that quantity
-                self.remaining_quantity =
-                    checked_arithmetic!(self.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
+                self.remaining_quantity = checked_arithmetic!(self.remaining_quantity - quantity)
+                    .ok_or_eyre("Math Problem")?;
                 // (quantity removed, quantity added)
                 Ok(UpdateIndexOrderOutcome::Reduce {
                     removed_quantity: quantity,
@@ -243,8 +243,8 @@ impl IndexOrder {
             }
         } else {
             // We added some extra quantity on current side
-            self.remaining_quantity =
-                checked_arithmetic!(self.remaining_quantity + quantity).ok_or_eyre("Math Problem")?;
+            self.remaining_quantity = checked_arithmetic!(self.remaining_quantity + quantity)
+                .ok_or_eyre("Math Problem")?;
             self.order_updates.push_back(index_order_update);
             // (quantity removed, quantity added)
             Ok(UpdateIndexOrderOutcome::Push {
@@ -278,8 +278,8 @@ impl IndexOrder {
                 })
             }
         } else {
-            self.remaining_quantity =
-                checked_arithmetic!(self.remaining_quantity + quantity).ok_or_eyre("Math Problem")?;
+            self.remaining_quantity = checked_arithmetic!(self.remaining_quantity + quantity)
+                .ok_or_eyre("Math Problem")?;
             Ok(CancelIndexOrderOutcome::Reduce {
                 removed_quantity: quantity,
                 remaining_quantity: self.remaining_quantity,
@@ -292,7 +292,8 @@ impl IndexOrder {
         if let Some(unmatched_quantity) = self.match_engage(quantity, tolerance)? {
             let engaged_quantity =
                 checked_arithmetic!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
-            checked_arithmetic!(self.engaged_quantity += engaged_quantity).ok_or_eyre("Math Problem")?;
+            checked_arithmetic!(self.engaged_quantity += engaged_quantity)
+                .ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
             Ok(Some(unmatched_quantity))
         } else {
@@ -325,7 +326,8 @@ impl IndexOrder {
 
             // quantity remaining on the update
             let future_remaining_quantity =
-                checked_arithmetic!(update.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
+                checked_arithmetic!(update.remaining_quantity - quantity)
+                    .ok_or_eyre("Math Problem")?;
 
             if future_remaining_quantity < tolerance {
                 // Check if Solver engaged with this update
@@ -383,7 +385,8 @@ impl IndexOrder {
             let mut update = update.write();
 
             let future_remaining_quantity =
-                checked_arithmetic!(update.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
+                checked_arithmetic!(update.remaining_quantity - quantity)
+                    .ok_or_eyre("Math Problem")?;
 
             if future_remaining_quantity < tolerance {
                 // We can engage with whole remaining quantity on this update
@@ -408,7 +411,8 @@ impl IndexOrder {
                 }
             } else {
                 // We can engage with whole quantity
-                checked_arithmetic!(update.engaged_quantity += quantity).ok_or_eyre("Math Problem")?;
+                checked_arithmetic!(update.engaged_quantity += quantity)
+                    .ok_or_eyre("Math Problem")?;
                 update.remaining_quantity = future_remaining_quantity;
                 return Ok(None);
             };
