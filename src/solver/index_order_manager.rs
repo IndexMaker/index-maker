@@ -1,13 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
-use alloy::primitives::map::foldhash::quality;
 use chrono::{DateTime, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Result};
+use safe_math::safe;
 use parking_lot::RwLock;
 
 use crate::{
     core::{
         bits::{BatchOrderId, PaymentId},
+        decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{Server, ServerEvent},
@@ -364,7 +365,7 @@ impl IndexOrderManager {
                 let unmatched_quantity = index_order.solver_engage(quantity, self.tolerance)?;
 
                 let quantity_engaged = if let Some(unmatched_quantity) = unmatched_quantity {
-                    quantity.checked_sub(unmatched_quantity)
+                    safe!(quantity - unmatched_quantity)
                 } else {
                     Some(quantity)
                 };

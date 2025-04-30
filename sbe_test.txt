@@ -1,0 +1,72 @@
+
+running 1 test
+Solver: Handle Price Event AX
+Solver: Handle Price Event AZ
+Solver: Handle Book Event AX
+Solver: Handle Price Event AX
+Solver: Handle Price Event AZ
+Solver: Handle Book Event AZ
+Solver: Handle Chain Event CuratorWeigthsSet IX
+Solver: Handle Basket Notification BasketAdded IX
+Solver: Handle Index Order NewIndexOrder IX ClientOrderId(Order01) < ClientOrderId(Order01) from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+Solver Tick: We sent NewOrderSingle FIX message
+Solve...
+Engage More Orders...
+
+More Orders...
+ * individual_asset_prices > (AX p=96.66666)
+ * individual_asset_prices > (AZ p=296.92307)
+
+Find Order Liquidity...
+   q   quantity
+   p   price
+   t   threshold
+   l   liquidity
+
+ * index order: IX ClientOrderId(Order01) < ClientOrderId(Order01) Buy p=1005.00000 q=2.50000 t=0.05000
+
+- Find target asset prices and quantites...
+
+ * asset_quantity AX    20.68965 = 8.27586 * 2.50000
+ * target_asset_price AX    97.15000 = 96.66666 * 1005.00000 / 1000.00000
+ * asset_quantity AZ    1.68393 = 0.67357 * 2.50000
+ * target_asset_price AZ    298.40769 = 296.92307 * 1005.00000 / 1000.00000
+
+- Find liquidity for prices with threshold...
+
+ * liquidity >> AZ t=0.05000 l=200.00000
+ * asset_total_weighted_liquidity << AZ l=336.78756 q=1.68393
+
+ * liquidity >> AX t=0.05000 l=20.00000
+ * asset_total_weighted_liquidity << AX l=413.79310 q=20.68965
+
+
+Find Order Contribution...
+   q   asset_order_quantity
+   tq  asset_total_quantity
+   tl  asset_liquidity
+   acf asset_contribution_fraction
+   alc asset_liquidity_contribution
+   of  order_fraction
+   oq  order_quantity
+
+ * find_order_contribution: ClientOrderId(Order01) AX q=20.68965 tq=20.68965 tl=20.00000 acf=1.00000 alc=20.00000 of=0.96666 oq=2.41666
+ * find_order_contribution: ClientOrderId(Order01) AZ q=1.68393 tq=1.68393 tl=200.00000 acf=1.00000 alc=200.00000 of=0.96666 oq=2.41666
+
+Engage Orders...
+Compute...
+Send Order Batches...
+Solver: Handle Index Order EngageIndexOrder BatchOrderId(Batch001)
+Solver Tick: IndexOrderManager responded to EngageOrders
+Solve...
+Engage More Orders...
+Compute...
+Send Order Batches...
+batch: Buy A
+Solver: Handle Inventory Event OpenLot Buy AX 20.00000 @ 97.15000 + 19.43000
+Solver: Handle Inventory Event OpenLot Buy AZ 1.62780 @ 298.40769 + 4.85749
+Scenario completed.
+test solver::solver::test::sbe_solver ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
