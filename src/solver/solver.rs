@@ -1181,8 +1181,7 @@ mod test {
             },
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
-                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_decimal,
-                get_mock_defer_channel, get_mock_index_name_1,
+                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_decimal, get_mock_index_name_1,
             },
         },
         index::{
@@ -1196,7 +1195,7 @@ mod test {
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
-            order_connector::{self, test_util::MockOrderConnector, OrderConnectorNotification},
+            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
