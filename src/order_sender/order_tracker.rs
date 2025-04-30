@@ -106,9 +106,7 @@ impl OrderTracker {
                 match order_entry.get_status() {
                     // It makes sense that only live orders can be filled or cancelled
                     OrderStatus::Live { quantity_remaining } => {
-                        if let Some(quantity_remaining) =
-                            safe!(quantity_remaining - quantity)
-                        {
+                        if let Some(quantity_remaining) = safe!(quantity_remaining - quantity) {
                             // Should the remaining quantity on the order be zero, we deem it cancelled
                             if quantity_remaining < self.tolerance {
                                 order_entry
@@ -255,7 +253,8 @@ mod test {
             bits::{BatchOrderId, OrderId, Side, SingleOrder},
             functional::IntoObservableSingle,
             test_util::{
-                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+                flag_mock_atomic_bool, get_mock_asset_name_1, get_mock_atomic_bool_pair,
+                get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
         order_sender::order_connector::{
@@ -283,9 +282,7 @@ mod test {
 
         let order_price = dec!(100.0);
         let order_quantity = dec!(50.0);
-        let fill_quantity = order_quantity
-            .checked_mul(dec!(0.75))
-            .unwrap();
+        let fill_quantity = order_quantity.checked_mul(dec!(0.75)).unwrap();
         let cancel_quantity = order_quantity.checked_sub(fill_quantity).unwrap();
 
         let order_1 = Arc::new(SingleOrder {

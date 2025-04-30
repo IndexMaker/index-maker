@@ -2,8 +2,8 @@ use std::{collections::VecDeque, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use safe_math::safe;
 use parking_lot::RwLock;
+use safe_math::safe;
 
 use crate::core::{
     bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
@@ -36,7 +36,6 @@ impl From<&str> for LotId {
         Self(value.into())
     }
 }
-
 
 pub struct LotTransaction {
     /// ID of the closing order that was executed
@@ -202,8 +201,8 @@ impl Position {
         while let Some(lot) = self.open_lots.front().cloned() {
             let lot_quantity_remaining = lot.read().remaining_quantity;
 
-            let remaining_quantity = safe!(lot_quantity_remaining - quantity_filled)
-                .ok_or_eyre("Math Problem")?;
+            let remaining_quantity =
+                safe!(lot_quantity_remaining - quantity_filled).ok_or_eyre("Math Problem")?;
 
             let (matched_lot_quantity, lot_quantity_remaining, finished) =
                 if remaining_quantity < tolerance {

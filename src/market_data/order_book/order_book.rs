@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use crossbeam::atomic::AtomicCell;
-use safe_math::safe;
 use intrusive_collections::{
     intrusive_adapter,
     rbtree::{Cursor, CursorMut},
     Bound, KeyAdapter, RBTree, RBTreeAtomicLink,
 };
 use rust_decimal::Decimal;
+use safe_math::safe;
 
 use crate::core::{
     bits::{Amount, PricePointEntry, Side},
@@ -46,12 +46,8 @@ struct PricePointEntriesOps {
 impl PricePointEntriesOps {
     fn try_new(side: Side, tolerance: Amount, price: Amount, threshold: Amount) -> Option<Self> {
         let bound = match side {
-            Side::Buy => safe!(
-                safe!(price - safe!(price * threshold)?) - tolerance
-            )?,
-            Side::Sell => safe!(
-                safe!(price + safe!(price * threshold)?) + tolerance
-            )?,
+            Side::Buy => safe!(safe!(price - safe!(price * threshold)?) - tolerance)?,
+            Side::Sell => safe!(safe!(price + safe!(price * threshold)?) + tolerance)?,
         };
         Some(Self { side, bound })
     }
@@ -95,11 +91,9 @@ impl PricePointEntries {
         &mut self,
         price: &Amount,
     ) -> Result<(bool, CursorMut<'_, PricePointBookEntryAdapter>)> {
-        let price_lower =
-            safe!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
+        let price_lower = safe!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
 
-        let price_upper =
-            safe!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
+        let price_upper = safe!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
 
         let cursor = self.entries.lower_bound_mut(Bound::Included(&price_lower));
 
@@ -159,8 +153,7 @@ impl PricePointEntries {
             if ops.is_finished(entry.price) {
                 break;
             }
-            liquidity = safe!(liquidity + entry.quantity.load())
-                .ok_or(eyre!("Math overflow"))?;
+            liquidity = safe!(liquidity + entry.quantity.load()).ok_or(eyre!("Math overflow"))?;
             ops.move_next(&mut cursor);
         }
 
@@ -221,11 +214,7 @@ pub mod test {
         let mut book = PricePointBook::new(tolerance);
 
         // Test that empty book has zero liquidity
-        let liquidity = book.get_liquidity(
-            Side::Sell,
-            &dec!(100.00),
-            dec!(0.10),
-        );
+        let liquidity = book.get_liquidity(Side::Sell, &dec!(100.00), dec!(0.10));
 
         assert!(matches!(liquidity, Ok(_)));
         assert_decimal_approx_eq!(liquidity.unwrap(), Amount::ZERO, tolerance);
@@ -251,19 +240,11 @@ pub mod test {
 
         assert!(matches!(update_result, Ok(_)));
 
-        let liquidity_result = book.get_liquidity(
-            Side::Sell,
-            &dec!(100.0),
-            dec!(0.10),
-        );
+        let liquidity_result = book.get_liquidity(Side::Sell, &dec!(100.0), dec!(0.10));
 
         assert!(matches!(liquidity_result, Ok(_)));
 
-        assert_decimal_approx_eq!(
-            liquidity_result.unwrap(),
-            dec!(30.0),
-            tolerance
-        );
+        assert_decimal_approx_eq!(liquidity_result.unwrap(), dec!(30.0), tolerance);
 
         // Test that book with Buy and Sell side, has liquidity on the Buy side
         let update_result = book.update_entries(
@@ -286,19 +267,11 @@ pub mod test {
 
         assert!(matches!(update_result, Ok(_)));
 
-        let liquidity_result = book.get_liquidity(
-            Side::Buy,
-            &dec!(100.0),
-            dec!(0.20),
-        );
+        let liquidity_result = book.get_liquidity(Side::Buy, &dec!(100.0), dec!(0.20));
 
         assert!(matches!(liquidity_result, Ok(_)));
 
-        assert_decimal_approx_eq!(
-            liquidity_result.unwrap(),
-            dec!(110.0),
-            tolerance
-        );
+        assert_decimal_approx_eq!(liquidity_result.unwrap(), dec!(110.0), tolerance);
 
         // Test that price point entry can be removed and updated
         let update_result = book.update_entries(
@@ -317,18 +290,10 @@ pub mod test {
 
         assert!(matches!(update_result, Ok(_)));
 
-        let liquidity_result = book.get_liquidity(
-            Side::Sell,
-            &dec!(100.0),
-            dec!(0.10),
-        );
+        let liquidity_result = book.get_liquidity(Side::Sell, &dec!(100.0), dec!(0.10));
 
         assert!(matches!(liquidity_result, Ok(_)));
 
-        assert_decimal_approx_eq!(
-            liquidity_result.unwrap(),
-            dec!(25.0),
-            tolerance
-        );
+        assert_decimal_approx_eq!(liquidity_result.unwrap(), dec!(25.0), tolerance);
     }
 }

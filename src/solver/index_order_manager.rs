@@ -2,8 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use safe_math::safe;
 use parking_lot::RwLock;
+use safe_math::safe;
 
 use crate::{
     core::{

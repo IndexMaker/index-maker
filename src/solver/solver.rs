@@ -1378,10 +1378,7 @@ mod test {
 
         let order_tracker_2 = order_tracker.clone();
 
-        let lot_ids = RwLock::new(VecDeque::<LotId>::from([
-            "Lot01".into(),
-            "Lot02".into(),
-        ]));
+        let lot_ids = RwLock::new(VecDeque::<LotId>::from(["Lot01".into(), "Lot02".into()]));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded();
         order_connector

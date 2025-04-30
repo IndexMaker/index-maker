@@ -1,7 +1,7 @@
 use eyre::{eyre, Report, Result};
-use safe_math::safe;
 use itertools::Itertools;
 use rust_decimal::Decimal;
+use safe_math::safe;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use crate::{
@@ -133,8 +133,7 @@ impl Basket {
                     .get(&weight.asset.name)
                     .unwrap_or(&Amount::ZERO);
                 let quantity =
-                    safe!(safe!(target_price / *price) * weight.weight)
-                        .unwrap_or_default();
+                    safe!(safe!(target_price / *price) * weight.weight).unwrap_or_default();
                 BasketAsset {
                     weight,
                     price: *price,

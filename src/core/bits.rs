@@ -32,9 +32,7 @@ pub struct LastPriceEntry {
 
 impl LastPriceEntry {
     pub fn mid_point(&self) -> Option<Amount> {
-        safe!(
-            safe!(self.best_bid_price + self.best_ask_price?) / Amount::TWO
-        )
+        safe!(safe!(self.best_bid_price + self.best_ask_price?) / Amount::TWO)
     }
 
     pub fn volume_weighted(&self) -> Option<Amount> {
