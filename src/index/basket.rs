@@ -1,6 +1,6 @@
 use eyre::{eyre, Report, Result};
 use itertools::Itertools;
-use overflow::checked;
+use macromath::checked;
 use rust_decimal::Decimal;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
@@ -36,7 +36,7 @@ pub struct BasketDefinition {
 }
 
 impl BasketDefinition {
-    /// This method normalizes provided weights, and errors if numeric overflow happened
+    /// This method normalizes provided weights, and errors if numeric macromath happened
     pub fn try_new<I>(weights: I) -> Result<Self>
     where
         I: IntoIterator<Item = AssetWeight>,
@@ -45,7 +45,7 @@ impl BasketDefinition {
         let total_weight = weights
             .iter()
             .try_fold(Amount::ZERO, |a, x| checked!(a + x.weight))
-            .ok_or(eyre!("Numeric overflow"))?;
+            .ok_or(eyre!("Numeric macromath"))?;
         let weights = weights
             .into_iter()
             .map(|w| {
@@ -61,7 +61,7 @@ impl BasketDefinition {
                 weights: weights.into_iter().map(Option::unwrap).collect_vec(),
             })
         } else {
-            Err(eyre!("Numeric overflow while division"))
+            Err(eyre!("Numeric macromath while division"))
         }
     }
 }
@@ -154,15 +154,15 @@ impl Basket {
             )));
         }
 
-        // Complain about numeric overflow during quantity calculation
-        let overflown_assets: Vec<&BasketAsset> = basket_assets
+        // Complain about numeric macromath during quantity calculation
+        let macromathn_assets: Vec<&BasketAsset> = basket_assets
             .iter()
             .filter(|asset| asset.quantity.is_zero())
             .collect();
-        if !overflown_assets.is_empty() {
+        if !macromathn_assets.is_empty() {
             return Err(eyre!(format!(
-                "Numeric overflow while computing quantity for assets: {}",
-                overflown_assets
+                "Numeric macromath while computing quantity for assets: {}",
+                macromathn_assets
                     .into_iter()
                     .map(|a| a.weight.asset.name.as_ref())
                     .join(", ")
@@ -202,7 +202,7 @@ impl Basket {
             .map(|x| x.1.unwrap())
             .try_fold(Decimal::ZERO, |a, x| checked!(x + a))
             .ok_or(eyre!(
-                "Numeric overflow while computing current price of the basket"
+                "Numeric macromath while computing current price of the basket"
             ))
     }
 }

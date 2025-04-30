@@ -6,7 +6,7 @@ use intrusive_collections::{
     rbtree::{Cursor, CursorMut},
     Bound, KeyAdapter, RBTree, RBTreeAtomicLink,
 };
-use overflow::checked;
+use macromath::checked;
 use rust_decimal::Decimal;
 
 use crate::core::bits::{Amount, PricePointEntry, Side};
@@ -88,9 +88,9 @@ impl PricePointEntries {
         &mut self,
         price: &Amount,
     ) -> Result<(bool, CursorMut<'_, PricePointBookEntryAdapter>)> {
-        let price_lower = checked!(*price - self.tolerance).ok_or(eyre!("Math overflow"))?;
+        let price_lower = checked!(*price - self.tolerance).ok_or(eyre!("Math macromath"))?;
 
-        let price_upper = checked!(*price + self.tolerance).ok_or(eyre!("Math overflow"))?;
+        let price_upper = checked!(*price + self.tolerance).ok_or(eyre!("Math macromath"))?;
 
         let cursor = self.entries.lower_bound_mut(Bound::Included(&price_lower));
 
@@ -141,7 +141,7 @@ impl PricePointEntries {
     pub fn get_liquidity(&self, price: &Amount, threshold: Amount) -> Result<Amount> {
         let ops =
             PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone(), threshold)
-                .ok_or(eyre!("Math overflow"))?;
+                .ok_or(eyre!("Math macromath"))?;
 
         let mut cursor = ops.begin_ops(&self.entries);
         let mut liquidity = Amount::ZERO;
@@ -151,7 +151,7 @@ impl PricePointEntries {
                 break;
             }
             liquidity =
-                checked!(liquidity + entry.quantity.load()).ok_or(eyre!("Math overflow"))?;
+                checked!(liquidity + entry.quantity.load()).ok_or(eyre!("Math macromath"))?;
             ops.move_next(&mut cursor);
         }
 

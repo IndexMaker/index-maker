@@ -2,7 +2,7 @@ use std::{collections::VecDeque, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use overflow::checked;
+use macromath::checked;
 use parking_lot::RwLock;
 
 use crate::core::bits::{Amount, BatchOrderId, OrderId, Side, Symbol};
@@ -168,7 +168,7 @@ impl Position {
             Side::Buy => checked!(self.balance + quantity_filled),
             Side::Sell => checked!(self.balance + quantity_filled),
         }
-        .ok_or(eyre!("Math overflow"))?;
+        .ok_or(eyre!("Math macromath"))?;
         Ok(())
     }
 
@@ -256,7 +256,7 @@ impl Position {
                     Side::Buy => checked!(self.balance - matched_lot_quantity),
                     Side::Sell => checked!(self.balance - matched_lot_quantity),
                 }
-                .ok_or(eyre!("Math overflow"))?;
+                .ok_or(eyre!("Math macromath"))?;
             }
 
             if finished {

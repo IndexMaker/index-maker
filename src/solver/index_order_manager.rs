@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use overflow::checked;
+use macromath::checked;
 use parking_lot::RwLock;
 
 use crate::{
@@ -117,7 +117,7 @@ pub enum IndexOrderEvent {
 /// will only receive resulting order quantity, e.g. A Sell order would be
 /// self-matched to remove some of the quantity, and if order was not engaged
 /// yet by Solver, then Sell of more quantity than Buy would flip the side
-/// of the order to Sell with overflowing quantity. Solver will not engage
+/// of the order to Sell with macromathing quantity. Solver will not engage
 /// the order when it cannot obtain liquidity from the market, or also when
 /// no sufficient curator token has been received.
 pub struct IndexOrderManager {
@@ -381,7 +381,7 @@ impl IndexOrderManager {
                         },
                     );
                 } else {
-                    index_order.solver_cancel("Math overflow");
+                    index_order.solver_cancel("Math macromath");
                 }
             } else {
                 return Err(eyre!("No such index order {} {}", address, symbol));

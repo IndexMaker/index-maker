@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
 use itertools::{partition, Itertools};
-use overflow::checked;
+use macromath::checked;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 
 use crate::{
@@ -36,7 +36,7 @@ enum IndexOrderStatus {
     Engaged,
     Closed,
     InvalidSymbol,
-    MathOverflow,
+    Mathmacromath,
 }
 
 /// Solver's view of the Index Order
@@ -276,7 +276,7 @@ impl Solver {
             locked_orders.retain_mut(|(_, order)| {
                 if missing_index_prices.contains(&order.symbol) {
                     order.with_upgraded(|order| {
-                        self.set_order_status(order, IndexOrderStatus::MathOverflow);
+                        self.set_order_status(order, IndexOrderStatus::Mathmacromath);
                     });
                     false
                 } else {
@@ -379,7 +379,7 @@ impl Solver {
                     })
                     .collect_vec();
 
-                // There was some error - math overflow probably, we'll drop that order
+                // There was some error - math macromath probably, we'll drop that order
                 if target_asset_prices_and_quantites.len() < basket.basket_assets.len() {
                     return None;
                 }
@@ -447,7 +447,7 @@ impl Solver {
             });
             if let None = result {
                 index_order.with_upgraded(|order| {
-                    self.set_order_status(order, IndexOrderStatus::MathOverflow)
+                    self.set_order_status(order, IndexOrderStatus::Mathmacromath)
                 });
                 false
             } else {
@@ -581,7 +581,7 @@ impl Solver {
                 }
             });
             if let None = result {
-                index_order.with_upgraded(|order| self.set_order_status(order, IndexOrderStatus::MathOverflow));
+                index_order.with_upgraded(|order| self.set_order_status(order, IndexOrderStatus::Mathmacromath));
                 false
             } else {
                 true
@@ -629,7 +629,7 @@ impl Solver {
                     }
                     _ => {
                         index_order.with_upgraded(|order| {
-                            self.set_order_status(order, IndexOrderStatus::MathOverflow)
+                            self.set_order_status(order, IndexOrderStatus::Mathmacromath)
                         });
                         false
                     }
@@ -1011,7 +1011,7 @@ impl Solver {
                                     None => {
                                         self.set_order_status(
                                             &mut index_order_stored,
-                                            IndexOrderStatus::MathOverflow,
+                                            IndexOrderStatus::Mathmacromath,
                                         );
                                     }
                                 }

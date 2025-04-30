@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 use alloy::{primitives::map::foldhash::quality, serde::quantity};
 use chrono::{DateTime, Utc};
 use eyre::{Ok, OptionExt, Result};
-use overflow::checked;
+use macromath::checked;
 use parking_lot::RwLock;
 
 use crate::core::bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol};

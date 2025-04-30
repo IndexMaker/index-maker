@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
-use overflow::checked;
+use macromath::checked;
 use std::collections::{hash_map::Entry, HashMap};
 
 use crossbeam::atomic::AtomicCell;
@@ -115,7 +115,7 @@ impl OrderTracker {
                             // We return quantity remaining to avoid unnecessary matching of status by the caller
                             Ok((order_entry.clone(), quantity_remaining))
                         } else {
-                            Err(eyre!("Math overflow"))
+                            Err(eyre!("Math macromath"))
                         }
                     }
                     _ => Err(eyre!(

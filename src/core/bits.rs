@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
-use overflow::checked;
+use macromath::checked;
 
 pub type Symbol = string_cache::DefaultAtom; // asset or market name
 pub type Amount = rust_decimal::Decimal; // price, quantity, value, or rate
@@ -36,9 +36,9 @@ impl LastPriceEntry {
 
     pub fn volume_weighted(&self) -> Option<Amount> {
         checked!(
-            ((self.best_bid_price? * self.best_bid_quantity)
-                + (self.best_ask_price? * self.best_ask_quantity))
-                / (self.best_bid_quantity + self.best_ask_quantity)
+            checked!(checked!(self.best_bid_price? * self.best_bid_quantity)?
+                + checked!(self.best_ask_price? * self.best_ask_quantity)?)?
+                / checked!(self.best_bid_quantity + self.best_ask_quantity)?
         )
     }
 
