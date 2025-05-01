@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
@@ -13,7 +13,7 @@ use crate::{
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
 };
 
-use super::position::{LotId, Position};
+use super::position::{Lot, LotId, Position};
 
 pub struct GetPositionsResponse {
     pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
@@ -58,9 +58,9 @@ pub enum InventoryEvent {
 
 pub struct InventoryManager {
     observer: SingleObserver<InventoryEvent>,
-    pub order_tracker: Arc<RwLock<OrderTracker>>,
-    pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
-    pub tolerance: Amount,
+    order_tracker: Arc<RwLock<OrderTracker>>,
+    positions: HashMap<Symbol, Arc<RwLock<Position>>>,
+    tolerance: Amount,
 }
 
 impl InventoryManager {

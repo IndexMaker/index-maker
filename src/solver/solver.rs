@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
@@ -26,6 +26,7 @@ use crate::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{PriceEvent, PriceTracker},
     },
+    solver::position,
 };
 
 use super::{
@@ -82,6 +83,94 @@ struct IndexOrderSolver {
 
     // Solver status
     status: IndexOrderStatus,
+}
+
+struct BatchAssetTransaction {
+    /// Quantity filled
+    quantity: Amount,
+
+    /// Executed price
+    price: Amount,
+
+    /// Execution fee
+    fee: Amount,
+
+    /// Timestamp of execution
+    timestamp: DateTime<Utc>,
+}
+
+struct BatchAssetPosition {
+    // ID of the batch order
+    batch_order_id: BatchOrderId,
+
+    /// Symbol of an asset
+    symbol: Symbol,
+
+    /// Side of an order
+    side: Side,
+
+    /// Position in this batch of this asset on that side
+    /// Note: A batch can have both Buy and Sell orders,
+    /// and we need separate position for them, as these
+    /// will be matched for different users.
+    position: Amount,
+
+    /// Total quantity on all orders for this asset on that side
+    order_quantity: Amount,
+
+    /// Total price we paid for reaching the position
+    realized_value: Amount,
+
+    /// Total price we intended to pay on the order
+    volley_size: Amount,
+
+    /// Total fee we paid on the order
+    fee: Amount,
+
+    /// Time of the last transaction of this asset on this side
+    last_update_timestamp: DateTime<Utc>,
+
+    /// Transactions so far
+    transactions: Vec<BatchAssetTransaction>,
+}
+
+struct BatchOrderStatus {
+    /// Positions of individual assets in this batch
+    /// Note: These aren't our absolute positions, these are only positions
+    /// of assets acquired/disposed in this batch
+    positions: HashMap<(Symbol, Side), BatchAssetPosition>,
+
+    /// Volley size (value of all orders in the batch)
+    ///
+    /// Note: We choose term "volley" and not "value" here:
+    ///
+    /// - Value: Carries the connotation of something you aim to preserve, hold
+    ///     onto, or realize in a lasting way.
+    ///
+    /// - Volley: Implies a temporary burst, a collection meant to be processed
+    ///     and then resolved or dispersed. It suggests an intent to move through a
+    ///     state and then be "gotten rid of" in its initial form (either by
+    ///     execution, cancellation, or the batch expiring)
+    ///
+    /// Then we will have total_volley_size across all batches, and for rate-limit
+    /// we will have max_volley_size.
+    ///
+    volley_size: Amount,
+
+    /// Filled volley (value of all fills across all orders in the batch)
+    filled_volley: Amount,
+
+    /// Fill-rate of this batch as a whole
+    filled_fraction: Amount,
+
+    /// Total price we paid for reaching the positions
+    realized_value: Amount,
+
+    /// Total fee we paid on the batch
+    fee: Amount,
+
+    /// Time of the last transaction
+    last_update_timestamp: DateTime<Utc>,
 }
 
 struct MoreOrders<'a> {
@@ -157,6 +246,7 @@ pub struct Solver {
     ready_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
     engagements: RwLock<HashMap<BatchOrderId, EngagedOrders>>,
     ready_batches: RwLock<VecDeque<BatchOrderId>>,
+    batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
     max_orders: usize,
     tolerance: Amount,
 }
@@ -184,6 +274,7 @@ impl Solver {
             ready_orders: RwLock::new(VecDeque::new()),
             engagements: RwLock::new(HashMap::new()),
             ready_batches: RwLock::new(VecDeque::new()),
+            batches: RwLock::new(HashMap::new()),
             max_orders,
             tolerance,
         }
@@ -757,10 +848,53 @@ impl Solver {
                     ))
                     .join("; ")
             );
-            if let Err(err) = self.inventory_manager.write().new_order(batch) {
-                // log somewhere this error
-                println!("Error: {:0.5}", err)
+            let mut batch_order_status = BatchOrderStatus {
+                positions: HashMap::new(),
+                volley_size: Amount::ZERO,
+                filled_volley: Amount::ZERO,
+                filled_fraction: Amount::ZERO,
+                realized_value: Amount::ZERO,
+                fee: Amount::ZERO,
+                last_update_timestamp: batch.created_timestamp,
+            };
+
+            for order in &batch.asset_orders {
+                let key = (order.symbol.clone(), order.side);
+                match batch_order_status.positions.entry(key) {
+                    Entry::Occupied(mut entry) => {
+                        let position = entry.get_mut();
+                        position.order_quantity = safe!(position.order_quantity + order.quantity)
+                            .ok_or_eyre("Math Problem")?;
+                    }
+                    Entry::Vacant(entry) => {
+                        let position = BatchAssetPosition {
+                            batch_order_id: batch.batch_order_id.clone(),
+                            symbol: order.symbol.clone(),
+                            side: order.side,
+                            order_quantity: order.quantity,
+                            volley_size: safe!(order.price * order.quantity)
+                                .ok_or_eyre("Math Problem")?,
+                            position: Amount::ZERO,
+                            realized_value: Amount::ZERO,
+                            fee: Amount::ZERO,
+                            last_update_timestamp: batch.created_timestamp,
+                            transactions: Vec::new(),
+                        };
+                        batch_order_status.volley_size =
+                            safe!(batch_order_status.volley_size + position.volley_size)
+                                .ok_or_eyre("Math Problem")?;
+                        entry.insert(position);
+                    }
+                }
             }
+
+            self.batches
+                .write()
+                .insert(batch.batch_order_id.clone(), batch_order_status)
+                .is_none().then_some(())
+                .ok_or_eyre("Duplicate batch ID")?;
+
+            self.inventory_manager.write().new_order(batch)?;
         }
         Ok(())
     }
@@ -1049,25 +1183,66 @@ impl Solver {
     }
 
     /// Receive fill notifications
-    pub fn handle_inventory_event(&self, notification: InventoryEvent) {
+    pub fn handle_inventory_event(&self, notification: InventoryEvent) -> Result<()> {
         match notification {
             InventoryEvent::OpenLot {
-                order_id: _,
-                batch_order_id: _,
-                lot_id: _,
+                order_id,
+                batch_order_id,
+                lot_id,
                 symbol,
                 side,
                 price,
                 quantity,
                 fee,
-                original_batch_quantity: _,
-                batch_quantity_remaining: _,
-                timestamp: _,
+                original_batch_quantity,
+                batch_quantity_remaining,
+                timestamp,
             } => {
                 println!(
                     "Solver: Handle Inventory Event OpenLot {:?} {:0.5} {:0.5} @ {:0.5} + {:0.5}",
                     side, symbol, quantity, price, fee
                 );
+                let mut write_batches = self.batches.write();
+                let batch = write_batches
+                    .get_mut(&batch_order_id)
+                    .ok_or_eyre("Missing Batch")?;
+
+                let key = (symbol.clone(), side);
+                let position = batch
+                    .positions
+                    .get_mut(&key)
+                    .ok_or_eyre("Missing Position")?;
+
+                (|| {
+                    position.position = safe!(position.position + quantity)?;
+                    
+                    let fraction = safe!(position.position / position.order_quantity)?;
+                    let filled_asset_volley = safe!(fraction * position.volley_size)?;
+                    batch.filled_volley = safe!(batch.filled_volley + filled_asset_volley)?;
+
+                    let filled_value = safe!(quantity * price)?;
+                    position.realized_value = safe!(position.realized_value + filled_value)?;
+                    batch.realized_value = safe!(batch.realized_value + filled_value)?;
+
+                    position.fee = safe!(position.fee + fee)?;
+                    batch.fee = safe!(batch.fee + fee)?;
+
+                    position.transactions.push(BatchAssetTransaction {
+                        quantity,
+                        price,
+                        fee,
+                        timestamp,
+                    });
+
+                    position.last_update_timestamp = timestamp;
+
+                    Some(())
+                })()
+                .ok_or_eyre("Math Problem")?;
+
+                batch.last_update_timestamp = timestamp;
+
+                Ok(())
             }
             InventoryEvent::CloseLot {
                 original_order_id: _,
@@ -1099,6 +1274,7 @@ impl Solver {
                     Amount::ONE_HUNDRED * (original_quantity - quantity_remaining)
                         / original_quantity
                 );
+                Ok(())
             }
         }
     }
@@ -1413,10 +1589,12 @@ mod test {
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
-                    recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap()),
                     recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
                     recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
                     recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap()),
+
+                    recv(inventory_receiver) -> res => {solver.handle_inventory_event(res.unwrap())
+                        .expect("Failed to handle inventory event")},
 
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
