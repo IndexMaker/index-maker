@@ -26,7 +26,6 @@ use crate::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{PriceEvent, PriceTracker},
     },
-    solver::position,
 };
 
 use super::{
@@ -97,41 +96,43 @@ struct BatchAssetTransaction {
 
     /// Timestamp of execution
     timestamp: DateTime<Utc>,
+    order_id: OrderId,
+    lot_id: super::position::LotId,
 }
 
 struct BatchAssetPosition {
     // ID of the batch order
-    batch_order_id: BatchOrderId,
+    pub batch_order_id: BatchOrderId,
 
     /// Symbol of an asset
-    symbol: Symbol,
+    pub symbol: Symbol,
 
     /// Side of an order
-    side: Side,
+    pub side: Side,
 
     /// Position in this batch of this asset on that side
     /// Note: A batch can have both Buy and Sell orders,
     /// and we need separate position for them, as these
     /// will be matched for different users.
-    position: Amount,
+    pub position: Amount,
 
     /// Total quantity on all orders for this asset on that side
-    order_quantity: Amount,
+    pub order_quantity: Amount,
 
     /// Total price we paid for reaching the position
-    realized_value: Amount,
+    pub realized_value: Amount,
 
     /// Total price we intended to pay on the order
-    volley_size: Amount,
+    pub volley_size: Amount,
 
     /// Total fee we paid on the order
-    fee: Amount,
+    pub fee: Amount,
 
     /// Time of the last transaction of this asset on this side
-    last_update_timestamp: DateTime<Utc>,
+    pub last_update_timestamp: DateTime<Utc>,
 
     /// Transactions so far
-    transactions: Vec<BatchAssetTransaction>,
+    pub transactions: Vec<BatchAssetTransaction>,
 }
 
 struct BatchOrderStatus {
@@ -345,7 +346,7 @@ impl Solver {
         individual_asset_prices
             .prices
             .iter()
-            .for_each(|(a, p)| println!(" * individual_asset_prices > ({:0.5} p={:0.5})", a, p));
+            .for_each(|(a, p)| println!(" * individual_asset_prices > ({:5} p={:0.5})", a, p));
 
         // Collect prices of all indexes in the batch
         let mut individual_index_prices = HashMap::new();
@@ -412,7 +413,7 @@ impl Solver {
                 let basket = more_orders.baskets.get(&index_order.symbol)?;
 
                 println!(
-                    " * index order: {:0.5} {} < {} {:?} p={:0.5} q={:0.5} t={:0.5}",
+                    " * index order: {:5} {} < {} {:?} p={:0.5} q={:0.5} t={:0.5}",
                     index_order.symbol,
                     index_order.original_client_order_id,
                     update.client_order_id,
@@ -500,7 +501,7 @@ impl Solver {
 
                 for (asset_symbol, asset_liquidity) in liquidity {
                     println!(
-                        " * liquidity >> {:0.5} t={:0.5} l={:0.5}",
+                        " * liquidity >> {:5} t={:0.5} l={:0.5}",
                         asset_symbol, threshold, asset_liquidity
                     );
                     //
@@ -520,7 +521,7 @@ impl Solver {
                     let asset_liquidity = safe!(*asset_quantity * asset_liquidity)?;
 
                     println!(
-                        " * asset_total_weighted_liquidity << {:0.5} l={:0.5} q={:0.5}\n",
+                        " * asset_total_weighted_liquidity << {:5} l={:0.5} q={:0.5}\n",
                         asset_symbol, asset_liquidity, *asset_quantity
                     );
 
@@ -639,7 +640,7 @@ impl Solver {
                             safe!(contribution.order_fraction * order_quantity)?;
 
 
-                        println!(" * find_order_contribution: {} {:0.5} q={:0.5} tq={:0.5} tl={:0.5} acf={:0.5} alc={:0.5} of={:0.5} oq={:0.5}",
+                        println!(" * find_order_contribution: {} {:5} q={:0.5} tq={:0.5} tl={:0.5} acf={:0.5} alc={:0.5} of={:0.5} oq={:0.5}",
                             update.client_order_id,
                             asset_symbol, asset_order_quantity, asset_total_quantity, asset_liquidity,
                             asset_contribution_fraction,
@@ -838,12 +839,12 @@ impl Solver {
 
         for batch in batches {
             println!(
-                "batch: {:0.5}",
+                "batch: {}",
                 batch
                     .asset_orders
                     .iter()
                     .map(|ba| format!(
-                        "{:?} {:0.5}: {:0.5} @ {:0.5}",
+                        "{:?} {}: {:0.5} @ {:0.5}",
                         ba.side, ba.symbol, ba.quantity, ba.price
                     ))
                     .join("; ")
@@ -891,7 +892,8 @@ impl Solver {
             self.batches
                 .write()
                 .insert(batch.batch_order_id.clone(), batch_order_status)
-                .is_none().then_some(())
+                .is_none()
+                .then_some(())
                 .ok_or_eyre("Duplicate batch ID")?;
 
             self.inventory_manager.write().new_order(batch)?;
@@ -1071,7 +1073,7 @@ impl Solver {
                 timestamp,
             } => {
                 println!(
-                    "Solver: Handle Index Order NewIndexOrder {} {} < {} from {}",
+                    "\nSolver: Handle Index Order NewIndexOrder {} {} < {} from {}",
                     symbol, original_client_order_id, client_order_id, address
                 );
                 match self
@@ -1112,7 +1114,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order UpdateIndexOrder{} < {} from {}",
+                    "\nSolver: Handle Index Order UpdateIndexOrder{} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
@@ -1123,7 +1125,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order EngageIndexOrder {}",
+                    "\nSolver: Handle Index Order EngageIndexOrder {}",
                     batch_order_id
                 );
                 match self.engagements.write().get_mut(&batch_order_id) {
@@ -1168,7 +1170,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order CancelIndexOrder {} < {} from {}",
+                    "\nSolver: Handle Index Order CancelIndexOrder {} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
@@ -1178,7 +1180,7 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, _notification: QuoteRequestEvent) {
-        println!("Solver: Handle Quote Request");
+        println!("\nSolver: Handle Quote Request");
         //self.quote(());
     }
 
@@ -1194,13 +1196,18 @@ impl Solver {
                 price,
                 quantity,
                 fee,
-                original_batch_quantity,
-                batch_quantity_remaining,
+                original_batch_quantity: _,
+                batch_quantity_remaining: _,
                 timestamp,
             } => {
                 println!(
-                    "Solver: Handle Inventory Event OpenLot {:?} {:0.5} {:0.5} @ {:0.5} + {:0.5}",
-                    side, symbol, quantity, price, fee
+                    "\nSolver: Handle Inventory Event OpenLot {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    side,
+                    symbol,
+                    quantity,
+                    price,
+                    fee,
+                    (|| safe!(safe!(fee * Amount::ONE_HUNDRED) / safe!(quantity * price)?))().ok_or_eyre("Math Problem")?
                 );
                 let mut write_batches = self.batches.write();
                 let batch = write_batches
@@ -1215,10 +1222,11 @@ impl Solver {
 
                 (|| {
                     position.position = safe!(position.position + quantity)?;
-                    
-                    let fraction = safe!(position.position / position.order_quantity)?;
-                    let filled_asset_volley = safe!(fraction * position.volley_size)?;
+
+                    let fraction_delta = safe!(quantity / position.order_quantity)?;
+                    let filled_asset_volley = safe!(fraction_delta * position.volley_size)?;
                     batch.filled_volley = safe!(batch.filled_volley + filled_asset_volley)?;
+                    batch.filled_fraction = safe!(batch.filled_volley / batch.volley_size)?;
 
                     let filled_value = safe!(quantity * price)?;
                     position.realized_value = safe!(position.realized_value + filled_value)?;
@@ -1228,6 +1236,8 @@ impl Solver {
                     batch.fee = safe!(batch.fee + fee)?;
 
                     position.transactions.push(BatchAssetTransaction {
+                        order_id,
+                        lot_id,
                         quantity,
                         price,
                         fee,
@@ -1236,6 +1246,24 @@ impl Solver {
 
                     position.last_update_timestamp = timestamp;
 
+                    println!(
+                        "Batch Position: {:?} {:5} price={:0.5} volley={:0.5} real={:0.5} + fee={:0.5}",
+                        position.side,
+                        position.symbol,
+                        position.order_quantity,
+                        position.volley_size,
+                        position.realized_value,
+                        position.fee
+                    );
+
+                    println!(
+                        "Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
+                        batch_order_id,
+                        batch.volley_size,
+                        batch.filled_volley,
+                        batch.filled_fraction,
+                        batch.realized_value,
+                        batch.fee);
                     Some(())
                 })()
                 .ok_or_eyre("Math Problem")?;
@@ -1265,7 +1293,7 @@ impl Solver {
                 closing_timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Inventory Event CloseLot {:?} {:0.5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "\nSolver: Handle Inventory Event CloseLot {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
                     side,
                     symbol,
                     quantity_closed,
@@ -1283,7 +1311,7 @@ impl Solver {
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
             PriceEvent::PriceChange { symbol } => {
-                println!("Solver: Handle Price Event {:0.5}", symbol)
+                println!("Solver: Handle Price Event {:5}", symbol)
             }
         };
     }
@@ -1292,13 +1320,10 @@ impl Solver {
     pub fn handle_book_event(&self, notification: OrderBookEvent) {
         match notification {
             OrderBookEvent::BookUpdate { symbol } => {
-                println!("Solver: Handle Book Event {:0.5}", symbol);
+                println!("Solver: Handle Book Event {:5}", symbol);
             }
             OrderBookEvent::UpdateError { symbol, error } => {
-                println!(
-                    "Solver: Handle Book Event {:0.5}, Error: {:0.5}",
-                    symbol, error
-                );
+                println!("Solver: Handle Book Event {:5}, Error: {}", symbol, error);
             }
         }
     }
@@ -1386,7 +1411,7 @@ mod test {
     {
         fn handle_notification(&self, notification: T) {
             self.send(notification)
-                .expect(format!("Failed to handle {:0.5}", type_name::<T>()).as_str());
+                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
         }
     }
 
@@ -1556,13 +1581,27 @@ mod test {
 
         let lot_ids = RwLock::new(VecDeque::<LotId>::from(["Lot01".into(), "Lot02".into()]));
         let order_connector_weak = Arc::downgrade(&order_connector);
-        let (defer_1, deferred) = unbounded();
+        let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
         order_connector
             .write()
             .implementor
             .set_observer_fn(move |e: Arc<SingleOrder>| {
                 let order_connector = order_connector_weak.upgrade().unwrap();
                 let lot_id = lot_ids.write().pop_front().unwrap();
+                let p1 = e.price
+                    * match e.side {
+                        Side::Buy => dec!(0.995),
+                        Side::Sell => dec!(1.005),
+                    };
+                let p2 = e.price
+                    * match e.side {
+                        Side::Buy => dec!(0.998),
+                        Side::Sell => dec!(1.002),
+                    };
+                let q1 = e.quantity * dec!(0.8);
+                let q2 = e.quantity * dec!(0.2);
+                let defer = defer_1.clone();
+                // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
                         order_connector.write().notify_fill(
@@ -1570,11 +1609,29 @@ mod test {
                             lot_id.clone(),
                             e.symbol.clone(),
                             e.side,
-                            e.price,
-                            e.quantity,
-                            dec!(0.01) * e.price * e.quantity,
+                            p1,
+                            q1,
+                            dec!(0.001) * e.price * e.quantity,
                             e.created_timestamp,
-                        )
+                        );
+                        // We defer second fill, so that fills of different orders
+                        // will be interleaved. We do that to test progressive fill-rate
+                        // of the Index Order in our simulation.
+                        defer
+                            .send(Box::new(move || {
+                                println!("1");
+                                order_connector.write().notify_fill(
+                                    e.order_id.clone(),
+                                    lot_id.clone(),
+                                    e.symbol.clone(),
+                                    e.side,
+                                    p2,
+                                    q2,
+                                    dec!(0.001) * e.price * e.quantity,
+                                    e.created_timestamp,
+                                );
+                            }))
+                            .unwrap();
                     }))
                     .unwrap();
             });

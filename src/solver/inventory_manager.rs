@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, VecDeque}, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
@@ -13,7 +13,7 @@ use crate::{
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
 };
 
-use super::position::{Lot, LotId, Position};
+use super::position::{LotId, Position};
 
 pub struct GetPositionsResponse {
     pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
