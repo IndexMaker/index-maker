@@ -1027,6 +1027,30 @@ impl Solver {
                 safe!(index_order_write.filled_quantity + filled_quantity_delta)
                     .ok_or_eyre("Math Problem")?;
 
+            index_order_write.engaged_quantity =
+                safe!(index_order_write.engaged_quantity - filled_quantity_delta)
+                    .ok_or_eyre("Math Problem")?;
+
+            let remaining_quantity =
+                safe!(index_order_write.remaining_quantity + index_order_write.engaged_quantity)
+                    .ok_or_eyre("Math Problem")?;
+
+            println!(
+                "IndexOrder (Solver): ifq={:0.5} irq={:0.5} ieq={:0.5} rq={:0.5}",
+                index_order_write.filled_quantity,
+                index_order_write.remaining_quantity,
+                index_order_write.engaged_quantity,
+                remaining_quantity
+            );
+
+            if remaining_quantity < self.tolerance {
+                self.chain_connector.write().mint_index(
+                    index_order_write.symbol.clone(),
+                    index_order_write.filled_quantity,
+                    index_order_write.address,
+                );
+            }
+
             self.index_order_manager.write().fill_order_request(
                 &index_order_write.address,
                 &index_order_write.original_client_order_id,
@@ -2074,6 +2098,20 @@ mod test {
         solver_tick("Solver sends next batch");
 
         flush_events();
+        
+        // wait for solver to solve...
+        let mint_index = mock_chain_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive MintIndex");
+
+        match mint_index {
+            MockChainInternalNotification::MintIndex { symbol, quantity, receipient } => {
+                println!("Minted Index: {:5} Quantity: {:0.5} User: {}", symbol, quantity, receipient);
+            },
+            _ => {
+                assert!(false, "Expected mint index!");
+            }
+        }
 
         // this will fail atm
         //mock_server_receiver
