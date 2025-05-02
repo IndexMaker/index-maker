@@ -1,10 +1,11 @@
 use std::{
+    clone,
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
@@ -77,11 +78,104 @@ struct IndexOrderSolver {
     /// In-flight quantity in the sent order batch
     inflight_quantity: Amount,
 
+    /// Quantity filled by subsequent batch order fills
+    filled_quantity: Amount,
+
     /// Time when requested
     timestamp: DateTime<Utc>,
 
     // Solver status
     status: IndexOrderStatus,
+}
+
+struct BatchAssetTransaction {
+    /// Quantity filled
+    quantity: Amount,
+
+    /// Executed price
+    price: Amount,
+
+    /// Execution fee
+    fee: Amount,
+
+    /// Timestamp of execution
+    timestamp: DateTime<Utc>,
+    order_id: OrderId,
+    lot_id: super::position::LotId,
+}
+
+struct BatchAssetPosition {
+    /// Symbol of an asset
+    pub symbol: Symbol,
+
+    /// Side of an order
+    pub side: Side,
+
+    /// Position in this batch of this asset on that side
+    /// Note: A batch can have both Buy and Sell orders,
+    /// and we need separate position for them, as these
+    /// will be matched for different users.
+    pub position: Amount,
+
+    /// Total quantity on all orders for this asset on that side
+    pub order_quantity: Amount,
+
+    /// Total price we paid for reaching the position
+    pub realized_value: Amount,
+
+    /// Total price we intended to pay on the order
+    pub volley_size: Amount,
+
+    /// Total fee we paid on the order
+    pub fee: Amount,
+
+    /// Time of the last transaction of this asset on this side
+    pub last_update_timestamp: DateTime<Utc>,
+
+    /// Transactions so far
+    pub transactions: Vec<BatchAssetTransaction>,
+}
+
+struct BatchOrderStatus {
+    // ID of the batch order
+    pub batch_order_id: BatchOrderId,
+
+    /// Positions of individual assets in this batch
+    /// Note: These aren't our absolute positions, these are only positions
+    /// of assets acquired/disposed in this batch
+    positions: HashMap<(Symbol, Side), BatchAssetPosition>,
+
+    /// Volley size (value of all orders in the batch)
+    ///
+    /// Note: We choose term "volley" and not "value" here:
+    ///
+    /// - Value: Carries the connotation of something you aim to preserve, hold
+    ///     onto, or realize in a lasting way.
+    ///
+    /// - Volley: Implies a temporary burst, a collection meant to be processed
+    ///     and then resolved or dispersed. It suggests an intent to move through a
+    ///     state and then be "gotten rid of" in its initial form (either by
+    ///     execution, cancellation, or the batch expiring)
+    ///
+    /// Then we will have total_volley_size across all batches, and for rate-limit
+    /// we will have max_volley_size.
+    ///
+    volley_size: Amount,
+
+    /// Filled volley (value of all fills across all orders in the batch)
+    filled_volley: Amount,
+
+    /// Fill-rate of this batch as a whole
+    filled_fraction: Amount,
+
+    /// Total price we paid for reaching the positions
+    realized_value: Amount,
+
+    /// Total fee we paid on the batch
+    fee: Amount,
+
+    /// Time of the last transaction
+    last_update_timestamp: DateTime<Utc>,
 }
 
 struct MoreOrders<'a> {
@@ -129,15 +223,21 @@ struct EngageOrder {
     engaged_quantity: Amount,
     engaged_price: Amount,
     engaged_threshold: Amount,
+    filled_quantity: Amount,
 }
 
 struct EngagedOrders {
     batch_order_id: BatchOrderId,
-    engaged_orders: Vec<EngageOrder>,
+    engaged_orders: Vec<RwLock<EngageOrder>>,
     symbols: Vec<Symbol>,
     baskets: HashMap<Symbol, Arc<Basket>>,
     index_prices: HashMap<Symbol, Amount>,
     asset_prices: HashMap<Symbol, Amount>,
+}
+
+pub trait OrderIdProvider {
+    fn next_order_id(&mut self) -> OrderId;
+    fn next_batch_order_id(&mut self) -> BatchOrderId;
 }
 
 /// magic solver, needs to take index orders, and based on prices (from price
@@ -153,10 +253,12 @@ pub struct Solver {
     price_tracker: Arc<RwLock<PriceTracker>>,
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
+    order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
     client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<IndexOrderSolver>>>>,
     ready_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
     engagements: RwLock<HashMap<BatchOrderId, EngagedOrders>>,
     ready_batches: RwLock<VecDeque<BatchOrderId>>,
+    batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
     max_orders: usize,
     tolerance: Amount,
 }
@@ -169,6 +271,7 @@ impl Solver {
         price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
+        order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
         max_orders: usize,
         tolerance: Amount,
     ) -> Self {
@@ -180,10 +283,12 @@ impl Solver {
             price_tracker,
             order_book_manager,
             inventory_manager,
+            order_id_provider,
             client_orders: RwLock::new(HashMap::new()),
             ready_orders: RwLock::new(VecDeque::new()),
             engagements: RwLock::new(HashMap::new()),
             ready_batches: RwLock::new(VecDeque::new()),
+            batches: RwLock::new(HashMap::new()),
             max_orders,
             tolerance,
         }
@@ -254,7 +359,7 @@ impl Solver {
         individual_asset_prices
             .prices
             .iter()
-            .for_each(|(a, p)| println!(" * individual_asset_prices > ({:0.5} p={:0.5})", a, p));
+            .for_each(|(a, p)| println!(" * individual_asset_prices > ({:5} p={:0.5})", a, p));
 
         // Collect prices of all indexes in the batch
         let mut individual_index_prices = HashMap::new();
@@ -321,7 +426,7 @@ impl Solver {
                 let basket = more_orders.baskets.get(&index_order.symbol)?;
 
                 println!(
-                    " * index order: {:0.5} {} < {} {:?} p={:0.5} q={:0.5} t={:0.5}",
+                    " * index order: {:5} {} < {} {:?} p={:0.5} q={:0.5} t={:0.5}",
                     index_order.symbol,
                     index_order.original_client_order_id,
                     update.client_order_id,
@@ -409,7 +514,7 @@ impl Solver {
 
                 for (asset_symbol, asset_liquidity) in liquidity {
                     println!(
-                        " * liquidity >> {:0.5} t={:0.5} l={:0.5}",
+                        " * liquidity >> {:5} t={:0.5} l={:0.5}",
                         asset_symbol, threshold, asset_liquidity
                     );
                     //
@@ -429,7 +534,7 @@ impl Solver {
                     let asset_liquidity = safe!(*asset_quantity * asset_liquidity)?;
 
                     println!(
-                        " * asset_total_weighted_liquidity << {:0.5} l={:0.5} q={:0.5}\n",
+                        " * asset_total_weighted_liquidity << {:5} l={:0.5} q={:0.5}\n",
                         asset_symbol, asset_liquidity, *asset_quantity
                     );
 
@@ -548,7 +653,7 @@ impl Solver {
                             safe!(contribution.order_fraction * order_quantity)?;
 
 
-                        println!(" * find_order_contribution: {} {:0.5} q={:0.5} tq={:0.5} tl={:0.5} acf={:0.5} alc={:0.5} of={:0.5} oq={:0.5}",
+                        println!(" * find_order_contribution: {} {:5} q={:0.5} tq={:0.5} tl={:0.5} acf={:0.5} alc={:0.5} of={:0.5} oq={:0.5}",
                             update.client_order_id,
                             asset_symbol, asset_order_quantity, asset_total_quantity, asset_liquidity,
                             asset_contribution_fraction,
@@ -597,7 +702,7 @@ impl Solver {
         &self,
         more_orders: &mut MoreOrders,
         mut contributions: HashMap<ClientOrderId, FindOrderContribution>,
-    ) -> Vec<EngageOrder> {
+    ) -> Vec<RwLock<EngageOrder>> {
         println!("\nEngage Orders...");
         let mut enagaged_orders = Vec::new();
         more_orders
@@ -616,7 +721,7 @@ impl Solver {
                 match (result, basket) {
                     (Some((client_order_id, contribution, price, threshold)), Some(basket)) => {
                         let engaged_quantity = contribution.order_quantity;
-                        enagaged_orders.push(EngageOrder {
+                        enagaged_orders.push(RwLock::new(EngageOrder {
                             index_order: index_order_arc.clone(),
                             contribution,
                             address: index_order.address,
@@ -627,7 +732,8 @@ impl Solver {
                             engaged_quantity,
                             engaged_price: price,
                             engaged_threshold: threshold,
-                        });
+                            filled_quantity: Amount::ZERO,
+                        }));
                         true
                     }
                     _ => {
@@ -668,7 +774,7 @@ impl Solver {
         let engaged_orders = self.engage_orders(&mut more_orders, contributions);
 
         // TODO: Generate it!
-        let batch_order_id = "Batch001".into();
+        let batch_order_id = self.order_id_provider.write().next_batch_order_id();
 
         Some(EngagedOrders {
             batch_order_id,
@@ -687,6 +793,7 @@ impl Solver {
                 .engaged_orders
                 .iter()
                 .map(|order| {
+                    let order = order.write();
                     (
                         order.address,
                         order.client_order_id.clone(),
@@ -714,53 +821,100 @@ impl Solver {
 
     fn send_batch(&self, engaged_orders: &EngagedOrders) -> Result<()> {
         // TODO: we should generate IDs
-        let mut batch_ids = VecDeque::<BatchOrderId>::from(["BatchOrder01".into()]);
-        let mut order_ids = VecDeque::<OrderId>::from(["Order01".into(), "Order02".into()]);
+        let batch_order_id = &engaged_orders.batch_order_id;
 
         // TODO: we should compact these batches (and do matrix solving)
         let batches = engaged_orders
             .engaged_orders
             .iter()
-            .map(|engage_order| {
+            .map_while(|engage_order| {
+                let engage_order = engage_order.read();
+                let mut index_order_write = engage_order.index_order.write();
+                index_order_write.inflight_quantity =
+                    safe!(index_order_write.inflight_quantity + engage_order.engaged_quantity)?;
                 let index_price = engaged_orders
                     .index_prices
                     .get(&engage_order.symbol)
                     .unwrap();
-                Arc::new(BatchOrder {
-                    batch_order_id: batch_ids.pop_front().unwrap().clone(),
+                Some(Arc::new(BatchOrder {
+                    batch_order_id: batch_order_id.clone(),
                     created_timestamp: Utc::now(),
                     asset_orders: engage_order
                         .basket
                         .basket_assets
                         .iter()
                         .map(|basket_asset| AssetOrder {
-                            order_id: order_ids.pop_front().unwrap().clone(),
+                            order_id: self.order_id_provider.write().next_order_id(),
                             price: basket_asset.price * engage_order.engaged_price / index_price,
                             quantity: engage_order.engaged_quantity * basket_asset.quantity,
                             side: engage_order.engaged_side,
                             symbol: basket_asset.weight.asset.name.clone(),
                         })
                         .collect_vec(),
-                })
+                }))
             })
             .collect_vec();
 
         for batch in batches {
             println!(
-                "batch: {:0.5}",
+                "Sending Batch: {}",
                 batch
                     .asset_orders
                     .iter()
                     .map(|ba| format!(
-                        "{:?} {:0.5}: {:0.5} @ {:0.5}",
+                        "{:?} {}: {:0.5} @ {:0.5}",
                         ba.side, ba.symbol, ba.quantity, ba.price
                     ))
                     .join("; ")
             );
-            if let Err(err) = self.inventory_manager.write().new_order(batch) {
-                // log somewhere this error
-                println!("Error: {:0.5}", err)
+            let mut batch_order_status = BatchOrderStatus {
+                batch_order_id: batch.batch_order_id.clone(),
+                positions: HashMap::new(),
+                volley_size: Amount::ZERO,
+                filled_volley: Amount::ZERO,
+                filled_fraction: Amount::ZERO,
+                realized_value: Amount::ZERO,
+                fee: Amount::ZERO,
+                last_update_timestamp: batch.created_timestamp,
+            };
+
+            for order in &batch.asset_orders {
+                let key = (order.symbol.clone(), order.side);
+                match batch_order_status.positions.entry(key) {
+                    Entry::Occupied(mut entry) => {
+                        let position = entry.get_mut();
+                        position.order_quantity = safe!(position.order_quantity + order.quantity)
+                            .ok_or_eyre("Math Problem")?;
+                    }
+                    Entry::Vacant(entry) => {
+                        let position = BatchAssetPosition {
+                            symbol: order.symbol.clone(),
+                            side: order.side,
+                            order_quantity: order.quantity,
+                            volley_size: safe!(order.price * order.quantity)
+                                .ok_or_eyre("Math Problem")?,
+                            position: Amount::ZERO,
+                            realized_value: Amount::ZERO,
+                            fee: Amount::ZERO,
+                            last_update_timestamp: batch.created_timestamp,
+                            transactions: Vec::new(),
+                        };
+                        batch_order_status.volley_size =
+                            safe!(batch_order_status.volley_size + position.volley_size)
+                                .ok_or_eyre("Math Problem")?;
+                        entry.insert(position);
+                    }
+                }
             }
+
+            self.batches
+                .write()
+                .insert(batch.batch_order_id.clone(), batch_order_status)
+                .is_none()
+                .then_some(())
+                .ok_or_eyre("Duplicate batch ID")?;
+
+            self.inventory_manager.write().new_order(batch)?;
         }
         Ok(())
     }
@@ -784,9 +938,159 @@ impl Solver {
         Ok(())
     }
 
+    fn fill_index_order(
+        &self,
+        batch: &mut BatchOrderStatus,
+        engaged_order: &RwLock<EngageOrder>,
+    ) -> Result<Option<Arc<RwLock<IndexOrderSolver>>>> {
+        let mut engaged_order = engaged_order.upgradable_read();
+        let engaged_quantity = engaged_order.engaged_quantity;
+        let index_order = engaged_order.index_order.clone();
+        let mut index_order_write = index_order.write();
+
+        // We search for fill-rate of this Index Order matching against
+        // available lots in this batch. Note that this is fill-rate in
+        // this batch, and 100% means that only the fraction of the Index Order
+        // that was included in this batch is fully filled, and there might
+        // still be more quantity outside of this batch on this Index Order
+        // that will need to be filled at later time in another batch.
+        let mut fill_rate = None;
+
+        for asset in &engaged_order.basket.basket_assets {
+            // = Amount of an asset in Basket Definition
+            //  * IndexOrder quantity engaged in this batch
+            let asset_quantity =
+                safe!(asset.quantity * engaged_quantity).ok_or_eyre("Math Problem")?;
+
+            let asset_symbol = &asset.weight.asset.name;
+            let key = (asset_symbol.clone(), index_order_write.side);
+            let position = batch
+                .positions
+                .get(&key)
+                .ok_or_eyre("Missing position for asset")?;
+
+            let contribution_fraction = *engaged_order
+                .contribution
+                .asset_contribution_fraction
+                .get(asset_symbol)
+                .ok_or_eyre("Asset contribution fraction not found")?;
+
+            // = Current available position from this Batch
+            //  * Index Order contribution fraction in this batch
+            let available_quantity =
+                safe!(position.position * contribution_fraction).ok_or_eyre("Math Problem")?;
+
+            // = Quantity available in this batch for this Index Order
+            //  / Quantity required to fully fill the fraction of the whole Index Order requested in this batch
+            let avialable_fill_rate =
+                safe!(available_quantity / asset_quantity).ok_or_eyre("Math Problem")?;
+
+            // We're finding lowest fill-rate for this Index Order across all assets, because
+            // we cannot fill this Index Order more than least available asset fill-rate.
+            fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
+                Some(x.min(avialable_fill_rate))
+            });
+            println!(
+                "{:5} q={:0.5} p={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
+                asset_symbol,
+                asset_quantity,
+                position.position,
+                available_quantity,
+                contribution_fraction,
+                avialable_fill_rate
+            );
+        }
+
+        // This is new filled quantity of this batch engagement with Index Order
+        let filled_quantity = safe!(fill_rate * engaged_quantity).ok_or_eyre("Math Problem")?;
+
+        // This is how much it has changed since last time it was updated
+        let filled_quantity_delta =
+            safe!(filled_quantity - engaged_order.filled_quantity).ok_or_eyre("Math Problem")?;
+
+        // Now we update it
+        engaged_order.with_upgraded(|x| {
+            x.filled_quantity = filled_quantity;
+        });
+
+        println!(
+            "Fill Index Order: {} {:0.5} (+{:0.5} {:0.3}%)",
+            index_order_write.original_client_order_id,
+            filled_quantity,
+            filled_quantity_delta,
+            safe!(fill_rate * Amount::ONE_HUNDRED).ok_or_eyre("Math Problem")?
+        );
+
+        if self.tolerance < filled_quantity_delta {
+            // And we add the delta to the Index Order filled quantity
+            index_order_write.filled_quantity =
+                safe!(index_order_write.filled_quantity + filled_quantity_delta)
+                    .ok_or_eyre("Math Problem")?;
+
+            index_order_write.engaged_quantity =
+                safe!(index_order_write.engaged_quantity - filled_quantity_delta)
+                    .ok_or_eyre("Math Problem")?;
+
+            let remaining_quantity =
+                safe!(index_order_write.remaining_quantity + index_order_write.engaged_quantity)
+                    .ok_or_eyre("Math Problem")?;
+
+            println!(
+                "IndexOrder (Solver): ifq={:0.5} irq={:0.5} ieq={:0.5} rq={:0.5}",
+                index_order_write.filled_quantity,
+                index_order_write.remaining_quantity,
+                index_order_write.engaged_quantity,
+                remaining_quantity
+            );
+
+            if remaining_quantity < self.tolerance {
+                self.chain_connector.write().mint_index(
+                    index_order_write.symbol.clone(),
+                    index_order_write.filled_quantity,
+                    index_order_write.address,
+                );
+            }
+
+            self.index_order_manager.write().fill_order_request(
+                &index_order_write.address,
+                &index_order_write.original_client_order_id,
+                &index_order_write.symbol,
+                filled_quantity_delta,
+                batch.last_update_timestamp,
+            )?;
+
+            if safe!(Amount::ONE - self.tolerance).ok_or_eyre("Math Problem")?
+                < fill_rate.expect("Fill-rate Must hae been known at this stage")
+            {
+                println!("IndexOrder batch fraction fully filled");
+                return Ok(Some(index_order.clone()));
+            }
+        };
+
+        Ok(None)
+    }
+
+    fn fill_batch_orders(&self, batch: &mut BatchOrderStatus) -> Result<()> {
+        let engagements_read = self.engagements.read();
+        let engagement = engagements_read
+            .get(&batch.batch_order_id)
+            .ok_or_else(|| eyre!("Engagement not found {}", batch.batch_order_id))?;
+
+        let mut ready_orders = VecDeque::new();
+
+        for engaged_order in &engagement.engaged_orders {
+            if let Some(index_order) = self.fill_index_order(batch, engaged_order)? {
+                ready_orders.push_back(index_order);
+            }
+        }
+
+        self.ready_orders.write().extend(ready_orders.drain(..));
+        Ok(())
+    }
+
     /// Core thinking function
     pub fn solve(&self) {
-        println!("Solve...");
+        println!("\nSolve...");
 
         //
         // NOTE: We should only engage new orders, and currently not much engaged
@@ -842,7 +1146,7 @@ impl Solver {
 
         // TODO: Should throttling be done here in Solver or in Inventory Manager
 
-        println!("Send Order Batches...");
+        println!("\nSend Order Batches...");
         if let Err(err) = self.send_more_batches() {
             eprintln!("Error while sending more batches: {}", err);
         }
@@ -937,7 +1241,7 @@ impl Solver {
                 timestamp,
             } => {
                 println!(
-                    "Solver: Handle Index Order NewIndexOrder {} {} < {} from {}",
+                    "\nSolver: Handle Index Order NewIndexOrder {} {} < {} from {}",
                     symbol, original_client_order_id, client_order_id, address
                 );
                 match self
@@ -958,6 +1262,7 @@ impl Solver {
                             remaining_quantity: quantity,
                             engaged_quantity: Amount::ZERO,
                             inflight_quantity: Amount::ZERO,
+                            filled_quantity: Amount::ZERO,
                             timestamp,
                             status: IndexOrderStatus::Open,
                         }));
@@ -978,7 +1283,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order UpdateIndexOrder{} < {} from {}",
+                    "\nSolver: Handle Index Order UpdateIndexOrder{} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
@@ -989,7 +1294,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order EngageIndexOrder {}",
+                    "\nSolver: Handle Index Order EngageIndexOrder {}",
                     batch_order_id
                 );
                 match self.engagements.write().get_mut(&batch_order_id) {
@@ -997,8 +1302,9 @@ impl Solver {
                         engaged_orders_stored
                             .engaged_orders
                             .retain_mut(|engaged_order_stored| {
-                                let mut index_order_stored =
-                                    engaged_order_stored.index_order.write();
+                                let mut engaged_order_stored = engaged_order_stored.write();
+                                let index_order = engaged_order_stored.index_order.clone();
+                                let mut index_order_stored = index_order.write();
                                 match engaged_orders.get(&(
                                     engaged_order_stored.address,
                                     engaged_order_stored.client_order_id.clone(),
@@ -1034,7 +1340,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Index Order CancelIndexOrder {} < {} from {}",
+                    "\nSolver: Handle Index Order CancelIndexOrder {} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
@@ -1044,17 +1350,17 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, _notification: QuoteRequestEvent) {
-        println!("Solver: Handle Quote Request");
+        println!("\nSolver: Handle Quote Request");
         //self.quote(());
     }
 
     /// Receive fill notifications
-    pub fn handle_inventory_event(&self, notification: InventoryEvent) {
+    pub fn handle_inventory_event(&self, notification: InventoryEvent) -> Result<()> {
         match notification {
             InventoryEvent::OpenLot {
-                order_id: _,
-                batch_order_id: _,
-                lot_id: _,
+                order_id,
+                batch_order_id,
+                lot_id,
                 symbol,
                 side,
                 price,
@@ -1062,12 +1368,79 @@ impl Solver {
                 fee,
                 original_batch_quantity: _,
                 batch_quantity_remaining: _,
-                timestamp: _,
+                timestamp,
             } => {
                 println!(
-                    "Solver: Handle Inventory Event OpenLot {:?} {:0.5} {:0.5} @ {:0.5} + {:0.5}",
-                    side, symbol, quantity, price, fee
+                    "\nSolver: Handle Inventory Event OpenLot {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    side,
+                    symbol,
+                    quantity,
+                    price,
+                    fee,
+                    (|| safe!(safe!(fee * Amount::ONE_HUNDRED) / safe!(quantity * price)?))().ok_or_eyre("Math Problem")?
                 );
+                let mut write_batches = self.batches.write();
+                let batch = write_batches
+                    .get_mut(&batch_order_id)
+                    .ok_or_eyre("Missing Batch")?;
+
+                let key = (symbol.clone(), side);
+                let position = batch
+                    .positions
+                    .get_mut(&key)
+                    .ok_or_eyre("Missing Position")?;
+
+                (|| {
+                    position.position = safe!(position.position + quantity)?;
+
+                    let fraction_delta = safe!(quantity / position.order_quantity)?;
+                    let filled_asset_volley = safe!(fraction_delta * position.volley_size)?;
+                    batch.filled_volley = safe!(batch.filled_volley + filled_asset_volley)?;
+                    batch.filled_fraction = safe!(batch.filled_volley / batch.volley_size)?;
+
+                    let filled_value = safe!(quantity * price)?;
+                    position.realized_value = safe!(position.realized_value + filled_value)?;
+                    batch.realized_value = safe!(batch.realized_value + filled_value)?;
+
+                    position.fee = safe!(position.fee + fee)?;
+                    batch.fee = safe!(batch.fee + fee)?;
+
+                    position.transactions.push(BatchAssetTransaction {
+                        order_id,
+                        lot_id,
+                        quantity,
+                        price,
+                        fee,
+                        timestamp,
+                    });
+
+                    position.last_update_timestamp = timestamp;
+
+                    println!(
+                        "Batch Position: {:?} {:5} price={:0.5} volley={:0.5} real={:0.5} + fee={:0.5}",
+                        position.side,
+                        position.symbol,
+                        position.order_quantity,
+                        position.volley_size,
+                        position.realized_value,
+                        position.fee
+                    );
+
+                    println!(
+                        "Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
+                        batch_order_id,
+                        batch.volley_size,
+                        batch.filled_volley,
+                        batch.filled_fraction,
+                        batch.realized_value,
+                        batch.fee);
+                    Some(())
+                })()
+                .ok_or_eyre("Math Problem")?;
+
+                batch.last_update_timestamp = timestamp;
+
+                self.fill_batch_orders(batch)
             }
             InventoryEvent::CloseLot {
                 original_order_id: _,
@@ -1090,7 +1463,7 @@ impl Solver {
                 closing_timestamp: _,
             } => {
                 println!(
-                    "Solver: Handle Inventory Event CloseLot {:?} {:0.5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "\nSolver: Handle Inventory Event CloseLot {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
                     side,
                     symbol,
                     quantity_closed,
@@ -1099,6 +1472,7 @@ impl Solver {
                     Amount::ONE_HUNDRED * (original_quantity - quantity_remaining)
                         / original_quantity
                 );
+                Ok(())
             }
         }
     }
@@ -1107,7 +1481,7 @@ impl Solver {
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
             PriceEvent::PriceChange { symbol } => {
-                println!("Solver: Handle Price Event {:0.5}", symbol)
+                println!("Solver: Handle Price Event {:5}", symbol)
             }
         };
     }
@@ -1116,13 +1490,10 @@ impl Solver {
     pub fn handle_book_event(&self, notification: OrderBookEvent) {
         match notification {
             OrderBookEvent::BookUpdate { symbol } => {
-                println!("Solver: Handle Book Event {:0.5}", symbol);
+                println!("Solver: Handle Book Event {:5}", symbol);
             }
             OrderBookEvent::UpdateError { symbol, error } => {
-                println!(
-                    "Solver: Handle Book Event {:0.5}, Error: {:0.5}",
-                    symbol, error
-                );
+                println!("Solver: Handle Book Event {:5}, Error: {}", symbol, error);
             }
         }
     }
@@ -1210,7 +1581,7 @@ mod test {
     {
         fn handle_notification(&self, notification: T) {
             self.send(notification)
-                .expect(format!("Failed to handle {:0.5}", type_name::<T>()).as_str());
+                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
         }
     }
 
@@ -1220,6 +1591,22 @@ mod test {
     {
         fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
             Box::new(self)
+        }
+    }
+
+    struct MockOrderIdProvider {
+        order_ids: VecDeque<OrderId>,
+        batch_order_ids: VecDeque<BatchOrderId>,
+    }
+
+    impl OrderIdProvider for MockOrderIdProvider {
+        fn next_order_id(&mut self) -> OrderId {
+            self.order_ids.pop_front().expect("No more Order Ids")
+        }
+        fn next_batch_order_id(&mut self) -> BatchOrderId {
+            self.batch_order_ids
+                .pop_front()
+                .expect("No more BatchOrder Ids")
         }
     }
 
@@ -1304,6 +1691,15 @@ mod test {
 
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
+        let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
+            order_ids: VecDeque::from_iter(
+                ["Order01", "Order02", "Order03", "Order04"]
+                    .into_iter()
+                    .map_into(),
+            ),
+            batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
+        }));
+
         let solver = Arc::new(Solver::new(
             chain_connector.clone(),
             index_order_manager.clone(),
@@ -1312,6 +1708,7 @@ mod test {
             price_tracker.clone(),
             order_book_manager.clone(),
             inventory_manager.clone(),
+            order_id_provider.clone(),
             4,
             tolerance,
         ));
@@ -1378,15 +1775,34 @@ mod test {
 
         let order_tracker_2 = order_tracker.clone();
 
-        let lot_ids = RwLock::new(VecDeque::<LotId>::from(["Lot01".into(), "Lot02".into()]));
+        let lot_ids = RwLock::new(VecDeque::<LotId>::from([
+            "Lot01".into(),
+            "Lot02".into(),
+            "Lof03".into(),
+            "Lot04".into(),
+        ]));
         let order_connector_weak = Arc::downgrade(&order_connector);
-        let (defer_1, deferred) = unbounded();
+        let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
         order_connector
             .write()
             .implementor
             .set_observer_fn(move |e: Arc<SingleOrder>| {
                 let order_connector = order_connector_weak.upgrade().unwrap();
                 let lot_id = lot_ids.write().pop_front().unwrap();
+                let p1 = e.price
+                    * match e.side {
+                        Side::Buy => dec!(0.995),
+                        Side::Sell => dec!(1.005),
+                    };
+                let p2 = e.price
+                    * match e.side {
+                        Side::Buy => dec!(0.998),
+                        Side::Sell => dec!(1.002),
+                    };
+                let q1 = e.quantity * dec!(0.8);
+                let q2 = e.quantity * dec!(0.2);
+                let defer = defer_1.clone();
+                // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
                         order_connector.write().notify_fill(
@@ -1394,13 +1810,96 @@ mod test {
                             lot_id.clone(),
                             e.symbol.clone(),
                             e.side,
-                            e.price,
-                            e.quantity,
-                            dec!(0.01) * e.price * e.quantity,
+                            p1,
+                            q1,
+                            dec!(0.001) * p1 * q1,
                             e.created_timestamp,
-                        )
+                        );
+                        // We defer second fill, so that fills of different orders
+                        // will be interleaved. We do that to test progressive fill-rate
+                        // of the Index Order in our simulation.
+                        defer
+                            .send(Box::new(move || {
+                                order_connector.write().notify_fill(
+                                    e.order_id.clone(),
+                                    lot_id.clone(),
+                                    e.symbol.clone(),
+                                    e.side,
+                                    p2,
+                                    q2,
+                                    dec!(0.001) * p2 * q2,
+                                    e.created_timestamp,
+                                );
+                            }))
+                            .unwrap();
                     }))
                     .unwrap();
+            });
+
+        let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
+        let (mock_fix_sender, mock_fix_receiver) = unbounded::<ServerResponse>();
+
+        chain_connector
+            .write()
+            .internal_observer
+            .set_observer_fn(move |response| {
+                match &response {
+                    MockChainInternalNotification::SolverWeightsSet(symbol, _) => {
+                        println!("Solver Weights Set: {}", symbol);
+                    }
+                    MockChainInternalNotification::MintIndex {
+                        symbol,
+                        quantity,
+                        receipient,
+                    } => {
+                        println!(
+                            "Minted Index: {:5} Quantity: {:0.5} User: {}",
+                            symbol, quantity, receipient
+                        );
+                    }
+                };
+                mock_chain_sender
+                    .send(response)
+                    .expect("Failed to send chain response");
+                println!("Chain response sent.");
+            });
+
+        fix_server
+            .write()
+            .implementor
+            .set_observer_fn(move |response| {
+                match &response {
+                    ServerResponse::NewIndexOrderAck {
+                        address,
+                        client_order_id,
+                        timestamp,
+                    } => {
+                        println!(
+                            "FIX Response: {} {} {}",
+                            address, client_order_id, timestamp
+                        );
+                    }
+                    ServerResponse::IndexOrderFill {
+                        address,
+                        client_order_id,
+                        filled_quantity,
+                        quantity_remaining,
+                        timestamp,
+                    } => {
+                        println!(
+                            "FIX Response: {} {} {:0.5} {:0.5} {}",
+                            address,
+                            client_order_id,
+                            filled_quantity,
+                            quantity_remaining,
+                            timestamp
+                        );
+                    }
+                };
+                mock_fix_sender
+                    .send(response)
+                    .expect("Failed to send FIX response");
+                println!("FIX response sent.");
             });
 
         let (solver_tick_sender, solver_tick_receiver) = unbounded::<&str>();
@@ -1413,10 +1912,12 @@ mod test {
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
-                    recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap()),
                     recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
                     recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
                     recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap()),
+
+                    recv(inventory_receiver) -> res => {solver.handle_inventory_event(res.unwrap())
+                        .expect("Failed to handle inventory event")},
 
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
@@ -1459,19 +1960,6 @@ mod test {
                 }
             }
         };
-
-        let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
-        let (mock_server_sender, _mock_server_receiver) = unbounded::<ServerResponse>();
-
-        chain_connector
-            .write()
-            .internal_observer
-            .set_observer_from(mock_chain_sender);
-
-        fix_server
-            .write()
-            .internal_observer
-            .set_observer_from(mock_server_sender);
 
         // connect to exchange
         order_connector.write().connect();
@@ -1580,6 +2068,7 @@ mod test {
 
         flush_events();
 
+
         // wait for solver to solve...
         let solver_weithgs_set = mock_chain_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -1589,6 +2078,8 @@ mod test {
             solver_weithgs_set,
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
+        
+        print!("Chain response received.");
 
         fix_server
             .write()
@@ -1603,7 +2094,7 @@ mod test {
                 quantity: dec!(2.5),
                 timestamp: Utc::now(),
             }));
-
+        
         flush_events();
 
         solver_tick("We sent NewOrderSingle FIX message");
@@ -1613,6 +2104,19 @@ mod test {
         solver_tick("IndexOrderManager responded to EngageOrders");
 
         flush_events();
+
+        let fix_response = mock_fix_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive ServerResponse");
+
+        assert!(matches!(
+            fix_response,
+            ServerResponse::NewIndexOrderAck {
+                address: _,
+                client_order_id: _,
+                timestamp: _
+            }
+        ));
 
         let order1 = order_tracker_2.read().get_order(&"Order01".into());
         let order2 = order_tracker_2.read().get_order(&"Order02".into());
@@ -1632,10 +2136,70 @@ mod test {
         assert_decimal_approx_eq!(order2.price, dec!(298.4076923), tolerance);
         assert_decimal_approx_eq!(order2.quantity, dec!(1.627806563), tolerance);
 
-        // this will fail atm
-        //mock_server_receiver
-        //    .recv_timeout(Duration::from_secs(1))
-        //    .expect("Failed to receive ServerResponse");
+        flush_events();
+
+        for _ in 0..2 {
+            let fix_response = mock_fix_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Failed to receive ServerResponse");
+
+            assert!(matches!(
+                fix_response,
+                ServerResponse::IndexOrderFill {
+                    address: _,
+                    client_order_id: _,
+                    filled_quantity: _,
+                    quantity_remaining: _,
+                    timestamp: _
+                }
+            ));
+            
+            println!("FIX response received.");
+        }
+
+        solver_tick("Solver re-inserts IndexOrder from filled batch");
+
+        flush_events();
+
+        solver_tick("Solver sends next batch");
+
+        flush_events();
+
+        // wait for solver to solve...
+        let mint_index = mock_chain_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive MintIndex");
+
+        assert!(matches!(
+            mint_index,
+            MockChainInternalNotification::MintIndex {
+                symbol: _,
+                quantity: _,
+                receipient: _,
+            }
+        ));
+        
+        println!("Chain response received.");
+
+        for _ in 0..2 {
+            let fix_response = mock_fix_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Failed to receive ServerResponse");
+
+            assert!(matches!(
+                fix_response,
+                ServerResponse::IndexOrderFill {
+                    address: _,
+                    client_order_id: _,
+                    filled_quantity: _,
+                    quantity_remaining: _,
+                    timestamp: _
+                }
+            ));
+            
+            println!("FIX response received.");
+        }
+
         println!("Scenario completed.")
     }
 }

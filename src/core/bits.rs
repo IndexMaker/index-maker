@@ -134,7 +134,7 @@ impl From<&str> for PaymentId {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
 pub enum Side {
     Buy,
     Sell,

@@ -293,10 +293,14 @@ impl IndexOrder {
             let engaged_quantity =
                 safe!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
             safe!(self.engaged_quantity += engaged_quantity).ok_or_eyre("Math Problem")?;
+            self.remaining_quantity =
+                safe!(self.remaining_quantity - engaged_quantity).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
             Ok(Some(unmatched_quantity))
         } else {
             safe!(self.engaged_quantity += quantity).ok_or_eyre("Math Problem")?;
+            self.remaining_quantity =
+                safe!(self.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
             Ok(None)
         }
@@ -846,6 +850,11 @@ mod test {
             assert_decimal_approx_eq!(
                 update.remaining_quantity,
                 quantity1 - engage_quantity1,
+                tolerance
+            );
+            assert_decimal_approx_eq!(
+                order.remaining_quantity,
+                quantity1 + quantity2 - engage_quantity1,
                 tolerance
             );
 

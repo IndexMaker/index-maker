@@ -58,9 +58,9 @@ pub enum InventoryEvent {
 
 pub struct InventoryManager {
     observer: SingleObserver<InventoryEvent>,
-    pub order_tracker: Arc<RwLock<OrderTracker>>,
-    pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
-    pub tolerance: Amount,
+    order_tracker: Arc<RwLock<OrderTracker>>,
+    positions: HashMap<Symbol, Arc<RwLock<Position>>>,
+    tolerance: Amount,
 }
 
 impl InventoryManager {
