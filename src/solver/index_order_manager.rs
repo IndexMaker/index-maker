@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
+use alloy::transports::http::reqwest::Response;
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -12,7 +13,7 @@ use crate::{
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{Server, ServerEvent},
-    solver::index_order::IndexOrder,
+    solver::index_order::{self, IndexOrder},
 };
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
@@ -345,8 +346,50 @@ impl IndexOrderManager {
     }
 
     /// provide a method to fill index order request
-    pub fn fill_order_request(&mut self, _client_order_id: ClientOrderId, _fill_amount: Amount) {
-        todo!()
+    pub fn fill_order_request(
+        &mut self,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+        fill_amount: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        self.index_orders
+            .get(address)
+            .and_then(|x| x.get(symbol))
+            .and_then(|index_order| Some(index_order.write()))
+            .and_then(|mut index_order| {
+                // TOOD: We need to fill the updates too!
+                index_order.filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
+                index_order.engaged_quantity =
+                    Some(safe!(index_order.engaged_quantity? - fill_amount)?);
+                println!(
+                    "IndexOrderManager: Fill: {} {:0.5} (+{:0.5}), Remainig Quantity: {:0.5}",
+                    client_order_id,
+                    index_order.filled_quantity,
+                    fill_amount,
+                    index_order.remaining_quantity
+                );
+
+                let quantity_remaining =
+                    safe!(index_order.engaged_quantity + index_order.remaining_quantity)?;
+
+                self.server.write().respond_with(
+                    crate::server::server::ServerResponse::IndexOrderFill {
+                        address: *address,
+                        client_order_id: client_order_id.clone(),
+                        filled_quantity: index_order.filled_quantity,
+                        quantity_remaining,
+                        timestamp,
+                    },
+                );
+
+                // TODO: Fire UpdateIndexOrder event!
+
+                Some(())
+            })
+            .ok_or_eyre("Failed to update index order")?;
+        Ok(())
     }
 
     pub fn engage_orders(
@@ -363,6 +406,13 @@ impl IndexOrderManager {
             {
                 let mut index_order = index_order.write();
                 let unmatched_quantity = index_order.solver_engage(quantity, self.tolerance)?;
+                println!(
+                    "IndexOrderManager: Engage {} {:0.5} {:0.5} {:0.5}",
+                    client_order_id,
+                    quantity,
+                    index_order.engaged_quantity.unwrap_or_default(),
+                    index_order.remaining_quantity
+                );
 
                 let quantity_engaged = if let Some(unmatched_quantity) = unmatched_quantity {
                     safe!(quantity - unmatched_quantity)

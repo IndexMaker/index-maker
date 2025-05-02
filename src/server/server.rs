@@ -47,6 +47,13 @@ pub enum ServerResponse {
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
+    IndexOrderFill {
+        address: Address,
+        client_order_id: ClientOrderId,
+        filled_quantity: Amount,
+        quantity_remaining: Amount,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 pub trait Server: Send + Sync {
@@ -67,14 +74,14 @@ pub mod test_util {
 
     pub struct MockServer {
         observer: MultiObserver<Arc<ServerEvent>>,
-        pub internal_observer: SingleObserver<ServerResponse>,
+        pub implementor: SingleObserver<ServerResponse>,
     }
 
     impl MockServer {
         pub fn new() -> Self {
             Self {
                 observer: MultiObserver::new(),
-                internal_observer: SingleObserver::new(),
+                implementor: SingleObserver::new(),
             }
         }
 
@@ -94,7 +101,7 @@ pub mod test_util {
     impl Server for MockServer {
         /// provide methods for sending FIX responses
         fn respond_with(&mut self, response: ServerResponse) {
-            self.internal_observer.publish_single(response);
+            self.implementor.publish_single(response);
         }
     }
 
