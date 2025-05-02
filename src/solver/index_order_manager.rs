@@ -196,7 +196,7 @@ impl IndexOrderManager {
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         original_client_order_id,
                         address,
-                        client_order_id,
+                        client_order_id: client_order_id.clone(),
                         payment_id,
                         symbol,
                         side,
@@ -214,7 +214,7 @@ impl IndexOrderManager {
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
                         original_client_order_id,
                         address,
-                        client_order_id,
+                        client_order_id: client_order_id.clone(),
                         quantity_removed: removed_quantity,
                         quantity_remaining: remaining_quantity,
                         timestamp,
@@ -232,7 +232,7 @@ impl IndexOrderManager {
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         original_client_order_id,
                         address,
-                        client_order_id,
+                        client_order_id: client_order_id.clone(),
                         payment_id,
                         symbol,
                         side,
@@ -243,6 +243,14 @@ impl IndexOrderManager {
                     });
             }
         };
+
+        self.server
+            .write()
+            .respond_with(crate::server::server::ServerResponse::NewIndexOrderAck {
+                address,
+                client_order_id,
+                timestamp,
+            });
 
         Ok(())
     }

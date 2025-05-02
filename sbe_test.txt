@@ -8,6 +8,10 @@ Solver: Handle Book Event AZ
 Solver: Handle Price Event AZ   
 Solver: Handle Chain Event CuratorWeigthsSet IX
 Solver: Handle Basket Notification BasketAdded IX
+Solver Weights Set: IX
+Chain response sent.
+Chain response received.FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2025-05-02 14:30:29.103859 UTC
+FIX response sent.
 
 Solver: Handle Index Order NewIndexOrder IX ClientOrderId(Order01) < ClientOrderId(Order01) from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 Solver Tick: We sent NewOrderSingle FIX message
@@ -36,11 +40,11 @@ Find Order Liquidity...
 
 - Find liquidity for prices with threshold...
 
- * liquidity >> AZ    t=0.05000 l=200.00000
- * asset_total_weighted_liquidity << AZ    l=336.78756 q=1.68393
-
  * liquidity >> AX    t=0.05000 l=20.00000
  * asset_total_weighted_liquidity << AX    l=413.79310 q=20.68965
+
+ * liquidity >> AZ    t=0.05000 l=200.00000
+ * asset_total_weighted_liquidity << AZ    l=336.78756 q=1.68393
 
 
 Find Order Contribution...
@@ -86,7 +90,8 @@ AZ    q=1.62780 p=1.30224 aq=1.30224 cf=1.00000 afr=0.80000
 Fill Index Order: ClientOrderId(Order01) 1.93333 (+1.93333 80.000%)
 IndexOrder (Solver): ifq=1.93333 irq=0.08333 ieq=0.48333 rq=0.56666
 IndexOrderManager: Fill: ClientOrderId(Order01) 1.93333 (+1.93333), Remainig Quantity: 0.08333
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.93333 0.56666 2025-05-02 13:52:59.765755 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.93333 0.56666 2025-05-02 14:30:29.104144 UTC
+FIX response sent.
 
 Solver: Handle Inventory Event OpenLot Buy AX    4.00000 @ 96.95570 + fee 0.38782 (0.100%)
 Batch Position: Buy AX    price=20.00000 volley=1943.00000 real=1934.45080 + fee=1.93445
@@ -103,16 +108,19 @@ AZ    q=1.62780 p=1.62780 aq=1.62780 cf=1.00000 afr=1.00000
 Fill Index Order: ClientOrderId(Order01) 2.41666 (+0.48333 100.000%)
 IndexOrder (Solver): ifq=2.41666 irq=0.08333 ieq=0.00000 rq=0.08333
 IndexOrderManager: Fill: ClientOrderId(Order01) 2.41666 (+0.48333), Remainig Quantity: 0.08333
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.41666 0.08333 2025-05-02 13:52:59.765755 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.41666 0.08333 2025-05-02 14:30:29.104144 UTC
+FIX response sent.
 IndexOrder batch fraction fully filled
+FIX response received.
+FIX response received.
 Solver Tick: Solver re-inserts IndexOrder from filled batch
 
 Solve...
 Engage More Orders...
 
 More Orders...
- * individual_asset_prices > (AX    p=96.66666)
  * individual_asset_prices > (AZ    p=296.92307)
+ * individual_asset_prices > (AX    p=96.66666)
 
 Find Order Liquidity...
    q   quantity
@@ -182,7 +190,8 @@ AZ    q=0.05613 p=0.04490 aq=0.04490 cf=1.00000 afr=0.80000
 Fill Index Order: ClientOrderId(Order01) 0.06666 (+0.06666 80.000%)
 IndexOrder (Solver): ifq=2.48333 irq=0.00000 ieq=0.01666 rq=0.01666
 IndexOrderManager: Fill: ClientOrderId(Order01) 2.48333 (+0.06666), Remainig Quantity: 0.00000
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.48333 0.01666 2025-05-02 13:52:59.766384 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.48333 0.01666 2025-05-02 14:30:29.104753 UTC
+FIX response sent.
 
 Solver: Handle Inventory Event OpenLot Buy AX    0.13793 @ 96.95570 + fee 0.01337 (0.100%)
 Batch Position: Buy AX    price=0.68965 volley=66.99999 real=66.70519 + fee=0.06670
@@ -198,10 +207,15 @@ AX    q=0.68965 p=0.68965 aq=0.68965 cf=1.00000 afr=1.00000
 AZ    q=0.05613 p=0.05613 aq=0.05613 cf=1.00000 afr=1.00000
 Fill Index Order: ClientOrderId(Order01) 0.08333 (+0.01666 100.000%)
 IndexOrder (Solver): ifq=2.50000 irq=0.00000 ieq=0.00000 rq=0.00000
-IndexOrderManager: Fill: ClientOrderId(Order01) 2.50000 (+0.01666), Remainig Quantity: 0.00000
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.50000 0.00000 2025-05-02 13:52:59.766384 UTC
-IndexOrder batch fraction fully filled
 Minted Index: IX    Quantity: 2.50000 User: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+Chain response sent.
+IndexOrderManager: Fill: ClientOrderId(Order01) 2.50000 (+0.01666), Remainig Quantity: 0.00000
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.50000 0.00000 2025-05-02 14:30:29.104753 UTC
+FIX response sent.
+IndexOrder batch fraction fully filled
+Chain response received.
+FIX response received.
+FIX response received.
 Scenario completed.
 test solver::solver::test::sbe_solver ... ok
 

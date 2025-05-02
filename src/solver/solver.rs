@@ -1836,32 +1836,70 @@ mod test {
                     .unwrap();
             });
 
+        let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
+        let (mock_fix_sender, mock_fix_receiver) = unbounded::<ServerResponse>();
+
+        chain_connector
+            .write()
+            .internal_observer
+            .set_observer_fn(move |response| {
+                match &response {
+                    MockChainInternalNotification::SolverWeightsSet(symbol, _) => {
+                        println!("Solver Weights Set: {}", symbol);
+                    }
+                    MockChainInternalNotification::MintIndex {
+                        symbol,
+                        quantity,
+                        receipient,
+                    } => {
+                        println!(
+                            "Minted Index: {:5} Quantity: {:0.5} User: {}",
+                            symbol, quantity, receipient
+                        );
+                    }
+                };
+                mock_chain_sender
+                    .send(response)
+                    .expect("Failed to send chain response");
+                println!("Chain response sent.");
+            });
+
         fix_server
             .write()
             .implementor
-            .set_observer_fn(move |response| match response {
-                ServerResponse::NewIndexOrderAck {
-                    address,
-                    client_order_id,
-                    timestamp,
-                } => {
-                    println!(
-                        "FIX Response: {} {} {}",
-                        address, client_order_id, timestamp
-                    );
-                }
-                ServerResponse::IndexOrderFill {
-                    address,
-                    client_order_id,
-                    filled_quantity,
-                    quantity_remaining,
-                    timestamp,
-                } => {
-                    println!(
-                        "FIX Response: {} {} {:0.5} {:0.5} {}",
-                        address, client_order_id, filled_quantity, quantity_remaining, timestamp
-                    );
-                }
+            .set_observer_fn(move |response| {
+                match &response {
+                    ServerResponse::NewIndexOrderAck {
+                        address,
+                        client_order_id,
+                        timestamp,
+                    } => {
+                        println!(
+                            "FIX Response: {} {} {}",
+                            address, client_order_id, timestamp
+                        );
+                    }
+                    ServerResponse::IndexOrderFill {
+                        address,
+                        client_order_id,
+                        filled_quantity,
+                        quantity_remaining,
+                        timestamp,
+                    } => {
+                        println!(
+                            "FIX Response: {} {} {:0.5} {:0.5} {}",
+                            address,
+                            client_order_id,
+                            filled_quantity,
+                            quantity_remaining,
+                            timestamp
+                        );
+                    }
+                };
+                mock_fix_sender
+                    .send(response)
+                    .expect("Failed to send FIX response");
+                println!("FIX response sent.");
             });
 
         let (solver_tick_sender, solver_tick_receiver) = unbounded::<&str>();
@@ -1922,13 +1960,6 @@ mod test {
                 }
             }
         };
-
-        let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
-
-        chain_connector
-            .write()
-            .internal_observer
-            .set_observer_from(mock_chain_sender);
 
         // connect to exchange
         order_connector.write().connect();
@@ -2037,6 +2068,7 @@ mod test {
 
         flush_events();
 
+
         // wait for solver to solve...
         let solver_weithgs_set = mock_chain_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -2046,6 +2078,8 @@ mod test {
             solver_weithgs_set,
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
+        
+        print!("Chain response received.");
 
         fix_server
             .write()
@@ -2060,7 +2094,7 @@ mod test {
                 quantity: dec!(2.5),
                 timestamp: Utc::now(),
             }));
-
+        
         flush_events();
 
         solver_tick("We sent NewOrderSingle FIX message");
@@ -2070,6 +2104,19 @@ mod test {
         solver_tick("IndexOrderManager responded to EngageOrders");
 
         flush_events();
+
+        let fix_response = mock_fix_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive ServerResponse");
+
+        assert!(matches!(
+            fix_response,
+            ServerResponse::NewIndexOrderAck {
+                address: _,
+                client_order_id: _,
+                timestamp: _
+            }
+        ));
 
         let order1 = order_tracker_2.read().get_order(&"Order01".into());
         let order2 = order_tracker_2.read().get_order(&"Order02".into());
@@ -2091,6 +2138,25 @@ mod test {
 
         flush_events();
 
+        for _ in 0..2 {
+            let fix_response = mock_fix_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Failed to receive ServerResponse");
+
+            assert!(matches!(
+                fix_response,
+                ServerResponse::IndexOrderFill {
+                    address: _,
+                    client_order_id: _,
+                    filled_quantity: _,
+                    quantity_remaining: _,
+                    timestamp: _
+                }
+            ));
+            
+            println!("FIX response received.");
+        }
+
         solver_tick("Solver re-inserts IndexOrder from filled batch");
 
         flush_events();
@@ -2098,25 +2164,42 @@ mod test {
         solver_tick("Solver sends next batch");
 
         flush_events();
-        
+
         // wait for solver to solve...
         let mint_index = mock_chain_receiver
             .recv_timeout(Duration::from_secs(1))
             .expect("Failed to receive MintIndex");
 
-        match mint_index {
-            MockChainInternalNotification::MintIndex { symbol, quantity, receipient } => {
-                println!("Minted Index: {:5} Quantity: {:0.5} User: {}", symbol, quantity, receipient);
-            },
-            _ => {
-                assert!(false, "Expected mint index!");
+        assert!(matches!(
+            mint_index,
+            MockChainInternalNotification::MintIndex {
+                symbol: _,
+                quantity: _,
+                receipient: _,
             }
+        ));
+        
+        println!("Chain response received.");
+
+        for _ in 0..2 {
+            let fix_response = mock_fix_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Failed to receive ServerResponse");
+
+            assert!(matches!(
+                fix_response,
+                ServerResponse::IndexOrderFill {
+                    address: _,
+                    client_order_id: _,
+                    filled_quantity: _,
+                    quantity_remaining: _,
+                    timestamp: _
+                }
+            ));
+            
+            println!("FIX response received.");
         }
 
-        // this will fail atm
-        //mock_server_receiver
-        //    .recv_timeout(Duration::from_secs(1))
-        //    .expect("Failed to receive ServerResponse");
         println!("Scenario completed.")
     }
 }
