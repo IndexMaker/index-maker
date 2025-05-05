@@ -1180,11 +1180,10 @@ impl Solver {
                 fund_write.transactions_cr.drain(..)
             }
             .collect_vec();
-            let mut balance = fund_write.balance;
-            for tx in &completed {
-                balance = safe!(balance + tx.amount).ok_or_eyre("Math Problem")?;
-            }
-            fund_write.balance = balance;
+            fund_write.balance = completed
+                .iter()
+                .try_fold(fund_write.balance, |balance, tx| safe!(balance + tx.amount))
+                .ok_or_eyre("Math Problem")?;
             fund_write.last_update_timestamp = ready_timestamp;
             fund_write.completed_transactions.extend(completed);
             println!(
