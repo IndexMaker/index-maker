@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use alloy::transports::http::reqwest::Response;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
@@ -13,7 +12,7 @@ use crate::{
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{Server, ServerEvent},
-    solver::index_order::{self, IndexOrder},
+    solver::index_order::{IndexOrder},
 };
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};

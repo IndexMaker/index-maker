@@ -151,11 +151,11 @@ pub mod test_util {
 
         pub fn new_with_observers(
             observer: SingleObserver<ChainNotification>,
-            internal_observer: SingleObserver<MockChainInternalNotification>,
+            implementor: SingleObserver<MockChainInternalNotification>,
         ) -> Self {
             Self {
                 observer,
-                implementor: internal_observer,
+                implementor,
             }
         }
     }

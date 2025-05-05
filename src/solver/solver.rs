@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use alloy::signers::k256::elliptic_curve::generic_array::functional;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::{partition, Itertools};
@@ -1120,8 +1119,7 @@ impl Solver {
                     Amount::ZERO,
                     batch.last_update_timestamp,
                 );
-            }
-            else if safe!(Amount::ONE - self.tolerance).ok_or_eyre("Math Problem")?
+            } else if safe!(Amount::ONE - self.tolerance).ok_or_eyre("Math Problem")?
                 < fill_rate.expect("Fill-rate Must have been known at this stage")
             {
                 println!("IndexOrder batch fraction fully filled");
