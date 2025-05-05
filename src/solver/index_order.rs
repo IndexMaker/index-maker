@@ -10,29 +10,6 @@ use crate::core::{
     decimal_ext::DecimalExt,
 };
 
-pub enum PaymentDirection {
-    /// Credit the giver: they gave us money, that increases our liability
-    /// towards them. If they credit their account with us, we owe them index.
-    Credit,
-    /// Debit the receiver: they receive money, that decreases our liability
-    /// towards them. If they debit their account, we get their index.
-    Debit,
-}
-
-pub struct Payment {
-    /// On-chain wallet address
-    pub address: Address,
-
-    /// An ID of this payment
-    pub payment_id: PaymentId,
-
-    /// Credit or Debit
-    pub direction: PaymentDirection,
-
-    /// Amount paid from(to) custody to(from) user wallet
-    pub amount: Amount,
-}
-
 pub struct IndexOrderUpdate {
     /// On-chain wallet address
     ///

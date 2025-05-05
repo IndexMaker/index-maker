@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
+
 use crate::{
     core::bits::{Address, Amount, PaymentId, Symbol},
     index::basket::{Basket, BasketDefinition},
-    solver::index_order::Payment,
 };
 
 /// call blockchain methods, receive blockchain events
@@ -11,19 +12,39 @@ use crate::{
 /// On-chain event
 pub enum ChainNotification {
     CuratorWeightsSet(Symbol, BasketDefinition), // ...more
-    PaymentIn {
+    Deposit {
         address: Address,
         payment_id: PaymentId,
-        amount_paid_in: Amount,
+        amount: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    WithdrawalRequest {
+        address: Address,
+        payment_id: PaymentId,
+        amount: Amount,
+        timestamp: DateTime<Utc>,
     },
 }
 
 /// Connects to some Blockchain
 pub trait ChainConnector {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>);
-    fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address);
-    fn get_payment(&self, address: Address, payment_id: PaymentId) -> Option<Payment>;
-    fn send_payment(&self, address: Address, amount: Amount);
+    fn mint_index(
+        &self,
+        symbol: Symbol,
+        quantity: Amount,
+        receipient: Address,
+        execution_price: Amount,
+        execution_time: DateTime<Utc>,
+    );
+    fn burn_index(&self, symbol: Symbol, quantity: Amount, receipient: Address);
+    fn withdraw(
+        &self,
+        receipient: Address,
+        amount: Amount,
+        execution_price: Amount,
+        execution_time: DateTime<Utc>,
+    );
 }
 
 /// Mock implementations of the traits
@@ -31,13 +52,14 @@ pub trait ChainConnector {
 pub mod test_util {
     use std::sync::Arc;
 
+    use chrono::{DateTime, Utc};
+
     use crate::{
         core::{
             bits::{Address, Amount, PaymentId, Symbol},
             functional::{IntoObservableSingle, PublishSingle, SingleObserver},
         },
         index::basket::{Basket, BasketDefinition},
-        solver::index_order::Payment,
     };
 
     use super::{ChainConnector, ChainNotification};
@@ -49,19 +71,32 @@ pub mod test_util {
             symbol: Symbol,
             quantity: Amount,
             receipient: Address,
+            execution_price: Amount,
+            execution_time: DateTime<Utc>,
+        },
+        BurnIndex {
+            symbol: Symbol,
+            quantity: Amount,
+            receipient: Address,
+        },
+        Withdraw {
+            receipient: Address,
+            amount: Amount,
+            execution_price: Amount,
+            execution_time: DateTime<Utc>,
         },
     }
 
     pub struct MockChainConnector {
         observer: SingleObserver<ChainNotification>,
-        pub internal_observer: SingleObserver<MockChainInternalNotification>,
+        pub implementor: SingleObserver<MockChainInternalNotification>,
     }
 
     impl MockChainConnector {
         pub fn new() -> Self {
             Self {
                 observer: SingleObserver::new(),
-                internal_observer: SingleObserver::new(),
+                implementor: SingleObserver::new(),
             }
         }
 
@@ -83,13 +118,44 @@ pub mod test_util {
                 ));
         }
 
+        pub fn notify_deposit(
+            &self,
+            address: Address,
+            payment_id: PaymentId,
+            amount: Amount,
+            timestamp: DateTime<Utc>,
+        ) {
+            self.observer.publish_single(ChainNotification::Deposit {
+                address,
+                payment_id,
+                amount,
+                timestamp,
+            });
+        }
+
+        pub fn notify_withdrawal_request(
+            &self,
+            address: Address,
+            payment_id: PaymentId,
+            amount: Amount,
+            timestamp: DateTime<Utc>,
+        ) {
+            self.observer
+                .publish_single(ChainNotification::WithdrawalRequest {
+                    address,
+                    payment_id,
+                    amount,
+                    timestamp,
+                });
+        }
+
         pub fn new_with_observers(
             observer: SingleObserver<ChainNotification>,
             internal_observer: SingleObserver<MockChainInternalNotification>,
         ) -> Self {
             Self {
                 observer,
-                internal_observer,
+                implementor: internal_observer,
             }
         }
     }
@@ -102,26 +168,54 @@ pub mod test_util {
 
     impl ChainConnector for MockChainConnector {
         fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
-            self.internal_observer
+            self.implementor
                 .publish_single(MockChainInternalNotification::SolverWeightsSet(
                     symbol, basket,
                 ));
         }
 
-        fn mint_index(&self, symbol: Symbol, quantity: Amount, receipient: Address) {
-            self.internal_observer
+        fn mint_index(
+            &self,
+            symbol: Symbol,
+            quantity: Amount,
+            receipient: Address,
+            execution_price: Amount,
+            execution_time: DateTime<Utc>,
+        ) {
+            self.implementor
                 .publish_single(MockChainInternalNotification::MintIndex {
+                    symbol,
+                    quantity,
+                    receipient,
+                    execution_price,
+                    execution_time,
+                });
+        }
+
+        fn burn_index(&self, symbol: Symbol, quantity: Amount, receipient: Address) {
+            self.implementor
+                .publish_single(MockChainInternalNotification::BurnIndex {
                     symbol,
                     quantity,
                     receipient,
                 });
         }
 
-        fn get_payment(&self, _address: Address, _payment_id: PaymentId) -> Option<Payment> {
-            None
+        fn withdraw(
+            &self,
+            receipient: Address,
+            amount: Amount,
+            execution_price: Amount,
+            execution_time: DateTime<Utc>,
+        ) {
+            self.implementor
+                .publish_single(MockChainInternalNotification::Withdraw {
+                    receipient,
+                    amount,
+                    execution_price,
+                    execution_time,
+                });
         }
-
-        fn send_payment(&self, _address: Address, _amount: Amount) {}
     }
 }
 
@@ -129,6 +223,7 @@ pub mod test_util {
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use chrono::Utc;
     use parking_lot::RwLock;
     use rust_decimal::dec;
 
@@ -225,11 +320,7 @@ mod tests {
                     }))
                     .unwrap();
                 }
-                ChainNotification::PaymentIn {
-                    address: _,
-                    payment_id: _,
-                    amount_paid_in: _,
-                } => (),
+                _ => (),
             }
         }));
 
@@ -283,6 +374,8 @@ mod tests {
             get_mock_index_name_1(),
             dec!(0.5),
             get_mock_address_1(),
+            dec!(0.5),
+            Utc::now(),
         );
 
         mock_chain_connection.write().connect();
@@ -290,7 +383,7 @@ mod tests {
             .read()
             .notify_curator_weights_set(get_mock_index_name_1(), basket_definition);
 
-        rx.try_iter().for_each(|f| f());
+        run_mock_deferred(&rx);
 
         assert_eq!(rx_end.recv(), Ok(true));
     }

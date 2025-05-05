@@ -1,10 +1,10 @@
 use std::{
-    clone,
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
-use chrono::{DateTime, Utc};
+use alloy::signers::k256::elliptic_curve::generic_array::functional;
+use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::{partition, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -33,6 +33,7 @@ use super::{
     index_order_manager::{IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
+    position::LotId,
 };
 
 enum IndexOrderStatus {
@@ -89,6 +90,12 @@ struct IndexOrderSolver {
 }
 
 struct BatchAssetTransaction {
+    /// Asset Order ID
+    order_id: OrderId,
+
+    /// Transaction ID
+    lot_id: LotId,
+
     /// Quantity filled
     quantity: Amount,
 
@@ -100,8 +107,6 @@ struct BatchAssetTransaction {
 
     /// Timestamp of execution
     timestamp: DateTime<Utc>,
-    order_id: OrderId,
-    lot_id: super::position::LotId,
 }
 
 struct BatchAssetPosition {
@@ -176,6 +181,53 @@ struct BatchOrderStatus {
 
     /// Time of the last transaction
     last_update_timestamp: DateTime<Utc>,
+}
+
+struct CollateralTransaction {
+    payment_id: PaymentId,
+    amount: Amount,
+    timestamp: DateTime<Utc>,
+}
+
+struct CollateralPosition {
+    /// On-chain address of the User
+    address: Address,
+
+    /// Total balance of credits less debits in force
+    balance: Amount,
+
+    /// Total amount of pending credits
+    pending_cr: Amount,
+
+    /// Total amount of pending debits
+    pending_dr: Amount,
+
+    /// Pending credits
+    transactions_cr: VecDeque<CollateralTransaction>,
+
+    /// Pending debits
+    transactions_dr: VecDeque<CollateralTransaction>,
+
+    /// Completed credits and debits
+    completed_transactions: VecDeque<CollateralTransaction>,
+
+    /// Last time we updated this position
+    last_update_timestamp: DateTime<Utc>,
+}
+
+impl CollateralPosition {
+    fn new(address: Address) -> Self {
+        Self {
+            address,
+            balance: Amount::ZERO,
+            pending_cr: Amount::ZERO,
+            pending_dr: Amount::ZERO,
+            transactions_cr: VecDeque::new(),
+            transactions_dr: VecDeque::new(),
+            completed_transactions: VecDeque::new(),
+            last_update_timestamp: Default::default(),
+        }
+    }
 }
 
 struct MoreOrders<'a> {
@@ -255,12 +307,15 @@ pub struct Solver {
     inventory_manager: Arc<RwLock<InventoryManager>>,
     order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
     client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<IndexOrderSolver>>>>,
+    client_funds: RwLock<HashMap<Address, Arc<RwLock<CollateralPosition>>>>,
+    pending_funds: RwLock<VecDeque<Arc<RwLock<CollateralPosition>>>>,
     ready_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
     engagements: RwLock<HashMap<BatchOrderId, EngagedOrders>>,
     ready_batches: RwLock<VecDeque<BatchOrderId>>,
     batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
     max_orders: usize,
     tolerance: Amount,
+    fund_wait_period: TimeDelta,
 }
 impl Solver {
     pub fn new(
@@ -274,6 +329,7 @@ impl Solver {
         order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
         max_orders: usize,
         tolerance: Amount,
+        fund_wait_period: TimeDelta,
     ) -> Self {
         Self {
             chain_connector,
@@ -285,12 +341,15 @@ impl Solver {
             inventory_manager,
             order_id_provider,
             client_orders: RwLock::new(HashMap::new()),
+            client_funds: RwLock::new(HashMap::new()),
+            pending_funds: RwLock::new(VecDeque::new()),
             ready_orders: RwLock::new(VecDeque::new()),
             engagements: RwLock::new(HashMap::new()),
             ready_batches: RwLock::new(VecDeque::new()),
             batches: RwLock::new(HashMap::new()),
             max_orders,
             tolerance,
+            fund_wait_period,
         }
     }
 
@@ -762,6 +821,8 @@ impl Solver {
             return None;
         }
 
+        println!("There are some engaged orders");
+
         let mut more_orders = self.more_orders(&new_orders);
 
         // Get totals for assets in all Index Orders
@@ -819,7 +880,7 @@ impl Solver {
         Ok(())
     }
 
-    fn send_batch(&self, engaged_orders: &EngagedOrders) -> Result<()> {
+    fn send_batch(&self, engaged_orders: &EngagedOrders, timestamp: DateTime<Utc>) -> Result<()> {
         // TODO: we should generate IDs
         let batch_order_id = &engaged_orders.batch_order_id;
 
@@ -838,7 +899,7 @@ impl Solver {
                     .unwrap();
                 Some(Arc::new(BatchOrder {
                     batch_order_id: batch_order_id.clone(),
-                    created_timestamp: Utc::now(),
+                    created_timestamp: timestamp,
                     asset_orders: engage_order
                         .basket
                         .basket_assets
@@ -919,7 +980,7 @@ impl Solver {
         Ok(())
     }
 
-    fn send_more_batches(&self) -> Result<()> {
+    fn send_more_batches(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let engagements = self.engagements.read();
 
         let new_engagements = (|| {
@@ -932,7 +993,7 @@ impl Solver {
         })();
 
         for engaged_orders in new_engagements {
-            self.send_batch(engaged_orders)?;
+            self.send_batch(engaged_orders, timestamp)?;
         }
 
         Ok(())
@@ -1043,14 +1104,6 @@ impl Solver {
                 remaining_quantity
             );
 
-            if remaining_quantity < self.tolerance {
-                self.chain_connector.write().mint_index(
-                    index_order_write.symbol.clone(),
-                    index_order_write.filled_quantity,
-                    index_order_write.address,
-                );
-            }
-
             self.index_order_manager.write().fill_order_request(
                 &index_order_write.address,
                 &index_order_write.original_client_order_id,
@@ -1059,8 +1112,17 @@ impl Solver {
                 batch.last_update_timestamp,
             )?;
 
-            if safe!(Amount::ONE - self.tolerance).ok_or_eyre("Math Problem")?
-                < fill_rate.expect("Fill-rate Must hae been known at this stage")
+            if remaining_quantity < self.tolerance {
+                self.chain_connector.write().mint_index(
+                    index_order_write.symbol.clone(),
+                    index_order_write.filled_quantity,
+                    index_order_write.address,
+                    Amount::ZERO,
+                    batch.last_update_timestamp,
+                );
+            }
+            else if safe!(Amount::ONE - self.tolerance).ok_or_eyre("Math Problem")?
+                < fill_rate.expect("Fill-rate Must have been known at this stage")
             {
                 println!("IndexOrder batch fraction fully filled");
                 return Ok(Some(index_order.clone()));
@@ -1088,9 +1150,64 @@ impl Solver {
         Ok(())
     }
 
+    fn process_credits(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        let ready_timestamp = timestamp - self.fund_wait_period;
+        let check_not_ready = |x: &CollateralTransaction| ready_timestamp < x.timestamp;
+        let ready_funds = (|| {
+            let mut funds = self.pending_funds.write();
+            let res = funds.iter().find_position(|p| {
+                p.read()
+                    .transactions_cr
+                    .front()
+                    .map(check_not_ready)
+                    .unwrap_or(true)
+            });
+            if let Some((pos, _)) = res {
+                funds.drain(..pos)
+            } else {
+                funds.drain(..)
+            }
+            .collect_vec()
+        })();
+
+        for fund in ready_funds {
+            let mut fund_write = fund.write();
+            let res = fund_write
+                .transactions_cr
+                .iter()
+                .find_position(|x| check_not_ready(x));
+            let completed = if let Some((pos, _)) = res {
+                fund_write.transactions_cr.drain(..pos)
+            } else {
+                fund_write.transactions_cr.drain(..)
+            }
+            .collect_vec();
+            let mut balance = fund_write.balance;
+            for tx in &completed {
+                balance = safe!(balance + tx.amount).ok_or_eyre("Math Problem")?;
+            }
+            fund_write.balance = balance;
+            fund_write.last_update_timestamp = ready_timestamp;
+            fund_write.completed_transactions.extend(completed);
+            println!(
+                "New balance for {} {:0.5}",
+                fund_write.address, fund_write.balance
+            );
+        }
+
+        Ok(())
+    }
+
     /// Core thinking function
-    pub fn solve(&self) {
+    pub fn solve(&self, timestamp: DateTime<Utc>) {
         println!("\nSolve...");
+
+        //
+        // check if there is some collateral we could use
+        //
+        if let Err(err) = self.process_credits(timestamp) {
+            eprintln!("Error while processing credits: {}", err);
+        }
 
         //
         // NOTE: We should only engage new orders, and currently not much engaged
@@ -1147,7 +1264,7 @@ impl Solver {
         // TODO: Should throttling be done here in Solver or in Inventory Manager
 
         println!("\nSend Order Batches...");
-        if let Err(err) = self.send_more_batches() {
+        if let Err(err) = self.send_more_batches(timestamp) {
             eprintln!("Error while sending more batches: {}", err);
         }
     }
@@ -1179,7 +1296,7 @@ impl Solver {
         self.quote_request_manager.write().respond_quote(());
     }
 
-    pub fn handle_chain_event(&self, notification: ChainNotification) {
+    pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
         match notification {
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
                 println!("Solver: Handle Chain Event CuratorWeigthsSet {}", symbol);
@@ -1211,16 +1328,65 @@ impl Solver {
                 ) {
                     println!("Solver: Error while setting curator weights: {err}");
                 }
+                Ok(())
             }
-            ChainNotification::PaymentIn {
+            ChainNotification::Deposit {
                 address,
-                payment_id: _,
-                amount_paid_in,
+                payment_id,
+                amount,
+                timestamp,
             } => {
-                println!(
-                    "Solver: Handle Chain Event PaymentIn {} from {}",
-                    amount_paid_in, address
-                );
+                let collateral_position = self
+                    .client_funds
+                    .write()
+                    .entry(address)
+                    .or_insert_with(|| Arc::new(RwLock::new(CollateralPosition::new(address))))
+                    .clone();
+
+                (|| -> Result<()> {
+                    let mut p = collateral_position.write();
+
+                    p.transactions_cr.push_back(CollateralTransaction {
+                        payment_id,
+                        amount,
+                        timestamp,
+                    });
+                    p.pending_cr = safe!(p.pending_cr + amount).ok_or_eyre("Math Problem")?;
+                    p.last_update_timestamp = timestamp;
+                    Ok(())
+                })()?;
+
+                self.pending_funds.write().push_back(collateral_position);
+                Ok(())
+            }
+            ChainNotification::WithdrawalRequest {
+                address,
+                payment_id,
+                amount,
+                timestamp,
+            } => {
+                let collateral_position = self
+                    .client_funds
+                    .write()
+                    .entry(address)
+                    .or_insert_with(|| Arc::new(RwLock::new(CollateralPosition::new(address))))
+                    .clone();
+
+                (|| -> Result<()> {
+                    let mut p = collateral_position.write();
+
+                    p.transactions_dr.push_back(CollateralTransaction {
+                        payment_id,
+                        amount,
+                        timestamp,
+                    });
+                    p.pending_dr = safe!(p.pending_dr + amount).ok_or_eyre("Math Problem")?;
+                    p.last_update_timestamp = timestamp;
+                    Ok(())
+                })()?;
+
+                self.pending_funds.write().push_back(collateral_position);
+                Ok(())
             }
         }
     }
@@ -1641,6 +1807,7 @@ mod test {
     #[test]
     fn sbe_solver() {
         let tolerance = dec!(0.0001);
+        let fund_wait_period = TimeDelta::new(600, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (index_order_sender, index_order_receiver) = unbounded::<IndexOrderEvent>();
@@ -1711,6 +1878,7 @@ mod test {
             order_id_provider.clone(),
             4,
             tolerance,
+            fund_wait_period,
         ));
 
         solver
@@ -1841,7 +2009,7 @@ mod test {
 
         chain_connector
             .write()
-            .internal_observer
+            .implementor
             .set_observer_fn(move |response| {
                 match &response {
                     MockChainInternalNotification::SolverWeightsSet(symbol, _) => {
@@ -1851,11 +2019,28 @@ mod test {
                         symbol,
                         quantity,
                         receipient,
+                        execution_price,
+                        execution_time,
                     } => {
                         println!(
-                            "Minted Index: {:5} Quantity: {:0.5} User: {}",
-                            symbol, quantity, receipient
+                            "Minted Index: {:5} Quantity: {:0.5} User: {} @{:0.5} {}",
+                            symbol, quantity, receipient, execution_price, execution_time
                         );
+                    }
+                    MockChainInternalNotification::BurnIndex {
+                        symbol,
+                        quantity,
+                        receipient,
+                    } => {
+                        todo!()
+                    }
+                    MockChainInternalNotification::Withdraw {
+                        receipient,
+                        amount,
+                        execution_price,
+                        execution_time,
+                    } => {
+                        todo!()
                     }
                 };
                 mock_chain_sender
@@ -1902,22 +2087,24 @@ mod test {
                 println!("FIX response sent.");
             });
 
-        let (solver_tick_sender, solver_tick_receiver) = unbounded::<&str>();
+        let (solver_tick_sender, solver_tick_receiver) = unbounded::<DateTime<Utc>>();
         let solver_tick = |msg| solver_tick_sender.send(msg).unwrap();
 
         let flush_events = move || {
             // Simple dispatch loop
             loop {
                 select! {
-                    recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap()),
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap()),
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
                     recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
                     recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
                     recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap()),
 
-                    recv(inventory_receiver) -> res => {solver.handle_inventory_event(res.unwrap())
-                        .expect("Failed to handle inventory event")},
+                    recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap())
+                        .expect("Failed to handle chain event"),
+
+                    recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap())
+                        .expect("Failed to handle inventory event"),
 
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
@@ -1953,13 +2140,14 @@ mod test {
                     },
                     recv(deferred) -> res => (res.unwrap())(),
                     recv(solver_tick_receiver) -> res => {
-                        println!("Solver Tick: {}", res.unwrap());
-                        solver.solve()
+                        solver.solve(res.unwrap())
                     },
                     default => { break; },
                 }
             }
         };
+
+        let mut timestamp = Utc::now();
 
         // connect to exchange
         order_connector.write().connect();
@@ -2068,7 +2256,6 @@ mod test {
 
         flush_events();
 
-
         // wait for solver to solve...
         let solver_weithgs_set = mock_chain_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -2078,8 +2265,22 @@ mod test {
             solver_weithgs_set,
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
-        
+
         print!("Chain response received.");
+
+        chain_connector.write().notify_deposit(
+            get_mock_address_1(),
+            "Pay001".into(),
+            dec!(1005.0) * dec!(2.5) * (Amount::ONE + dec!(0.001)),
+            timestamp,
+        );
+
+        flush_events();
+
+        println!("We sent deposit");
+        solver_tick(timestamp);
+
+        flush_events();
 
         fix_server
             .write()
@@ -2092,16 +2293,18 @@ mod test {
                 price: dec!(1005.0),
                 price_threshold: dec!(0.05),
                 quantity: dec!(2.5),
-                timestamp: Utc::now(),
+                timestamp,
             }));
-        
-        flush_events();
-
-        solver_tick("We sent NewOrderSingle FIX message");
 
         flush_events();
 
-        solver_tick("IndexOrderManager responded to EngageOrders");
+        println!("We sent NewOrderSingle FIX message");
+        solver_tick(timestamp);
+
+        flush_events();
+
+        println!("IndexOrderManager responded to EngageOrders");
+        solver_tick(timestamp);
 
         flush_events();
 
@@ -2153,33 +2356,19 @@ mod test {
                     timestamp: _
                 }
             ));
-            
+
             println!("FIX response received.");
         }
 
-        solver_tick("Solver re-inserts IndexOrder from filled batch");
+        println!("Solver re-inserts IndexOrder from filled batch");
+        solver_tick(timestamp);
 
         flush_events();
 
-        solver_tick("Solver sends next batch");
+        println!("Solver sends next batch");
+        solver_tick(timestamp);
 
         flush_events();
-
-        // wait for solver to solve...
-        let mint_index = mock_chain_receiver
-            .recv_timeout(Duration::from_secs(1))
-            .expect("Failed to receive MintIndex");
-
-        assert!(matches!(
-            mint_index,
-            MockChainInternalNotification::MintIndex {
-                symbol: _,
-                quantity: _,
-                receipient: _,
-            }
-        ));
-        
-        println!("Chain response received.");
 
         for _ in 0..2 {
             let fix_response = mock_fix_receiver
@@ -2196,9 +2385,33 @@ mod test {
                     timestamp: _
                 }
             ));
-            
+
             println!("FIX response received.");
         }
+
+        println!("We moved clock 10 minutes forward");
+        timestamp += fund_wait_period;
+        solver_tick(timestamp);
+
+        flush_events();
+
+        // wait for solver to solve...
+        let mint_index = mock_chain_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive MintIndex");
+
+        assert!(matches!(
+            mint_index,
+            MockChainInternalNotification::MintIndex {
+                symbol: _,
+                quantity: _,
+                receipient: _,
+                execution_price: _,
+                execution_time: _
+            }
+        ));
+
+        println!("Chain response received.");
 
         println!("Scenario completed.")
     }
