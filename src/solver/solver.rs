@@ -40,8 +40,9 @@ use super::{
 enum IndexOrderStatus {
     Open,
     Engaged,
-    Mintable,
-    Completed,
+    PartlyMintable,
+    FullyMintable,
+    Minted,
     MissingPrices,
     InvalidSymbol,
     MathOverflow,
@@ -449,12 +450,14 @@ pub struct Solver {
     ready_funds: Mutex<VecDeque<Arc<RwLock<CollateralPosition>>>>,
     ready_orders: Mutex<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
     ready_batches: Mutex<VecDeque<BatchOrderId>>,
+    ready_mints: Mutex<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
     fill_threshold: Amount,
     mint_threshold: Amount,
     fund_wait_period: TimeDelta,
+    mint_wait_period: TimeDelta,
 }
 impl Solver {
     pub fn new(
@@ -471,8 +474,10 @@ impl Solver {
         fill_threshold: Amount,
         mint_threshold: Amount,
         fund_wait_period: TimeDelta,
+        mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
+            // dependencies
             chain_connector,
             index_order_manager,
             quote_request_manager,
@@ -481,18 +486,23 @@ impl Solver {
             order_book_manager,
             inventory_manager,
             order_id_provider,
+            // mappings
             client_orders: RwLock::new(HashMap::new()),
             client_funds: RwLock::new(HashMap::new()),
             engagements: RwLock::new(HashMap::new()),
+            batches: RwLock::new(HashMap::new()),
+            // queues
             ready_funds: Mutex::new(VecDeque::new()),
             ready_orders: Mutex::new(VecDeque::new()),
             ready_batches: Mutex::new(VecDeque::new()),
-            batches: RwLock::new(HashMap::new()),
+            ready_mints: Mutex::new(VecDeque::new()),
+            // parameters
             max_batch_size,
             zero_threshold,
             fill_threshold,
             mint_threshold,
             fund_wait_period,
+            mint_wait_period,
         }
     }
 
@@ -1248,6 +1258,8 @@ impl Solver {
             safe!(index_order_write.engaged_quantity - filled_quantity_delta)
                 .ok_or_eyre("Math Problem")?;
 
+        index_order_write.timestamp = batch.last_update_timestamp;
+
         let remaining_quantity =
             safe!(index_order_write.remaining_quantity + index_order_write.engaged_quantity)
                 .ok_or_eyre("Math Problem")?;
@@ -1277,30 +1289,15 @@ impl Solver {
         )?;
 
         match index_order_write.status {
-            IndexOrderStatus::Mintable => {
+            IndexOrderStatus::PartlyMintable => {
+                // then index order is already in the mintable queue
+            }
+            IndexOrderStatus::FullyMintable => {
                 // then index order is already in the mintable queue
             }
             _ if self.mint_threshold < order_fill_rate => {
-                self.set_order_status(&mut index_order_write, IndexOrderStatus::Mintable);
-
-                let total_cost = index_order_write
-                    .lots
-                    .iter()
-                    .try_fold(Amount::ZERO, |cost, lot| {
-                        let lot_value = safe! {lot.price * lot.quantity}?;
-                        let cost = safe! {lot_value + lot.fee + cost}?;
-                        Some(cost)
-                    })
-                    .ok_or_eyre("Math Problem")?;
-
-                // todo: defer that: add to mintable queue
-                self.chain_connector.write().mint_index(
-                    index_order_write.symbol.clone(),
-                    index_order_write.filled_quantity,
-                    index_order_write.address,
-                    total_cost,
-                    batch.last_update_timestamp,
-                );
+                self.set_order_status(&mut index_order_write, IndexOrderStatus::PartlyMintable);
+                self.ready_mints.lock().push_back(index_order.clone());
             }
             _ => {
                 // not mintable yet
@@ -1308,7 +1305,7 @@ impl Solver {
         }
 
         if self.fill_threshold < order_fill_rate {
-            self.set_order_status(&mut index_order_write, IndexOrderStatus::Completed);
+            self.set_order_status(&mut index_order_write, IndexOrderStatus::FullyMintable);
         } else if self.fill_threshold < fill_rate {
             return Ok(Some(index_order.clone()));
         }
@@ -1331,6 +1328,49 @@ impl Solver {
         }
 
         self.ready_orders.lock().extend(ready_orders.drain(..));
+        Ok(())
+    }
+
+    fn mint_indexes(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        let ready_timestamp = timestamp - self.mint_wait_period;
+        let check_not_ready = |x: &IndexOrderSolver| ready_timestamp < x.timestamp;
+        let ready_mints = (|| {
+            let mut mints = self.ready_mints.lock();
+            let res = mints.iter().find_position(|p| check_not_ready(&p.read()));
+            if let Some((pos, _)) = res {
+                mints.drain(..pos)
+            } else {
+                mints.drain(..)
+            }
+            .collect_vec()
+        })();
+
+        for mintable_order in ready_mints {
+            self.mint_index_order(&mut mintable_order.write())?;
+        }
+
+        Ok(())
+    }
+
+    fn mint_index_order(&self, index_order: &mut IndexOrderSolver) -> Result<()> {
+        let total_cost = index_order
+            .lots
+            .iter()
+            .try_fold(Amount::ZERO, |cost, lot| {
+                let lot_value = safe! {lot.price * lot.quantity}?;
+                let cost = safe! {lot_value + lot.fee + cost}?;
+                Some(cost)
+            })
+            .ok_or_eyre("Math Problem")?;
+
+        self.chain_connector.write().mint_index(
+            index_order.symbol.clone(),
+            index_order.filled_quantity,
+            index_order.address,
+            total_cost,
+            index_order.timestamp,
+        );
+
         Ok(())
     }
 
@@ -1390,6 +1430,13 @@ impl Solver {
         //
         if let Err(err) = self.process_credits(timestamp) {
             eprintln!("Error while processing credits: {}", err);
+        }
+
+        //
+        // checl if there is some index orders we could mint
+        //
+        if let Err(err) = self.mint_indexes(timestamp) {
+            eprintln!("Error while processing mints: {}", err);
         }
 
         //
@@ -1993,6 +2040,7 @@ mod test {
     fn sbe_solver() {
         let tolerance = dec!(0.0001);
         let fund_wait_period = TimeDelta::new(600, 0).unwrap();
+        let mint_wait_period = TimeDelta::new(600, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (index_order_sender, index_order_receiver) = unbounded::<IndexOrderEvent>();
@@ -2066,6 +2114,7 @@ mod test {
             dec!(0.9999),
             dec!(0.99),
             fund_wait_period,
+            mint_wait_period,
         ));
 
         solver
