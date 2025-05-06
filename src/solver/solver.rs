@@ -1363,6 +1363,20 @@ impl Solver {
             })
             .ok_or_eyre("Math Problem")?;
 
+        let client_funds = self.client_funds.read();
+        let funds = client_funds
+            .get(&index_order.address)
+            .ok_or_eyre("Missing funds")?;
+
+        let mut funds_upread = funds.upgradable_read();
+
+        if funds_upread.balance < total_cost {
+            Err(eyre!("Not enough funds"))?;
+        }
+
+        let new_balance = safe!(funds_upread.balance - total_cost).ok_or_eyre("Math Problem")?;
+        funds_upread.with_upgraded(|funds_write| funds_write.balance = new_balance);
+
         self.chain_connector.write().mint_index(
             index_order.symbol.clone(),
             index_order.filled_quantity,
