@@ -1385,6 +1385,8 @@ impl Solver {
             index_order.timestamp,
         );
 
+        self.set_order_status(index_order, IndexOrderStatus::Minted);
+
         Ok(())
     }
 
