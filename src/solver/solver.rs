@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy::serde::quantity;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::{partition, Itertools};
@@ -105,6 +106,20 @@ struct BatchAssetLotAllocation {
     fee: Amount,
 }
 
+impl BatchAssetLotAllocation {
+    pub fn try_new(
+        client_order_id: ClientOrderId,
+        quantity: Amount,
+        lot: &BatchAssetLot,
+    ) -> Option<Self> {
+        Some(Self {
+            client_order_id,
+            quantity,
+            fee: safe!(lot.fee * safe!(quantity / lot.original_quantity)?)?,
+        })
+    }
+}
+
 /// Every execution of any order in the batch produces a lot of the asset on the
 /// order.
 ///
@@ -121,7 +136,10 @@ struct BatchAssetLot {
     lot_id: LotId,
 
     /// Quantity filled
-    quantity: Amount,
+    original_quantity: Amount,
+
+    /// Unallocated quantity
+    remaining_quantity: Amount,
 
     /// Executed price
     price: Amount,
@@ -196,9 +214,34 @@ impl BatchAssetPosition {
     pub fn try_allocate_lots(
         &mut self,
         client_order_id: ClientOrderId,
-        quantity: Amount,
-    ) -> Option<()> {
-        Some(())
+        mut quantity: Amount,
+    ) -> Option<Amount> {
+        while let Some(lot) = self.open_lots.front_mut() {
+            if lot.remaining_quantity < quantity {
+                let mut lot = self
+                    .open_lots
+                    .pop_front()
+                    .expect("Should have front at this stage");
+                lot.allocations.push(BatchAssetLotAllocation::try_new(
+                    client_order_id.clone(),
+                    lot.remaining_quantity,
+                    &lot,
+                )?);
+                quantity = safe!(quantity - lot.remaining_quantity)?;
+                lot.remaining_quantity = Amount::ZERO;
+                self.closed_lots.push_back(lot);
+            } else {
+                lot.allocations.push(BatchAssetLotAllocation::try_new(
+                    client_order_id.clone(),
+                    quantity,
+                    lot,
+                )?);
+                lot.remaining_quantity = safe!(lot.remaining_quantity - quantity)?;
+                quantity = Amount::ZERO;
+                break;
+            }
+        }
+        Some(quantity)
     }
 }
 
@@ -1162,6 +1205,14 @@ impl Solver {
         }
 
         // Allocate batch lots to index order
+        //
+        // NOTE This is super important as we want to allocate prices and fees
+        // dependant on concrete execution(s). Say one asset had multiple
+        // executions at different prices, we need to allocate to Index Orders
+        // some portion of those quantites at some prices, and some portion of
+        // fees. When we Mint Index we need to sum those fees and lot values allocated
+        // per Index Order for which we're minting.
+        //
         for asset in &engaged_order.basket.basket_assets {
             let asset_quantity =
                 safe!(asset.quantity * filled_quantity_delta).ok_or_eyre("Math Problem")?;
@@ -1173,9 +1224,18 @@ impl Solver {
                 .get_mut(&key)
                 .expect("Asset position must be known at this stage");
 
-            position
+            // It is critical that this function will match exactly full
+            // quantity, as otherwise our numbers wouldn't match up. That is
+            // because lots are opened in total quantity matching position.
+            match position
                 .try_allocate_lots(index_order_write.client_order_id.clone(), asset_quantity)
-                .ok_or_eyre("Math Problem")?;
+            {
+                None => Err(eyre!("Math Problem")),
+                Some(quantity) if quantity > self.zero_threshold => {
+                    Err(eyre!("Couldn't allocate sufficient lots"))
+                }
+                Some(_) => Ok(()),
+            }?;
         }
 
         // Now we update it
@@ -1691,7 +1751,8 @@ impl Solver {
                     position.open_lots.push_back(BatchAssetLot {
                         order_id,
                         lot_id,
-                        quantity,
+                        original_quantity: quantity,
+                        remaining_quantity: quantity,
                         price,
                         fee,
                         timestamp,
