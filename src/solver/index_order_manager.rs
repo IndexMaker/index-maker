@@ -12,7 +12,7 @@ use crate::{
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{Server, ServerEvent},
-    solver::index_order::{IndexOrder},
+    solver::index_order::IndexOrder,
 };
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};

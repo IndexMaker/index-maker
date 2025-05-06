@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::{partition, Itertools};
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
 use crate::{
@@ -35,10 +35,13 @@ use super::{
     position::LotId,
 };
 
+#[derive(Debug)]
 enum IndexOrderStatus {
     Open,
     Engaged,
-    Closed,
+    Mintable,
+    Completed,
+    MissingPrices,
     InvalidSymbol,
     MathOverflow,
 }
@@ -88,7 +91,29 @@ struct IndexOrderSolver {
     status: IndexOrderStatus,
 }
 
-struct BatchAssetTransaction {
+/// When we fill Index Orders from executed batches, we need to allocate some
+/// portion of what was executed to each index order in the batch using
+/// contribution factor.
+struct BatchAssetLotAllocation {
+    /// Index order to which we allocated portion of a lot
+    client_order_id: ClientOrderId,
+
+    /// Quantity allocated to index order
+    quantity: Amount,
+
+    /// Fee allocated to index order
+    fee: Amount,
+}
+
+/// Every execution of any order in the batch produces a lot of the asset on the
+/// order.
+///
+/// Note that InventoryManager also manages lots, however these are lots in our
+/// inventory, for us to know what we've got in the inventory and how we
+/// acquired it. The BatchAssetLot is different kind of lot, in which we store
+/// one unit of execution for a batch created by Solver, and then we allocate
+/// some portion of that unit to index orders, using allocations list.
+struct BatchAssetLot {
     /// Asset Order ID
     order_id: OrderId,
 
@@ -106,43 +131,80 @@ struct BatchAssetTransaction {
 
     /// Timestamp of execution
     timestamp: DateTime<Utc>,
+
+    /// Allocations to index orders
+    allocations: Vec<BatchAssetLotAllocation>,
 }
 
+/// This is aggregated position on asset within the batch.
+///
+/// Note that InventoryManager also manages positions, however these are
+/// positions in out inventory, for us to know what is our absolute position at
+/// any given moment. The BatchAssetPosition is different kind of position, in
+/// which we aggregate position over all lots for a batch created by Solver.
 struct BatchAssetPosition {
     /// Symbol of an asset
-    pub symbol: Symbol,
+    symbol: Symbol,
 
     /// Side of an order
-    pub side: Side,
+    side: Side,
 
     /// Position in this batch of this asset on that side
     /// Note: A batch can have both Buy and Sell orders,
     /// and we need separate position for them, as these
     /// will be matched for different users.
-    pub position: Amount,
+    position: Amount,
 
     /// Total quantity on all orders for this asset on that side
-    pub order_quantity: Amount,
+    order_quantity: Amount,
 
     /// Total price we paid for reaching the position
-    pub realized_value: Amount,
+    realized_value: Amount,
 
     /// Total price we intended to pay on the order
-    pub volley_size: Amount,
+    volley_size: Amount,
 
     /// Total fee we paid on the order
-    pub fee: Amount,
+    fee: Amount,
 
     /// Time of the last transaction of this asset on this side
-    pub last_update_timestamp: DateTime<Utc>,
+    last_update_timestamp: DateTime<Utc>,
 
-    /// Transactions so far
-    pub transactions: Vec<BatchAssetTransaction>,
+    /// Unallocated lots
+    open_lots: VecDeque<BatchAssetLot>,
+
+    /// Allocated lots
+    closed_lots: VecDeque<BatchAssetLot>,
+}
+
+impl BatchAssetPosition {
+    pub fn try_new(order: &AssetOrder, timestamp: DateTime<Utc>) -> Option<Self> {
+        Some(Self {
+            symbol: order.symbol.clone(),
+            side: order.side,
+            order_quantity: order.quantity,
+            volley_size: safe!(order.price * order.quantity)?,
+            position: Amount::ZERO,
+            realized_value: Amount::ZERO,
+            fee: Amount::ZERO,
+            last_update_timestamp: timestamp,
+            open_lots: VecDeque::new(),
+            closed_lots: VecDeque::new(),
+        })
+    }
+
+    pub fn try_allocate_lots(
+        &mut self,
+        client_order_id: ClientOrderId,
+        quantity: Amount,
+    ) -> Option<()> {
+        Some(())
+    }
 }
 
 struct BatchOrderStatus {
     // ID of the batch order
-    pub batch_order_id: BatchOrderId,
+    batch_order_id: BatchOrderId,
 
     /// Positions of individual assets in this batch
     /// Note: These aren't our absolute positions, these are only positions
@@ -180,6 +242,37 @@ struct BatchOrderStatus {
 
     /// Time of the last transaction
     last_update_timestamp: DateTime<Utc>,
+}
+
+impl BatchOrderStatus {
+    pub fn new(batch_order_id: BatchOrderId, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            batch_order_id,
+            positions: HashMap::new(),
+            volley_size: Amount::ZERO,
+            filled_volley: Amount::ZERO,
+            filled_fraction: Amount::ZERO,
+            realized_value: Amount::ZERO,
+            fee: Amount::ZERO,
+            last_update_timestamp: timestamp,
+        }
+    }
+
+    pub fn try_add_position(&mut self, order: &AssetOrder, timestamp: DateTime<Utc>) -> Option<()> {
+        let key = (order.symbol.clone(), order.side);
+        match self.positions.entry(key) {
+            Entry::Occupied(mut entry) => {
+                let position = entry.get_mut();
+                position.order_quantity = safe!(position.order_quantity + order.quantity)?;
+            }
+            Entry::Vacant(entry) => {
+                let position = BatchAssetPosition::try_new(order, timestamp)?;
+                self.volley_size = safe!(self.volley_size + position.volley_size)?;
+                entry.insert(position);
+            }
+        }
+        Some(())
+    }
 }
 
 struct CollateralTransaction {
@@ -297,6 +390,7 @@ pub trait OrderIdProvider {
 /// which will (partly) fill (some of the) ordered indexes.  Any position that
 /// wasn't matched against ordered indexes shouldn't be kept for too long.
 pub struct Solver {
+    // dependencies
     chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
     index_order_manager: Arc<RwLock<IndexOrderManager>>,
     quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
@@ -305,15 +399,20 @@ pub struct Solver {
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
     order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
-    client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<IndexOrderSolver>>>>,
+    // mappings
     client_funds: RwLock<HashMap<Address, Arc<RwLock<CollateralPosition>>>>,
-    pending_funds: RwLock<VecDeque<Arc<RwLock<CollateralPosition>>>>,
-    ready_orders: RwLock<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
+    client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<IndexOrderSolver>>>>,
     engagements: RwLock<HashMap<BatchOrderId, EngagedOrders>>,
-    ready_batches: RwLock<VecDeque<BatchOrderId>>,
     batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
-    max_orders: usize,
-    tolerance: Amount,
+    // queues
+    ready_funds: Mutex<VecDeque<Arc<RwLock<CollateralPosition>>>>,
+    ready_orders: Mutex<VecDeque<Arc<RwLock<IndexOrderSolver>>>>,
+    ready_batches: Mutex<VecDeque<BatchOrderId>>,
+    // parameters
+    max_batch_size: usize,
+    zero_threshold: Amount,
+    fill_threshold: Amount,
+    mint_threshold: Amount,
     fund_wait_period: TimeDelta,
 }
 impl Solver {
@@ -326,8 +425,10 @@ impl Solver {
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
         order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
-        max_orders: usize,
-        tolerance: Amount,
+        max_batch_size: usize,
+        zero_threshold: Amount,
+        fill_threshold: Amount,
+        mint_threshold: Amount,
         fund_wait_period: TimeDelta,
     ) -> Self {
         Self {
@@ -341,18 +442,24 @@ impl Solver {
             order_id_provider,
             client_orders: RwLock::new(HashMap::new()),
             client_funds: RwLock::new(HashMap::new()),
-            pending_funds: RwLock::new(VecDeque::new()),
-            ready_orders: RwLock::new(VecDeque::new()),
             engagements: RwLock::new(HashMap::new()),
-            ready_batches: RwLock::new(VecDeque::new()),
+            ready_funds: Mutex::new(VecDeque::new()),
+            ready_orders: Mutex::new(VecDeque::new()),
+            ready_batches: Mutex::new(VecDeque::new()),
             batches: RwLock::new(HashMap::new()),
-            max_orders,
-            tolerance,
+            max_batch_size,
+            zero_threshold,
+            fill_threshold,
+            mint_threshold,
             fund_wait_period,
         }
     }
 
     fn set_order_status(&self, order: &mut IndexOrderSolver, status: IndexOrderStatus) {
+        println!(
+            "Set Index Order Status: {} {:?}",
+            order.client_order_id, status
+        );
         order.status = status;
     }
 
@@ -411,7 +518,12 @@ impl Solver {
             .get_prices(PriceType::VolumeWeighted, &symbols);
 
         if !individual_asset_prices.missing_symbols.is_empty() {
-            todo!("Some assets have missing prices, what are we going to do? Defer probably.");
+            // Note: We just log the fact, and we will mark corresponding
+            // index orders as failed with missing prices
+            println!(
+                "Some assets have missing prices: {}",
+                individual_asset_prices.missing_symbols.iter().join(", ")
+            );
         }
 
         individual_asset_prices
@@ -442,7 +554,9 @@ impl Solver {
             locked_orders.retain_mut(|(_, order)| {
                 if missing_index_prices.contains(&order.symbol) {
                     order.with_upgraded(|order| {
-                        self.set_order_status(order, IndexOrderStatus::MathOverflow);
+                        // TODO: An order with missing prices can be reinserted, when
+                        // new prices are available, and removed if too long in queue.
+                        self.set_order_status(order, IndexOrderStatus::MissingPrices);
                     });
                     false
                 } else {
@@ -480,8 +594,14 @@ impl Solver {
 
                 // We should be able to get basket and its current price, as in locked_orders
                 // we only keep orders that weren't erroneous
-                let current_price = more_orders.index_prices.get(&index_order.symbol)?;
-                let basket = more_orders.baskets.get(&index_order.symbol)?;
+                let current_price = more_orders
+                    .index_prices
+                    .get(&index_order.symbol)
+                    .expect("Missing index price");
+                let basket = more_orders
+                    .baskets
+                    .get(&index_order.symbol)
+                    .expect("Missing basket");
 
                 println!(
                     " * index order: {:5} {} < {} {:?} p={:0.5} q={:0.5} t={:0.5}",
@@ -500,7 +620,10 @@ impl Solver {
                     .iter()
                     .map_while(|asset| {
                         let asset_symbol = asset.weight.asset.name.clone();
-                        let asset_price = more_orders.asset_prices.get(&asset_symbol)?;
+                        let asset_price = more_orders
+                            .asset_prices
+                            .get(&asset_symbol)
+                            .expect("Missing asset price");
                         //
                         // Formula:
                         //      quantity of asset to order = quantity of index order
@@ -674,12 +797,12 @@ impl Solver {
                         let asset_symbol = asset.weight.asset.name.clone();
                         let asset_total_quantity = order_liquidity
                             .asset_total_order_quantity
-                            .get(&asset_symbol)?;
+                            .get(&asset_symbol)?; // missing entry means we had math-overflow in previous step
 
                         // Weighted sum of asset liquidity for all index orders in batch
                         let asset_liquidity = order_liquidity
                             .asset_total_weighted_liquidity
-                            .get(&asset_symbol)?;
+                            .get(&asset_symbol)?; // missing entry means we had math-overflow in previous step
 
                         // Contribution fraction of this index order to total quantity
                         let asset_contribution_fraction =
@@ -719,22 +842,12 @@ impl Solver {
                             contribution.order_fraction,
                             contribution.order_quantity);
 
-                        match (
-                            contribution
-                                .asset_contribution_fraction
-                                .entry(asset_symbol.clone()),
-                            contribution
-                                .asset_liquidity_contribution
-                                .entry(asset_symbol),
-                        ) {
-                            (Entry::Vacant(contribution_entry), Entry::Vacant(liquidity_entry)) => {
-                                // Both need to be inserted
-                                contribution_entry.insert(asset_contribution_fraction);
-                                liquidity_entry.insert(asset_liquidity_contribution);
-                                Some(())
-                            }
-                            _ => None, // error
-                        }
+                        contribution
+                            .asset_contribution_fraction
+                            .insert(asset_symbol.clone(), asset_contribution_fraction).is_none().then_some(())?;
+                        contribution
+                            .asset_liquidity_contribution
+                            .insert(asset_symbol, asset_liquidity_contribution).is_none().then_some(())
                     })
                     .count();
 
@@ -742,8 +855,9 @@ impl Solver {
                     // There was some error
                     None
                 } else {
-                    all_contributions.insert(update.client_order_id.clone(), contribution);
-                    Some(())
+                    all_contributions.insert(update.client_order_id.clone(), contribution)
+                    .is_none()
+                    .then_some(())
                 }
             });
             if let None = result {
@@ -792,6 +906,9 @@ impl Solver {
                             engaged_threshold: threshold,
                             filled_quantity: Amount::ZERO,
                         }));
+                        index_order.with_upgraded(|order| {
+                            self.set_order_status(order, IndexOrderStatus::Engaged)
+                        });
                         true
                     }
                     _ => {
@@ -811,8 +928,8 @@ impl Solver {
 
         // Receive a batch of new Index Orders
         let new_orders = (|| {
-            let mut new_orders = self.ready_orders.write();
-            let max_drain = new_orders.len().min(self.max_orders);
+            let mut new_orders = self.ready_orders.lock();
+            let max_drain = new_orders.len().min(self.max_batch_size);
             new_orders.drain(..max_drain).collect_vec()
         })();
 
@@ -927,44 +1044,13 @@ impl Solver {
                     ))
                     .join("; ")
             );
-            let mut batch_order_status = BatchOrderStatus {
-                batch_order_id: batch.batch_order_id.clone(),
-                positions: HashMap::new(),
-                volley_size: Amount::ZERO,
-                filled_volley: Amount::ZERO,
-                filled_fraction: Amount::ZERO,
-                realized_value: Amount::ZERO,
-                fee: Amount::ZERO,
-                last_update_timestamp: batch.created_timestamp,
-            };
+            let mut batch_order_status =
+                BatchOrderStatus::new(batch.batch_order_id.clone(), batch.created_timestamp);
 
             for order in &batch.asset_orders {
-                let key = (order.symbol.clone(), order.side);
-                match batch_order_status.positions.entry(key) {
-                    Entry::Occupied(mut entry) => {
-                        let position = entry.get_mut();
-                        position.order_quantity = safe!(position.order_quantity + order.quantity)
-                            .ok_or_eyre("Math Problem")?;
-                    }
-                    Entry::Vacant(entry) => {
-                        let position = BatchAssetPosition {
-                            symbol: order.symbol.clone(),
-                            side: order.side,
-                            order_quantity: order.quantity,
-                            volley_size: safe!(order.price * order.quantity)
-                                .ok_or_eyre("Math Problem")?,
-                            position: Amount::ZERO,
-                            realized_value: Amount::ZERO,
-                            fee: Amount::ZERO,
-                            last_update_timestamp: batch.created_timestamp,
-                            transactions: Vec::new(),
-                        };
-                        batch_order_status.volley_size =
-                            safe!(batch_order_status.volley_size + position.volley_size)
-                                .ok_or_eyre("Math Problem")?;
-                        entry.insert(position);
-                    }
-                }
+                batch_order_status
+                    .try_add_position(order, batch.created_timestamp)
+                    .ok_or_eyre("Math Problem")?;
             }
 
             self.batches
@@ -983,8 +1069,8 @@ impl Solver {
         let engagements = self.engagements.read();
 
         let new_engagements = (|| {
-            let mut new_batches = self.ready_batches.write();
-            let max_drain = new_batches.len().min(self.max_orders);
+            let mut new_batches = self.ready_batches.lock();
+            let max_drain = new_batches.len().min(self.max_batch_size);
             new_batches
                 .drain(..max_drain)
                 .filter_map(|batch_order_id| engagements.get(&batch_order_id))
@@ -1051,7 +1137,7 @@ impl Solver {
                 Some(x.min(avialable_fill_rate))
             });
             println!(
-                "{:5} q={:0.5} p={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
+                "Fill Basket Asset: {:5} q={:0.5} p={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
                 asset_symbol,
                 asset_quantity,
                 position.position,
@@ -1061,6 +1147,8 @@ impl Solver {
             );
         }
 
+        let fill_rate = fill_rate.expect("Fill-rate must have been known at this stage");
+
         // This is new filled quantity of this batch engagement with Index Order
         let filled_quantity = safe!(fill_rate * engaged_quantity).ok_or_eyre("Math Problem")?;
 
@@ -1068,50 +1156,78 @@ impl Solver {
         let filled_quantity_delta =
             safe!(filled_quantity - engaged_order.filled_quantity).ok_or_eyre("Math Problem")?;
 
+        // We didn't fill any quantity on that index order
+        if filled_quantity_delta < self.zero_threshold {
+            return Ok(None);
+        }
+
+        // Allocate batch lots to index order
+        for asset in &engaged_order.basket.basket_assets {
+            let asset_quantity =
+                safe!(asset.quantity * filled_quantity_delta).ok_or_eyre("Math Problem")?;
+
+            let asset_symbol = &asset.weight.asset.name;
+            let key = (asset_symbol.clone(), index_order_write.side);
+            let position = batch
+                .positions
+                .get_mut(&key)
+                .expect("Asset position must be known at this stage");
+
+            position
+                .try_allocate_lots(index_order_write.client_order_id.clone(), asset_quantity)
+                .ok_or_eyre("Math Problem")?;
+        }
+
         // Now we update it
         engaged_order.with_upgraded(|x| {
             x.filled_quantity = filled_quantity;
         });
 
+        // And we add the delta to the Index Order filled quantity
+        index_order_write.filled_quantity =
+            safe!(index_order_write.filled_quantity + filled_quantity_delta)
+                .ok_or_eyre("Math Problem")?;
+
+        index_order_write.engaged_quantity =
+            safe!(index_order_write.engaged_quantity - filled_quantity_delta)
+                .ok_or_eyre("Math Problem")?;
+
+        let remaining_quantity =
+            safe!(index_order_write.remaining_quantity + index_order_write.engaged_quantity)
+                .ok_or_eyre("Math Problem")?;
+
+        let total_quantity = safe!(index_order_write.filled_quantity + remaining_quantity)
+            .ok_or_eyre("Math Problem")?;
+
+        let order_fill_rate =
+            safe!(index_order_write.filled_quantity / total_quantity).ok_or_eyre("Math Problem")?;
+
         println!(
-            "Fill Index Order: {} {:0.5} (+{:0.5} {:0.3}%)",
-            index_order_write.original_client_order_id,
-            filled_quantity,
-            filled_quantity_delta,
-            safe!(fill_rate * Amount::ONE_HUNDRED).ok_or_eyre("Math Problem")?
+            "Fill Index Order: ifq={:0.5} irq={:0.5} ieq={:0.5} rq={:0.5} bfr={:0.3}% ofr={:0.3}%",
+            index_order_write.filled_quantity,
+            index_order_write.remaining_quantity,
+            index_order_write.engaged_quantity,
+            remaining_quantity,
+            safe!(fill_rate * Amount::ONE_HUNDRED).ok_or_eyre("Math Problem")?,
+            safe!(order_fill_rate * Amount::ONE_HUNDRED).ok_or_eyre("Math Problem")?,
         );
 
-        if self.tolerance < filled_quantity_delta {
-            // And we add the delta to the Index Order filled quantity
-            index_order_write.filled_quantity =
-                safe!(index_order_write.filled_quantity + filled_quantity_delta)
-                    .ok_or_eyre("Math Problem")?;
+        self.index_order_manager.write().fill_order_request(
+            &index_order_write.address,
+            &index_order_write.original_client_order_id,
+            &index_order_write.symbol,
+            filled_quantity_delta,
+            batch.last_update_timestamp,
+        )?;
 
-            index_order_write.engaged_quantity =
-                safe!(index_order_write.engaged_quantity - filled_quantity_delta)
-                    .ok_or_eyre("Math Problem")?;
+        match index_order_write.status {
+            IndexOrderStatus::Mintable => {
+                // then index order is already in the mintable queue
+            }
+            _ if self.mint_threshold < order_fill_rate => {
+                self.set_order_status(&mut index_order_write, IndexOrderStatus::Mintable);
 
-            let remaining_quantity =
-                safe!(index_order_write.remaining_quantity + index_order_write.engaged_quantity)
-                    .ok_or_eyre("Math Problem")?;
-
-            println!(
-                "IndexOrder (Solver): ifq={:0.5} irq={:0.5} ieq={:0.5} rq={:0.5}",
-                index_order_write.filled_quantity,
-                index_order_write.remaining_quantity,
-                index_order_write.engaged_quantity,
-                remaining_quantity
-            );
-
-            self.index_order_manager.write().fill_order_request(
-                &index_order_write.address,
-                &index_order_write.original_client_order_id,
-                &index_order_write.symbol,
-                filled_quantity_delta,
-                batch.last_update_timestamp,
-            )?;
-
-            if remaining_quantity < self.tolerance {
+                // todo: defer that: add to mintable queue
                 self.chain_connector.write().mint_index(
                     index_order_write.symbol.clone(),
                     index_order_write.filled_quantity,
@@ -1119,13 +1235,17 @@ impl Solver {
                     Amount::ZERO,
                     batch.last_update_timestamp,
                 );
-            } else if safe!(Amount::ONE - self.tolerance).ok_or_eyre("Math Problem")?
-                < fill_rate.expect("Fill-rate Must have been known at this stage")
-            {
-                println!("IndexOrder batch fraction fully filled");
-                return Ok(Some(index_order.clone()));
             }
-        };
+            _ => {
+                // not mintable yet
+            }
+        }
+
+        if self.fill_threshold < order_fill_rate {
+            self.set_order_status(&mut index_order_write, IndexOrderStatus::Completed);
+        } else if self.fill_threshold < fill_rate {
+            return Ok(Some(index_order.clone()));
+        }
 
         Ok(None)
     }
@@ -1144,7 +1264,7 @@ impl Solver {
             }
         }
 
-        self.ready_orders.write().extend(ready_orders.drain(..));
+        self.ready_orders.lock().extend(ready_orders.drain(..));
         Ok(())
     }
 
@@ -1152,7 +1272,7 @@ impl Solver {
         let ready_timestamp = timestamp - self.fund_wait_period;
         let check_not_ready = |x: &CollateralTransaction| ready_timestamp < x.timestamp;
         let ready_funds = (|| {
-            let mut funds = self.pending_funds.write();
+            let mut funds = self.ready_funds.lock();
             let res = funds.iter().find_position(|p| {
                 p.read()
                     .transactions_cr
@@ -1353,7 +1473,7 @@ impl Solver {
                     Ok(())
                 })()?;
 
-                self.pending_funds.write().push_back(collateral_position);
+                self.ready_funds.lock().push_back(collateral_position);
                 Ok(())
             }
             ChainNotification::WithdrawalRequest {
@@ -1382,7 +1502,7 @@ impl Solver {
                     Ok(())
                 })()?;
 
-                self.pending_funds.write().push_back(collateral_position);
+                self.ready_funds.lock().push_back(collateral_position);
                 Ok(())
             }
         }
@@ -1430,7 +1550,7 @@ impl Solver {
                             status: IndexOrderStatus::Open,
                         }));
                         entry.insert(solver_order.clone());
-                        self.ready_orders.write().push_back(solver_order);
+                        self.ready_orders.lock().push_back(solver_order);
                     }
                     Entry::Occupied(_) => {
                         todo!();
@@ -1494,7 +1614,7 @@ impl Solver {
                         todo!()
                     }
                 }
-                self.ready_batches.write().push_back(batch_order_id);
+                self.ready_batches.lock().push_back(batch_order_id);
             }
             IndexOrderEvent::CancelIndexOrder {
                 original_client_order_id,
@@ -1568,13 +1688,14 @@ impl Solver {
                     position.fee = safe!(position.fee + fee)?;
                     batch.fee = safe!(batch.fee + fee)?;
 
-                    position.transactions.push(BatchAssetTransaction {
+                    position.open_lots.push_back(BatchAssetLot {
                         order_id,
                         lot_id,
                         quantity,
                         price,
                         fee,
                         timestamp,
+                        allocations: Vec::new()
                     });
 
                     position.last_update_timestamp = timestamp;
@@ -1875,6 +1996,8 @@ mod test {
             order_id_provider.clone(),
             4,
             tolerance,
+            dec!(0.9999),
+            dec!(0.99),
             fund_wait_period,
         ));
 
