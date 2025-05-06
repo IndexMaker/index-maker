@@ -88,33 +88,36 @@ struct IndexOrderSolver {
     /// Time when requested
     timestamp: DateTime<Utc>,
 
-    // Solver status
+    /// Solver status
     status: IndexOrderStatus,
+
+    /// All asset lots allocated to this Index Order
+    lots: Vec<IndexOrderAssetLot>,
 }
 
 /// When we fill Index Orders from executed batches, we need to allocate some
 /// portion of what was executed to each index order in the batch using
 /// contribution factor.
-struct BatchAssetLotAllocation {
-    /// Index order to which we allocated portion of a lot
-    client_order_id: ClientOrderId,
+struct IndexOrderAssetLot {
+    /// Symbol of an asset
+    symbol: Symbol,
 
     /// Quantity allocated to index order
     quantity: Amount,
 
-    /// Fee allocated to index order
+    /// Executed price
+    price: Amount,
+
+    /// Execution fee
     fee: Amount,
 }
 
-impl BatchAssetLotAllocation {
-    pub fn try_new(
-        client_order_id: ClientOrderId,
-        quantity: Amount,
-        lot: &BatchAssetLot,
-    ) -> Option<Self> {
+impl IndexOrderAssetLot {
+    pub fn try_new(symbol: Symbol, quantity: Amount, lot: &BatchAssetLot) -> Option<Self> {
         Some(Self {
-            client_order_id,
+            symbol,
             quantity,
+            price: lot.price,
             fee: safe!(lot.fee * safe!(quantity / lot.original_quantity)?)?,
         })
     }
@@ -149,9 +152,6 @@ struct BatchAssetLot {
 
     /// Timestamp of execution
     timestamp: DateTime<Utc>,
-
-    /// Allocations to index orders
-    allocations: Vec<BatchAssetLotAllocation>,
 }
 
 /// This is aggregated position on asset within the batch.
@@ -213,29 +213,27 @@ impl BatchAssetPosition {
 
     pub fn try_allocate_lots(
         &mut self,
-        client_order_id: ClientOrderId,
+        index_order: &mut IndexOrderSolver,
         mut quantity: Amount,
     ) -> Option<Amount> {
+        let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
+            let asset_allocation = IndexOrderAssetLot::try_new(self.symbol.clone(), quantity, lot)?;
+            index_order.lots.push(asset_allocation);
+            Some(())
+        };
         while let Some(lot) = self.open_lots.front_mut() {
             if lot.remaining_quantity < quantity {
                 let mut lot = self
                     .open_lots
                     .pop_front()
                     .expect("Should have front at this stage");
-                lot.allocations.push(BatchAssetLotAllocation::try_new(
-                    client_order_id.clone(),
-                    lot.remaining_quantity,
-                    &lot,
-                )?);
-                quantity = safe!(quantity - lot.remaining_quantity)?;
+                let used_quantity = lot.remaining_quantity;
+                push_allocation(&mut lot, used_quantity)?;
+                quantity = safe!(quantity - used_quantity)?;
                 lot.remaining_quantity = Amount::ZERO;
                 self.closed_lots.push_back(lot);
             } else {
-                lot.allocations.push(BatchAssetLotAllocation::try_new(
-                    client_order_id.clone(),
-                    quantity,
-                    lot,
-                )?);
+                push_allocation(lot, quantity)?;
                 lot.remaining_quantity = safe!(lot.remaining_quantity - quantity)?;
                 quantity = Amount::ZERO;
                 break;
@@ -1227,9 +1225,7 @@ impl Solver {
             // It is critical that this function will match exactly full
             // quantity, as otherwise our numbers wouldn't match up. That is
             // because lots are opened in total quantity matching position.
-            match position
-                .try_allocate_lots(index_order_write.client_order_id.clone(), asset_quantity)
-            {
+            match position.try_allocate_lots(&mut index_order_write, asset_quantity) {
                 None => Err(eyre!("Math Problem")),
                 Some(quantity) if quantity > self.zero_threshold => {
                     Err(eyre!("Couldn't allocate sufficient lots"))
@@ -1287,12 +1283,22 @@ impl Solver {
             _ if self.mint_threshold < order_fill_rate => {
                 self.set_order_status(&mut index_order_write, IndexOrderStatus::Mintable);
 
+                let total_cost = index_order_write
+                    .lots
+                    .iter()
+                    .try_fold(Amount::ZERO, |cost, lot| {
+                        let lot_value = safe! {lot.price * lot.quantity}?;
+                        let cost = safe! {lot_value + lot.fee + cost}?;
+                        Some(cost)
+                    })
+                    .ok_or_eyre("Math Problem")?;
+
                 // todo: defer that: add to mintable queue
                 self.chain_connector.write().mint_index(
                     index_order_write.symbol.clone(),
                     index_order_write.filled_quantity,
                     index_order_write.address,
-                    Amount::ZERO,
+                    total_cost,
                     batch.last_update_timestamp,
                 );
             }
@@ -1608,6 +1614,7 @@ impl Solver {
                             filled_quantity: Amount::ZERO,
                             timestamp,
                             status: IndexOrderStatus::Open,
+                            lots: Vec::new(),
                         }));
                         entry.insert(solver_order.clone());
                         self.ready_orders.lock().push_back(solver_order);
@@ -1756,7 +1763,6 @@ impl Solver {
                         price,
                         fee,
                         timestamp,
-                        allocations: Vec::new()
                     });
 
                     position.last_update_timestamp = timestamp;
