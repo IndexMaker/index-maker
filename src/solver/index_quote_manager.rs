@@ -60,9 +60,7 @@ pub mod test_util {
                     client_order_id: _,
                     symbol: _,
                     side: _,
-                    price: _,
-                    price_threshold: _,
-                    quantity: _,
+                    collateral_amount: _,
                     timestamp: _,
                 } => {
                     self.new_quote_request(());

@@ -49,5 +49,5 @@ pub mod solver {
     pub mod index_quote_manager;
     pub mod inventory_manager;
     pub mod position;
-    pub mod solver;
+    //pub mod solver;
 }

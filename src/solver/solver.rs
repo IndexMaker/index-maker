@@ -1001,7 +1001,7 @@ impl Solver {
         // Now let's engage orders, and unlock them afterwards
         let engaged_orders = self.engage_orders(&mut more_orders, contributions);
 
-        // TODO: Generate it!
+        // Generate Batch Order ID
         let batch_order_id = self.order_id_provider.write().next_batch_order_id();
 
         Some(EngagedOrders {
@@ -1449,7 +1449,7 @@ impl Solver {
         }
 
         //
-        // checl if there is some index orders we could mint
+        // check if there is some index orders we could mint
         //
         if let Err(err) = self.mint_indexes(timestamp) {
             eprintln!("Error while processing mints: {}", err);
@@ -1649,7 +1649,7 @@ impl Solver {
                 side,
                 price,
                 price_threshold,
-                quantity,
+                collateral_amount: quantity,
                 timestamp,
             } => {
                 println!(
@@ -1691,8 +1691,8 @@ impl Solver {
                 original_client_order_id,
                 address,
                 client_order_id,
-                quantity_removed: _,
-                quantity_remaining: _,
+                collateral_removed: _,
+                collateral_remaining: _,
                 timestamp: _,
             } => {
                 println!(
@@ -1724,11 +1724,11 @@ impl Solver {
                                 )) {
                                     Some(engaged_order) => {
                                         index_order_stored.remaining_quantity =
-                                            engaged_order.quantity_remaining;
+                                            engaged_order.collateral_remaining;
                                         index_order_stored.engaged_quantity =
-                                            engaged_order.quantity_engaged;
+                                            engaged_order.collateral_engaged;
                                         engaged_order_stored.engaged_quantity =
-                                            engaged_order.quantity_engaged;
+                                            engaged_order.collateral_engaged;
                                     }
                                     None => {
                                         self.set_order_status(
