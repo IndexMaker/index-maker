@@ -180,7 +180,9 @@ impl IndexOrderManager {
         )?;
 
         match update_order_outcome {
-            UpdateIndexOrderOutcome::Push { new_collateral_amount } => {
+            UpdateIndexOrderOutcome::Push {
+                new_collateral_amount,
+            } => {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         original_client_order_id,
@@ -207,7 +209,10 @@ impl IndexOrderManager {
                         timestamp,
                     });
             }
-            UpdateIndexOrderOutcome::Flip { side, new_collateral_amount } => {
+            UpdateIndexOrderOutcome::Flip {
+                side,
+                new_collateral_amount,
+            } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
                         original_client_order_id: original_client_order_id.clone(),
@@ -398,7 +403,8 @@ impl IndexOrderManager {
                 .and_then(|map| map.get_mut(&symbol))
             {
                 let mut index_order = index_order.write();
-                let unmatched_collateral = index_order.solver_engage(collateral_amount, self.tolerance)?;
+                let unmatched_collateral =
+                    index_order.solver_engage(collateral_amount, self.tolerance)?;
                 println!(
                     "IndexOrderManager: Engage {} {:0.5} {:0.5} {:0.5}",
                     client_order_id,

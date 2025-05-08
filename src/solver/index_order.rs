@@ -573,8 +573,8 @@ mod test {
             ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_collateral: removed_collateral,
-                    remaining_collateral: remaining_collateral,
+                    removed_collateral,
+                    remaining_collateral,
                 } => {
                     assert_decimal_approx_eq!(removed_collateral, collateral3, tolerance);
                     assert_decimal_approx_eq!(
@@ -622,8 +622,8 @@ mod test {
             ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_collateral: removed_collateral,
-                    remaining_collateral: remaining_collateral,
+                    removed_collateral,
+                    remaining_collateral,
                 } => {
                     assert_decimal_approx_eq!(removed_collateral, collateral4, tolerance);
                     assert_decimal_approx_eq!(
@@ -920,8 +920,8 @@ mod test {
             ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_collateral: removed_collateral,
-                    remaining_collateral: remaining_collateral,
+                    removed_collateral,
+                    remaining_collateral,
                 } => {
                     assert_decimal_approx_eq!(removed_collateral, collateral_removed, tolerance);
                     assert_decimal_approx_eq!(

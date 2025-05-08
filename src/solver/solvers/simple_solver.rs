@@ -9,14 +9,13 @@ use safe_math::safe;
 
 use crate::{
     core::{
-        bits::{Amount, BatchOrderId, ClientOrderId, PriceType, Symbol},
+        bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
         decimal_ext::DecimalExt,
     },
-    index::{basket::Basket, basket_manager::BasketManager},
-    market_data::{order_book::order_book_manager::OrderBookManager, price_tracker::PriceTracker},
+    index::basket::Basket,
     solver::solver::{
-        EngageOrder, EngagedOrders, FindOrderContribution, SolverOrder, SolverOrderStatus,
-        SolverStrategy, SolverStrategyHost,
+        EngagedSolverOrders, SolverOrder, SolverOrderContribution, SolverOrderEngagement,
+        SolverOrderStatus, SolverStrategy, SolverStrategyHost,
     },
 };
 
@@ -28,23 +27,33 @@ struct MoreOrders<'a> {
     )>,
     symbols: Vec<Symbol>,
     baskets: HashMap<Symbol, Arc<Basket>>,
-    index_prices: HashMap<Symbol, Amount>,
-    asset_prices: HashMap<Symbol, Amount>,
+    index_prices: HashMap<(Symbol, Side), Amount>,
+    asset_prices: HashMap<(Symbol, Side), Amount>,
 }
 
 struct FindOrderLiquidity {
     /// We sum across all Index Orders the quantity of each asset multiplied by
     /// order quantity
-    asset_total_order_quantity: HashMap<Symbol, Amount>,
+    asset_total_order_quantity: HashMap<(Symbol, Side), Amount>,
     /// We calculate weighted average of liquidity across all Index Orders
-    asset_total_weighted_liquidity: HashMap<Symbol, Amount>,
+    asset_total_weighted_liquidity: HashMap<(Symbol, Side), Amount>,
 }
 
-pub struct SimpleSolver {}
+pub struct SimpleSolver {
+    /// When testing for liquidity, this sets the limit as to how far from top
+    /// of the book we want to go, e.g. 0.01 (max price move = 1%)
+    price_threshold: Amount,
+    /// When calculating quantity that collateral can buy, we need to factor in
+    /// fees, e.g. 1.001 (max fee = 0.1%)
+    fee_factor: Amount,
+}
 
 impl SimpleSolver {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(price_threshold: Amount, fee_factor: Amount) -> Self {
+        Self {
+            price_threshold,
+            fee_factor,
+        }
     }
 
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
@@ -108,7 +117,7 @@ impl SimpleSolver {
         let individual_asset_prices = strategy_host
             .get_price_tracker()
             .read()
-            .get_prices(PriceType::VolumeWeighted, &symbols);
+            .get_prices(PriceType::BestAsk, &symbols); // TODO: Add Buy side
 
         if !individual_asset_prices.missing_symbols.is_empty() {
             // Note: We just log the fact, and we will mark corresponding
@@ -132,7 +141,7 @@ impl SimpleSolver {
         baskets.retain(|index_symbol, basket| {
             match basket.get_current_price(&individual_asset_prices.prices) {
                 Ok(price) => {
-                    individual_index_prices.insert(index_symbol.clone(), price);
+                    individual_index_prices.insert((index_symbol.clone(), Side::Sell), price); // TODO: Add Buy side
                     true
                 }
                 Err(_) => {
@@ -163,7 +172,11 @@ impl SimpleSolver {
             symbols,
             baskets,
             index_prices: individual_index_prices,
-            asset_prices: individual_asset_prices.prices,
+            asset_prices: individual_asset_prices
+                .prices
+                .into_iter()
+                .map(|(k, v)| ((k, Side::Sell), v))
+                .collect(), // TODO: Add Buy side
         }
     }
 
@@ -176,10 +189,10 @@ impl SimpleSolver {
         println!("   c   collateral");
         println!("   q   quantity");
         println!("   l   liquidity");
+        println!("   t   threshold");
         println!("");
         let mut asset_total_order_quantity = HashMap::new();
         let mut asset_total_weighted_liquidity = HashMap::new();
-        let threshold = Amount::new(1, 2); // TODO: Should not hardcode
 
         let order_book_manager = strategy_host.get_book_manager().read();
         more_orders.locked_orders.retain_mut(|(_, index_order)| {
@@ -187,21 +200,28 @@ impl SimpleSolver {
                 let side = update.side;
                 let order_collateral_amount = update.remaining_collateral;
 
-                // We should be able to get basket and its current price, as in locked_orders
-                // we only keep orders that weren't erroneous
-                let current_price = more_orders
-                    .index_prices
-                    .get(&index_order.symbol)
-                    .expect("Missing index price");
+                // We should be able to get basket and its current price, as in
+                // locked_orders we only keep orders that weren't erroneous
 
                 let basket = more_orders
                     .baskets
                     .get(&index_order.symbol)
                     .expect("Missing basket");
 
-                let fee_factor = safe!(Amount::ONE + Amount::new(1, 3))?; // TODO: shouldn't be hardcoded
+                let basket_price = *more_orders
+                    .index_prices
+                    .get(&(index_order.symbol.clone(), side.opposite_side()))
+                    .expect("Missing index price");
+
+                // If we divide collateral by basket price, we will get quantity
+                // of basket that we can buy for that collateral. Then if we
+                // multiply each basket asset quantity by basket quantity, we'll
+                // get quantity of asset we would buy for the collateral. Then
+                // we can multiply that asset quantity by asset price, and we
+                // will know how much collateral will pay for this asset.
+
                 let order_quantity =
-                    safe! {order_collateral_amount / safe!(*current_price * fee_factor)?}?;
+                    safe! {order_collateral_amount / safe!(basket_price * self.fee_factor)?}?;
 
                 println!(
                     " * index order: {:5} {} < {} {:?} c={:0.5} q={:0.5}",
@@ -214,72 +234,96 @@ impl SimpleSolver {
                 );
 
                 println!("\n- Find target asset prices and quantites...\n");
-                let target_asset_prices_and_quantites = basket
+                let target_asset_quantities_and_price_limits = basket
                     .basket_assets
                     .iter()
                     .map_while(|asset| {
                         let asset_symbol = asset.weight.asset.name.clone();
-                        let asset_price = more_orders
+                        let asset_price = *more_orders
                             .asset_prices
-                            .get(&asset_symbol)
+                            .get(&(asset_symbol.clone(), side.opposite_side()))
                             .expect("Missing asset price");
                         //
                         // Formula:
                         //      quantity of asset to order = quantity of index order
                         //                                 * quantity of asset in basket
                         //
-                        let asset_quantity = safe!(asset.quantity * order_quantity)?;
+                        let target_asset_quantity = safe!(asset.quantity * order_quantity)?;
+
+                        //
+                        // Formulas:
+                        //      limit asset price on buy order  = best ask * (1.0 + price threshold)
+                        //      limit asset price on sell order = best bid * (1.0 - price threshold)
+                        //
+                        let asset_price_limit = match side {
+                            Side::Buy => {
+                                safe!(asset_price + safe!(Amount::ONE + self.price_threshold)?)?
+                            }
+                            Side::Sell => {
+                                safe!(asset_price - safe!(Amount::ONE - self.price_threshold)?)?
+                            }
+                        };
 
                         println!(
-                            " * asset_quantity {:5} {:0.5} = {:0.5} * {:0.5}",
-                            asset_symbol, asset_quantity, asset.quantity, order_quantity
+                            " * asset_quantity {:5} {:?} {:0.5} = {:0.5} * {:0.5} (limit @ ${:0.5})",
+                            asset_symbol,
+                            side,
+                            target_asset_quantity,
+                            asset.quantity,
+                            order_quantity,
+                            asset_price_limit
                         );
 
-                        println!(" * asset_price {:5} {:0.5}", asset_symbol, asset_price);
+                        // We could calculate asset_volley (price * quantity),
+                        // and then test against that when looking for
+                        // liquidity, however we also want to prevent moving
+                        // market price too much, so we will use asset price ±
+                        // threshold so that we won't wipe too many levels at
+                        // once.
 
-                        match asset_total_order_quantity.entry(asset.weight.asset.name.clone()) {
+                        match asset_total_order_quantity.entry((asset_symbol.clone(), side)) {
                             Entry::Occupied(mut entry) => {
                                 let x: &Amount = entry.get();
-                                entry.insert(safe!(*x + asset_quantity)?);
+                                entry.insert(safe!(*x + target_asset_quantity)?);
                             }
                             Entry::Vacant(entry) => {
-                                entry.insert(asset_quantity);
+                                entry.insert(target_asset_quantity);
                             }
                         }
 
-                        Some((asset_symbol, *asset_price, asset_quantity))
+                        Some((asset_symbol, target_asset_quantity, asset_price_limit))
                     })
                     .collect_vec();
 
                 // There was some error - math overflow probably, we'll drop that order
-                if target_asset_prices_and_quantites.len() < basket.basket_assets.len() {
+                if target_asset_quantities_and_price_limits.len() < basket.basket_assets.len() {
                     return None;
                 }
 
                 // Split out quantities { asset_symbol => (price, quantity) } into { asset_symbol => quantity }
                 let target_asset_quantites = HashMap::<Symbol, Amount>::from_iter(
-                    target_asset_prices_and_quantites
+                    target_asset_quantities_and_price_limits
                         .iter()
-                        .map(|(k, _, q)| (k.clone(), *q)),
+                        .map(|(k, q, _)| (k.clone(), *q)),
                 );
 
                 // Split out prices { asset_symbol => (price, quantity) } into { asset_symbol => price }
-                let target_asset_prices = HashMap::from_iter(
-                    target_asset_prices_and_quantites
+                let asset_price_limits = HashMap::from_iter(
+                    target_asset_quantities_and_price_limits
                         .iter()
-                        .map(|(k, p, _)| (k.clone(), *p)),
+                        .map(|(k, _, p)| (k.clone(), *p)),
                 );
 
-                println!("\n- Find liquidity for prices with threshold...\n");
+                println!("\n- Find liquidity within price limits...\n");
 
                 let liquidity = order_book_manager
-                    .get_liquidity(side.opposite_side(), &target_asset_prices, threshold)
+                    .get_liquidity(side.opposite_side(), &asset_price_limits)
                     .ok()?;
 
                 for (asset_symbol, asset_liquidity) in liquidity {
                     println!(
-                        " * liquidity >> {:5} t={:0.5} l={:0.5}",
-                        asset_symbol, threshold, asset_liquidity
+                        " * liquidity >> {:5} {:?} l={:0.5} t={:0.5}",
+                        asset_symbol, side, asset_liquidity, self.price_threshold
                     );
                     //
                     // We're collecting per asset sums, so that we will be able
@@ -290,28 +334,27 @@ impl SimpleSolver {
                     //      asset quantity = quantity of asset in basket
                     //                     * quantity of index order
                     //
-                    //      asset liquidity = quantity of asset in basket
-                    //                      * quantity of index order
-                    //                      * asset liquidity at price threshold
+                    //      asset liquidity = asset quantity (^above)
+                    //                      * asset liquidity within price limit
                     //
-                    let asset_quantity = target_asset_quantites.get(&asset_symbol)?;
-                    let asset_liquidity = safe!(*asset_quantity * asset_liquidity)?;
+                    let asset_quantity = *target_asset_quantites.get(&asset_symbol)?;
+                    let asset_liquidity = safe!(asset_quantity * asset_liquidity)?;
 
                     println!(
-                        " * asset_total_weighted_liquidity << {:5} l={:0.5} q={:0.5}\n",
-                        asset_symbol, asset_liquidity, *asset_quantity
+                        " * asset_total_weighted_liquidity << {:5} {:?} l={:0.5} q={:0.5}\n",
+                        asset_symbol, side, asset_liquidity, asset_quantity
                     );
 
-                    match asset_total_weighted_liquidity.entry(asset_symbol.clone()) {
+                    match asset_total_weighted_liquidity.entry((asset_symbol.clone(), side)) {
                         Entry::Occupied(mut entry) => {
                             let (weighted_sum, total_weight): &(Amount, Amount) = entry.get();
                             entry.insert((
                                 safe!(*weighted_sum + asset_liquidity)?,
-                                safe!(*total_weight + *asset_quantity)?,
+                                safe!(*total_weight + asset_quantity)?,
                             ));
                         }
                         Entry::Vacant(entry) => {
-                            entry.insert((asset_liquidity, *asset_quantity));
+                            entry.insert((asset_liquidity, asset_quantity));
                         }
                     }
                 }
@@ -340,7 +383,7 @@ impl SimpleSolver {
         &self,
         more_orders: &mut MoreOrders,
         order_liquidity: FindOrderLiquidity,
-    ) -> HashMap<ClientOrderId, FindOrderContribution> {
+    ) -> HashMap<ClientOrderId, SolverOrderContribution> {
         println!("\nFind Order Contribution...");
         println!("   q   asset_order_quantity");
         println!("   tq  asset_total_quantity");
@@ -360,7 +403,7 @@ impl SimpleSolver {
             let result = Some(&index_order).and_then(|update| {
                 let basket = basket?;
                 let order_quantity = update.remaining_collateral;
-                let mut contribution = FindOrderContribution {
+                let mut contribution = SolverOrderContribution {
                     asset_contribution_fraction: HashMap::new(),
                     asset_liquidity_contribution: HashMap::new(),
                     order_fraction: Amount::ONE,
@@ -456,8 +499,8 @@ impl SimpleSolver {
     fn engage_orders(
         &self,
         more_orders: &mut MoreOrders,
-        mut contributions: HashMap<ClientOrderId, FindOrderContribution>,
-    ) -> Vec<RwLock<EngageOrder>> {
+        mut contributions: HashMap<ClientOrderId, SolverOrderContribution>,
+    ) -> Vec<RwLock<SolverOrderEngagement>> {
         println!("\nEngage Orders...");
         let mut enagaged_orders = Vec::new();
         more_orders
@@ -478,7 +521,7 @@ impl SimpleSolver {
                 match result {
                     Some((client_order_id, contribution)) => {
                         let engaged_quantity = contribution.order_quantity;
-                        enagaged_orders.push(RwLock::new(EngageOrder {
+                        enagaged_orders.push(RwLock::new(SolverOrderEngagement {
                             index_order: index_order_arc.clone(),
                             contribution,
                             address: index_order.address,
@@ -512,7 +555,7 @@ impl SolverStrategy for SimpleSolver {
     fn solve_engagements(
         &mut self,
         strategy_host: &dyn SolverStrategyHost,
-    ) -> Option<crate::solver::solver::EngagedOrders> {
+    ) -> Option<crate::solver::solver::EngagedSolverOrders> {
         let new_orders = strategy_host.get_order_batch();
 
         if new_orders.is_empty() {
@@ -530,7 +573,7 @@ impl SolverStrategy for SimpleSolver {
         // Now let's engage orders, and unlock them afterwards
         let engaged_orders = self.engage_orders(&mut more_orders, contributions);
 
-        Some(EngagedOrders {
+        Some(EngagedSolverOrders {
             batch_order_id: strategy_host.get_next_batch_order_id(),
             engaged_orders,
             baskets: more_orders.baskets,

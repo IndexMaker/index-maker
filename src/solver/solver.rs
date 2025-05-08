@@ -20,11 +20,11 @@ use crate::{
     },
     index::{
         basket::Basket,
-        basket_manager::{self, BasketManager, BasketNotification},
+        basket_manager::{BasketManager, BasketNotification},
     },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
-        price_tracker::{self, PriceEvent, PriceTracker},
+        price_tracker::{PriceEvent, PriceTracker},
     },
 };
 
@@ -36,7 +36,7 @@ use super::{
 };
 
 #[derive(Debug)]
-pub(super) enum SolverOrderStatus {
+pub enum SolverOrderStatus {
     Open,
     Engaged,
     PartlyMintable,
@@ -48,7 +48,7 @@ pub(super) enum SolverOrderStatus {
 }
 
 /// Solver's view of the Index Order
-pub(super) struct SolverOrder {
+pub struct SolverOrder {
     // ID of the original NewOrder request
     pub original_client_order_id: ClientOrderId,
 
@@ -92,7 +92,7 @@ pub(super) struct SolverOrder {
 /// When we fill Index Orders from executed batches, we need to allocate some
 /// portion of what was executed to each index order in the batch using
 /// contribution factor.
-pub(super) struct SolverOrderAssetLot {
+pub struct SolverOrderAssetLot {
     /// Symbol of an asset
     pub symbol: Symbol,
 
@@ -358,7 +358,7 @@ impl CollateralPosition {
     }
 }
 
-pub(super) struct FindOrderContribution {
+pub struct SolverOrderContribution {
     /// Contribution of the user index order for asset
     /// asset => asset contribution fraction
     pub asset_contribution_fraction: HashMap<Symbol, Amount>,
@@ -373,9 +373,9 @@ pub(super) struct FindOrderContribution {
     pub order_quantity: Amount,
 }
 
-pub(super) struct EngageOrder {
+pub struct SolverOrderEngagement {
     pub index_order: Arc<RwLock<SolverOrder>>,
-    pub contribution: FindOrderContribution,
+    pub contribution: SolverOrderContribution,
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub symbol: Symbol,
@@ -386,9 +386,9 @@ pub(super) struct EngageOrder {
     pub filled_quantity: Amount,
 }
 
-pub(super) struct EngagedOrders {
+pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
-    pub engaged_orders: Vec<RwLock<EngageOrder>>,
+    pub engaged_orders: Vec<RwLock<SolverOrderEngagement>>,
     pub baskets: HashMap<Symbol, Arc<Basket>>,
     pub index_prices: HashMap<Symbol, Amount>,
 }
@@ -398,7 +398,7 @@ pub trait OrderIdProvider {
     fn next_batch_order_id(&mut self) -> BatchOrderId;
 }
 
-pub(super) trait SolverStrategyHost {
+pub trait SolverStrategyHost {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus);
     fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>>;
     fn get_next_batch_order_id(&self) -> BatchOrderId;
@@ -407,11 +407,11 @@ pub(super) trait SolverStrategyHost {
     fn get_basket_manager(&self) -> &RwLock<BasketManager>;
 }
 
-pub(super) trait SolverStrategy {
+pub trait SolverStrategy {
     fn solve_engagements(
         &mut self,
         strategy_host: &dyn SolverStrategyHost,
-    ) -> Option<EngagedOrders>;
+    ) -> Option<EngagedSolverOrders>;
 }
 
 /// magic solver, needs to take index orders, and based on prices (from price
@@ -434,7 +434,7 @@ pub struct Solver {
     // mappings
     client_funds: RwLock<HashMap<Address, Arc<RwLock<CollateralPosition>>>>,
     client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
-    engagements: RwLock<HashMap<BatchOrderId, EngagedOrders>>,
+    engagements: RwLock<HashMap<BatchOrderId, EngagedSolverOrders>>,
     batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
     // queues
     ready_funds: Mutex<VecDeque<Arc<RwLock<CollateralPosition>>>>,
@@ -443,7 +443,6 @@ pub struct Solver {
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     // parameters
     max_batch_size: usize,
-    fees_margin: Amount,
     zero_threshold: Amount,
     fill_threshold: Amount,
     mint_threshold: Amount,
@@ -462,7 +461,6 @@ impl Solver {
         strategy: Arc<RwLock<dyn SolverStrategy>>,
         order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
         max_batch_size: usize,
-        fees_margin: Amount,
         zero_threshold: Amount,
         fill_threshold: Amount,
         mint_threshold: Amount,
@@ -493,7 +491,6 @@ impl Solver {
             // parameters
             max_batch_size,
             zero_threshold,
-            fees_margin,
             fill_threshold,
             mint_threshold,
             fund_wait_period,
@@ -507,16 +504,24 @@ impl Solver {
             let send_engage = engaged_orders
                 .engaged_orders
                 .iter()
-                .map(|order| {
+                .map_while(|order| {
                     let order = order.write();
-                    (
-                        order.address,
-                        order.client_order_id.clone(),
-                        order.symbol.clone(),
-                        order.engaged_quantity,
-                    )
+                    if order.engaged_quantity < self.zero_threshold {
+                        None
+                    } else {
+                        Some((
+                            order.address,
+                            order.client_order_id.clone(),
+                            order.symbol.clone(),
+                            order.engaged_quantity,
+                        ))
+                    }
                 })
                 .collect_vec();
+
+            if send_engage.len() != engaged_orders.engaged_orders.len() {
+                return Err(eyre!("Zero Quantity"))
+            }
 
             let batch_order_id = match self
                 .engagements
@@ -534,7 +539,7 @@ impl Solver {
         Ok(())
     }
 
-    fn send_batch(&self, engaged_orders: &EngagedOrders, timestamp: DateTime<Utc>) -> Result<()> {
+    fn send_batch(&self, engaged_orders: &EngagedSolverOrders, timestamp: DateTime<Utc>) -> Result<()> {
         // TODO: we should generate IDs
         let batch_order_id = &engaged_orders.batch_order_id;
 
@@ -622,7 +627,7 @@ impl Solver {
     fn fill_index_order(
         &self,
         batch: &mut BatchOrderStatus,
-        engaged_order: &RwLock<EngageOrder>,
+        engaged_order: &RwLock<SolverOrderEngagement>,
     ) -> Result<Option<Arc<RwLock<SolverOrder>>>> {
         let mut engaged_order = engaged_order.upgradable_read();
         let engaged_quantity = engaged_order.engaged_quantity;
@@ -932,14 +937,14 @@ impl Solver {
         // check if there is some collateral we could use
         //
         if let Err(err) = self.process_credits(timestamp) {
-            eprintln!("Error while processing credits: {}", err);
+            eprintln!("Error while processing credits: {:?}", err);
         }
 
         //
         // check if there is some index orders we could mint
         //
         if let Err(err) = self.mint_indexes(timestamp) {
-            eprintln!("Error while processing mints: {}", err);
+            eprintln!("Error while processing mints: {:?}", err);
         }
 
         //
@@ -950,7 +955,7 @@ impl Solver {
         //
 
         if let Err(err) = self.engage_more_orders() {
-            eprintln!("Error while engaging more orders: {}", err);
+            eprintln!("Error while engaging more orders: {:?}", err);
         }
 
         //
@@ -998,7 +1003,7 @@ impl Solver {
 
         println!("\nSend Order Batches...");
         if let Err(err) = self.send_more_batches(timestamp) {
-            eprintln!("Error while sending more batches: {}", err);
+            eprintln!("Error while sending more batches: {:?}", err);
         }
     }
 
@@ -1008,7 +1013,6 @@ impl Solver {
         // ...
 
         let symbols = [];
-        let threshold = Amount::default();
 
         // receive current prices from Price Tracker
         let prices = self
@@ -1020,7 +1024,7 @@ impl Solver {
         let _liquidity =
             self.order_book_manager
                 .read()
-                .get_liquidity(Side::Sell, &prices.prices, threshold);
+                .get_liquidity(Side::Sell, &prices.prices);
 
         // Compute: Quote with cost
         // ...
@@ -1575,7 +1579,6 @@ mod test {
     #[test]
     fn sbe_solver() {
         let max_batch_size = 4;
-        let fees_margin = dec!(0.02);
         let tolerance = dec!(0.0001);
         let fund_wait_period = TimeDelta::new(600, 0).unwrap();
         let mint_wait_period = TimeDelta::new(600, 0).unwrap();
@@ -1629,8 +1632,6 @@ mod test {
 
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
-        let solver_strategy = Arc::new(RwLock::new(SimpleSolver::new()));
-
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
             order_ids: VecDeque::from_iter(
                 ["Order01", "Order02", "Order03", "Order04"]
@@ -1639,6 +1640,11 @@ mod test {
             ),
             batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
         }));
+
+        let solver_strategy = Arc::new(RwLock::new(SimpleSolver::new(
+            dec!(0.01),
+            dec!(1.001)
+        )));
 
         let solver = Arc::new(Solver::new(
             chain_connector.clone(),
@@ -1651,7 +1657,6 @@ mod test {
             solver_strategy.clone(),
             order_id_provider.clone(),
             max_batch_size,
-            fees_margin,
             tolerance,
             dec!(0.9999),
             dec!(0.99),
@@ -1881,9 +1886,11 @@ mod test {
                     recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap()),
 
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle chain event"),
 
                     recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle inventory event"),
 
                     recv(market_receiver) -> res => {
