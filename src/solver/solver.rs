@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy::primitives::map::foldhash::quality;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -358,29 +359,17 @@ impl CollateralPosition {
     }
 }
 
-pub struct SolverOrderContribution {
-    /// Contribution of the user index order for asset
-    /// asset => asset contribution fraction
-    pub asset_contribution_fraction: HashMap<Symbol, Amount>,
-
-    /// asset => asset total liquidity x asset contribution fraction
-    pub asset_liquidity_contribution: HashMap<Symbol, Amount>,
-
-    /// min((asset liquidity contribution / asset quantity for index order) for all assets)
-    pub order_fraction: Amount,
-
-    /// order fraction x remaining quantity of the index order
-    pub order_quantity: Amount,
-}
-
 pub struct SolverOrderEngagement {
     pub index_order: Arc<RwLock<SolverOrder>>,
-    pub contribution: SolverOrderContribution,
+    pub asset_contribution_fractions: HashMap<Symbol, Amount>,
+    pub asset_quantities: HashMap<Symbol, Amount>,
+    pub asset_price_limits: HashMap<Symbol, Amount>,
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub symbol: Symbol,
     pub basket: Arc<Basket>,
     pub engaged_side: Side,
+    pub engaged_collateral: Amount,
     pub engaged_quantity: Amount,
     pub engaged_price: Amount,
     pub filled_quantity: Amount,
@@ -389,8 +378,6 @@ pub struct SolverOrderEngagement {
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
     pub engaged_orders: Vec<RwLock<SolverOrderEngagement>>,
-    pub baskets: HashMap<Symbol, Arc<Basket>>,
-    pub index_prices: HashMap<Symbol, Amount>,
 }
 
 pub trait OrderIdProvider {
@@ -411,7 +398,7 @@ pub trait SolverStrategy {
     fn solve_engagements(
         &mut self,
         strategy_host: &dyn SolverStrategyHost,
-    ) -> Option<EngagedSolverOrders>;
+    ) -> Result<Option<EngagedSolverOrders>>;
 }
 
 /// magic solver, needs to take index orders, and based on prices (from price
@@ -499,28 +486,27 @@ impl Solver {
     }
 
     fn engage_more_orders(&self) -> Result<()> {
-        // Receive some more orders, and prepare them
-        if let Some(engaged_orders) = self.strategy.write().solve_engagements(self) {
+        if let Some(engaged_orders) = self.strategy.write().solve_engagements(self)? {
             let send_engage = engaged_orders
                 .engaged_orders
                 .iter()
                 .map_while(|order| {
                     let order = order.write();
-                    if order.engaged_quantity < self.zero_threshold {
+                    if order.engaged_collateral < self.zero_threshold {
                         None
                     } else {
                         Some((
                             order.address,
                             order.client_order_id.clone(),
                             order.symbol.clone(),
-                            order.engaged_quantity,
+                            order.engaged_collateral,
                         ))
                     }
                 })
                 .collect_vec();
 
             if send_engage.len() != engaged_orders.engaged_orders.len() {
-                return Err(eyre!("Zero Quantity"))
+                return Err(eyre!("Zero Quantity"));
             }
 
             let batch_order_id = match self
@@ -539,7 +525,11 @@ impl Solver {
         Ok(())
     }
 
-    fn send_batch(&self, engaged_orders: &EngagedSolverOrders, timestamp: DateTime<Utc>) -> Result<()> {
+    fn send_batch(
+        &self,
+        engaged_orders: &EngagedSolverOrders,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
         // TODO: we should generate IDs
         let batch_order_id = &engaged_orders.batch_order_id;
 
@@ -549,10 +539,6 @@ impl Solver {
             .iter()
             .map_while(|engage_order| {
                 let engage_order = engage_order.read();
-                let index_price = engaged_orders
-                    .index_prices
-                    .get(&engage_order.symbol)
-                    .unwrap();
                 Some(Arc::new(BatchOrder {
                     batch_order_id: batch_order_id.clone(),
                     created_timestamp: timestamp,
@@ -560,12 +546,17 @@ impl Solver {
                         .basket
                         .basket_assets
                         .iter()
-                        .map(|basket_asset| AssetOrder {
-                            order_id: self.order_id_provider.write().next_order_id(),
-                            price: basket_asset.price * engage_order.engaged_price / index_price,
-                            quantity: engage_order.engaged_quantity * basket_asset.quantity,
-                            side: engage_order.engaged_side,
-                            symbol: basket_asset.weight.asset.name.clone(),
+                        .map(|basket_asset| {
+                            let asset_symbol = &basket_asset.weight.asset.name;
+                            let price = *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
+                            let quantity = *engage_order.asset_quantities.get(&asset_symbol).unwrap();
+                            AssetOrder {
+                                order_id: self.order_id_provider.write().next_order_id(),
+                                price,
+                                quantity,
+                                side: engage_order.engaged_side,
+                                symbol: basket_asset.weight.asset.name.clone(),
+                            }
                         })
                         .collect_vec(),
                 }))
@@ -656,8 +647,7 @@ impl Solver {
                 .ok_or_eyre("Missing position for asset")?;
 
             let contribution_fraction = *engaged_order
-                .contribution
-                .asset_contribution_fraction
+                .asset_contribution_fractions
                 .get(asset_symbol)
                 .ok_or_eyre("Asset contribution fraction not found")?;
 
@@ -1021,10 +1011,10 @@ impl Solver {
             .get_prices(PriceType::VolumeWeighted, &symbols);
 
         // receive available liquidity from Order Book Manager
-        let _liquidity =
-            self.order_book_manager
-                .read()
-                .get_liquidity(Side::Sell, &prices.prices);
+        let _liquidity = self
+            .order_book_manager
+            .read()
+            .get_liquidity(Side::Sell, &prices.prices);
 
         // Compute: Quote with cost
         // ...
@@ -1641,10 +1631,7 @@ mod test {
             batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
         }));
 
-        let solver_strategy = Arc::new(RwLock::new(SimpleSolver::new(
-            dec!(0.01),
-            dec!(1.001)
-        )));
+        let solver_strategy = Arc::new(RwLock::new(SimpleSolver::new(dec!(0.01), dec!(1.001))));
 
         let solver = Arc::new(Solver::new(
             chain_connector.clone(),
@@ -2121,10 +2108,10 @@ mod test {
         assert_eq!(order1.side, Side::Buy);
         assert_eq!(order2.side, Side::Buy);
 
-        assert_decimal_approx_eq!(order1.price, dec!(97.15), tolerance);
-        assert_decimal_approx_eq!(order1.quantity, dec!(20.0), tolerance);
-        assert_decimal_approx_eq!(order2.price, dec!(298.4076923), tolerance);
-        assert_decimal_approx_eq!(order2.quantity, dec!(1.627806563), tolerance);
+        assert_decimal_approx_eq!(order1.price, dec!(101.00), tolerance);
+        assert_decimal_approx_eq!(order1.quantity, dec!(19.9942), tolerance);
+        assert_decimal_approx_eq!(order2.price, dec!(303.00), tolerance);
+        assert_decimal_approx_eq!(order2.quantity, dec!(1.6273), tolerance);
 
         flush_events();
 

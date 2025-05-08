@@ -406,7 +406,7 @@ impl IndexOrderManager {
                 let unmatched_collateral =
                     index_order.solver_engage(collateral_amount, self.tolerance)?;
                 println!(
-                    "IndexOrderManager: Engage {} {:0.5} {:0.5} {:0.5}",
+                    "IndexOrderManager: Engage {} c={:0.5} ec={:0.5} rc={:0.5}",
                     client_order_id,
                     collateral_amount,
                     index_order.engaged_collateral.unwrap_or_default(),

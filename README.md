@@ -47,6 +47,7 @@ Work included in Phase 1.:
 * [ ] Index Order should use Collateral Amount instead of Price & Quantity
     - Change New Order data structures
     - Change liquidity fitting to fit collateral
+    - Collapse multiple orders for same assets in batches
 
 #### Design & Performance
 
