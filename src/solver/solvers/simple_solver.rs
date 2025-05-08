@@ -1,6 +1,5 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
-    ffi::CStr,
     ops::Deref,
     sync::Arc,
 };
@@ -365,8 +364,7 @@ impl SimpleSolver {
             // Choose smaller one, so that order will leave some liquidity for
             // other orders in the batch.  Note that liquidity is computed based
             // on price threshold, so that we don't wipe too many levels.
-            fitting_order_quantity =
-                fitting_order_quantity.min(possible_order_quantity);
+            fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
             println!(
                 "Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",

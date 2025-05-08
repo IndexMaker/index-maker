@@ -142,9 +142,8 @@ impl PricePointEntries {
     }
 
     pub fn get_liquidity(&self, price: &Amount) -> Result<Amount> {
-        let ops =
-            PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone())
-                .ok_or(eyre!("Math overflow"))?;
+        let ops = PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone())
+            .ok_or(eyre!("Math overflow"))?;
 
         let mut cursor = ops.begin_ops(&self.entries);
         let mut liquidity = Amount::ZERO;

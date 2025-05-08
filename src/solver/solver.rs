@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use alloy::primitives::map::foldhash::quality;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -548,8 +547,10 @@ impl Solver {
                         .iter()
                         .map(|basket_asset| {
                             let asset_symbol = &basket_asset.weight.asset.name;
-                            let price = *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
-                            let quantity = *engage_order.asset_quantities.get(&asset_symbol).unwrap();
+                            let price =
+                                *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
+                            let quantity =
+                                *engage_order.asset_quantities.get(&asset_symbol).unwrap();
                             AssetOrder {
                                 order_id: self.order_id_provider.write().next_order_id(),
                                 price,
