@@ -31,20 +31,17 @@ pub struct IndexOrderUpdate {
     /// Buy or Sell
     pub side: Side,
 
-    /// Limit price
-    pub price: Amount,
+    /// Collateral for which to buy or sell index
+    pub original_collateral_amount: Amount,
 
-    /// Price max deviation %-age (as fraction) threshold
-    pub price_threshold: Amount,
+    /// Collateral remaining after applying matching update
+    pub remaining_collateral: Amount,
 
-    /// Quantity of an index to buy or sell
-    pub original_quantity: Amount,
+    /// Collateral engaged by Solver
+    pub engaged_collateral: Option<Amount>,
 
-    /// Quantity remaining after applying matching update
-    pub remaining_quantity: Amount,
-
-    /// Quantity engaged by Solver
-    pub engaged_quantity: Option<Amount>,
+    /// Amount of collateral spent
+    pub collateral_spent: Amount,
 
     /// Quantity confirmed as filled
     pub filled_quantity: Amount,
@@ -72,8 +69,8 @@ pub struct IndexOrder {
     /// Buy or Sell
     pub side: Side,
 
-    /// Quantity remaining on the order
-    pub remaining_quantity: Amount,
+    /// Collateral remaining to spend on the order
+    pub remaining_collateral: Amount,
 
     /// Time of when this order was created
     pub created_timestamp: DateTime<Utc>,
@@ -84,8 +81,11 @@ pub struct IndexOrder {
     /// Side engaged by Solver
     pub engaged_side: Option<Side>,
 
-    /// Quantity engaged by Solver
-    pub engaged_quantity: Option<Amount>,
+    /// Collateral amount engaged by Solver
+    pub engaged_collateral: Option<Amount>,
+
+    /// Amount of collateral spent
+    pub collateral_spent: Amount,
 
     /// Quantity confirmed as filled
     pub filled_quantity: Amount,
@@ -105,25 +105,25 @@ pub struct IndexOrder {
 
 pub enum UpdateIndexOrderOutcome {
     Push {
-        new_quantity: Amount,
+        new_collateral_amount: Amount,
     },
     Reduce {
-        removed_quantity: Amount,
-        remaining_quantity: Amount,
+        removed_collateral: Amount,
+        remaining_collateral: Amount,
     },
     Flip {
         side: Side,
-        new_quantity: Amount,
+        new_collateral_amount: Amount,
     },
 }
 
 pub enum CancelIndexOrderOutcome {
     Reduce {
-        removed_quantity: Amount,
-        remaining_quantity: Amount,
+        removed_collateral: Amount,
+        remaining_collateral: Amount,
     },
     Cancel {
-        removed_quantity: Amount,
+        removed_collateral: Amount,
     },
 }
 
@@ -141,11 +141,12 @@ impl IndexOrder {
             original_client_order_id: client_order_id,
             symbol,
             side,
-            remaining_quantity: Amount::ZERO,
+            remaining_collateral: Amount::ZERO,
             created_timestamp: timestamp.clone(),
             last_update_timestamp: timestamp.clone(),
             engaged_side: None,
-            engaged_quantity: None,
+            engaged_collateral: None,
+            collateral_spent: Amount::ZERO,
             filled_quantity: Amount::ZERO,
             fees: Amount::ZERO,
             order_updates: VecDeque::new(),
@@ -161,9 +162,7 @@ impl IndexOrder {
         client_order_id: ClientOrderId,
         payment_id: PaymentId,
         side: Side,
-        price: Amount,
-        price_threshold: Amount,
-        quantity: Amount,
+        collateral_amount: Amount,
         timestamp: DateTime<Utc>,
         tolerance: Amount,
     ) -> Result<UpdateIndexOrderOutcome> {
@@ -173,59 +172,54 @@ impl IndexOrder {
             client_order_id: client_order_id.clone(),
             payment_id: payment_id.clone(),
             side,
-            price,
-            price_threshold,
-            original_quantity: quantity,
-            remaining_quantity: quantity,
-            engaged_quantity: None,
+            original_collateral_amount: collateral_amount,
+            remaining_collateral: collateral_amount,
+            engaged_collateral: None,
+            collateral_spent: Amount::ZERO,
             filled_quantity: Amount::ZERO,
             update_fee: Amount::ZERO,
             timestamp: timestamp.clone(),
         }));
         if self.side.opposite_side() == side {
             // Match against updates when on the opposite side
-            if let Some(unmatched_quantity) = self.match_cancel(quantity, tolerance)? {
+            if let Some(unmatched_collateral) = self.match_cancel(collateral_amount, tolerance)? {
                 if self.engaged_side.is_some() {
                     // Solver is engaged in processing of this order
-                    self.remaining_quantity = Amount::ZERO;
-                    let quantity_removed =
-                        safe!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
-                    // (quantity removed, quantity added)
+                    self.remaining_collateral = Amount::ZERO;
+                    let collateral_removed = safe!(collateral_amount - unmatched_collateral)
+                        .ok_or_eyre("Math Problem")?;
                     Ok(UpdateIndexOrderOutcome::Reduce {
-                        removed_quantity: quantity_removed,
-                        remaining_quantity: self.remaining_quantity,
+                        removed_collateral: collateral_removed,
+                        remaining_collateral: self.remaining_collateral,
                     })
                 } else {
                     // We consumed all updates and created new on opposite side when flipped the side
-                    index_order_update.write().remaining_quantity = unmatched_quantity;
+                    index_order_update.write().remaining_collateral = unmatched_collateral;
                     self.order_updates.push_back(index_order_update);
                     // ...and we flipped unmatched quantity to the other side
-                    self.remaining_quantity = unmatched_quantity;
+                    self.remaining_collateral = unmatched_collateral;
                     self.side = side;
-                    // (quantity removed, quantity added)
                     Ok(UpdateIndexOrderOutcome::Flip {
                         side,
-                        new_quantity: unmatched_quantity,
+                        new_collateral_amount: unmatched_collateral,
                     })
                 }
             } else {
                 // We consumed some number of updates, so we cancelled that quantity
-                self.remaining_quantity =
-                    safe!(self.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
-                // (quantity removed, quantity added)
+                self.remaining_collateral = safe!(self.remaining_collateral - collateral_amount)
+                    .ok_or_eyre("Math Problem")?;
                 Ok(UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity: quantity,
-                    remaining_quantity: self.remaining_quantity,
+                    removed_collateral: collateral_amount,
+                    remaining_collateral: self.remaining_collateral,
                 })
             }
         } else {
             // We added some extra quantity on current side
-            self.remaining_quantity =
-                safe!(self.remaining_quantity + quantity).ok_or_eyre("Math Problem")?;
+            self.remaining_collateral =
+                safe!(self.remaining_collateral + collateral_amount).ok_or_eyre("Math Problem")?;
             self.order_updates.push_back(index_order_update);
-            // (quantity removed, quantity added)
             Ok(UpdateIndexOrderOutcome::Push {
-                new_quantity: quantity,
+                new_collateral_amount: collateral_amount,
             })
         }
     }
@@ -233,51 +227,54 @@ impl IndexOrder {
     /// Cancel some updates to an existing Index order
     pub fn cancel_updates(
         &mut self,
-        quantity: Amount,
+        collateral_amount: Amount,
         tolerance: Amount,
     ) -> Result<CancelIndexOrderOutcome> {
         // Match against updates
-        if let Some(unmatched_quantity) = self.match_cancel(quantity, tolerance)? {
+        if let Some(unmatched_collateral) = self.match_cancel(collateral_amount, tolerance)? {
             // We consumed all available updates
-            let quantity_removed =
-                safe!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
+            let collateral_removed =
+                safe!(collateral_amount - unmatched_collateral).ok_or_eyre("Math Problem")?;
             if self.engaged_side.is_some() {
                 // Solver is engaged in processing of this order
-                self.remaining_quantity = Amount::ZERO;
-                // (is order cancelled, quantity cancelled)
+                self.remaining_collateral = Amount::ZERO;
                 Ok(CancelIndexOrderOutcome::Reduce {
-                    removed_quantity: quantity_removed,
-                    remaining_quantity: self.remaining_quantity,
+                    removed_collateral: collateral_removed,
+                    remaining_collateral: self.remaining_collateral,
                 })
             } else {
                 Ok(CancelIndexOrderOutcome::Cancel {
-                    removed_quantity: quantity_removed,
+                    removed_collateral: collateral_removed,
                 })
             }
         } else {
-            self.remaining_quantity =
-                safe!(self.remaining_quantity + quantity).ok_or_eyre("Math Problem")?;
+            self.remaining_collateral =
+                safe!(self.remaining_collateral + collateral_amount).ok_or_eyre("Math Problem")?;
             Ok(CancelIndexOrderOutcome::Reduce {
-                removed_quantity: quantity,
-                remaining_quantity: self.remaining_quantity,
+                removed_collateral: collateral_amount,
+                remaining_collateral: self.remaining_collateral,
             })
         }
     }
 
     /// Engage
-    pub fn solver_engage(&mut self, quantity: Amount, tolerance: Amount) -> Result<Option<Amount>> {
-        if let Some(unmatched_quantity) = self.match_engage(quantity, tolerance)? {
-            let engaged_quantity =
-                safe!(quantity - unmatched_quantity).ok_or_eyre("Math Problem")?;
-            safe!(self.engaged_quantity += engaged_quantity).ok_or_eyre("Math Problem")?;
-            self.remaining_quantity =
-                safe!(self.remaining_quantity - engaged_quantity).ok_or_eyre("Math Problem")?;
+    pub fn solver_engage(
+        &mut self,
+        collateral_amount: Amount,
+        tolerance: Amount,
+    ) -> Result<Option<Amount>> {
+        if let Some(unmatched_collateral) = self.match_engage(collateral_amount, tolerance)? {
+            let engaged_collateral =
+                safe!(collateral_amount - unmatched_collateral).ok_or_eyre("Math Problem")?;
+            safe!(self.engaged_collateral += engaged_collateral).ok_or_eyre("Math Problem")?;
+            self.remaining_collateral =
+                safe!(self.remaining_collateral - engaged_collateral).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
-            Ok(Some(unmatched_quantity))
+            Ok(Some(unmatched_collateral))
         } else {
-            safe!(self.engaged_quantity += quantity).ok_or_eyre("Math Problem")?;
-            self.remaining_quantity =
-                safe!(self.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
+            safe!(self.engaged_collateral += collateral_amount).ok_or_eyre("Math Problem")?;
+            self.remaining_collateral =
+                safe!(self.remaining_collateral - collateral_amount).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
             Ok(None)
         }
@@ -297,44 +294,49 @@ impl IndexOrder {
         self.closed_updates.drain(..).for_each(cb);
     }
 
-    /// Match updates against quantity and cancel
+    /// Match updates against collateral amount and cancel
     /// Note that we are cancelling updates in LIFO order
-    fn match_cancel(&mut self, mut quantity: Amount, tolerance: Amount) -> Result<Option<Amount>> {
+    fn match_cancel(
+        &mut self,
+        mut collateral_amount: Amount,
+        tolerance: Amount,
+    ) -> Result<Option<Amount>> {
         while let Some(update) = self.order_updates.back().cloned() {
             // begin transaction on update
             let mut update = update.write();
 
-            // quantity remaining on the update
-            let future_remaining_quantity =
-                safe!(update.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
+            // collateral remaining on the update
+            let future_remaining_collateral =
+                safe!(update.remaining_collateral - collateral_amount)
+                    .ok_or_eyre("Math Problem")?;
 
-            if future_remaining_quantity < tolerance {
+            if future_remaining_collateral < tolerance {
                 // Check if Solver engaged with this update
                 //
-                // Note we don't need to check if quantity remaining on
+                // Note we don't need to check if collateral remaining on
                 // this update would be >0. Solver when picks up an order update
-                // would update both remaining_quantity and engaged_quantity.
+                // would update both remaining_collateral and engaged_collateral.
                 //
-                if update.engaged_quantity.is_some() {
+                if update.engaged_collateral.is_some() {
                     // We stop on this update
                     //
-                    // Note we set remaining quantity to 0, so that
+                    // Note we set remaining collateral to 0, so that
                     // in the next iteration Solver will not prepare
                     // any new orders for this update.
                     //
-                    update.remaining_quantity = Amount::ZERO;
+                    update.remaining_collateral = Amount::ZERO;
                     // This update is fully engaged at this moment
                     self.engaged_updates
                         .push_back(self.order_updates.pop_back().unwrap());
-                    return Ok(Some(-future_remaining_quantity));
+                    return Ok(Some(-future_remaining_collateral));
                 } else {
                     // We fully closed that update
                     self.closed_updates
                         .push_back(self.order_updates.pop_back().unwrap());
 
-                    if future_remaining_quantity < -tolerance {
-                        // there's more quantity on the incoming update left
-                        quantity = -future_remaining_quantity;
+                    if future_remaining_collateral < -tolerance {
+                        // there's more collateral on the incoming update left
+                        collateral_amount = -future_remaining_collateral;
                     } else {
                         // we consumed whole incoming update
                         return Ok(None);
@@ -344,56 +346,62 @@ impl IndexOrder {
                 // We partly closed that update
                 //
                 // Note even if Solver engaged with this update, it would
-                // change the remaining_quantity to reflect the amount it
-                // engaged with. So that the amount of remaining quantity
+                // change the collateral_quantity to reflect the amount it
+                // engaged with. So that the amount of remaining collateral
                 // would be left for next iteration, i.e. no orders were
-                // prepared yet to cover for remaining_quantity. Orders that
-                // were prepared cover engaged_quantity.
-                update.remaining_quantity = future_remaining_quantity;
+                // prepared yet to cover for remaining_collateral. Orders that
+                // were prepared cover engaged_collateral.
+                update.remaining_collateral = future_remaining_collateral;
                 return Ok(None);
             }
         }
-        Ok(Some(quantity))
+        Ok(Some(collateral_amount))
     }
 
-    /// Match updates against quantity and engage
+    /// Match updates against collateral and engage
     /// Note that we are engaging updates in FIFO order
-    fn match_engage(&mut self, mut quantity: Amount, tolerance: Amount) -> Result<Option<Amount>> {
+    fn match_engage(
+        &mut self,
+        mut collateral_amount: Amount,
+        tolerance: Amount,
+    ) -> Result<Option<Amount>> {
         while let Some(update) = self.order_updates.front().cloned() {
             // begin transaction on update
             let mut update = update.write();
 
-            let future_remaining_quantity =
-                safe!(update.remaining_quantity - quantity).ok_or_eyre("Math Problem")?;
+            let future_remaining_collateral =
+                safe!(update.remaining_collateral - collateral_amount)
+                    .ok_or_eyre("Math Problem")?;
 
-            if future_remaining_quantity < tolerance {
-                // We can engage with whole remaining quantity on this update
-                let remaining_quantity = update.remaining_quantity;
+            if future_remaining_collateral < tolerance {
+                // We can engage with whole remaining collateral on this update
+                let remaining_collateral = update.remaining_collateral;
                 println!("Should update!");
-                safe!(update.engaged_quantity += remaining_quantity).ok_or_eyre("Math Problem")?;
+                safe!(update.engaged_collateral += remaining_collateral)
+                    .ok_or_eyre("Math Problem")?;
 
-                // No quantity remaining on this update
-                update.remaining_quantity = Amount::ZERO;
+                // No collateral remaining on this update
+                update.remaining_collateral = Amount::ZERO;
 
                 // Move that update to fully engaged queue
                 self.engaged_updates
                     .push_back(self.order_updates.pop_front().unwrap());
 
-                if future_remaining_quantity < -tolerance {
-                    // There is some quantity left for next iteration
-                    quantity = -future_remaining_quantity;
+                if future_remaining_collateral < -tolerance {
+                    // There is some collateral left for next iteration
+                    collateral_amount = -future_remaining_collateral;
                 } else {
                     // We engaged all quantity
                     return Ok(None);
                 }
             } else {
                 // We can engage with whole quantity
-                safe!(update.engaged_quantity += quantity).ok_or_eyre("Math Problem")?;
-                update.remaining_quantity = future_remaining_quantity;
+                safe!(update.engaged_collateral += collateral_amount).ok_or_eyre("Math Problem")?;
+                update.remaining_collateral = future_remaining_collateral;
                 return Ok(None);
             };
         }
-        Ok(Some(quantity))
+        Ok(Some(collateral_amount))
     }
 }
 
@@ -419,27 +427,27 @@ mod test {
     /// for case when Solver has not yet engaged with this IndexOrder.
     ///
     /// We create two Buy orders:
-    ///    #1 Buy 10 @ $100
-    ///    #2 Buy 20 @ $110
+    ///    #1 Buy for $10
+    ///    #2 Buy for $20
     ///
     /// These two orders will open:
-    ///    * Buy 30
+    ///    * Buy for $30
     ///
     /// Next we create Sell orders:
-    ///    #3 Sell  5 @ $140
-    ///    #4 Sell 20 @ $140
+    ///    #3 Sell for  $5
+    ///    #4 Sell for $20
     ///
-    /// The #3 Sell 5 @ $140 will match against #2 Buy 20 @ $110, leaving #2 Buy 15 @ $110.
-    /// The #4 Sell 20 @ $140 will then match:
-    ///     * fully against remaining #2 Buy 15 @ $110
-    ///     * and partly against #1 Buy 10 @ $100, leaving #1 Buy 5 @ $100.
+    /// The #3 Sell for $5 will match against #2 Buy for $20, leaving #2 Buy for $15.
+    /// The #4 Sell for $20 will then match:
+    ///     * fully against remaining #2 Buy for $15
+    ///     * and partly against #1 Buy for $10, leaving #1 Buy for $5.
     ///
     /// Then we create Sell order:
-    ///     #5 Sell 20 @ 150
+    ///     #5 Sell for $20
     ///
     /// And that order will:
-    ///     * fully match against remaining #1 Buy 5  @ $100
-    ///     * and create order #5 Sell 15 @ $150, flipping order side to Sell
+    ///     * fully match against remaining #1 Buy for $5
+    ///     * and create order #5 Sell for $15, flipping order side to Sell
     ///
     /// The final result will be that order, which was initially created as Buy,
     /// now has become Sell order.
@@ -460,9 +468,7 @@ mod test {
         // And first update on Buy side
         let order_id1 = "Order02".into();
         let pay_id1 = "Pay01".into();
-        let price1 = dec!(100.0);
-        let price_threshold1 = dec!(0.05);
-        let quantity1 = dec!(10.0);
+        let collateral1 = dec!(10.0);
         let timestamp1 = Utc::now();
 
         {
@@ -472,9 +478,7 @@ mod test {
                     order_id1,
                     pay_id1,
                     Side::Buy,
-                    price1,
-                    price_threshold1,
-                    quantity1,
+                    collateral1,
                     timestamp1,
                     tolerance,
                 )
@@ -482,25 +486,27 @@ mod test {
 
             assert!(matches!(
                 update_index_order_outcome,
-                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: _
+                }
             ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Push { new_quantity } => {
-                    assert_decimal_approx_eq!(new_quantity, quantity1, tolerance);
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: new_collateral,
+                } => {
+                    assert_decimal_approx_eq!(new_collateral, collateral1, tolerance);
                 }
                 _ => assert!(false),
             }
             assert!(matches!(order.side, Side::Buy));
-            assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
+            assert_decimal_approx_eq!(order.remaining_collateral, collateral1, tolerance);
             assert_eq!(order.order_updates.len(), 1);
         }
 
         // Add another update on Buy side
         let order_id2 = "Order03".into();
         let pay_id2 = "Pay02".into();
-        let price2 = dec!(110.0);
-        let price_threshold2 = dec!(0.075);
-        let quantity2 = dec!(20.0);
+        let collateral2 = dec!(20.0);
         let timestamp2 = Utc::now();
 
         {
@@ -510,9 +516,7 @@ mod test {
                     order_id2,
                     pay_id2,
                     Side::Buy,
-                    price2,
-                    price_threshold2,
-                    quantity2,
+                    collateral2,
                     timestamp2,
                     tolerance,
                 )
@@ -520,25 +524,31 @@ mod test {
 
             assert!(matches!(
                 update_index_order_outcome,
-                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: _
+                }
             ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Push { new_quantity } => {
-                    assert_decimal_approx_eq!(new_quantity, quantity2, tolerance);
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: new_collateral,
+                } => {
+                    assert_decimal_approx_eq!(new_collateral, collateral2, tolerance);
                 }
                 _ => assert!(false),
             }
             assert!(matches!(order.side, Side::Buy));
-            assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
+            assert_decimal_approx_eq!(
+                order.remaining_collateral,
+                collateral1 + collateral2,
+                tolerance
+            );
             assert_eq!(order.order_updates.len(), 2);
         }
 
         // Add small update on Sell side
         let order_id3 = "Order04".into();
         let pay_id3 = "Pay03".into();
-        let price3 = dec!(140.0);
-        let price_threshold3 = dec!(0.05);
-        let quantity3 = dec!(5.0);
+        let collateral3 = dec!(5.0);
         let timestamp3 = Utc::now();
 
         {
@@ -548,9 +558,7 @@ mod test {
                     order_id3,
                     pay_id3,
                     Side::Sell,
-                    price3,
-                    price_threshold3,
-                    quantity3,
+                    collateral3,
                     timestamp3,
                     tolerance,
                 )
@@ -559,19 +567,19 @@ mod test {
             assert!(matches!(
                 update_index_order_outcome,
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity: _,
-                    remaining_quantity: _
+                    removed_collateral: _,
+                    remaining_collateral: _
                 }
             ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity,
-                    remaining_quantity,
+                    removed_collateral,
+                    remaining_collateral,
                 } => {
-                    assert_decimal_approx_eq!(removed_quantity, quantity3, tolerance);
+                    assert_decimal_approx_eq!(removed_collateral, collateral3, tolerance);
                     assert_decimal_approx_eq!(
-                        remaining_quantity,
-                        order.remaining_quantity,
+                        remaining_collateral,
+                        order.remaining_collateral,
                         tolerance
                     );
                 }
@@ -579,8 +587,8 @@ mod test {
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(
-                order.remaining_quantity,
-                quantity1 + quantity2 - quantity3,
+                order.remaining_collateral,
+                collateral1 + collateral2 - collateral3,
                 tolerance
             );
             assert_eq!(order.order_updates.len(), 2);
@@ -589,9 +597,7 @@ mod test {
         // Add bigger update on Sell side
         let order_id4 = "Order05".into();
         let pay_id4 = "Pay04".into();
-        let price4 = dec!(140.0);
-        let price_threshold4 = dec!(0.05);
-        let quantity4 = dec!(20.0);
+        let collateral4 = dec!(20.0);
         let timestamp4 = Utc::now();
 
         {
@@ -601,9 +607,7 @@ mod test {
                     order_id4,
                     pay_id4,
                     Side::Sell,
-                    price4,
-                    price_threshold4,
-                    quantity4,
+                    collateral4,
                     timestamp4,
                     tolerance,
                 )
@@ -612,19 +616,19 @@ mod test {
             assert!(matches!(
                 update_index_order_outcome,
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity: _,
-                    remaining_quantity: _
+                    removed_collateral: _,
+                    remaining_collateral: _
                 }
             ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity,
-                    remaining_quantity,
+                    removed_collateral,
+                    remaining_collateral,
                 } => {
-                    assert_decimal_approx_eq!(removed_quantity, quantity4, tolerance);
+                    assert_decimal_approx_eq!(removed_collateral, collateral4, tolerance);
                     assert_decimal_approx_eq!(
-                        remaining_quantity,
-                        order.remaining_quantity,
+                        remaining_collateral,
+                        order.remaining_collateral,
                         tolerance
                     );
                 }
@@ -632,8 +636,8 @@ mod test {
             }
             assert!(matches!(order.side, Side::Buy));
             assert_decimal_approx_eq!(
-                order.remaining_quantity,
-                quantity1 + quantity2 - quantity3 - quantity4,
+                order.remaining_collateral,
+                collateral1 + collateral2 - collateral3 - collateral4,
                 tolerance
             );
             assert_eq!(order.order_updates.len(), 1);
@@ -642,9 +646,7 @@ mod test {
         // Another update on Sell side should flip
         let order_id5 = "Order06".into();
         let pay_id5 = "Pay05".into();
-        let price5 = dec!(150.0);
-        let price_threshold5 = dec!(0.05);
-        let quantity5 = dec!(20.0);
+        let collateral5 = dec!(20.0);
         let timestamp5 = Utc::now();
         {
             let update_index_order_outcome = order
@@ -653,34 +655,36 @@ mod test {
                     order_id5,
                     pay_id5,
                     Side::Sell,
-                    price5,
-                    price_threshold5,
-                    quantity5,
+                    collateral5,
                     timestamp5,
                     tolerance,
                 )
                 .unwrap();
 
-            let quantity_added = quantity5 - (quantity1 + quantity2 - quantity3 - quantity4);
+            let collateral_added =
+                collateral5 - (collateral1 + collateral2 - collateral3 - collateral4);
 
             assert!(matches!(
                 update_index_order_outcome,
                 UpdateIndexOrderOutcome::Flip {
                     side: _,
-                    new_quantity: _
+                    new_collateral_amount: _
                 }
             ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Flip { side, new_quantity } => {
+                UpdateIndexOrderOutcome::Flip {
+                    side,
+                    new_collateral_amount: new_collateral,
+                } => {
                     assert!(matches!(side, Side::Sell));
-                    assert_decimal_approx_eq!(new_quantity, quantity_added, tolerance);
+                    assert_decimal_approx_eq!(new_collateral, collateral_added, tolerance);
                 }
                 _ => assert!(false),
             }
             assert!(matches!(order.side, Side::Sell));
             assert_decimal_approx_eq!(
-                order.remaining_quantity,
-                quantity5 - (quantity1 + quantity2 - quantity3 - quantity4),
+                order.remaining_collateral,
+                collateral5 - (collateral1 + collateral2 - collateral3 - collateral4),
                 tolerance
             );
             assert_eq!(order.order_updates.len(), 1);
@@ -731,9 +735,7 @@ mod test {
         // And first update on Buy side
         let order_id1 = "Order02".into();
         let pay_id1 = "Pay01".into();
-        let price1 = dec!(100.0);
-        let price_threshold1 = dec!(0.05);
-        let quantity1 = dec!(10.0);
+        let collateral1 = dec!(10.0);
         let timestamp1 = Utc::now();
 
         {
@@ -743,9 +745,7 @@ mod test {
                     order_id1,
                     pay_id1,
                     Side::Buy,
-                    price1,
-                    price_threshold1,
-                    quantity1,
+                    collateral1,
                     timestamp1,
                     tolerance,
                 )
@@ -753,24 +753,26 @@ mod test {
 
             assert!(matches!(
                 update_index_order_outcome,
-                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: _
+                }
             ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Push { new_quantity } => {
-                    assert_decimal_approx_eq!(new_quantity, quantity1, tolerance);
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: new_collateral,
+                } => {
+                    assert_decimal_approx_eq!(new_collateral, collateral1, tolerance);
                 }
                 _ => assert!(false),
             }
             assert!(matches!(order.side, Side::Buy));
-            assert_decimal_approx_eq!(order.remaining_quantity, quantity1, tolerance);
+            assert_decimal_approx_eq!(order.remaining_collateral, collateral1, tolerance);
             assert_eq!(order.order_updates.len(), 1);
         }
         // Add another update on Buy side
         let order_id2 = "Order03".into();
         let pay_id2 = "Pay02".into();
-        let price2 = dec!(110.0);
-        let price_threshold2 = dec!(0.075);
-        let quantity2 = dec!(20.0);
+        let collateral2 = dec!(20.0);
         let timestamp2 = Utc::now();
 
         {
@@ -780,9 +782,7 @@ mod test {
                     order_id2,
                     pay_id2,
                     Side::Buy,
-                    price2,
-                    price_threshold2,
-                    quantity2,
+                    collateral2,
                     timestamp2,
                     tolerance,
                 )
@@ -790,27 +790,39 @@ mod test {
 
             assert!(matches!(
                 update_index_order_outcome,
-                UpdateIndexOrderOutcome::Push { new_quantity: _ }
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: _
+                }
             ));
             match update_index_order_outcome {
-                UpdateIndexOrderOutcome::Push { new_quantity } => {
-                    assert_decimal_approx_eq!(new_quantity, quantity2, tolerance);
+                UpdateIndexOrderOutcome::Push {
+                    new_collateral_amount: new_collateral,
+                } => {
+                    assert_decimal_approx_eq!(new_collateral, collateral2, tolerance);
                 }
                 _ => assert!(false),
             }
             assert!(matches!(order.side, Side::Buy));
-            assert_decimal_approx_eq!(order.remaining_quantity, quantity1 + quantity2, tolerance);
+            assert_decimal_approx_eq!(
+                order.remaining_collateral,
+                collateral1 + collateral2,
+                tolerance
+            );
             assert_eq!(order.order_updates.len(), 2);
         }
 
-        // Engage in small quantity
-        let engage_quantity1 = dec!(5);
+        // Engage in small collateral
+        let engage_collateral1 = dec!(5);
         {
-            let unengaged_quantity1 = order.solver_engage(engage_quantity1, tolerance).unwrap();
-            assert!(matches!(unengaged_quantity1, None));
+            let unengaged_collateral1 = order.solver_engage(engage_collateral1, tolerance).unwrap();
+            assert!(matches!(unengaged_collateral1, None));
 
             assert!(matches!(order.engaged_side, Some(Side::Buy)));
-            assert_decimal_approx_eq!(order.engaged_quantity.unwrap(), engage_quantity1, tolerance);
+            assert_decimal_approx_eq!(
+                order.engaged_collateral.unwrap(),
+                engage_collateral1,
+                tolerance
+            );
 
             assert_eq!(order.order_updates.len(), 2);
             assert_eq!(order.engaged_updates.len(), 0);
@@ -818,37 +830,37 @@ mod test {
             let mut iter = order.order_updates.iter();
 
             let update = iter.next().unwrap().read();
-            assert!(update.engaged_quantity.is_some());
+            assert!(update.engaged_collateral.is_some());
             assert_decimal_approx_eq!(
-                update.engaged_quantity.unwrap(),
-                engage_quantity1,
+                update.engaged_collateral.unwrap(),
+                engage_collateral1,
                 tolerance
             );
             assert_decimal_approx_eq!(
-                update.remaining_quantity,
-                quantity1 - engage_quantity1,
+                update.remaining_collateral,
+                collateral1 - engage_collateral1,
                 tolerance
             );
             assert_decimal_approx_eq!(
-                order.remaining_quantity,
-                quantity1 + quantity2 - engage_quantity1,
+                order.remaining_collateral,
+                collateral1 + collateral2 - engage_collateral1,
                 tolerance
             );
 
             let update = iter.next().unwrap().read();
-            assert!(update.engaged_quantity.is_none());
+            assert!(update.engaged_collateral.is_none());
         }
 
-        // Engage in larger quantity
-        let engage_quantity2 = dec!(20.0);
+        // Engage in larger collateral
+        let engage_collateral2 = dec!(20.0);
         {
-            let unengaged_quantity2 = order.solver_engage(engage_quantity2, tolerance).unwrap();
-            assert!(matches!(unengaged_quantity2, None));
+            let unengaged_collateral2 = order.solver_engage(engage_collateral2, tolerance).unwrap();
+            assert!(matches!(unengaged_collateral2, None));
 
             assert!(matches!(order.engaged_side, Some(Side::Buy)));
             assert_decimal_approx_eq!(
-                order.engaged_quantity.unwrap(),
-                engage_quantity1 + engage_quantity2,
+                order.engaged_collateral.unwrap(),
+                engage_collateral1 + engage_collateral2,
                 tolerance
             );
 
@@ -858,32 +870,30 @@ mod test {
             let mut iter = order.order_updates.iter();
 
             let update = iter.next().unwrap().read();
-            assert!(update.engaged_quantity.is_some());
+            assert!(update.engaged_collateral.is_some());
             assert_decimal_approx_eq!(
-                update.engaged_quantity.unwrap(),
-                engage_quantity2 - (quantity1 - engage_quantity1),
+                update.engaged_collateral.unwrap(),
+                engage_collateral2 - (collateral1 - engage_collateral1),
                 tolerance
             );
             assert_decimal_approx_eq!(
-                update.remaining_quantity,
-                quantity2 - (engage_quantity2 - (quantity1 - engage_quantity1)),
+                update.remaining_collateral,
+                collateral2 - (engage_collateral2 - (collateral1 - engage_collateral1)),
                 tolerance
             );
 
             let mut iter = order.engaged_updates.iter();
             let update = iter.next().unwrap().read();
-            assert_decimal_approx_eq!(update.engaged_quantity.unwrap(), quantity1, tolerance);
+            assert_decimal_approx_eq!(update.engaged_collateral.unwrap(), collateral1, tolerance);
         }
 
         // At this stage first order is fully engaged, and second order is partly engaged.
-        // Order is engaged on Buy side. We should not be able to flip sides or cancel any engaged quantity.
+        // Order is engaged on Buy side. We should not be able to flip sides or cancel any engaged collateral.
         {
             // Add bigger update on Sell side
             let order_id4 = "Order05".into();
             let pay_id4 = "Pay04".into();
-            let price4 = dec!(140.0);
-            let price_threshold4 = dec!(0.05);
-            let quantity4 = dec!(20.0);
+            let collateral4 = dec!(20.0);
             let timestamp4 = Utc::now();
 
             let update_index_order_outcome = order
@@ -892,39 +902,38 @@ mod test {
                     order_id4,
                     pay_id4,
                     Side::Sell,
-                    price4,
-                    price_threshold4,
-                    quantity4,
+                    collateral4,
                     timestamp4,
                     tolerance,
                 )
                 .unwrap();
 
-            let quantity_removed = quantity2 - (engage_quantity2 - (quantity1 - engage_quantity1));
+            let collateral_removed =
+                collateral2 - (engage_collateral2 - (collateral1 - engage_collateral1));
 
             assert!(matches!(
                 update_index_order_outcome,
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity: _,
-                    remaining_quantity: _
+                    removed_collateral: _,
+                    remaining_collateral: _
                 }
             ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Reduce {
-                    removed_quantity,
-                    remaining_quantity,
+                    removed_collateral,
+                    remaining_collateral,
                 } => {
-                    assert_decimal_approx_eq!(removed_quantity, quantity_removed, tolerance);
+                    assert_decimal_approx_eq!(removed_collateral, collateral_removed, tolerance);
                     assert_decimal_approx_eq!(
-                        remaining_quantity,
-                        order.remaining_quantity,
+                        remaining_collateral,
+                        order.remaining_collateral,
                         tolerance
                     );
                 }
                 _ => assert!(false),
             }
             assert!(matches!(order.side, Side::Buy));
-            assert_decimal_approx_eq!(order.remaining_quantity, Amount::ZERO, tolerance);
+            assert_decimal_approx_eq!(order.remaining_collateral, Amount::ZERO, tolerance);
 
             // order was moved to fully engaged orders
             assert_eq!(order.order_updates.len(), 0);
@@ -933,16 +942,16 @@ mod test {
             let mut iter = order.engaged_updates.iter();
 
             let update = iter.next().unwrap().read();
-            assert_decimal_approx_eq!(update.engaged_quantity.unwrap(), quantity1, tolerance);
+            assert_decimal_approx_eq!(update.engaged_collateral.unwrap(), collateral1, tolerance);
 
             let update = iter.next().unwrap().read();
-            assert!(update.engaged_quantity.is_some());
+            assert!(update.engaged_collateral.is_some());
             assert_decimal_approx_eq!(
-                update.engaged_quantity.unwrap(),
-                engage_quantity2 - (quantity1 - engage_quantity1),
+                update.engaged_collateral.unwrap(),
+                engage_collateral2 - (collateral1 - engage_collateral1),
                 tolerance
             );
-            assert_decimal_approx_eq!(update.remaining_quantity, Amount::ZERO, tolerance);
+            assert_decimal_approx_eq!(update.remaining_collateral, Amount::ZERO, tolerance);
         }
     }
 }

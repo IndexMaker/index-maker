@@ -28,7 +28,6 @@ pub trait OrderBookManager {
         &self,
         side: Side,
         symbols: &HashMap<Symbol, Amount>,
-        threshold: Amount,
     ) -> Result<HashMap<Symbol, Amount>>;
 }
 
@@ -103,7 +102,6 @@ impl OrderBookManager for PricePointBookManager {
         &self,
         side: Side,
         symbols: &HashMap<Symbol, Amount>,
-        threshold: Amount,
     ) -> Result<HashMap<Symbol, Amount>> {
         let mut result = HashMap::new();
 
@@ -111,7 +109,7 @@ impl OrderBookManager for PricePointBookManager {
         for (symbol, price) in symbols {
             if let Some(order_book) = self.order_books.get(&symbol) {
                 // get liquidity from order book
-                let liquidity = order_book.get_liquidity(side, price, threshold)?;
+                let liquidity = order_book.get_liquidity(side, price)?;
                 result.insert(symbol.clone(), liquidity);
             }
         }

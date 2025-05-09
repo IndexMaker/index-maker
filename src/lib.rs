@@ -43,6 +43,7 @@ pub mod server {
 }
 
 pub mod solver {
+    pub mod batch_manager;
     pub mod index_order;
     pub mod index_order_manager;
     pub mod index_quote;
@@ -50,4 +51,7 @@ pub mod solver {
     pub mod inventory_manager;
     pub mod position;
     pub mod solver;
+    pub mod solvers {
+        pub mod simple_solver;
+    }
 }

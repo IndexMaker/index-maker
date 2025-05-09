@@ -11,13 +11,20 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
-    server::server::{Server, ServerEvent},
+    server::server::{Server, ServerEvent, ServerResponse},
     solver::index_order::IndexOrder,
 };
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+
+pub struct EngageOrderRequest {
+    pub address: Address,
+    pub client_order_id: ClientOrderId,
+    pub symbol: Symbol,
+    pub collateral_amount: Amount,
+}
 
 pub struct EngagedIndexOrder {
     // ID of the original NewOrder request
@@ -30,10 +37,10 @@ pub struct EngagedIndexOrder {
     pub client_order_id: ClientOrderId,
 
     /// Quantity remaining
-    pub quantity_engaged: Amount,
+    pub collateral_engaged: Amount,
 
     /// Quantity remaining
-    pub quantity_remaining: Amount,
+    pub collateral_remaining: Amount,
 }
 
 pub enum IndexOrderEvent {
@@ -56,14 +63,8 @@ pub enum IndexOrderEvent {
         /// Side of an order
         side: Side,
 
-        /// Limit price
-        price: Amount,
-
-        /// Price max deviation %-age (as fraction) threshold
-        price_threshold: Amount,
-
-        /// Quantity of index requested
-        quantity: Amount,
+        /// Collateral to spend
+        collateral_amount: Amount,
 
         /// Time when requested
         timestamp: DateTime<Utc>,
@@ -89,10 +90,10 @@ pub enum IndexOrderEvent {
         client_order_id: ClientOrderId,
 
         /// Quantity removed
-        quantity_removed: Amount,
+        collateral_removed: Amount,
 
         /// Quantity remaining
-        quantity_remaining: Amount,
+        collateral_remaining: Amount,
 
         /// Time when requested
         timestamp: DateTime<Utc>,
@@ -148,9 +149,7 @@ impl IndexOrderManager {
         payment_id: PaymentId,
         symbol: Symbol,
         side: Side,
-        price: Amount,
-        price_threshold: Amount,
-        quantity: Amount,
+        collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         // Create index orders for user if not created yet
@@ -159,7 +158,7 @@ impl IndexOrderManager {
             .entry(address)
             .or_insert_with(|| HashMap::new());
 
-        // Create index order for if not created yet
+        // Create index order if not created yet
         let index_order = user_index_orders
             .entry(symbol.clone())
             .or_insert_with(|| {
@@ -182,15 +181,15 @@ impl IndexOrderManager {
             client_order_id.clone(),
             payment_id.clone(),
             side,
-            price,
-            price_threshold,
-            quantity,
+            collateral_amount,
             timestamp,
             self.tolerance,
         )?;
 
         match update_order_outcome {
-            UpdateIndexOrderOutcome::Push { new_quantity } => {
+            UpdateIndexOrderOutcome::Push {
+                new_collateral_amount,
+            } => {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         original_client_order_id,
@@ -199,27 +198,28 @@ impl IndexOrderManager {
                         payment_id,
                         symbol,
                         side,
-                        price,
-                        price_threshold,
-                        quantity: new_quantity,
+                        collateral_amount: new_collateral_amount,
                         timestamp,
                     });
             }
             UpdateIndexOrderOutcome::Reduce {
-                removed_quantity,
-                remaining_quantity,
+                removed_collateral,
+                remaining_collateral,
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
                         original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
-                        quantity_removed: removed_quantity,
-                        quantity_remaining: remaining_quantity,
+                        collateral_removed: removed_collateral,
+                        collateral_remaining: remaining_collateral,
                         timestamp,
                     });
             }
-            UpdateIndexOrderOutcome::Flip { side, new_quantity } => {
+            UpdateIndexOrderOutcome::Flip {
+                side,
+                new_collateral_amount,
+            } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
                         original_client_order_id: original_client_order_id.clone(),
@@ -235,9 +235,7 @@ impl IndexOrderManager {
                         payment_id,
                         symbol,
                         side,
-                        price,
-                        price_threshold,
-                        quantity: new_quantity,
+                        collateral_amount: new_collateral_amount,
                         timestamp,
                     });
             }
@@ -261,7 +259,7 @@ impl IndexOrderManager {
         client_order_id: ClientOrderId,
         payment_id: PaymentId,
         symbol: Symbol,
-        quantity: Amount,
+        collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let user_orders = self
@@ -278,10 +276,10 @@ impl IndexOrderManager {
 
         match index_order
             .write()
-            .cancel_updates(quantity, self.tolerance)?
+            .cancel_updates(collateral_amount, self.tolerance)?
         {
             CancelIndexOrderOutcome::Cancel {
-                removed_quantity: _,
+                removed_collateral: _,
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
@@ -292,16 +290,16 @@ impl IndexOrderManager {
                     });
             }
             CancelIndexOrderOutcome::Reduce {
-                removed_quantity,
-                remaining_quantity,
+                removed_collateral,
+                remaining_collateral,
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
                         original_client_order_id,
                         address,
                         client_order_id,
-                        quantity_removed: removed_quantity,
-                        quantity_remaining: remaining_quantity,
+                        collateral_removed: removed_collateral,
+                        collateral_remaining: remaining_collateral,
                         timestamp,
                     });
             }
@@ -318,9 +316,7 @@ impl IndexOrderManager {
                 payment_id,
                 symbol,
                 side,
-                price,
-                price_threshold,
-                quantity,
+                collateral_amount,
                 timestamp,
             } => self.new_index_order(
                 address.clone(),
@@ -328,9 +324,7 @@ impl IndexOrderManager {
                 payment_id.clone(),
                 symbol.clone(),
                 *side,
-                *price,
-                *price_threshold,
-                *quantity,
+                *collateral_amount,
                 timestamp.clone(),
             ),
             ServerEvent::CancelIndexOrder {
@@ -338,14 +332,14 @@ impl IndexOrderManager {
                 client_order_id,
                 payment_id,
                 symbol,
-                quantity,
+                collateral_amount,
                 timestamp,
             } => self.cancel_index_order(
                 address.clone(),
                 client_order_id.clone(),
                 payment_id.clone(),
                 symbol.clone(),
-                *quantity,
+                *collateral_amount,
                 timestamp.clone(),
             ),
             _ => Ok(()),
@@ -358,6 +352,7 @@ impl IndexOrderManager {
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
+        collateral_spent: Amount,
         fill_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
@@ -368,25 +363,28 @@ impl IndexOrderManager {
             .and_then(|mut index_order| {
                 // TOOD: We need to fill the updates too!
                 index_order.filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
-                index_order.engaged_quantity =
-                    Some(safe!(index_order.engaged_quantity? - fill_amount)?);
+                index_order.collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
+                index_order.engaged_collateral =
+                    Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
                 println!(
-                    "IndexOrderManager: Fill: {} {:0.5} (+{:0.5}), Remainig Quantity: {:0.5}",
+                    "IndexOrderManager: Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} (-{:0.5})",
                     client_order_id,
                     index_order.filled_quantity,
                     fill_amount,
-                    index_order.remaining_quantity
+                    index_order.remaining_collateral,
+                    index_order.collateral_spent,
                 );
 
-                let quantity_remaining =
-                    safe!(index_order.engaged_quantity + index_order.remaining_quantity)?;
+                let collateral_remaining =
+                    safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
 
                 self.server.write().respond_with(
-                    crate::server::server::ServerResponse::IndexOrderFill {
+                    ServerResponse::IndexOrderFill {
                         address: *address,
                         client_order_id: client_order_id.clone(),
                         filled_quantity: index_order.filled_quantity,
-                        quantity_remaining,
+                        collateral_spent: index_order.collateral_spent,
+                        collateral_remaining,
                         timestamp,
                     },
                 );
@@ -402,47 +400,52 @@ impl IndexOrderManager {
     pub fn engage_orders(
         &mut self,
         batch_order_id: BatchOrderId,
-        engaged_orders: Vec<(Address, ClientOrderId, Symbol, Amount)>,
+        engaged_orders: Vec<EngageOrderRequest>,
     ) -> Result<()> {
         let mut engage_result = HashMap::new();
-        for (address, client_order_id, symbol, quantity) in engaged_orders {
+        for engage_order in engaged_orders {
             if let Some(index_order) = self
                 .index_orders
-                .get_mut(&address)
-                .and_then(|map| map.get_mut(&symbol))
+                .get_mut(&engage_order.address)
+                .and_then(|map| map.get_mut(&engage_order.symbol))
             {
                 let mut index_order = index_order.write();
-                let unmatched_quantity = index_order.solver_engage(quantity, self.tolerance)?;
+                let unmatched_collateral =
+                    index_order.solver_engage(engage_order.collateral_amount, self.tolerance)?;
                 println!(
-                    "IndexOrderManager: Engage {} {:0.5} {:0.5} {:0.5}",
-                    client_order_id,
-                    quantity,
-                    index_order.engaged_quantity.unwrap_or_default(),
-                    index_order.remaining_quantity
+                    "IndexOrderManager: Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
+                    engage_order.client_order_id,
+                    engage_order.collateral_amount,
+                    index_order.engaged_collateral.unwrap_or_default(),
+                    index_order.remaining_collateral
                 );
 
-                let quantity_engaged = if let Some(unmatched_quantity) = unmatched_quantity {
-                    safe!(quantity - unmatched_quantity)
+                let collateral_engaged = if let Some(unmatched_collateral) = unmatched_collateral {
+                    safe!(engage_order.collateral_amount - unmatched_collateral)
                 } else {
-                    Some(quantity)
+                    Some(engage_order.collateral_amount)
                 };
 
-                if let Some(quantity_engaged) = quantity_engaged {
+                if let Some(collateral_engaged) = collateral_engaged {
                     engage_result.insert(
-                        (address, client_order_id.clone()),
+                        (engage_order.address, engage_order.client_order_id.clone()),
                         EngagedIndexOrder {
                             original_client_order_id: index_order.original_client_order_id.clone(),
-                            address,
-                            client_order_id: client_order_id.clone(),
-                            quantity_engaged,
-                            quantity_remaining: index_order.remaining_quantity,
+                            address: engage_order.address,
+                            client_order_id: engage_order.client_order_id.clone(),
+                            collateral_engaged,
+                            collateral_remaining: index_order.remaining_collateral,
                         },
                     );
                 } else {
                     index_order.solver_cancel("Math overflow");
                 }
             } else {
-                return Err(eyre!("No such index order {} {}", address, symbol));
+                return Err(eyre!(
+                    "No such index order {} {}",
+                    engage_order.address,
+                    engage_order.symbol
+                ));
             }
         }
         self.observer
