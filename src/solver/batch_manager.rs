@@ -505,8 +505,8 @@ impl BatchManager {
         let total_collateral = safe!(index_order_write.collateral_spent + remaining_collateral)
             .ok_or_eyre("Math Problem")?;
 
-        let order_fill_rate =
-            safe!(index_order_write.collateral_spent / total_collateral).ok_or_eyre("Math Problem")?;
+        let order_fill_rate = safe!(index_order_write.collateral_spent / total_collateral)
+            .ok_or_eyre("Math Problem")?;
 
         println!(
             "Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
@@ -548,6 +548,8 @@ impl BatchManager {
         if self.fill_threshold < order_fill_rate {
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
         } else if self.fill_threshold < fill_rate {
+            index_order_write.collateral_carried = index_order_write.engaged_collateral;
+            index_order_write.engaged_collateral = Amount::ZERO;
             return Ok(Some(index_order.clone()));
         }
 
@@ -649,6 +651,8 @@ impl BatchManager {
 
                                 index_order_stored.engaged_collateral =
                                     engaged_order.collateral_engaged;
+
+                                index_order_stored.collateral_carried = Amount::ZERO;
 
                                 engaged_order_stored.engaged_collateral =
                                     engaged_order.collateral_engaged;

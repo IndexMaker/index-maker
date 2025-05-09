@@ -281,8 +281,9 @@ impl SimpleSolver {
             )
         })?;
 
-        let collateral_available = safe!(collateral_amount / self.fee_factor)
-            .ok_or_eyre("Fee factor multiplication error")?;
+        let collateral_available =
+            safe!(safe!(collateral_amount / self.fee_factor) + order_upread.collateral_carried)
+                .ok_or_eyre("Fee factor multiplication error")?;
 
         // Cap order volley size
         let collateral_usable = collateral_available.min(self.max_order_volley_size);

@@ -72,6 +72,9 @@ pub struct SolverOrder {
 
     /// Collateral solver has engaged so far
     pub engaged_collateral: Amount,
+    
+    /// Collateral carried over from last batch
+    pub collateral_carried: Amount,
 
     /// Collateral spent by solver
     pub collateral_spent: Amount,
@@ -296,6 +299,7 @@ impl Solver {
                 .iter()
                 .map_while(|order| {
                     let order = order.write();
+                    let carried_collateral = order.index_order.read().collateral_carried;
                     if order.engaged_collateral < self.zero_threshold {
                         None
                     } else {
@@ -303,7 +307,11 @@ impl Solver {
                             address: order.address,
                             client_order_id: order.client_order_id.clone(),
                             symbol: order.symbol.clone(),
-                            collateral_amount: order.engaged_collateral,
+                            // We already have engaged collateral that was
+                            // carried over from previous batch so we only need
+                            // to ask Index Order Manager to engage the
+                            // difference.
+                            collateral_amount: safe!(order.engaged_collateral - carried_collateral)?,
                         })
                     }
                 })
@@ -658,6 +666,7 @@ impl Solver {
                             side,
                             remaining_collateral: collateral_amount,
                             engaged_collateral: Amount::ZERO,
+                            collateral_carried: Amount::ZERO,
                             collateral_spent: Amount::ZERO,
                             filled_quantity: Amount::ZERO,
                             timestamp,
