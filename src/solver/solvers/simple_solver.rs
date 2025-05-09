@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use alloy::serde::quantity;
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::RwLock;
@@ -309,8 +308,12 @@ impl SimpleSolver {
                 let asset_symbol = &basket_asset.weight.asset.name;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
                 println!(
-                    "Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5}",
-                    client_order_id, asset_symbol, asset_quantity, basket_asset.quantity
+                    "Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
+                    client_order_id,
+                    asset_symbol,
+                    asset_quantity,
+                    basket_asset.quantity,
+                    index_order_quantity
                 );
                 Some((asset_symbol.clone(), asset_quantity))
             })
@@ -799,7 +802,7 @@ impl SimpleSolver {
     }
 
     fn solve_engagements_for<OrderPtr, UpRead, SetOrderStatusFn>(
-        &mut self,
+        &self,
         strategy_host: &dyn SolverStrategyHost,
         side: Side,
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
@@ -948,7 +951,7 @@ impl SimpleSolver {
 
 impl SolverStrategy for SimpleSolver {
     fn solve_engagements(
-        &mut self,
+        &self,
         strategy_host: &dyn SolverStrategyHost,
     ) -> Result<Option<EngagedSolverOrders>> {
         let order_batch = strategy_host.get_order_batch();

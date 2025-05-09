@@ -19,6 +19,13 @@ use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
 
+pub struct EngageOrderRequest {
+    pub address: Address,
+    pub client_order_id: ClientOrderId,
+    pub symbol: Symbol,
+    pub collateral_amount: Amount,
+}
+
 pub struct EngagedIndexOrder {
     // ID of the original NewOrder request
     pub original_client_order_id: ClientOrderId,
@@ -393,39 +400,39 @@ impl IndexOrderManager {
     pub fn engage_orders(
         &mut self,
         batch_order_id: BatchOrderId,
-        engaged_orders: Vec<(Address, ClientOrderId, Symbol, Amount)>,
+        engaged_orders: Vec<EngageOrderRequest>,
     ) -> Result<()> {
         let mut engage_result = HashMap::new();
-        for (address, client_order_id, symbol, collateral_amount) in engaged_orders {
+        for engage_order in engaged_orders {
             if let Some(index_order) = self
                 .index_orders
-                .get_mut(&address)
-                .and_then(|map| map.get_mut(&symbol))
+                .get_mut(&engage_order.address)
+                .and_then(|map| map.get_mut(&engage_order.symbol))
             {
                 let mut index_order = index_order.write();
                 let unmatched_collateral =
-                    index_order.solver_engage(collateral_amount, self.tolerance)?;
+                    index_order.solver_engage(engage_order.collateral_amount, self.tolerance)?;
                 println!(
-                    "IndexOrderManager: Engage {} c={:0.5} ec={:0.5} rc={:0.5}",
-                    client_order_id,
-                    collateral_amount,
+                    "IndexOrderManager: Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
+                    engage_order.client_order_id,
+                    engage_order.collateral_amount,
                     index_order.engaged_collateral.unwrap_or_default(),
                     index_order.remaining_collateral
                 );
 
                 let collateral_engaged = if let Some(unmatched_collateral) = unmatched_collateral {
-                    safe!(collateral_amount - unmatched_collateral)
+                    safe!(engage_order.collateral_amount - unmatched_collateral)
                 } else {
-                    Some(collateral_amount)
+                    Some(engage_order.collateral_amount)
                 };
 
                 if let Some(collateral_engaged) = collateral_engaged {
                     engage_result.insert(
-                        (address, client_order_id.clone()),
+                        (engage_order.address, engage_order.client_order_id.clone()),
                         EngagedIndexOrder {
                             original_client_order_id: index_order.original_client_order_id.clone(),
-                            address,
-                            client_order_id: client_order_id.clone(),
+                            address: engage_order.address,
+                            client_order_id: engage_order.client_order_id.clone(),
                             collateral_engaged,
                             collateral_remaining: index_order.remaining_collateral,
                         },
@@ -434,7 +441,11 @@ impl IndexOrderManager {
                     index_order.solver_cancel("Math overflow");
                 }
             } else {
-                return Err(eyre!("No such index order {} {}", address, symbol));
+                return Err(eyre!(
+                    "No such index order {} {}",
+                    engage_order.address,
+                    engage_order.symbol
+                ));
             }
         }
         self.observer
