@@ -428,42 +428,6 @@ impl BatchManager {
             return Ok(None);
         }
 
-        // Now we update it
-        engaged_order.with_upgraded(|x| {
-            x.filled_quantity = filled_quantity;
-        });
-
-        // And we add the delta to the Index Order filled quantity
-        index_order_write.filled_quantity =
-            safe!(index_order_write.filled_quantity + filled_quantity_delta)
-                .ok_or_eyre("Math Problem")?;
-
-        index_order_write.engaged_collateral =
-            safe!(index_order_write.engaged_collateral - filled_quantity_delta)
-                .ok_or_eyre("Math Problem")?;
-
-        index_order_write.timestamp = batch.last_update_timestamp;
-
-        let remaining_quantity =
-            safe!(index_order_write.remaining_collateral + index_order_write.engaged_collateral)
-                .ok_or_eyre("Math Problem")?;
-
-        let total_quantity = safe!(index_order_write.filled_quantity + remaining_quantity)
-            .ok_or_eyre("Math Problem")?;
-
-        let order_fill_rate =
-            safe!(index_order_write.filled_quantity / total_quantity).ok_or_eyre("Math Problem")?;
-
-        println!(
-            "Fill Index Order: ifq={:0.5} irq={:0.5} ieq={:0.5} rq={:0.5} bfr={:0.3}% ofr={:0.3}%",
-            index_order_write.filled_quantity,
-            index_order_write.remaining_collateral,
-            index_order_write.engaged_collateral,
-            remaining_quantity,
-            safe!(fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
-            safe!(order_fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
-        );
-
         // Allocate batch lots to index order
         //
         // NOTE This is super important as we want to allocate prices and fees
@@ -513,6 +477,48 @@ impl BatchManager {
             collateral_spent =
                 safe!(collateral_spent + asset_collateral_spent).ok_or_eyre("Math Problem")?
         }
+
+        // Now we update it
+        engaged_order.with_upgraded(|x| {
+            x.filled_quantity = filled_quantity;
+        });
+
+        // And we add the delta to the Index Order filled quantity
+        index_order_write.filled_quantity =
+            safe!(index_order_write.filled_quantity + filled_quantity_delta)
+                .ok_or_eyre("Math Problem")?;
+
+        index_order_write.engaged_collateral =
+            safe!(index_order_write.engaged_collateral - collateral_spent)
+                .ok_or_eyre("Math Problem")?;
+
+        index_order_write.collateral_spent =
+            safe!(index_order_write.collateral_spent + collateral_spent)
+                .ok_or_eyre("Math Problem")?;
+
+        index_order_write.timestamp = batch.last_update_timestamp;
+
+        let remaining_collateral =
+            safe!(index_order_write.remaining_collateral + index_order_write.engaged_collateral)
+                .ok_or_eyre("Math Problem")?;
+
+        let total_collateral = safe!(index_order_write.collateral_spent + remaining_collateral)
+            .ok_or_eyre("Math Problem")?;
+
+        let order_fill_rate =
+            safe!(index_order_write.collateral_spent / total_collateral).ok_or_eyre("Math Problem")?;
+
+        println!(
+            "Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
+            index_order_write.filled_quantity,
+            index_order_write.remaining_collateral,
+            index_order_write.engaged_collateral,
+            index_order_write.collateral_spent,
+            collateral_spent,
+            remaining_collateral,
+            safe!(fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
+            safe!(order_fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
+        );
 
         host.get_index_order_manager().write().fill_order_request(
             &index_order_write.address,
@@ -646,6 +652,11 @@ impl BatchManager {
 
                                 engaged_order_stored.engaged_collateral =
                                     engaged_order.collateral_engaged;
+
+                                host.set_order_status(
+                                    &mut index_order_stored,
+                                    SolverOrderStatus::Engaged,
+                                );
                             }
                             None => {
                                 host.set_order_status(
