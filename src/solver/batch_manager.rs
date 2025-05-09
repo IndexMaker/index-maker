@@ -137,9 +137,12 @@ impl BatchAssetPosition {
         &mut self,
         index_order: &mut SolverOrder,
         mut quantity: Amount,
-    ) -> Option<Amount> {
+    ) -> Option<(Amount, Amount)> {
+        let mut collateral_spent = Amount::ZERO;
         let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
             let asset_allocation = lot.try_build_solver_asset_lot(self.symbol.clone(), quantity)?;
+            let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
+            collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
             index_order.lots.push(asset_allocation);
             Some(())
         };
@@ -161,7 +164,7 @@ impl BatchAssetPosition {
                 break;
             }
         }
-        Some(quantity)
+        Some((quantity, collateral_spent))
     }
 }
 
@@ -401,7 +404,7 @@ impl BatchManager {
                 Some(x.min(avialable_fill_rate))
             });
             println!(
-                "Fill Basket Asset: {:5} q={:0.5} p={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
+                "Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
                 asset_symbol,
                 asset_quantity,
                 position.position,
@@ -423,38 +426,6 @@ impl BatchManager {
         // We didn't fill any quantity on that index order
         if filled_quantity_delta < self.zero_threshold {
             return Ok(None);
-        }
-
-        // Allocate batch lots to index order
-        //
-        // NOTE This is super important as we want to allocate prices and fees
-        // dependant on concrete execution(s). Say one asset had multiple
-        // executions at different prices, we need to allocate to Index Orders
-        // some portion of those quantites at some prices, and some portion of
-        // fees. When we Mint Index we need to sum those fees and lot values allocated
-        // per Index Order for which we're minting.
-        //
-        for asset in &engaged_order.basket.basket_assets {
-            let asset_quantity =
-                safe!(asset.quantity * filled_quantity_delta).ok_or_eyre("Math Problem")?;
-
-            let asset_symbol = &asset.weight.asset.name;
-            let key = (asset_symbol.clone(), index_order_write.side);
-            let position = batch
-                .positions
-                .get_mut(&key)
-                .expect("Asset position must be known at this stage");
-
-            // It is critical that this function will match exactly full
-            // quantity, as otherwise our numbers wouldn't match up. That is
-            // because lots are opened in total quantity matching position.
-            match position.try_allocate_lots(&mut index_order_write, asset_quantity) {
-                None => Err(eyre!("Math Problem")),
-                Some(quantity) if quantity > self.zero_threshold => {
-                    Err(eyre!("Couldn't allocate sufficient lots"))
-                }
-                Some(_) => Ok(()),
-            }?;
         }
 
         // Now we update it
@@ -489,11 +460,59 @@ impl BatchManager {
             index_order_write.remaining_collateral,
             index_order_write.engaged_collateral,
             remaining_quantity,
-            safe!(fill_rate * Amount::ONE_HUNDRED).ok_or_eyre("Math Problem")?,
-            safe!(order_fill_rate * Amount::ONE_HUNDRED).ok_or_eyre("Math Problem")?,
+            safe!(fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
+            safe!(order_fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
         );
 
-        let collateral_spent = Amount::ZERO;
+        // Allocate batch lots to index order
+        //
+        // NOTE This is super important as we want to allocate prices and fees
+        // dependant on concrete execution(s). Say one asset had multiple
+        // executions at different prices, we need to allocate to Index Orders
+        // some portion of those quantites at some prices, and some portion of
+        // fees. When we Mint Index we need to sum those fees and lot values allocated
+        // per Index Order for which we're minting.
+        //
+        let mut collateral_spent = Amount::ZERO;
+        for asset in &engaged_order.basket.basket_assets {
+            let asset_quantity =
+                safe!(asset.quantity * filled_quantity_delta).ok_or_eyre("Math Problem")?;
+
+            let asset_symbol = &asset.weight.asset.name;
+            let key = (asset_symbol.clone(), index_order_write.side);
+            let position = batch
+                .positions
+                .get_mut(&key)
+                .expect("Asset position must be known at this stage");
+
+            // It is critical that this function will match exactly full
+            // quantity, as otherwise our numbers wouldn't match up. That is
+            // because lots are opened in total quantity matching position.
+            let asset_collateral_spent = match position
+                .try_allocate_lots(&mut index_order_write, asset_quantity)
+            {
+                None => Err(eyre!("Math Problem")),
+                Some((quantity, collateral_spent)) if quantity > self.zero_threshold => Err(eyre!(
+                    "Couldn't allocate sufficient lots for Index Order: q={:0.5} cs={:0.5} +{:0.5}",
+                    quantity,
+                    collateral_spent,
+                    filled_quantity_delta
+                )),
+                Some((_, collateral_spent)) => Ok(collateral_spent),
+            }?;
+
+            // Total amount of collateral spent in this index order fill is a
+            // sum of all spent across all assets that were filled in this
+            // filled delta update. Note that even though we only receive a fill
+            // for a single asset at a time, we would hold off filling the index
+            // order(s) until other assets have some fills, and that is because
+            // we cannot fill index order from individual assets, and we have to
+            // already have received fills for a portfolio of assets, so that
+            // together they represent portion of the index order proportional
+            // to asset quantites in basket definition.
+            collateral_spent =
+                safe!(collateral_spent + asset_collateral_spent).ok_or_eyre("Math Problem")?
+        }
 
         host.get_index_order_manager().write().fill_order_request(
             &index_order_write.address,
@@ -697,11 +716,12 @@ impl BatchManager {
             position.last_update_timestamp = timestamp;
 
             println!(
-                "Batch Position: {:?} {:5} price={:0.5} volley={:0.5} real={:0.5} + fee={:0.5}",
+                "Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
                 position.side,
                 position.symbol,
                 position.order_quantity,
                 position.volley_size,
+                position.position,
                 position.realized_value,
                 position.fee
             );

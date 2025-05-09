@@ -922,7 +922,7 @@ impl SimpleSolver {
                 locked_order_batch,
                 &set_order_status,
                 &total_asset_quantities,
-                &order_quantities,
+                &order_asset_contributions,
             );
 
         // orders for which an error occurred

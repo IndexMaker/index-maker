@@ -106,6 +106,12 @@ pub struct SolverOrderAssetLot {
     pub fee: Amount,
 }
 
+impl SolverOrderAssetLot {
+    pub fn compute_collateral_spent(&self) -> Option<Amount> {
+        safe!(safe!(self.quantity * self.price) + self.fee)
+    }
+}
+
 struct CollateralTransaction {
     payment_id: PaymentId,
     amount: Amount,
@@ -1569,9 +1575,9 @@ mod test {
         assert_eq!(order2.side, Side::Buy);
 
         assert_decimal_approx_eq!(order1.price, dec!(101.00), tolerance);
-        assert_decimal_approx_eq!(order1.quantity, dec!(19.9942), tolerance);
+        assert_decimal_approx_eq!(order1.quantity, dec!(15.9158), tolerance);
         assert_decimal_approx_eq!(order2.price, dec!(303.00), tolerance);
-        assert_decimal_approx_eq!(order2.quantity, dec!(1.6273), tolerance);
+        assert_decimal_approx_eq!(order2.quantity, dec!(1.2954), tolerance);
 
         flush_events();
 

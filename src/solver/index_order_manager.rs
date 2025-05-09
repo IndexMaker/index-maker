@@ -11,7 +11,7 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
-    server::server::{Server, ServerEvent},
+    server::server::{Server, ServerEvent, ServerResponse},
     solver::index_order::IndexOrder,
 };
 
@@ -379,7 +379,7 @@ impl IndexOrderManager {
                     safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
 
                 self.server.write().respond_with(
-                    crate::server::server::ServerResponse::IndexOrderFill {
+                    ServerResponse::IndexOrderFill {
                         address: *address,
                         client_order_id: client_order_id.clone(),
                         filled_quantity: index_order.filled_quantity,
