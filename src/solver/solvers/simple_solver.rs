@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy::serde::quantity;
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::RwLock;
@@ -11,7 +12,7 @@ use safe_math::safe;
 
 use crate::{
     core::{
-        bits::{Amount, ClientOrderId, PriceType, Side, Symbol},
+        bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
         decimal_ext::DecimalExt,
     },
     index::basket::Basket,
@@ -25,8 +26,8 @@ struct SimpleSolverEngagements {
     baskets: HashMap<Symbol, Arc<Basket>>,
     asset_price_limits: HashMap<Symbol, Amount>,
     index_price_limits: HashMap<Symbol, Amount>,
-    quantity_contributions: HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
-    contribution_fractions: HashMap<ClientOrderId, HashMap<Symbol, Amount>>,
+    quantity_contributions: HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+    contribution_fractions: HashMap<(Address, ClientOrderId), HashMap<Symbol, Amount>>,
 }
 
 pub struct SimpleSolver {
@@ -36,20 +37,74 @@ pub struct SimpleSolver {
     /// When calculating quantity that collateral can buy, we need to factor in
     /// fees, e.g. 1.001 (max fee = 0.1%)
     fee_factor: Amount,
+    /// Cap the amount of collateral an order can potentially consume in one batch
+    max_order_volley_size: Amount,
+    /// Cap the total amount of collateral all orders in the batch can potentially consume
+    max_volley_size: Amount,
 }
 
 impl SimpleSolver {
-    pub fn new(price_threshold: Amount, fee_factor: Amount) -> Self {
+    pub fn new(
+        price_threshold: Amount,
+        fee_factor: Amount,
+        max_order_volley_size: Amount,
+        max_volley_size: Amount,
+    ) -> Self {
         Self {
             price_threshold,
             fee_factor,
+            max_order_volley_size,
+            max_volley_size,
         }
+    }
+
+    /// Apply a function to each Index order in the batch, and collect results.
+    ///
+    fn scan_order_batch<OrderPtr, UpRead, SetOrderStatusFn, ScanFn, ScanRet>(
+        &self,
+        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
+        set_order_status: SetOrderStatusFn,
+        error_action: &str,
+        error_status: SolverOrderStatus,
+        scan_fn: ScanFn,
+    ) -> (HashMap<(Address, ClientOrderId), ScanRet>, Vec<OrderPtr>)
+    where
+        OrderPtr: Clone,
+        UpRead: Deref<Target = SolverOrder>,
+        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
+        ScanFn: Fn(&mut UpRead) -> Result<ScanRet>,
+    {
+        let mut good = HashMap::new();
+        let mut bad = Vec::new();
+
+        locked_order_batch.retain_mut(|(order_ptr, order_upread)| match scan_fn(order_upread) {
+            Ok(scan_ret) => {
+                good.insert(
+                    (order_upread.address, order_upread.client_order_id.clone()),
+                    scan_ret,
+                );
+                true
+            }
+            Err(err) => {
+                eprintln!(
+                    "Error while {} for IndexOrder {}: {:?}",
+                    error_action, order_upread.client_order_id, err
+                );
+                set_order_status(order_upread, error_status);
+                bad.push(order_ptr.clone());
+                false
+            }
+        });
+
+        (good, bad)
     }
 
     /// Scan order batch for baskets
     ///
+    /// Finds a basket for each Index Order, and
+    /// creates a mapping Index Symbol => Basket.
     fn get_baskets<OrderPtr, UpRead, SetOrderStatusFn>(
-        &mut self,
+        &self,
         strategy_host: &dyn SolverStrategyHost,
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
@@ -97,6 +152,27 @@ impl SimpleSolver {
         Ok((baskets, bad))
     }
 
+    /// Obtain price limits for a set of assets
+    ///
+    /// Find prices of assets given, and offset them into the depth of the Side
+    /// by the Price Threshold, and create a mapping Asset Symbol => Price
+    /// Limit.
+    ///
+    /// We will use these offset prices (higher if we're buying / lower if we're
+    /// sellling) to calculate the maximum amount of Collateral that orders in
+    /// the batch will consume when sent to exchange. This means that potentially
+    /// those orders will consume less Collateral, as transactions will be made
+    /// at slightly better prices. Price Threshold controlls how much the amount
+    /// can deviate.
+    ///
+    /// Note that we cannot send an order with higher Volley Size (Limit Price *
+    /// Order Quantity) than the amount of Collateral + Fees. Also note that
+    /// Volley Size, which depends on parameters of an order tha we send to
+    /// exchange is always higher than amount of Collateral that we will
+    /// consume, which depends on execution price. Exchange will never execute
+    /// more quantity than ordered, but it will execute at different prices up
+    /// to the limit.
+    ///
     fn get_asset_price_limits(
         &self,
         strategy_host: &dyn SolverStrategyHost,
@@ -146,6 +222,11 @@ impl SimpleSolver {
         Ok((price_limits, get_prices.missing_symbols))
     }
 
+    /// Calculate prices of the Indexes using given prices of the Assets.
+    ///
+    /// Based on the Asset prices we calculate price of each Index, by summing
+    /// up Price * Quantity of each Asset in a Basket, for each Index.
+    ///
     fn get_index_price(
         &self,
         baskets: &HashMap<Symbol, Arc<Basket>>,
@@ -168,6 +249,14 @@ impl SimpleSolver {
         (HashMap::from_iter(index_prices.into_iter()), bad)
     }
 
+    /// Calculate quantity of An Index that fits within Collateral given, and
+    /// then calculate quantity of each Asset in the Basket of an Index.
+    ///
+    /// We factor in the potential fees using Fee Factor, which is equal to
+    /// (1.0 + Fee Rate), and after this adjustment we fit Index quantity into
+    /// the remainng portion of Collateral. Once we know how much Index will fit
+    /// into Collateral (including potential fees), we calculate amounts of
+    /// Assets that will make up this Index in that quantity.
     fn compute_quantities_for_order<UpRead>(
         &self,
         baskets: &HashMap<Symbol, Arc<Basket>>,
@@ -196,12 +285,21 @@ impl SimpleSolver {
         let collateral_available = safe!(collateral_amount / self.fee_factor)
             .ok_or_eyre("Fee factor multiplication error")?;
 
-        let index_order_quantity = safe!(collateral_available / index_price)
+        // Cap order volley size
+        let collateral_usable = collateral_available.min(self.max_order_volley_size);
+
+        let index_order_quantity = safe!(collateral_usable / index_price)
             .ok_or_eyre("Index order quantity computation error")?;
 
         println!(
-            "Collateral to Quantity for Index Order: {} c={:0.5} ca={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
-            client_order_id, collateral_amount, collateral_available, index_price, index_order_quantity, self.fee_factor
+            "Collateral to Quantity for Index Order: {} c={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
+            client_order_id,
+            collateral_amount,
+            collateral_available,
+            collateral_usable,
+            index_price,
+            index_order_quantity,
+            self.fee_factor
         );
 
         let asset_quantities: HashMap<_, _> = basket
@@ -228,46 +326,73 @@ impl SimpleSolver {
         Ok((index_order_quantity, asset_quantities))
     }
 
-    fn compute_quantities_for<OrderPtr, UpRead, SetOrderStatusFn>(
+    fn cap_volley_size_for_order<UpRead>(
         &self,
-        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
-        set_order_status: SetOrderStatusFn,
-        baskets: &HashMap<Symbol, Arc<Basket>>,
-        index_price_limits: &HashMap<Symbol, Amount>,
-    ) -> (
-        HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
-        Vec<OrderPtr>,
-    )
+        volley_fraction: Amount,
+        order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+        order_upread: &UpRead,
+    ) -> Result<(Amount, HashMap<Symbol, Amount>)>
     where
-        OrderPtr: Clone,
         UpRead: Deref<Target = SolverOrder>,
-        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        let mut bad_compute_quantity = Vec::new();
-        let mut order_quantities = HashMap::new();
+        let address = &order_upread.address;
+        let client_order_id = order_upread.client_order_id.clone();
 
-        locked_order_batch.retain_mut(|(order_ptr, order_upread)| {
-            match (|| self.compute_quantities_for_order(baskets, index_price_limits, order_upread))(
-            ) {
-                Ok(res) => {
-                    order_quantities.insert(order_upread.client_order_id.clone(), res);
-                    true
-                }
-                Err(err) => {
-                    eprintln!("Error while computing quantities: {:?}", err);
-                    set_order_status(order_upread, SolverOrderStatus::MathOverflow);
-                    bad_compute_quantity.push(order_ptr.clone());
-                    false
-                }
-            }
-        });
+        let (order_quantity, asset_quantities) = order_quantities
+            .get(&(*address, client_order_id.clone()))
+            .ok_or_eyre("Cannot find index order quantity")?;
 
-        (order_quantities, bad_compute_quantity)
+        let order_quantity = *order_quantity;
+        let capped_order_quantity = safe!(order_quantity * volley_fraction)
+            .ok_or_eyre("Cannot calculate capped order quantity")?;
+
+        println!(
+            "Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
+            client_order_id, order_quantity, capped_order_quantity
+        );
+
+        let mut capped_asset_quantities = HashMap::new();
+
+        for (asset_symbol, asset_quantity) in asset_quantities {
+            let asset_quantity = *asset_quantity;
+            let capped_asset_quantity = safe!(asset_quantity * volley_fraction)
+                .ok_or_eyre("Failed to compute caped asset quantity")?;
+
+            capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
+
+            println!(
+                "Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
+                asset_symbol, asset_quantity, capped_asset_quantity
+            );
+        }
+
+        Ok((capped_order_quantity, capped_asset_quantities))
     }
 
-    fn summarise_asset_quanties(
+    /// Calculate total sum of quantities per each Asset across all Index orders
+    /// in the batch.
+    ///
+    /// We sum up values per each Asset, so that we wil be then able to compute
+    /// contribution fraction for each Index order, i.e. to tell how much of
+    /// ordered Asset quantity will be distributed to that Index Order once we
+    /// receive fills.
+    ///
+    /// Note that this is important, as we don't send to exchange individual
+    /// orders for each Asset of each Index order. Instead we are groupping
+    /// Assets from all Index orders in the batch, so that a single order that
+    /// we send for an Asset includes quantity for all Index orders in the batch
+    /// that need that Asset. Note also that not all Index orders in the batch
+    /// need same Assets, so we group by Asset, and then if two or more Index
+    /// orders need that same Asset, we will split quantity of that Asset
+    /// between those Index orders. On top of that we must distribute quantity
+    /// of all Assets for Index order in exact proportion that is defined by
+    /// th Basket of the Index. That is why we will be finding maximum possible
+    /// quantity of each Index order that would fit in those criteria. To find
+    /// maximum quanity we take minimum of possible maximums.
+    ///
+    fn summarise_asset_quanties<Key>(
         &self,
-        order_quantities: &HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
+        order_quantities: &HashMap<Key, (Amount, HashMap<Symbol, Amount>)>,
     ) -> Result<HashMap<Symbol, Amount>> {
         let mut result = HashMap::new();
 
@@ -290,20 +415,56 @@ impl SimpleSolver {
         Ok(result)
     }
 
+    fn compute_volley_size(
+        &self,
+        asset_quantites: &HashMap<Symbol, Amount>,
+        asset_prices: &HashMap<Symbol, Amount>,
+    ) -> Result<Amount> {
+        let mut total_volley_size = Amount::ZERO;
+        for (symbol, &quantity) in asset_quantites {
+            let price = *asset_prices
+                .get(&symbol)
+                .ok_or_else(|| eyre!("Cannot find price for an asset {}", symbol))?;
+
+            let volley_size = safe!(price * quantity)
+                .ok_or_else(|| eyre!("Cannot calculate volley size for an asset {}", symbol))?;
+
+            total_volley_size = safe!(total_volley_size + volley_size).ok_or_else(|| {
+                eyre!("Cannot calculate total volley size for an asset {}", symbol)
+            })?;
+        }
+        Ok(total_volley_size)
+    }
+
+    /// Calculate maximum contribution of each Index order that fits into
+    /// Liquidity.
+    ///
+    /// We take total sum of quantites per each Asset, we take Index order
+    /// quantity for each Asset, and we divide by total sum, so that we know
+    /// contribution fraction. Then we multiply by available Liquidity for that
+    /// Asset, we we have quantity that together with quantites from other Index
+    /// orders in the batch will fit into Liquidity. Then we calculate this
+    /// Index order quantity that would be needed to obtain that ammount of this
+    /// Asset, and while we repeat this for each asset, we take the minimum
+    /// value, so that that this Index order all its Assets will fit within
+    /// allocated portion of their Liquidity. Should the value come up higher
+    /// than initially calculated Index order quantity, then we cap it to that
+    /// initial value.
     fn compute_contribution_for_order<UpRead>(
         &self,
         total_asset_liquidity: &HashMap<Symbol, Amount>,
         total_asset_quantities: &HashMap<Symbol, Amount>,
-        order_quantities: &HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
+        order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
         order_upread: &UpRead,
     ) -> Result<Amount>
     where
         UpRead: Deref<Target = SolverOrder>,
     {
+        let address = &order_upread.address;
         let client_order_id = &order_upread.client_order_id;
 
         let (order_quantity, asset_quanties) = order_quantities
-            .get(&client_order_id)
+            .get(&(*address, client_order_id.clone()))
             .ok_or_else(|| eyre!("Missing asset quantities for {}", client_order_id))?;
 
         let order_quantity = *order_quantity;
@@ -382,63 +543,30 @@ impl SimpleSolver {
         Ok(fitting_order_quantity)
     }
 
-    fn compute_contributions_for<OrderPtr, UpRead, SetOrderStatusFn>(
-        &self,
-        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
-        set_order_status: SetOrderStatusFn,
-        total_asset_liquidity: &HashMap<Symbol, Amount>,
-        total_asset_quantities: &HashMap<Symbol, Amount>,
-        order_quantities: &HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
-    ) -> (HashMap<ClientOrderId, Amount>, Vec<OrderPtr>)
-    where
-        OrderPtr: Clone,
-        UpRead: Deref<Target = SolverOrder>,
-        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
-    {
-        let mut bad_compute_contributions = Vec::new();
-        let mut order_contributions = HashMap::new();
-
-        locked_order_batch.retain_mut(|(order_ptr, order_upread)| {
-            match (|| {
-                self.compute_contribution_for_order(
-                    total_asset_liquidity,
-                    total_asset_quantities,
-                    order_quantities,
-                    order_upread,
-                )
-            })() {
-                Ok(res) => {
-                    order_contributions.insert(order_upread.client_order_id.clone(), res);
-                    true
-                }
-                Err(err) => {
-                    eprintln!("Error while computing contributions: {:?}", err);
-                    set_order_status(order_upread, SolverOrderStatus::MathOverflow);
-                    bad_compute_contributions.push(order_ptr.clone());
-                    false
-                }
-            }
-        });
-
-        (order_contributions, bad_compute_contributions)
-    }
-
+    /// Calculate quantity of each Asset for given quantity of an Index order.
+    ///
+    /// Once we have found maximum quantity of the Index order fitting into
+    /// assigned portion of liquidity of all Assets involved, we then need to
+    /// recalculate quantity of each Asset, so that we know how much of each
+    /// Asset we want to order on exchange.
+    ///
     fn compute_asset_contributions_for_order<UpRead>(
         &self,
         baskets: &HashMap<Symbol, Arc<Basket>>,
-        order_contributions: &HashMap<ClientOrderId, Amount>,
+        order_contributions: &HashMap<(Address, ClientOrderId), Amount>,
         order_upread: &UpRead,
     ) -> Result<(Amount, HashMap<Symbol, Amount>)>
     where
         UpRead: Deref<Target = SolverOrder>,
     {
+        let address = &order_upread.address;
         let client_order_id = &order_upread.client_order_id;
         let index_symbol = &order_upread.symbol;
 
         let mut asset_contributions = HashMap::new();
 
         let order_quantity = *order_contributions
-            .get(&client_order_id)
+            .get(&(*address, client_order_id.clone()))
             .ok_or_else(|| eyre!("Missing order contribution for {}", client_order_id))?;
 
         let basket = baskets
@@ -462,61 +590,27 @@ impl SimpleSolver {
         Ok((order_quantity, asset_contributions))
     }
 
-    fn compute_asset_contributions_for<OrderPtr, UpRead, SetOrderStatusFn>(
-        &self,
-        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
-        set_order_status: SetOrderStatusFn,
-        baskets: &HashMap<Symbol, Arc<Basket>>,
-        order_contributions: &HashMap<ClientOrderId, Amount>,
-    ) -> (
-        HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
-        Vec<OrderPtr>,
-    )
-    where
-        OrderPtr: Clone,
-        UpRead: Deref<Target = SolverOrder>,
-        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
-    {
-        let mut bad_compute_asset_contributions = Vec::new();
-        let mut order_asset_contributions = HashMap::new();
-
-        locked_order_batch.retain_mut(|(order_ptr, order_upread)| {
-            match (|| {
-                self.compute_asset_contributions_for_order(
-                    baskets,
-                    order_contributions,
-                    order_upread,
-                )
-            })() {
-                Ok(res) => {
-                    order_asset_contributions.insert(order_upread.client_order_id.clone(), res);
-                    true
-                }
-                Err(err) => {
-                    eprintln!("Error while computing asset contributions: {:?}", err);
-                    set_order_status(order_upread, SolverOrderStatus::MathOverflow);
-                    bad_compute_asset_contributions.push(order_ptr.clone());
-                    false
-                }
-            }
-        });
-
-        (order_asset_contributions, bad_compute_asset_contributions)
-    }
-
+    /// Calculate contribution fractions for each Asset for each Index order.
+    ///
+    /// Once we know how much od each Asset we want to order for each Index
+    /// order, we need to know how to distribute fills, and for that we need
+    /// contribution fraction, so that when fill for an Asset order arrives,
+    /// we split it between Index orders according to contribution fraction.
+    ///
     fn compute_asset_contribution_fractions_for_order<UpRead>(
         &self,
         total_asset_quantities: &HashMap<Symbol, Amount>,
-        order_quantities: &HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
+        order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
         order_upread: &UpRead,
     ) -> Result<HashMap<Symbol, Amount>>
     where
         UpRead: Deref<Target = SolverOrder>,
     {
+        let address = &order_upread.address;
         let client_order_id = &order_upread.client_order_id;
 
         let (_, asset_quanties) = order_quantities
-            .get(&client_order_id)
+            .get(&(*address, client_order_id.clone()))
             .ok_or_else(|| eyre!("Missing asset quantities for {}", client_order_id))?;
 
         let mut asset_contribution_fractions = HashMap::new();
@@ -556,14 +650,14 @@ impl SimpleSolver {
         Ok(asset_contribution_fractions)
     }
 
-    fn compute_asset_contribution_fractions_for<OrderPtr, UpRead, SetOrderStatusFn>(
+    fn compute_quantities_for<OrderPtr, UpRead, SetOrderStatusFn>(
         &self,
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
-        total_asset_quantities: &HashMap<Symbol, Amount>,
-        order_quantities: &HashMap<ClientOrderId, (Amount, HashMap<Symbol, Amount>)>,
+        baskets: &HashMap<Symbol, Arc<Basket>>,
+        index_price_limits: &HashMap<Symbol, Amount>,
     ) -> (
-        HashMap<ClientOrderId, HashMap<Symbol, Amount>>,
+        HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
         Vec<OrderPtr>,
     )
     where
@@ -571,34 +665,137 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        let mut bad_compute_contributions = Vec::new();
-        let mut order_contributions = HashMap::new();
+        self.scan_order_batch(
+            locked_order_batch,
+            set_order_status,
+            "computing quantities",
+            SolverOrderStatus::MathOverflow,
+            |order_upread| {
+                self.compute_quantities_for_order(baskets, index_price_limits, order_upread)
+            },
+        )
+    }
 
-        locked_order_batch.retain_mut(|(order_ptr, order_upread)| {
-            match (|| {
+    fn cap_volley_size<OrderPtr, UpRead, SetOrderStatusFn>(
+        &self,
+        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
+        set_order_status: SetOrderStatusFn,
+        total_volley_size: Amount,
+        order_quantities: HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+    ) -> Result<(
+        HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+        Vec<OrderPtr>,
+    )>
+    where
+        OrderPtr: Clone,
+        UpRead: Deref<Target = SolverOrder>,
+        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
+    {
+        if total_volley_size < self.max_volley_size {
+            return Ok((order_quantities, Vec::new()));
+        }
+
+        let volley_fraction = safe!(self.max_volley_size / total_volley_size)
+            .ok_or_eyre("Failed to compute volley fraction")?;
+
+        Ok(self.scan_order_batch(
+            locked_order_batch,
+            set_order_status,
+            "capping volley size",
+            SolverOrderStatus::MathOverflow,
+            |order_upread| {
+                self.cap_volley_size_for_order(volley_fraction, &order_quantities, order_upread)
+            },
+        ))
+    }
+
+    fn compute_contributions_for<OrderPtr, UpRead, SetOrderStatusFn>(
+        &self,
+        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
+        set_order_status: SetOrderStatusFn,
+        total_asset_liquidity: &HashMap<Symbol, Amount>,
+        total_asset_quantities: &HashMap<Symbol, Amount>,
+        order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+    ) -> (HashMap<(Address, ClientOrderId), Amount>, Vec<OrderPtr>)
+    where
+        OrderPtr: Clone,
+        UpRead: Deref<Target = SolverOrder>,
+        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
+    {
+        self.scan_order_batch(
+            locked_order_batch,
+            set_order_status,
+            "computing contributions",
+            SolverOrderStatus::MathOverflow,
+            |order_upread| {
+                self.compute_contribution_for_order(
+                    total_asset_liquidity,
+                    total_asset_quantities,
+                    order_quantities,
+                    order_upread,
+                )
+            },
+        )
+    }
+
+    fn compute_asset_contributions_for<OrderPtr, UpRead, SetOrderStatusFn>(
+        &self,
+        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
+        set_order_status: SetOrderStatusFn,
+        baskets: &HashMap<Symbol, Arc<Basket>>,
+        order_contributions: &HashMap<(Address, ClientOrderId), Amount>,
+    ) -> (
+        HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+        Vec<OrderPtr>,
+    )
+    where
+        OrderPtr: Clone,
+        UpRead: Deref<Target = SolverOrder>,
+        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
+    {
+        self.scan_order_batch(
+            locked_order_batch,
+            set_order_status,
+            "computing asset contributions",
+            SolverOrderStatus::MathOverflow,
+            |order_upread| {
+                self.compute_asset_contributions_for_order(
+                    baskets,
+                    order_contributions,
+                    order_upread,
+                )
+            },
+        )
+    }
+
+    fn compute_asset_contribution_fractions_for<OrderPtr, UpRead, SetOrderStatusFn>(
+        &self,
+        locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
+        set_order_status: SetOrderStatusFn,
+        total_asset_quantities: &HashMap<Symbol, Amount>,
+        order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
+    ) -> (
+        HashMap<(Address, ClientOrderId), HashMap<Symbol, Amount>>,
+        Vec<OrderPtr>,
+    )
+    where
+        OrderPtr: Clone,
+        UpRead: Deref<Target = SolverOrder>,
+        SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
+    {
+        self.scan_order_batch(
+            locked_order_batch,
+            set_order_status,
+            "computing asset contribution fractions",
+            SolverOrderStatus::MathOverflow,
+            |order_upread| {
                 self.compute_asset_contribution_fractions_for_order(
                     total_asset_quantities,
                     order_quantities,
                     order_upread,
                 )
-            })() {
-                Ok(res) => {
-                    order_contributions.insert(order_upread.client_order_id.clone(), res);
-                    true
-                }
-                Err(err) => {
-                    eprintln!(
-                        "Error while computing asset contribution fractions: {:?}",
-                        err
-                    );
-                    set_order_status(order_upread, SolverOrderStatus::MathOverflow);
-                    bad_compute_contributions.push(order_ptr.clone());
-                    false
-                }
-            }
-        });
-
-        (order_contributions, bad_compute_contributions)
+            },
+        )
     }
 
     fn solve_engagements_for<OrderPtr, UpRead, SetOrderStatusFn>(
@@ -700,6 +897,20 @@ impl SimpleSolver {
         // Next we sum up per asset quantities from all orders
         let total_asset_quantities = self.summarise_asset_quanties(&order_asset_contributions)?;
 
+        // Next we cap volley size of the whole batch
+        let total_volley_size =
+            self.compute_volley_size(&total_asset_quantities, &asset_price_limits)?;
+
+        let (order_asset_contributions, bad_cap_volley_size) = self.cap_volley_size(
+            locked_order_batch,
+            &set_order_status,
+            total_volley_size,
+            order_asset_contributions,
+        )?;
+
+        // And we recomupte total asset quantites
+        let total_asset_quantities = self.summarise_asset_quanties(&order_asset_contributions)?;
+
         // And now we compute contribution fraction for each asset, so that when
         // we get fills we can distribute those fills between index orders in
         // the batch proportionally to that fraction
@@ -716,6 +927,7 @@ impl SimpleSolver {
             bad_index_symbol,
             bad_compute_quantity,
             bad_compute_contributions,
+            bad_cap_volley_size,
             bad_compute_asset_contributions,
             bad_compute_asset_contribution_fractions,
         ]
@@ -785,7 +997,9 @@ impl SolverStrategy for SimpleSolver {
         };
 
         for (order_ptr, order_upread) in buys {
+            let address = &order_upread.address;
             let client_order_id = order_upread.client_order_id.clone();
+            let address_client_order_id = (*address, client_order_id.clone());
             let index_symbol = &order_upread.symbol;
 
             let basket = engaged_buys
@@ -800,12 +1014,12 @@ impl SolverStrategy for SimpleSolver {
 
             let (order_quantity, quantity_contributions) = engaged_buys
                 .quantity_contributions
-                .remove(&client_order_id)
+                .remove(&address_client_order_id)
                 .ok_or_eyre("Missing quantity contributions")?;
 
             let contribution_fractions = engaged_buys
                 .contribution_fractions
-                .remove(&client_order_id)
+                .remove(&address_client_order_id)
                 .ok_or_eyre("Missing contribution fractions")?;
 
             let engaged_collateral =

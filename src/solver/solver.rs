@@ -35,7 +35,7 @@ use super::{
     position::LotId,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
     Open,
     Engaged,
@@ -107,7 +107,7 @@ pub struct SolverOrderAssetLot {
 }
 
 impl SolverOrderAssetLot {
-    pub fn try_new(symbol: Symbol, quantity: Amount, lot: &BatchAssetLot) -> Option<Self> {
+    fn try_new(symbol: Symbol, quantity: Amount, lot: &BatchAssetLot) -> Option<Self> {
         Some(Self {
             symbol,
             quantity,
@@ -1632,7 +1632,12 @@ mod test {
             batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
         }));
 
-        let solver_strategy = Arc::new(RwLock::new(SimpleSolver::new(dec!(0.01), dec!(1.001))));
+        let solver_strategy = Arc::new(RwLock::new(SimpleSolver::new(
+            dec!(0.01),
+            dec!(1.001),
+            dec!(1500.0),
+            dec!(1200.0),
+        )));
 
         let solver = Arc::new(Solver::new(
             chain_connector.clone(),
