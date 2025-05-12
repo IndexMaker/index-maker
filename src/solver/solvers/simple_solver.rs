@@ -6,7 +6,7 @@ use std::{
 
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
 use crate::{
@@ -119,11 +119,7 @@ impl SimpleSolver {
         locked_order_batch.retain_mut(|(order_ptr, order_upread)| {
             match (|| -> Result<()> {
                 let symbol = order_upread.symbol.clone();
-                match strategy_host
-                    .get_basket_manager()
-                    .read()
-                    .get_basket(&symbol)
-                    .cloned()
+                match strategy_host.get_basket(&symbol)
                 {
                     Some(basket) => {
                         baskets.entry(symbol.clone()).or_insert(basket);
@@ -193,10 +189,7 @@ impl SimpleSolver {
         };
 
         // Get top of the book prices
-        let get_prices = strategy_host
-            .get_price_tracker()
-            .read()
-            .get_prices(price_type, &symbols);
+        let get_prices = strategy_host.get_prices(price_type, &symbols);
 
         let prices_len = get_prices.prices.len();
 
@@ -856,10 +849,7 @@ impl SimpleSolver {
         }
 
         // Next we want to know available liquidity for all the assets
-        let asset_liquidity = strategy_host
-            .get_book_manager()
-            .read()
-            .get_liquidity(side.opposite_side(), &asset_price_limits)?;
+        let asset_liquidity = strategy_host.get_liquidity(side.opposite_side(), &asset_price_limits)?;
 
         // Then we need to know how much quantity of each asset is needed for
         // each index order to fill up available collateral.
@@ -974,15 +964,15 @@ impl SolverStrategy for SimpleSolver {
                     Side::Sell => Either::Right((order_ptr, order_upread)),
                 });
 
+        let set_order_status = |upread: &mut RwLockUpgradableReadGuard<SolverOrder>, status| {
+            upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
+        };
+
         let (mut engaged_buys, failed_buys) =
-            self.solve_engagements_for(strategy_host, Side::Buy, &mut buys, |upread, status| {
-                upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
-            })?;
+            self.solve_engagements_for(strategy_host, Side::Buy, &mut buys, set_order_status)?;
 
         let (engaged_sells, failed_sells) =
-            self.solve_engagements_for(strategy_host, Side::Sell, &mut sells, |upread, status| {
-                upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
-            })?;
+            self.solve_engagements_for(strategy_host, Side::Sell, &mut sells, set_order_status)?;
 
         if !failed_buys.is_empty() || !failed_sells.is_empty() {
             // TBD: We could ignore those, and continue with the ones that were

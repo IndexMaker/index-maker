@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -243,20 +243,29 @@ impl BatchOrderStatus {
 
 pub trait BatchManagerHost: SetSolverOrderStatus {
     fn get_next_order_id(&self) -> OrderId;
-    fn get_inventrory_manager(&self) -> &RwLock<InventoryManager>;
-    fn get_index_order_manager(&self) -> &RwLock<IndexOrderManager>;
-    fn push_mintable(&self, order_ptr: &Arc<RwLock<SolverOrder>>);
     fn handle_orders_ready(&self, ready_orders: VecDeque<Arc<RwLock<SolverOrder>>>);
+    fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()>;
+    fn fill_order_request(
+        &self,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+        collateral_spent: Amount,
+        fill_amount: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()>;
 }
 
 pub struct BatchManager {
     batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
     engagements: RwLock<HashMap<BatchOrderId, EngagedSolverOrders>>,
     ready_batches: Mutex<VecDeque<BatchOrderId>>,
+    ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     max_batch_size: usize,
     zero_threshold: Amount,
     fill_threshold: Amount,
     mint_threshold: Amount,
+    mint_wait_period: TimeDelta,
 }
 
 impl BatchManager {
@@ -265,15 +274,18 @@ impl BatchManager {
         zero_threshold: Amount,
         fill_threshold: Amount,
         mint_threshold: Amount,
+        mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
             engagements: RwLock::new(HashMap::new()),
             ready_batches: Mutex::new(VecDeque::new()),
             batches: RwLock::new(HashMap::new()),
+            ready_mints: Mutex::new(VecDeque::new()),
             max_batch_size,
             zero_threshold,
             fill_threshold,
             mint_threshold,
+            mint_wait_period,
         }
     }
 
@@ -346,7 +358,7 @@ impl BatchManager {
                 .then_some(())
                 .ok_or_eyre("Duplicate batch ID")?;
 
-            host.get_inventrory_manager().write().new_order(batch)?;
+            host.send_order_batch(batch)?;
         }
         Ok(())
     }
@@ -520,7 +532,7 @@ impl BatchManager {
             safe!(order_fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
         );
 
-        host.get_index_order_manager().write().fill_order_request(
+        host.fill_order_request(
             &index_order_write.address,
             &index_order_write.original_client_order_id,
             &index_order_write.symbol,
@@ -538,7 +550,7 @@ impl BatchManager {
             }
             _ if self.mint_threshold < order_fill_rate => {
                 host.set_order_status(&mut index_order_write, SolverOrderStatus::PartlyMintable);
-                host.push_mintable(&index_order);
+                self.ready_mints.lock().push_back(index_order.clone());
             }
             _ => {
                 // not mintable yet
@@ -599,6 +611,22 @@ impl BatchManager {
         }
 
         Ok(())
+    }
+
+    pub fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
+        let ready_timestamp = timestamp - self.mint_wait_period;
+        let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
+        let ready_mints = (|| {
+            let mut mints = self.ready_mints.lock();
+            let res = mints.iter().find_position(|p| check_not_ready(&p.read()));
+            if let Some((pos, _)) = res {
+                mints.drain(..pos)
+            } else {
+                mints.drain(..)
+            }
+            .collect_vec()
+        })();
+        ready_mints
     }
 
     pub fn handle_new_engagement(
