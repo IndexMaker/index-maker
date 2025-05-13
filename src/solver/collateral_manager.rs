@@ -11,11 +11,25 @@ use eyre::{OptionExt, Result};
 use safe_math::safe;
 
 use crate::core::{
-    bits::{Address, Amount, PaymentId},
+    bits::{Address, Amount, ClientOrderId, PaymentId},
     decimal_ext::DecimalExt,
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
-use super::solver::{SetSolverOrderStatus, SolverOrder};
+use super::solver::{CollateralManagement, SetSolverOrderStatus};
+
+pub enum CollateralEvent {
+    CollateralReady {
+        address: Address,
+        client_order_id: ClientOrderId,
+        collateral_amount: Amount,
+    },
+}
+
+pub enum PaymentStatus {
+    Approved { payment_id: PaymentId },
+    Denied,
+}
 
 struct CollateralTransaction {
     payment_id: PaymentId,
@@ -64,22 +78,28 @@ impl CollateralPosition {
     }
 }
 
-pub trait CollateralManagerHost: SetSolverOrderStatus {}
+pub trait CollateralManagerHost: SetSolverOrderStatus {
+    fn get_next_payment_id(&self) -> PaymentId;
+}
 
 pub struct CollateralManager {
+    observer: SingleObserver<CollateralEvent>,
     client_funds: RwLock<HashMap<Address, Arc<RwLock<CollateralPosition>>>>,
     ready_funds: Mutex<VecDeque<Arc<RwLock<CollateralPosition>>>>,
-    index_orders: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    todo_management: RwLock<Option<CollateralManagement>>, //temporarily here
+    zero_threshold: Amount,
     fund_wait_period: TimeDelta,
 }
 
 impl CollateralManager {
-    pub fn new(fund_wait_period: TimeDelta) -> Self {
+    pub fn new(zero_threshold: Amount, fund_wait_period: TimeDelta) -> Self {
         Self {
-            fund_wait_period,
+            observer: SingleObserver::new(),
             client_funds: RwLock::new(HashMap::new()),
             ready_funds: Mutex::new(VecDeque::new()),
-            index_orders: Mutex::new(VecDeque::new()),
+            todo_management: RwLock::new(None),
+            zero_threshold,
+            fund_wait_period,
         }
     }
 
@@ -129,21 +149,24 @@ impl CollateralManager {
                 "New balance for {} {:0.5}",
                 fund_write.address, fund_write.balance
             );
+            // TODO: We would fire this event after all collateral management completes
+            let client_order_id = self.todo_management.write().take().unwrap().client_order_id;
+            self.observer
+                .publish_single(CollateralEvent::CollateralReady {
+                    address: fund_write.address,
+                    client_order_id,
+                    collateral_amount: fund_write.balance,
+                });
         }
         todo!("Find index orders that are now ready");
 
         Ok(())
     }
 
-    pub fn handle_new_index_order(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
-        self.index_orders.lock().push_back(solver_order);
-        Ok(())
-    }
-
     pub fn handle_deposit(
         &self,
+        host: &dyn CollateralManagerHost,
         address: Address,
-        payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
@@ -157,6 +180,7 @@ impl CollateralManager {
         (|| -> Result<()> {
             let mut p = collateral_position.write();
 
+            let payment_id = host.get_next_payment_id();
             p.transactions_cr.push_back(CollateralTransaction {
                 payment_id,
                 amount,
@@ -173,8 +197,8 @@ impl CollateralManager {
 
     pub fn handle_withdrawal(
         &self,
+        host: &dyn CollateralManagerHost,
         address: Address,
-        payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
@@ -188,6 +212,7 @@ impl CollateralManager {
         (|| -> Result<()> {
             let mut p = collateral_position.write();
 
+            let payment_id = host.get_next_payment_id();
             p.transactions_dr.push_back(CollateralTransaction {
                 payment_id,
                 amount,
@@ -202,8 +227,48 @@ impl CollateralManager {
         Ok(())
     }
 
+    pub fn handle_payment(
+        &self,
+        host: &dyn CollateralManagerHost,
+        address: Address,
+        amount_payable: Amount,
+    ) -> Result<PaymentStatus> {
+        if let Some(funds) = self.get_funds(&address) {
+            let mut funds_write = funds.write();
+
+            let balance_remaining =
+                safe!(funds_write.balance - amount_payable).ok_or_eyre("Math Problem")?;
+
+            if balance_remaining < -self.zero_threshold {
+                Ok(PaymentStatus::Denied)
+            } else {
+                // TODO! Don't just change numbers. Record a transaction!
+                funds_write.balance = balance_remaining;
+                let payment_id = host.get_next_payment_id();
+
+                Ok(PaymentStatus::Approved { payment_id })
+            }
+        } else {
+            Ok(PaymentStatus::Denied)
+        }
+    }
+
     pub fn get_funds(&self, address: &Address) -> Option<Arc<RwLock<CollateralPosition>>> {
         let client_funds = self.client_funds.read();
         client_funds.get(address).cloned()
+    }
+
+    pub fn manage_collateral(&self, collateral_management: CollateralManagement) {
+        // TODO: Look at the collateral quantities required for each asset, and
+        // allocate collateral to sub-accounts accordingly. Once collateral
+        // lands in right spots we can signal CollateralReady event to Solver,
+        // which should then resume working on the order.
+        self.todo_management.write().replace(collateral_management);
+    }
+}
+
+impl IntoObservableSingle<CollateralEvent> for CollateralManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralEvent> {
+        &mut self.observer
     }
 }

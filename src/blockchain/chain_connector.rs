@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    core::bits::{Address, Amount, PaymentId, Symbol},
+    core::bits::{Address, Amount, Symbol},
     index::basket::{Basket, BasketDefinition},
 };
 
@@ -14,13 +14,11 @@ pub enum ChainNotification {
     CuratorWeightsSet(Symbol, BasketDefinition), // ...more
     Deposit {
         address: Address,
-        payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
     WithdrawalRequest {
         address: Address,
-        payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
@@ -121,13 +119,11 @@ pub mod test_util {
         pub fn notify_deposit(
             &self,
             address: Address,
-            payment_id: PaymentId,
             amount: Amount,
             timestamp: DateTime<Utc>,
         ) {
             self.observer.publish_single(ChainNotification::Deposit {
                 address,
-                payment_id,
                 amount,
                 timestamp,
             });
@@ -136,14 +132,12 @@ pub mod test_util {
         pub fn notify_withdrawal_request(
             &self,
             address: Address,
-            payment_id: PaymentId,
             amount: Amount,
             timestamp: DateTime<Utc>,
         ) {
             self.observer
                 .publish_single(ChainNotification::WithdrawalRequest {
                     address,
-                    payment_id,
                     amount,
                     timestamp,
                 });

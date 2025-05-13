@@ -10,6 +10,7 @@ use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
 use crate::{
+    assets::asset::Asset,
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     core::{
         bits::{
@@ -30,7 +31,9 @@ use crate::{
 
 use super::{
     batch_manager::{BatchManager, BatchManagerHost},
-    collateral_manager::{CollateralManager, CollateralManagerHost},
+    collateral_manager::{
+        CollateralEvent, CollateralManager, CollateralManagerHost, PaymentStatus,
+    },
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
@@ -138,9 +141,21 @@ pub struct EngagedSolverOrders {
     pub engaged_orders: Vec<RwLock<SolverOrderEngagement>>,
 }
 
+pub struct SolveEngagementsResult {
+    pub engaged_orders: EngagedSolverOrders,
+    pub failed_orders: Vec<Arc<RwLock<SolverOrder>>>,
+}
+
+pub struct CollateralManagement {
+    pub address: Address,
+    pub client_order_id: ClientOrderId,
+    pub asset_requirements: HashMap<Symbol, Amount>,
+}
+
 pub trait OrderIdProvider {
     fn next_order_id(&mut self) -> OrderId;
     fn next_batch_order_id(&mut self) -> BatchOrderId;
+    fn next_payment_id(&mut self) -> PaymentId;
 }
 
 pub trait SetSolverOrderStatus {
@@ -148,7 +163,6 @@ pub trait SetSolverOrderStatus {
 }
 
 pub trait SolverStrategyHost: SetSolverOrderStatus {
-    fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>>;
     fn get_next_batch_order_id(&self) -> BatchOrderId;
     fn get_basket(&self, symbol: &Symbol) -> Option<Arc<Basket>>;
     fn get_prices(&self, price_type: PriceType, symbols: &[Symbol]) -> GetPricesResponse;
@@ -160,10 +174,17 @@ pub trait SolverStrategyHost: SetSolverOrderStatus {
 }
 
 pub trait SolverStrategy {
+    fn query_collateral_management(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        order: Arc<RwLock<SolverOrder>>,
+    ) -> Result<CollateralManagement>;
+
     fn solve_engagements(
         &self,
         strategy_host: &dyn SolverStrategyHost,
-    ) -> Result<Option<EngagedSolverOrders>>;
+        order_batch: Vec<Arc<RwLock<SolverOrder>>>,
+    ) -> Result<SolveEngagementsResult>;
 }
 
 /// magic solver, needs to take index orders, and based on prices (from price
@@ -219,7 +240,7 @@ impl Solver {
                 mint_threshold,
                 mint_wait_period,
             )),
-            collateral_manager: Arc::new(CollateralManager::new(fund_wait_period)),
+            collateral_manager: Arc::new(CollateralManager::new(zero_threshold, fund_wait_period)),
             order_id_provider,
             basket_manager,
             price_tracker,
@@ -238,8 +259,42 @@ impl Solver {
         }
     }
 
+    fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>> {
+        let mut new_orders = self.ready_orders.lock();
+        let max_drain = new_orders.len().min(self.max_batch_size);
+        new_orders.drain(..max_drain).collect_vec()
+    }
+
+    fn handle_failed_orders(&self, failed_orders: Vec<Arc<RwLock<SolverOrder>>>) {
+        for failed_order in failed_orders {
+            let failed_status = failed_order.read().status;
+            match failed_status {
+                SolverOrderStatus::MissingPrices => {
+                    // TODO: We could have nother queue with time delay
+                    self.ready_orders.lock().push_back(failed_order)
+                }
+                _ => todo!("Send NAK"),
+            }
+        }
+    }
+
     fn engage_more_orders(&self) -> Result<()> {
-        if let Some(engaged_orders) = self.strategy.solve_engagements(self)? {
+        let order_batch = self.get_order_batch();
+
+        if order_batch.is_empty() {
+            return Ok(());
+        }
+
+        let solve_engagements_result = self.strategy.solve_engagements(self, order_batch)?;
+
+        self.handle_failed_orders(solve_engagements_result.failed_orders);
+
+        if !solve_engagements_result
+            .engaged_orders
+            .engaged_orders
+            .is_empty()
+        {
+            let engaged_orders = solve_engagements_result.engaged_orders;
             let send_engage = engaged_orders
                 .engaged_orders
                 .iter()
@@ -266,7 +321,7 @@ impl Solver {
                 .collect_vec();
 
             if send_engage.len() != engaged_orders.engaged_orders.len() {
-                return Err(eyre!("Zero Quantity"));
+                todo!("We got some error! Send NAKs")
             }
 
             let batch_order_id = self.batch_manager.handle_new_engagement(engaged_orders)?;
@@ -274,16 +329,6 @@ impl Solver {
                 .write()
                 .engage_orders(batch_order_id, send_engage)?;
         }
-        Ok(())
-    }
-
-    fn mint_indexes(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let ready_mints = self.batch_manager.get_mintable_batch(timestamp);
-
-        for mintable_order in ready_mints {
-            self.mint_index_order(&mut mintable_order.write())?;
-        }
-
         Ok(())
     }
 
@@ -321,6 +366,16 @@ impl Solver {
         );
 
         self.set_order_status(index_order, SolverOrderStatus::Minted);
+
+        Ok(())
+    }
+
+    fn mint_indexes(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        let ready_mints = self.batch_manager.get_mintable_batch(timestamp);
+
+        for mintable_order in ready_mints {
+            self.mint_index_order(&mut mintable_order.write())?;
+        }
 
         Ok(())
     }
@@ -465,21 +520,54 @@ impl Solver {
             }
             ChainNotification::Deposit {
                 address,
-                payment_id,
                 amount,
                 timestamp,
             } => self
                 .collateral_manager
-                .handle_deposit(address, payment_id, amount, timestamp),
+                .handle_deposit(self, address, amount, timestamp),
             ChainNotification::WithdrawalRequest {
                 address,
-                payment_id,
                 amount,
                 timestamp,
             } => self
                 .collateral_manager
-                .handle_withdrawal(address, payment_id, amount, timestamp),
+                .handle_withdrawal(self, address, amount, timestamp),
         }
+    }
+
+    pub fn handle_collateral_event(&self, notificaion: CollateralEvent) -> Result<()> {
+        match notificaion {
+            CollateralEvent::CollateralReady {
+                address,
+                client_order_id,
+                collateral_amount,
+            } => {
+                if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
+                    // TODO: Figure out: should collateral manager have already paid for the order?
+                    // or CollateralEvent is only to tell us that collateral reached sub-accounts?
+                    // NOTE: Paying for order, is just telling collateral manager to block certain
+                    // amount of balance, so that any next order from that user won't double-spend.
+                    // We assign payment ID so that  we can identify association between order and
+                    // allocated collateral.
+                    match self.collateral_manager.handle_payment(
+                        self,
+                        address,
+                        collateral_amount,
+                    )? {
+                        // If we're implementing message based protocol, we should make PaymentApproved
+                        // a message that we will receive from collateral manager.
+                        PaymentStatus::Approved { payment_id } => {
+                            let mut order_write = order.write();
+                            order_write.payment_id = payment_id;
+                            self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
+                            self.ready_orders.lock().push_back(order.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// receive Index Order
@@ -522,9 +610,11 @@ impl Solver {
                             lots: Vec::new(),
                         }));
                         entry.insert(solver_order.clone());
-                        self.collateral_manager.handle_new_index_order(solver_order);
-                        //self.ready_orders.lock().push_back(solver_order);
-                        todo!("Give collateral manager means to push solver order into ready");
+                        let collateral_management = self
+                            .strategy
+                            .query_collateral_management(self, solver_order)?;
+                        self.collateral_manager
+                            .manage_collateral(collateral_management);
                         Ok(())
                     }
                     Entry::Occupied(_) => {
@@ -723,12 +813,6 @@ impl SetSolverOrderStatus for Solver {
 }
 
 impl SolverStrategyHost for Solver {
-    fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>> {
-        let mut new_orders = self.ready_orders.lock();
-        let max_drain = new_orders.len().min(self.max_batch_size);
-        new_orders.drain(..max_drain).collect_vec()
-    }
-
     fn get_next_batch_order_id(&self) -> BatchOrderId {
         self.order_id_provider.write().next_batch_order_id()
     }
@@ -784,7 +868,9 @@ impl BatchManagerHost for Solver {
 }
 
 impl CollateralManagerHost for Solver {
-
+    fn get_next_payment_id(&self) -> PaymentId {
+        self.order_id_provider.write().next_payment_id()
+    }
 }
 
 #[cfg(test)]
@@ -859,16 +945,24 @@ mod test {
     struct MockOrderIdProvider {
         order_ids: VecDeque<OrderId>,
         batch_order_ids: VecDeque<BatchOrderId>,
+        payment_ids: VecDeque<PaymentId>,
     }
 
     impl OrderIdProvider for MockOrderIdProvider {
         fn next_order_id(&mut self) -> OrderId {
             self.order_ids.pop_front().expect("No more Order Ids")
         }
+
         fn next_batch_order_id(&mut self) -> BatchOrderId {
             self.batch_order_ids
                 .pop_front()
                 .expect("No more BatchOrder Ids")
+        }
+
+        fn next_payment_id(&mut self) -> PaymentId {
+            self.payment_ids
+                .pop_front()
+                .expect("No more PaymentIds Ids")
         }
     }
 
@@ -963,6 +1057,7 @@ mod test {
                     .map_into(),
             ),
             batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
+            payment_ids: VecDeque::from_iter(["Payment01"].into_iter().map_into()),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1386,12 +1481,9 @@ mod test {
 
         let collateral_amount = dec!(1005.0) * dec!(3.5) * (Amount::ONE + dec!(0.001));
 
-        chain_connector.write().notify_deposit(
-            get_mock_address_1(),
-            "Pay001".into(),
-            collateral_amount,
-            timestamp,
-        );
+        chain_connector
+            .write()
+            .notify_deposit(get_mock_address_1(), collateral_amount, timestamp);
 
         flush_events();
 
@@ -1419,6 +1511,11 @@ mod test {
 
         flush_events();
 
+        println!("We moved clock 10 minutes forward");
+        timestamp += fund_wait_period;
+        solver_tick(timestamp);
+
+        flush_events();
         println!("IndexOrderManager responded to EngageOrders");
         solver_tick(timestamp);
 
