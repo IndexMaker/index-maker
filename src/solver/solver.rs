@@ -229,7 +229,6 @@ impl Solver {
         zero_threshold: Amount,
         fill_threshold: Amount,
         mint_threshold: Amount,
-        fund_wait_period: TimeDelta,
         mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
@@ -344,13 +343,12 @@ impl Solver {
             })
             .ok_or_eyre("Math Problem")?;
 
-        self.collateral_manager
-            .write()
-            .confirm_payment(
-                &index_order.address,
-                &index_order.client_order_id,
-                &index_order.payment_id,
-                total_cost)?;
+        self.collateral_manager.write().confirm_payment(
+            &index_order.address,
+            &index_order.client_order_id,
+            &index_order.payment_id,
+            total_cost,
+        )?;
 
         self.chain_connector.write().mint_index(
             index_order.symbol.clone(),
@@ -377,11 +375,12 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        println!("\nSolve...");
+        println!("\nBegin solve");
 
         //
         // check if there is some collateral we could use
         //
+        println!("Process credits...");
         if let Err(err) = self
             .collateral_manager
             .write()
@@ -393,6 +392,7 @@ impl Solver {
         //
         // check if there is some index orders we could mint
         //
+        println!("Mint indexes...");
         if let Err(err) = self.mint_indexes(timestamp) {
             eprintln!("Error while processing mints: {:?}", err);
         }
@@ -403,58 +403,17 @@ impl Solver {
         //
         // TODO: We may also track open liquidity promised to open orders
         //
-
+        println!("Engage more orders...");
         if let Err(err) = self.engage_more_orders() {
             eprintln!("Error while engaging more orders: {:?}", err);
         }
 
-        //
-        // NOTE: Index Order Manager will fire EngageIndexOrder event(s) and
-        // we should move orders to new queue then, and here we could draw from
-        // that new queue.
-        //
-        // So essentially:
-        //  ( NewIndexOrder event ) => ready_queue =( find liquidity & engage )=> pending_queue
-        //  ( EngageIndexOrder event ) => pending_queue =( move )=> engaged_queue
-        //  ( solve ) => engaged_queue =( send order batch )=>  live_order_map
-        //  ( inventory event ) => live_order_map =( match fill )=>
-
-        // Compute symbols and threshold
-        // ...
-
-        // receive list of open lots from Inventory Manager
-        //let _positions = self
-        //    .inventory_manager
-        //    .read()
-        //    .get_positions(&engaged_orders.symbols);
-
-        println!("Compute...");
-        // Compute: Allocate open lots to Index Orders
-        // ...
-        // TBD: Should Solver or Inventory Manager be allocating lots to index orders?
-
-        // Send back to Index Order Manager fills if any
-        //self.index_order_manager
-        //    .write()
-        //    .fill_order_request(ClientOrderId::default(), Amount::default());
-
-        // Compute: Remaining quantity
-        // ...
-
-        // receive current prices from Price Tracker
-
-        // Compute: Orders to send to update inventory
-        // ...
-
-        // Send order requests to Inventory Manager
-        // ...throttle these: send one or few smaller ones
-
-        // TODO: Should throttling be done here in Solver or in Inventory Manager
-
-        println!("\nSend Order Batches...");
+        println!("Send more batches...");
         if let Err(err) = self.batch_manager.send_more_batches(self, timestamp) {
             eprintln!("Error while sending more batches: {:?}", err);
         }
+
+        println!("End solve\n");
     }
 
     /// Quoting function (fast)
@@ -1092,7 +1051,6 @@ mod test {
             tolerance,
             dec!(0.9999),
             dec!(0.99),
-            fund_wait_period,
             mint_wait_period,
         ));
 
@@ -1266,7 +1224,7 @@ mod test {
                 mock_chain_sender
                     .send(response)
                     .expect("Failed to send chain response");
-                println!("Chain response sent.");
+                println!("Chain response sent");
             });
 
         fix_server
@@ -1306,7 +1264,7 @@ mod test {
                 mock_fix_sender
                     .send(response)
                     .expect("Failed to send FIX response");
-                println!("FIX response sent.");
+                println!("FIX response sent");
             });
 
         let (solver_tick_sender, solver_tick_receiver) = unbounded::<DateTime<Utc>>();
@@ -1314,6 +1272,7 @@ mod test {
 
         let flush_events = move || {
             // Simple dispatch loop
+            println!("\n>>> Begin events");
             loop {
                 select! {
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
@@ -1373,10 +1332,20 @@ mod test {
                     recv(solver_tick_receiver) -> res => {
                         solver.solve(res.unwrap())
                     },
-                    default => { break; },
+                    default => break,
                 }
             }
+            println!("<<< End events\n");
         };
+
+        let heading = |s: &str| {
+            println!(
+                "    ================================================================| {} |==",
+                s
+            )
+        };
+
+        heading("Scenario begins");
 
         let mut timestamp = Utc::now();
 
@@ -1472,6 +1441,7 @@ mod test {
 
         // necessary to wait until all market data events are ingested
         flush_events();
+        heading("Market data sent");
 
         // define basket
         let basket_definition = BasketDefinition::try_new(vec![
@@ -1486,6 +1456,8 @@ mod test {
             .notify_curator_weights_set(get_mock_index_name_1(), basket_definition);
 
         flush_events();
+        heading("Solver weights sent");
+
 
         // wait for solver to solve...
         let solver_weithgs_set = mock_chain_receiver
@@ -1497,20 +1469,15 @@ mod test {
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
 
-        print!("Chain response received.");
-
         let collateral_amount = dec!(1005.0) * dec!(3.5) * (Amount::ONE + dec!(0.001));
 
         chain_connector
             .write()
             .notify_deposit(get_mock_address_1(), collateral_amount, timestamp);
 
-        flush_events();
-
-        println!("We sent deposit");
         solver_tick(timestamp);
-
         flush_events();
+        heading("Deposit sent");
 
         fix_server
             .write()
@@ -1525,25 +1492,24 @@ mod test {
             }));
 
         flush_events();
+        heading("Sent FIX message: NewIndexOrder");
 
-        println!("We sent NewOrderSingle FIX message");
         solver_tick(timestamp);
-
         flush_events();
+        heading("Awaiting collateral");
 
-        println!("We moved clock 10 minutes forward");
         timestamp += fund_wait_period;
         solver_tick(timestamp);
-
         flush_events();
+        heading("Clock moved 10 minutes forward");
+        
+        solver_tick(timestamp);
+        flush_events();
+        heading("First order batch engaged");
 
         solver_tick(timestamp);
-
         flush_events();
-        println!("IndexOrderManager responded to EngageOrders");
-        solver_tick(timestamp);
-
-        flush_events();
+        heading("First order batch filled");
 
         let fix_response = mock_fix_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -1576,7 +1542,33 @@ mod test {
         assert_decimal_approx_eq!(order2.price, dec!(303.00), tolerance);
         assert_decimal_approx_eq!(order2.quantity, dec!(1.2954), tolerance);
 
+        for _ in 0..2 {
+            let fix_response = mock_fix_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Failed to receive ServerResponse");
+
+            assert!(matches!(
+                fix_response,
+                ServerResponse::IndexOrderFill {
+                    address: _,
+                    client_order_id: _,
+                    filled_quantity: _,
+                    collateral_remaining: _,
+                    collateral_spent: _,
+                    timestamp: _
+                }
+            ));
+
+            println!("FIX response received");
+        }
+
+        solver_tick(timestamp);
         flush_events();
+        heading("Second order batch engaged");
+
+        solver_tick(timestamp);
+        flush_events();
+        heading("Second order batch filled");
 
         for _ in 0..2 {
             let fix_response = mock_fix_receiver
@@ -1595,44 +1587,13 @@ mod test {
                 }
             ));
 
-            println!("FIX response received.");
+            println!("FIX response received");
         }
 
-        println!("Solver re-inserts IndexOrder from filled batch");
-        solver_tick(timestamp);
-
-        flush_events();
-
-        println!("Solver sends next batch");
-        solver_tick(timestamp);
-
-        flush_events();
-
-        for _ in 0..2 {
-            let fix_response = mock_fix_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Failed to receive ServerResponse");
-
-            assert!(matches!(
-                fix_response,
-                ServerResponse::IndexOrderFill {
-                    address: _,
-                    client_order_id: _,
-                    filled_quantity: _,
-                    collateral_remaining: _,
-                    collateral_spent: _,
-                    timestamp: _
-                }
-            ));
-
-            println!("FIX response received.");
-        }
-
-        println!("We moved clock 10 minutes forward");
         timestamp += fund_wait_period;
         solver_tick(timestamp);
-
         flush_events();
+        heading("Clock moved 10 minutes forward");
 
         // wait for solver to solve...
         let mint_index = mock_chain_receiver
@@ -1650,8 +1611,8 @@ mod test {
             }
         ));
 
-        println!("Chain response received.");
+        println!("Chain response received");
 
-        println!("Scenario completed.")
+        heading("Scenario completed");
     }
 }

@@ -167,6 +167,7 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        println!("Deposit form {} {:0.5}", address, amount);
         let collateral_position = self
             .client_funds
             .entry(address)
@@ -198,6 +199,7 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        println!("Withdrawal form {} {:0.5}", address, amount);
         let collateral_position = self
             .client_funds
             .entry(address)
