@@ -196,13 +196,13 @@ pub struct Solver {
     // solver strategy for calculating order batches
     strategy: Arc<dyn SolverStrategy>,
     batch_manager: Arc<BatchManager>,
-    collateral_manager: Arc<CollateralManager>,
     basket_manager: Arc<RwLock<BasketManager>>,
     order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
     price_tracker: Arc<RwLock<PriceTracker>>,
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     // dependencies
     chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
+    collateral_manager: Arc<RwLock<CollateralManager>>,
     index_order_manager: Arc<RwLock<IndexOrderManager>>,
     quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
@@ -221,6 +221,7 @@ impl Solver {
         price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
         chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
+        collateral_manager: Arc<RwLock<CollateralManager>>,
         index_order_manager: Arc<RwLock<IndexOrderManager>>,
         quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
@@ -240,13 +241,13 @@ impl Solver {
                 mint_threshold,
                 mint_wait_period,
             )),
-            collateral_manager: Arc::new(CollateralManager::new(zero_threshold, fund_wait_period)),
             order_id_provider,
             basket_manager,
             price_tracker,
             order_book_manager,
             // dependencies
             chain_connector,
+            collateral_manager,
             index_order_manager,
             quote_request_manager,
             inventory_manager,
@@ -343,19 +344,13 @@ impl Solver {
             })
             .ok_or_eyre("Math Problem")?;
 
-        let funds = self
-            .collateral_manager
-            .get_funds(&index_order.address)
-            .ok_or_eyre("Missing funds")?;
-
-        let mut funds_upread = funds.upgradable_read();
-
-        if funds_upread.balance < total_cost {
-            Err(eyre!("Not enough funds"))?;
-        }
-
-        let new_balance = safe!(funds_upread.balance - total_cost).ok_or_eyre("Math Problem")?;
-        funds_upread.with_upgraded(|funds_write| funds_write.balance = new_balance);
+        self.collateral_manager
+            .write()
+            .confirm_payment(
+                &index_order.address,
+                &index_order.client_order_id,
+                &index_order.payment_id,
+                total_cost)?;
 
         self.chain_connector.write().mint_index(
             index_order.symbol.clone(),
@@ -387,7 +382,11 @@ impl Solver {
         //
         // check if there is some collateral we could use
         //
-        if let Err(err) = self.collateral_manager.process_credits(self, timestamp) {
+        if let Err(err) = self
+            .collateral_manager
+            .write()
+            .process_credits(self, timestamp)
+        {
             eprintln!("Error while processing credits: {:?}", err);
         }
 
@@ -524,6 +523,7 @@ impl Solver {
                 timestamp,
             } => self
                 .collateral_manager
+                .write()
                 .handle_deposit(self, address, amount, timestamp),
             ChainNotification::WithdrawalRequest {
                 address,
@@ -531,6 +531,7 @@ impl Solver {
                 timestamp,
             } => self
                 .collateral_manager
+                .write()
                 .handle_withdrawal(self, address, amount, timestamp),
         }
     }
@@ -542,6 +543,7 @@ impl Solver {
                 client_order_id,
                 collateral_amount,
             } => {
+                println!("CollateralReady for {} {:0.5}", address, collateral_amount);
                 if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
                     // TODO: Figure out: should collateral manager have already paid for the order?
                     // or CollateralEvent is only to tell us that collateral reached sub-accounts?
@@ -549,7 +551,7 @@ impl Solver {
                     // amount of balance, so that any next order from that user won't double-spend.
                     // We assign payment ID so that  we can identify association between order and
                     // allocated collateral.
-                    match self.collateral_manager.handle_payment(
+                    match self.collateral_manager.write().preauth_payment(
                         self,
                         address,
                         collateral_amount,
@@ -557,6 +559,7 @@ impl Solver {
                         // If we're implementing message based protocol, we should make PaymentApproved
                         // a message that we will receive from collateral manager.
                         PaymentStatus::Approved { payment_id } => {
+                            println!("PaymentApproved: {}", payment_id);
                             let mut order_write = order.write();
                             order_write.payment_id = payment_id;
                             self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
@@ -614,6 +617,7 @@ impl Solver {
                             .strategy
                             .query_collateral_management(self, solver_order)?;
                         self.collateral_manager
+                            .write()
                             .manage_collateral(collateral_management);
                         Ok(())
                     }
@@ -916,8 +920,8 @@ mod test {
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::{
-            index_quote_manager::test_util::MockQuoteRequestManager, position::LotId,
-            solvers::simple_solver::SimpleSolver,
+            collateral_manager, index_quote_manager::test_util::MockQuoteRequestManager,
+            position::LotId, solvers::simple_solver::SimpleSolver,
         },
     };
 
@@ -1002,6 +1006,7 @@ mod test {
         let mint_wait_period = TimeDelta::new(600, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
+        let (collateral_sender, collateral_receiver) = unbounded::<CollateralEvent>();
         let (index_order_sender, index_order_receiver) = unbounded::<IndexOrderEvent>();
         let (quote_request_sender, quote_request_receiver) = unbounded::<QuoteRequestEvent>();
         let (inventory_sender, inventory_receiver) = unbounded::<InventoryEvent>();
@@ -1040,6 +1045,11 @@ mod test {
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
+        let collateral_manager = Arc::new(RwLock::new(CollateralManager::new(
+            tolerance,
+            fund_wait_period,
+        )));
+
         let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(
             fix_server.clone(),
             tolerance,
@@ -1057,7 +1067,7 @@ mod test {
                     .map_into(),
             ),
             batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
-            payment_ids: VecDeque::from_iter(["Payment01"].into_iter().map_into()),
+            payment_ids: VecDeque::from_iter(["Payment01", "Payment02"].into_iter().map_into()),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1074,6 +1084,7 @@ mod test {
             price_tracker.clone(),
             order_book_manager.clone(),
             chain_connector.clone(),
+            collateral_manager.clone(),
             index_order_manager.clone(),
             quote_request_manager.clone(),
             inventory_manager.clone(),
@@ -1095,6 +1106,11 @@ mod test {
             .write()
             .get_single_observer_mut()
             .set_observer_from(chain_sender);
+
+        collateral_manager
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(collateral_sender);
 
         index_order_manager
             .write()
@@ -1309,6 +1325,10 @@ mod test {
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle chain event"),
 
+                    recv(collateral_receiver) -> res => solver.handle_collateral_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle collateral event"),
+
                     recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle inventory event"),
@@ -1513,6 +1533,10 @@ mod test {
 
         println!("We moved clock 10 minutes forward");
         timestamp += fund_wait_period;
+        solver_tick(timestamp);
+
+        flush_events();
+
         solver_tick(timestamp);
 
         flush_events();

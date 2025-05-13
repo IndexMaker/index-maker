@@ -84,9 +84,9 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
-    client_funds: RwLock<HashMap<Address, Arc<RwLock<CollateralPosition>>>>,
-    ready_funds: Mutex<VecDeque<Arc<RwLock<CollateralPosition>>>>,
-    todo_management: RwLock<Option<CollateralManagement>>, //temporarily here
+    client_funds: HashMap<Address, Arc<RwLock<CollateralPosition>>>,
+    ready_funds: VecDeque<Arc<RwLock<CollateralPosition>>>,
+    todo_management: Option<CollateralManagement>, //temporarily here
     zero_threshold: Amount,
     fund_wait_period: TimeDelta,
 }
@@ -95,24 +95,23 @@ impl CollateralManager {
     pub fn new(zero_threshold: Amount, fund_wait_period: TimeDelta) -> Self {
         Self {
             observer: SingleObserver::new(),
-            client_funds: RwLock::new(HashMap::new()),
-            ready_funds: Mutex::new(VecDeque::new()),
-            todo_management: RwLock::new(None),
+            client_funds: HashMap::new(),
+            ready_funds: VecDeque::new(),
+            todo_management: None,
             zero_threshold,
             fund_wait_period,
         }
     }
 
     pub fn process_credits(
-        &self,
+        &mut self,
         host: &dyn CollateralManagerHost,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let ready_timestamp = timestamp - self.fund_wait_period;
         let check_not_ready = |x: &CollateralTransaction| ready_timestamp < x.timestamp;
         let ready_funds = (|| {
-            let mut funds = self.ready_funds.lock();
-            let res = funds.iter().find_position(|p| {
+            let res = self.ready_funds.iter().find_position(|p| {
                 p.read()
                     .transactions_cr
                     .front()
@@ -120,9 +119,9 @@ impl CollateralManager {
                     .unwrap_or(true)
             });
             if let Some((pos, _)) = res {
-                funds.drain(..pos)
+                self.ready_funds.drain(..pos)
             } else {
-                funds.drain(..)
+                self.ready_funds.drain(..)
             }
             .collect_vec()
         })();
@@ -150,7 +149,7 @@ impl CollateralManager {
                 fund_write.address, fund_write.balance
             );
             // TODO: We would fire this event after all collateral management completes
-            let client_order_id = self.todo_management.write().take().unwrap().client_order_id;
+            let client_order_id = self.todo_management.take().unwrap().client_order_id;
             self.observer
                 .publish_single(CollateralEvent::CollateralReady {
                     address: fund_write.address,
@@ -158,13 +157,11 @@ impl CollateralManager {
                     collateral_amount: fund_write.balance,
                 });
         }
-        todo!("Find index orders that are now ready");
-
         Ok(())
     }
 
     pub fn handle_deposit(
-        &self,
+        &mut self,
         host: &dyn CollateralManagerHost,
         address: Address,
         amount: Amount,
@@ -172,7 +169,6 @@ impl CollateralManager {
     ) -> Result<()> {
         let collateral_position = self
             .client_funds
-            .write()
             .entry(address)
             .or_insert_with(|| Arc::new(RwLock::new(CollateralPosition::new(address))))
             .clone();
@@ -191,12 +187,12 @@ impl CollateralManager {
             Ok(())
         })()?;
 
-        self.ready_funds.lock().push_back(collateral_position);
+        self.ready_funds.push_back(collateral_position);
         Ok(())
     }
 
     pub fn handle_withdrawal(
-        &self,
+        &mut self,
         host: &dyn CollateralManagerHost,
         address: Address,
         amount: Amount,
@@ -204,7 +200,6 @@ impl CollateralManager {
     ) -> Result<()> {
         let collateral_position = self
             .client_funds
-            .write()
             .entry(address)
             .or_insert_with(|| Arc::new(RwLock::new(CollateralPosition::new(address))))
             .clone();
@@ -223,16 +218,22 @@ impl CollateralManager {
             Ok(())
         })()?;
 
-        self.ready_funds.lock().push_back(collateral_position);
+        self.ready_funds.push_back(collateral_position);
         Ok(())
     }
 
-    pub fn handle_payment(
+    /// Pre-Authorize Payment
+    /// 
+    /// Note: For bigger Index Orders we will pre-authorize certain amount
+    /// payable before we start processing Index Order. For smaller Index Orders
+    /// we may have some margin to process them before payment is authorized.
+    pub fn preauth_payment(
         &self,
         host: &dyn CollateralManagerHost,
         address: Address,
         amount_payable: Amount,
     ) -> Result<PaymentStatus> {
+        println!("HandlePayment for {} {:0.5}", address, amount_payable);
         if let Some(funds) = self.get_funds(&address) {
             let mut funds_write = funds.write();
 
@@ -253,17 +254,53 @@ impl CollateralManager {
         }
     }
 
-    pub fn get_funds(&self, address: &Address) -> Option<Arc<RwLock<CollateralPosition>>> {
-        let client_funds = self.client_funds.read();
-        client_funds.get(address).cloned()
+    /// Comfirm Payment
+    /// 
+    /// Note: Once Index Order is fully-filled, we will calculate all the costs
+    /// associated and we will charge user account that amount. Index Order is 
+    /// processed for as long as there is some collateral left, so that user
+    /// will get the maxim amount of index token for the collateral they
+    /// provided. The quantity that user receives depends on market dynamics.
+    pub fn confirm_payment(
+        &mut self,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        payment_id: &PaymentId,
+        amount_paid: Amount,
+    ) -> Result<()> {
+        // let funds = self
+        //     .collateral_manager
+        //     .read()
+        //     .get_funds(&index_order.address)
+        //     .cloned()
+        //     .ok_or_eyre("Missing funds")?;
+
+        // let mut funds_upread = funds.upgradable_read();
+
+        // if funds_upread.balance < total_cost {
+        //     Err(eyre!("Not enough funds"))?;
+        // }
+
+        // let new_balance = safe!(funds_upread.balance - total_cost).ok_or_eyre("Math Problem")?;
+        // funds_upread.with_upgraded(|funds_write| funds_write.balance = new_balance);
+
+        Ok(())
     }
 
-    pub fn manage_collateral(&self, collateral_management: CollateralManagement) {
+    pub fn get_funds(&self, address: &Address) -> Option<&Arc<RwLock<CollateralPosition>>> {
+        self.client_funds.get(address)
+    }
+
+    pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
+        println!(
+            "ManageCollateral for {} {}",
+            collateral_management.address, collateral_management.client_order_id
+        );
         // TODO: Look at the collateral quantities required for each asset, and
         // allocate collateral to sub-accounts accordingly. Once collateral
         // lands in right spots we can signal CollateralReady event to Solver,
         // which should then resume working on the order.
-        self.todo_management.write().replace(collateral_management);
+        self.todo_management.replace(collateral_management);
     }
 }
 
