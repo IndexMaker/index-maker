@@ -1,12 +1,12 @@
 use chrono::{DateTime, Utc};
 
-use crate::core::bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol};
+use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 pub enum ServerEvent {
     NewIndexOrder {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
-        payment_id: PaymentId,
         symbol: Symbol,
         side: Side,
         collateral_amount: Amount,
@@ -15,12 +15,12 @@ pub enum ServerEvent {
     CancelIndexOrder {
         address: Address,
         client_order_id: ClientOrderId,
-        payment_id: PaymentId,
         symbol: Symbol,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     },
     NewQuoteRequest {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,

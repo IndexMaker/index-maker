@@ -5,13 +5,13 @@ use std::{
 
 use chrono::{DateTime, TimeDelta, Utc};
 use itertools::Itertools;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 
 use eyre::{OptionExt, Result};
 use safe_math::safe;
 
 use crate::core::{
-    bits::{Address, Amount, ClientOrderId, PaymentId},
+    bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
     decimal_ext::DecimalExt,
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
@@ -78,12 +78,51 @@ impl CollateralPosition {
     }
 }
 
+pub trait TradingDesignation {
+    /// e.g. EVM, CEFFU, BINANCE
+    fn get_type(&self) -> Symbol;
+
+    /// e.g. ARBITRUM, BASE, CEFFU, 1, 2
+    fn get_name(&self) -> Symbol;
+
+    /// e.g. USDC, USDT
+    fn get_collateral_symbol(&self) -> Symbol;
+
+    /// e.g. EVM:ARBITRUM:USDC
+    fn get_full_name(&self) -> Symbol;
+
+    /// Tell balance of the collateral in this designation
+    fn get_balance(&self) -> Amount;
+}
+
+pub trait TradingDesignationBridge {
+    /// e.g. EVM:ARBITRUM:USDC
+    fn get_source(&self) -> &dyn TradingDesignation;
+
+    /// e.g. BINANCE:1:USDT
+    fn get_destination(&self) -> &dyn TradingDesignation;
+
+    /// Transfer funds from this designation to target designation
+    ///
+    /// This may be direct bridge or composite of several bridges.
+    /// 
+    /// Bridging Rules:
+    /// ===============
+    /// * `EVM:ARBITRUM:USDC` => `EVM:BASE:USDC`
+    /// * `EVM:BASE:USDC` => `CEFFU:USDC`
+    /// * `CEFFU:USDC` => `BINANCE:1:USDC`
+    /// * `BINANCE:1:USDC` => `BINANCE:1:USDT`
+    /// * `BINANCE:1:USDC` => `BINANCE:2:USDC`
+    fn transfer_funds(&self, amount: Amount);
+}
+
 pub trait CollateralManagerHost: SetSolverOrderStatus {
     fn get_next_payment_id(&self) -> PaymentId;
 }
 
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
+    bridges: HashMap<(Symbol, Symbol), Box<dyn TradingDesignationBridge + Sync + Send>>,
     client_funds: HashMap<Address, Arc<RwLock<CollateralPosition>>>,
     ready_funds: VecDeque<Arc<RwLock<CollateralPosition>>>,
     todo_management: Option<CollateralManagement>, //temporarily here
@@ -95,12 +134,27 @@ impl CollateralManager {
     pub fn new(zero_threshold: Amount, fund_wait_period: TimeDelta) -> Self {
         Self {
             observer: SingleObserver::new(),
+            bridges: HashMap::new(),
             client_funds: HashMap::new(),
             ready_funds: VecDeque::new(),
             todo_management: None,
             zero_threshold,
             fund_wait_period,
         }
+    }
+
+    pub fn add_bridge(
+        &mut self,
+        bridge: Box<dyn TradingDesignationBridge + Sync + Send>,
+    ) -> Result<()> {
+        let source = bridge.get_source().get_full_name();
+        let destination = bridge.get_destination().get_full_name();
+        self.bridges
+            .insert((source, destination), bridge)
+            .is_none()
+            .then_some(())
+            .ok_or_eyre("Duplicate designation ID")?;
+        Ok(())
     }
 
     pub fn process_credits(
@@ -225,7 +279,7 @@ impl CollateralManager {
     }
 
     /// Pre-Authorize Payment
-    /// 
+    ///
     /// Note: For bigger Index Orders we will pre-authorize certain amount
     /// payable before we start processing Index Order. For smaller Index Orders
     /// we may have some margin to process them before payment is authorized.
@@ -235,7 +289,7 @@ impl CollateralManager {
         address: Address,
         amount_payable: Amount,
     ) -> Result<PaymentStatus> {
-        println!("HandlePayment for {} {:0.5}", address, amount_payable);
+        println!("PreAuth Payment for {} {:0.5}", address, amount_payable);
         if let Some(funds) = self.get_funds(&address) {
             let mut funds_write = funds.write();
 
@@ -257,9 +311,9 @@ impl CollateralManager {
     }
 
     /// Comfirm Payment
-    /// 
+    ///
     /// Note: Once Index Order is fully-filled, we will calculate all the costs
-    /// associated and we will charge user account that amount. Index Order is 
+    /// associated and we will charge user account that amount. Index Order is
     /// processed for as long as there is some collateral left, so that user
     /// will get the maxim amount of index token for the collateral they
     /// provided. The quantity that user receives depends on market dynamics.

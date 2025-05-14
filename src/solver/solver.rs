@@ -54,6 +54,9 @@ pub enum SolverOrderStatus {
 
 /// Solver's view of the Index Order
 pub struct SolverOrder {
+    // Chain ID
+    pub chain_id: u32,
+
     // ID of the original NewOrder request
     pub original_client_order_id: ClientOrderId,
 
@@ -64,7 +67,7 @@ pub struct SolverOrder {
     pub client_order_id: ClientOrderId,
 
     /// An ID of the on-chain payment
-    pub payment_id: PaymentId,
+    pub payment_id: Option<PaymentId>,
 
     /// Symbol of an Index
     pub symbol: Symbol,
@@ -343,10 +346,15 @@ impl Solver {
             })
             .ok_or_eyre("Math Problem")?;
 
+        let payment_id = index_order
+            .payment_id
+            .clone()
+            .ok_or_eyre("Missing payment ID")?;
+
         self.collateral_manager.write().confirm_payment(
             &index_order.address,
             &index_order.client_order_id,
-            &index_order.payment_id,
+            &payment_id,
             total_cost,
         )?;
 
@@ -520,7 +528,10 @@ impl Solver {
                         PaymentStatus::Approved { payment_id } => {
                             println!("PaymentApproved: {}", payment_id);
                             let mut order_write = order.write();
-                            order_write.payment_id = payment_id;
+                            order_write.payment_id.replace(payment_id)
+                                .is_none()
+                                .then_some(())
+                                .ok_or_eyre("Payment ID already set")?;
                             self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
                             self.ready_orders.lock().push_back(order.clone());
                         }
@@ -536,10 +547,10 @@ impl Solver {
     pub fn handle_index_order(&self, notification: IndexOrderEvent) -> Result<()> {
         match notification {
             IndexOrderEvent::NewIndexOrder {
+                chain_id,
                 original_client_order_id,
                 address,
                 client_order_id,
-                payment_id,
                 symbol,
                 side,
                 collateral_amount,
@@ -556,10 +567,11 @@ impl Solver {
                 {
                     Entry::Vacant(entry) => {
                         let solver_order = Arc::new(RwLock::new(SolverOrder {
+                            chain_id,
                             original_client_order_id: original_client_order_id.clone(),
                             address,
                             client_order_id,
-                            payment_id,
+                            payment_id: None,
                             symbol,
                             side,
                             remaining_collateral: collateral_amount,
@@ -1458,7 +1470,6 @@ mod test {
         flush_events();
         heading("Solver weights sent");
 
-
         // wait for solver to solve...
         let solver_weithgs_set = mock_chain_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -1482,9 +1493,9 @@ mod test {
         fix_server
             .write()
             .notify_server_event(Arc::new(ServerEvent::NewIndexOrder {
+                chain_id: 1,
                 address: get_mock_address_1(),
                 client_order_id: "Order01".into(),
-                payment_id: "Pay001".into(),
                 symbol: get_mock_index_name_1(),
                 side: Side::Buy,
                 collateral_amount,
@@ -1502,7 +1513,7 @@ mod test {
         solver_tick(timestamp);
         flush_events();
         heading("Clock moved 10 minutes forward");
-        
+
         solver_tick(timestamp);
         flush_events();
         heading("First order batch engaged");
