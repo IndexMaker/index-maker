@@ -24,6 +24,7 @@ pub enum CollateralEvent {
         address: Address,
         client_order_id: ClientOrderId,
         collateral_amount: Amount,
+        fee: Amount,
     },
 }
 
@@ -116,10 +117,10 @@ pub trait TradingDesignationBridge: Send + Sync {
     fn get_destination(&self) -> Arc<RwLock<dyn TradingDesignation>>;
 
     /// Transfer funds from this designation to target designation
-    /// 
+    ///
     /// - chain_id - Chain ID from which IndexOrder originated
     /// - address - User address from whom IndexOrder originated
-    /// - client_order_id - An ID of the IndexOrder that user assigned to it 
+    /// - client_order_id - An ID of the IndexOrder that user assigned to it
     /// - amount - An amount to be transferred from source to destination
     ///
     /// This may be direct bridge or composite of several bridges.
@@ -149,7 +150,7 @@ pub struct CollateralManager {
     bridges: HashMap<(Symbol, Symbol), Arc<RwLock<dyn TradingDesignationBridge>>>,
     client_funds: HashMap<Address, Arc<RwLock<CollateralPosition>>>,
     ready_funds: VecDeque<Arc<RwLock<CollateralPosition>>>,
-    todo_management: Option<CollateralManagement>, //temporarily here
+    collateral_management_requests: VecDeque<CollateralManagement>,
     zero_threshold: Amount,
     fund_wait_period: TimeDelta,
 }
@@ -161,7 +162,7 @@ impl CollateralManager {
             bridges: HashMap::new(),
             client_funds: HashMap::new(),
             ready_funds: VecDeque::new(),
-            todo_management: None,
+            collateral_management_requests: VecDeque::new(),
             zero_threshold,
             fund_wait_period,
         }
@@ -229,14 +230,16 @@ impl CollateralManager {
                 fund_write.address, fund_write.balance
             );
             // TODO: We would fire this event after all collateral management completes
-            let unwrapped = self.todo_management.take().unwrap();
-            self.observer
-                .publish_single(CollateralEvent::CollateralReady {
-                    chain_id: unwrapped.chain_id,
-                    address: fund_write.address,
-                    client_order_id: unwrapped.client_order_id,
-                    collateral_amount: fund_write.balance,
-                });
+            if let Some(unwrapped) = self.collateral_management_requests.pop_front() {
+                if let Some((_, bridge)) = self.bridges.iter().find(|_| true) {
+                    bridge.write().transfer_funds(
+                        unwrapped.chain_id,
+                        unwrapped.address,
+                        unwrapped.client_order_id,
+                        fund_write.balance,
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -383,11 +386,8 @@ impl CollateralManager {
             "ManageCollateral for {} {}",
             collateral_management.address, collateral_management.client_order_id
         );
-        // TODO: Look at the collateral quantities required for each asset, and
-        // allocate collateral to sub-accounts accordingly. Once collateral
-        // lands in right spots we can signal CollateralReady event to Solver,
-        // which should then resume working on the order.
-        self.todo_management.replace(collateral_management);
+        self.collateral_management_requests
+            .push_back(collateral_management);
     }
 
     pub fn handle_trading_bridge_event(
@@ -408,6 +408,14 @@ impl CollateralManager {
                     "Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
                     chain_id, address, client_order_id, source, destination, amount, fee
                 );
+                self.observer
+                    .publish_single(CollateralEvent::CollateralReady {
+                        chain_id,
+                        address,
+                        client_order_id,
+                        collateral_amount: amount,
+                        fee
+                    });
             }
         }
         Ok(())

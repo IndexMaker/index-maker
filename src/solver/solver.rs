@@ -515,10 +515,11 @@ impl Solver {
                 address,
                 client_order_id,
                 collateral_amount,
+                fee,
             } => {
                 println!(
-                    "CollateralReady for {} {} {:0.5}",
-                    chain_id, address, collateral_amount
+                    "CollateralReady for {} {} {:0.5} {:0.5}",
+                    chain_id, address, collateral_amount, fee
                 );
                 if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
                     // TODO: Figure out: should collateral manager have already paid for the order?
@@ -1194,6 +1195,7 @@ mod test {
         ]));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
+        let defer_2 = defer_1.clone();
         order_connector
             .write()
             .implementor
@@ -1337,10 +1339,12 @@ mod test {
                 println!("FIX response sent");
             });
 
+        let trading_designation_bridge_weak = Arc::downgrade(&trading_designation_bridge);
         trading_designation_bridge
             .write()
             .implementor
             .set_observer_fn(move |event| {
+                let trading_designation_bridge = trading_designation_bridge_weak.upgrade().unwrap();
                 match &event {
                     MockTradingDesignationBridgeInternalEvent::TransferFunds {
                         chain_id,
@@ -1351,7 +1355,25 @@ mod test {
                         println!(
                             "TransferFunds from {} {} {} for {:0.5}",
                             chain_id, address, client_order_id, amount
-                        )
+                        );
+                        let chain_id = *chain_id;
+                        let address = *address;
+                        let client_order_id = client_order_id.clone();
+                        let amount = *amount;
+                        let fee = amount * dec!(0.01);
+                        defer_2
+                            .send(Box::new(move || {
+                                trading_designation_bridge
+                                    .write()
+                                    .notify_trading_designation_bridge_event(
+                                        chain_id,
+                                        address,
+                                        client_order_id,
+                                        amount - fee,
+                                        fee,
+                                    );
+                            }))
+                            .expect("Failed to send");
                     }
                 }
                 mock_bridge_sender
@@ -1603,6 +1625,20 @@ mod test {
         solver_tick(timestamp);
         flush_events();
         heading("Clock moved 10 minutes forward");
+
+        let mock_bridge_event = mock_bridge_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive TransferFunds bridge request");
+
+        assert!(matches!(
+            mock_bridge_event,
+            MockTradingDesignationBridgeInternalEvent::TransferFunds {
+                chain_id: _,
+                address: _,
+                client_order_id: _,
+                amount: _
+            }
+        ));
 
         solver_tick(timestamp);
         flush_events();
