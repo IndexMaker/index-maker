@@ -150,6 +150,7 @@ pub struct SolveEngagementsResult {
 }
 
 pub struct CollateralManagement {
+    pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub asset_requirements: HashMap<Symbol, Amount>,
@@ -352,6 +353,7 @@ impl Solver {
             .ok_or_eyre("Missing payment ID")?;
 
         self.collateral_manager.write().confirm_payment(
+            index_order.chain_id,
             &index_order.address,
             &index_order.client_order_id,
             &payment_id,
@@ -359,6 +361,7 @@ impl Solver {
         )?;
 
         self.chain_connector.write().mint_index(
+            index_order.chain_id,
             index_order.symbol.clone(),
             index_order.filled_quantity,
             index_order.address,
@@ -485,32 +488,38 @@ impl Solver {
                 Ok(())
             }
             ChainNotification::Deposit {
+                chain_id,
                 address,
                 amount,
                 timestamp,
             } => self
                 .collateral_manager
                 .write()
-                .handle_deposit(self, address, amount, timestamp),
+                .handle_deposit(self, chain_id, address, amount, timestamp),
             ChainNotification::WithdrawalRequest {
+                chain_id,
                 address,
                 amount,
                 timestamp,
             } => self
                 .collateral_manager
                 .write()
-                .handle_withdrawal(self, address, amount, timestamp),
+                .handle_withdrawal(self, chain_id, address, amount, timestamp),
         }
     }
 
     pub fn handle_collateral_event(&self, notificaion: CollateralEvent) -> Result<()> {
         match notificaion {
             CollateralEvent::CollateralReady {
+                chain_id,
                 address,
                 client_order_id,
                 collateral_amount,
             } => {
-                println!("CollateralReady for {} {:0.5}", address, collateral_amount);
+                println!(
+                    "CollateralReady for {} {} {:0.5}",
+                    chain_id, address, collateral_amount
+                );
                 if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
                     // TODO: Figure out: should collateral manager have already paid for the order?
                     // or CollateralEvent is only to tell us that collateral reached sub-accounts?
@@ -520,6 +529,7 @@ impl Solver {
                     // allocated collateral.
                     match self.collateral_manager.write().preauth_payment(
                         self,
+                        chain_id,
                         address,
                         collateral_amount,
                     )? {
@@ -528,7 +538,9 @@ impl Solver {
                         PaymentStatus::Approved { payment_id } => {
                             println!("PaymentApproved: {}", payment_id);
                             let mut order_write = order.write();
-                            order_write.payment_id.replace(payment_id)
+                            order_write
+                                .payment_id
+                                .replace(payment_id)
                                 .is_none()
                                 .then_some(())
                                 .ok_or_eyre("Payment ID already set")?;
@@ -891,8 +903,16 @@ mod test {
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::{
-            collateral_manager, index_quote_manager::test_util::MockQuoteRequestManager,
-            position::LotId, solvers::simple_solver::SimpleSolver,
+            collateral_manager::{
+                test_util::{
+                    MockTradingDesignation, MockTradingDesignationBridge,
+                    MockTradingDesignationBridgeInternalEvent,
+                },
+                TradingDesignationBridgeEvent,
+            },
+            index_quote_manager::test_util::MockQuoteRequestManager,
+            position::LotId,
+            solvers::simple_solver::SimpleSolver,
         },
     };
 
@@ -990,6 +1010,8 @@ mod test {
             unbounded::<OrderTrackerNotification>();
         let (order_connector_sender, order_connector_receiver) =
             unbounded::<OrderConnectorNotification>();
+        let (trading_bridge_sender, trading_bridge_receiver) =
+            unbounded::<TradingDesignationBridgeEvent>();
 
         /*
         NOTES:
@@ -1020,6 +1042,32 @@ mod test {
             tolerance,
             fund_wait_period,
         )));
+
+        let trading_designation_1 = Arc::new(RwLock::new(MockTradingDesignation {
+            type_: "T1".into(),
+            name: "D1".into(),
+            collateral_symbol: "C1".into(),
+            full_name: "T1:D1:C1".into(),
+            balance: dec!(0.0),
+        }));
+
+        let trading_designation_2 = Arc::new(RwLock::new(MockTradingDesignation {
+            type_: "T2".into(),
+            name: "D2".into(),
+            collateral_symbol: "C2".into(),
+            full_name: "T2:D2:C2".into(),
+            balance: dec!(0.0),
+        }));
+
+        let trading_designation_bridge = Arc::new(RwLock::new(MockTradingDesignationBridge::new(
+            trading_designation_1,
+            trading_designation_2,
+        )));
+
+        collateral_manager
+            .write()
+            .add_bridge(trading_designation_bridge.clone())
+            .expect("Duplicate bridge");
 
         let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(
             fix_server.clone(),
@@ -1081,6 +1129,11 @@ mod test {
             .write()
             .get_single_observer_mut()
             .set_observer_from(collateral_sender);
+
+        trading_designation_bridge
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(trading_bridge_sender);
 
         index_order_manager
             .write()
@@ -1195,6 +1248,8 @@ mod test {
             });
 
         let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
+        let (mock_bridge_sender, mock_bridge_receiver) =
+            unbounded::<MockTradingDesignationBridgeInternalEvent>();
         let (mock_fix_sender, mock_fix_receiver) = unbounded::<ServerResponse>();
 
         chain_connector
@@ -1206,6 +1261,7 @@ mod test {
                         println!("Solver Weights Set: {}", symbol);
                     }
                     MockChainInternalNotification::MintIndex {
+                        chain_id,
                         symbol,
                         quantity,
                         receipient,
@@ -1213,11 +1269,12 @@ mod test {
                         execution_time,
                     } => {
                         println!(
-                            "Minted Index: {:5} Quantity: {:0.5} User: {} @{:0.5} {}",
-                            symbol, quantity, receipient, execution_price, execution_time
+                            "Minted Index: {} {:5} Quantity: {:0.5} User: {} @{:0.5} {}",
+                            chain_id, symbol, quantity, receipient, execution_price, execution_time
                         );
                     }
                     MockChainInternalNotification::BurnIndex {
+                        chain_id,
                         symbol,
                         quantity,
                         receipient,
@@ -1225,6 +1282,7 @@ mod test {
                         todo!()
                     }
                     MockChainInternalNotification::Withdraw {
+                        chain_id,
                         receipient,
                         amount,
                         execution_price,
@@ -1279,6 +1337,29 @@ mod test {
                 println!("FIX response sent");
             });
 
+        trading_designation_bridge
+            .write()
+            .implementor
+            .set_observer_fn(move |event| {
+                match &event {
+                    MockTradingDesignationBridgeInternalEvent::TransferFunds {
+                        chain_id,
+                        address,
+                        client_order_id,
+                        amount,
+                    } => {
+                        println!(
+                            "TransferFunds from {} {} {} for {:0.5}",
+                            chain_id, address, client_order_id, amount
+                        )
+                    }
+                }
+                mock_bridge_sender
+                    .send(event)
+                    .expect("Failed to send bridge event");
+                println!("Bridge event sent");
+            });
+
         let (solver_tick_sender, solver_tick_receiver) = unbounded::<DateTime<Utc>>();
         let solver_tick = |msg| solver_tick_sender.send(msg).unwrap();
 
@@ -1299,6 +1380,11 @@ mod test {
                     recv(collateral_receiver) -> res => solver.handle_collateral_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle collateral event"),
+
+                    recv(trading_bridge_receiver) -> res => solver.collateral_manager.write()
+                        .handle_trading_bridge_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle inventory event"),
 
                     recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
@@ -1481,10 +1567,14 @@ mod test {
         ));
 
         let collateral_amount = dec!(1005.0) * dec!(3.5) * (Amount::ONE + dec!(0.001));
+        let chain_id = 1;
 
-        chain_connector
-            .write()
-            .notify_deposit(get_mock_address_1(), collateral_amount, timestamp);
+        chain_connector.write().notify_deposit(
+            chain_id,
+            get_mock_address_1(),
+            collateral_amount,
+            timestamp,
+        );
 
         solver_tick(timestamp);
         flush_events();
@@ -1493,7 +1583,7 @@ mod test {
         fix_server
             .write()
             .notify_server_event(Arc::new(ServerEvent::NewIndexOrder {
-                chain_id: 1,
+                chain_id,
                 address: get_mock_address_1(),
                 client_order_id: "Order01".into(),
                 symbol: get_mock_index_name_1(),
@@ -1614,6 +1704,7 @@ mod test {
         assert!(matches!(
             mint_index,
             MockChainInternalNotification::MintIndex {
+                chain_id: _,
                 symbol: _,
                 quantity: _,
                 receipient: _,

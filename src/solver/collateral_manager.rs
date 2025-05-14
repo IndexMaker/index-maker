@@ -20,6 +20,7 @@ use super::solver::{CollateralManagement, SetSolverOrderStatus};
 
 pub enum CollateralEvent {
     CollateralReady {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         collateral_amount: Amount,
@@ -78,7 +79,7 @@ impl CollateralPosition {
     }
 }
 
-pub trait TradingDesignation {
+pub trait TradingDesignation: Send + Sync {
     /// e.g. EVM, CEFFU, BINANCE
     fn get_type(&self) -> Symbol;
 
@@ -95,17 +96,34 @@ pub trait TradingDesignation {
     fn get_balance(&self) -> Amount;
 }
 
-pub trait TradingDesignationBridge {
+pub enum TradingDesignationBridgeEvent {
+    TransferComplete {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        source: Symbol,
+        destination: Symbol,
+        amount: Amount,
+        fee: Amount,
+    },
+}
+
+pub trait TradingDesignationBridge: Send + Sync {
     /// e.g. EVM:ARBITRUM:USDC
-    fn get_source(&self) -> &dyn TradingDesignation;
+    fn get_source(&self) -> Arc<RwLock<dyn TradingDesignation>>;
 
     /// e.g. BINANCE:1:USDT
-    fn get_destination(&self) -> &dyn TradingDesignation;
+    fn get_destination(&self) -> Arc<RwLock<dyn TradingDesignation>>;
 
     /// Transfer funds from this designation to target designation
+    /// 
+    /// - chain_id - Chain ID from which IndexOrder originated
+    /// - address - User address from whom IndexOrder originated
+    /// - client_order_id - An ID of the IndexOrder that user assigned to it 
+    /// - amount - An amount to be transferred from source to destination
     ///
     /// This may be direct bridge or composite of several bridges.
-    /// 
+    ///
     /// Bridging Rules:
     /// ===============
     /// * `EVM:ARBITRUM:USDC` => `EVM:BASE:USDC`
@@ -113,7 +131,13 @@ pub trait TradingDesignationBridge {
     /// * `CEFFU:USDC` => `BINANCE:1:USDC`
     /// * `BINANCE:1:USDC` => `BINANCE:1:USDT`
     /// * `BINANCE:1:USDC` => `BINANCE:2:USDC`
-    fn transfer_funds(&self, amount: Amount);
+    fn transfer_funds(
+        &self,
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        amount: Amount,
+    );
 }
 
 pub trait CollateralManagerHost: SetSolverOrderStatus {
@@ -122,7 +146,7 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
-    bridges: HashMap<(Symbol, Symbol), Box<dyn TradingDesignationBridge + Sync + Send>>,
+    bridges: HashMap<(Symbol, Symbol), Arc<RwLock<dyn TradingDesignationBridge>>>,
     client_funds: HashMap<Address, Arc<RwLock<CollateralPosition>>>,
     ready_funds: VecDeque<Arc<RwLock<CollateralPosition>>>,
     todo_management: Option<CollateralManagement>, //temporarily here
@@ -143,14 +167,16 @@ impl CollateralManager {
         }
     }
 
-    pub fn add_bridge(
-        &mut self,
-        bridge: Box<dyn TradingDesignationBridge + Sync + Send>,
-    ) -> Result<()> {
-        let source = bridge.get_source().get_full_name();
-        let destination = bridge.get_destination().get_full_name();
+    pub fn add_bridge(&mut self, bridge: Arc<RwLock<dyn TradingDesignationBridge>>) -> Result<()> {
+        let key = (|| {
+            let bridge = bridge.read();
+            (
+                bridge.get_source().read().get_full_name(),
+                bridge.get_destination().read().get_full_name(),
+            )
+        })();
         self.bridges
-            .insert((source, destination), bridge)
+            .insert(key, bridge)
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate designation ID")?;
@@ -203,11 +229,12 @@ impl CollateralManager {
                 fund_write.address, fund_write.balance
             );
             // TODO: We would fire this event after all collateral management completes
-            let client_order_id = self.todo_management.take().unwrap().client_order_id;
+            let unwrapped = self.todo_management.take().unwrap();
             self.observer
                 .publish_single(CollateralEvent::CollateralReady {
+                    chain_id: unwrapped.chain_id,
                     address: fund_write.address,
-                    client_order_id,
+                    client_order_id: unwrapped.client_order_id,
                     collateral_amount: fund_write.balance,
                 });
         }
@@ -217,11 +244,12 @@ impl CollateralManager {
     pub fn handle_deposit(
         &mut self,
         host: &dyn CollateralManagerHost,
+        chain_id: u32,
         address: Address,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!("Deposit form {} {:0.5}", address, amount);
+        println!("Deposit form {} {} {:0.5}", chain_id, address, amount);
         let collateral_position = self
             .client_funds
             .entry(address)
@@ -249,11 +277,12 @@ impl CollateralManager {
     pub fn handle_withdrawal(
         &mut self,
         host: &dyn CollateralManagerHost,
+        chain_id: u32,
         address: Address,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!("Withdrawal form {} {:0.5}", address, amount);
+        println!("Withdrawal form {} {} {:0.5}", chain_id, address, amount);
         let collateral_position = self
             .client_funds
             .entry(address)
@@ -286,6 +315,7 @@ impl CollateralManager {
     pub fn preauth_payment(
         &self,
         host: &dyn CollateralManagerHost,
+        chain_id: u32,
         address: Address,
         amount_payable: Amount,
     ) -> Result<PaymentStatus> {
@@ -319,6 +349,7 @@ impl CollateralManager {
     /// provided. The quantity that user receives depends on market dynamics.
     pub fn confirm_payment(
         &mut self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         payment_id: &PaymentId,
@@ -358,10 +389,158 @@ impl CollateralManager {
         // which should then resume working on the order.
         self.todo_management.replace(collateral_management);
     }
+
+    pub fn handle_trading_bridge_event(
+        &mut self,
+        event: TradingDesignationBridgeEvent,
+    ) -> Result<()> {
+        match event {
+            TradingDesignationBridgeEvent::TransferComplete {
+                chain_id,
+                address,
+                client_order_id,
+                source,
+                destination,
+                amount,
+                fee,
+            } => {
+                println!(
+                    "Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
+                    chain_id, address, client_order_id, source, destination, amount, fee
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 impl IntoObservableSingle<CollateralEvent> for CollateralManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralEvent> {
         &mut self.observer
+    }
+}
+
+#[cfg(test)]
+pub mod test_util {
+    use std::sync::Arc;
+
+    use parking_lot::RwLock;
+
+    use crate::core::{
+        bits::{Address, Amount, ClientOrderId, Symbol},
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    };
+
+    use super::{TradingDesignation, TradingDesignationBridge, TradingDesignationBridgeEvent};
+
+    pub struct MockTradingDesignation {
+        pub type_: Symbol,
+        pub name: Symbol,
+        pub collateral_symbol: Symbol,
+        pub full_name: Symbol,
+        pub balance: Amount,
+    }
+
+    impl TradingDesignation for MockTradingDesignation {
+        fn get_type(&self) -> Symbol {
+            self.type_.clone()
+        }
+        fn get_name(&self) -> Symbol {
+            self.name.clone()
+        }
+        fn get_collateral_symbol(&self) -> Symbol {
+            self.collateral_symbol.clone()
+        }
+        fn get_full_name(&self) -> Symbol {
+            self.full_name.clone()
+        }
+        fn get_balance(&self) -> Amount {
+            self.balance
+        }
+    }
+
+    pub enum MockTradingDesignationBridgeInternalEvent {
+        TransferFunds {
+            chain_id: u32,
+            address: Address,
+            client_order_id: ClientOrderId,
+            amount: Amount,
+        },
+    }
+
+    pub struct MockTradingDesignationBridge {
+        observer: SingleObserver<TradingDesignationBridgeEvent>,
+        pub implementor: SingleObserver<MockTradingDesignationBridgeInternalEvent>,
+        pub source: Arc<RwLock<MockTradingDesignation>>,
+        pub destination: Arc<RwLock<MockTradingDesignation>>,
+    }
+
+    impl MockTradingDesignationBridge {
+        pub fn new(
+            source: Arc<RwLock<MockTradingDesignation>>,
+            destination: Arc<RwLock<MockTradingDesignation>>,
+        ) -> Self {
+            Self {
+                observer: SingleObserver::new(),
+                implementor: SingleObserver::new(),
+                source,
+                destination,
+            }
+        }
+
+        pub fn notify_trading_designation_bridge_event(
+            &self,
+            chain_id: u32,
+            address: Address,
+            client_order_id: ClientOrderId,
+            amount: Amount,
+            fee: Amount,
+        ) {
+            self.observer
+                .publish_single(TradingDesignationBridgeEvent::TransferComplete {
+                    chain_id,
+                    address,
+                    client_order_id,
+                    source: self.source.read().get_full_name(),
+                    destination: self.destination.read().get_full_name(),
+                    amount,
+                    fee,
+                });
+        }
+    }
+
+    impl IntoObservableSingle<TradingDesignationBridgeEvent> for MockTradingDesignationBridge {
+        fn get_single_observer_mut(
+            &mut self,
+        ) -> &mut SingleObserver<TradingDesignationBridgeEvent> {
+            &mut self.observer
+        }
+    }
+
+    impl TradingDesignationBridge for MockTradingDesignationBridge {
+        fn get_source(&self) -> Arc<RwLock<dyn TradingDesignation>> {
+            (self.source).clone() as Arc<RwLock<dyn TradingDesignation>>
+        }
+
+        fn get_destination(&self) -> Arc<RwLock<dyn TradingDesignation>> {
+            (self.destination).clone() as Arc<RwLock<dyn TradingDesignation>>
+        }
+
+        fn transfer_funds(
+            &self,
+            chain_id: u32,
+            address: Address,
+            client_order_id: ClientOrderId,
+            amount: Amount,
+        ) {
+            self.implementor.publish_single(
+                MockTradingDesignationBridgeInternalEvent::TransferFunds {
+                    chain_id,
+                    address,
+                    client_order_id,
+                    amount,
+                },
+            );
+        }
     }
 }

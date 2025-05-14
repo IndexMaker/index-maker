@@ -989,6 +989,7 @@ impl SolverStrategy for SimpleSolver {
         let index_price = basket.get_current_price(&prices)?;
 
         let mut collateral_management = CollateralManagement {
+            chain_id: order.chain_id,
             address: order.address,
             client_order_id: order.client_order_id.clone(),
             asset_requirements: HashMap::new(),
