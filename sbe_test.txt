@@ -37,7 +37,7 @@ End solve
     ================================================================| Deposit sent |==
 
 >>> Begin events
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2025-05-14 15:46:38.141893 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2025-05-14 17:24:27.672732 UTC
 FIX response sent
 
 Solver: Handle Index Order NewIndexOrder IX ClientOrderId(Order01) < ClientOrderId(Order01) from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
@@ -75,6 +75,7 @@ Engage more orders...
 Send more batches...
 End solve
 
+Route Complete for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01): T1:D1:C1 => T2:D2:C2 3485.80732 35.21017
 Transfer Complete for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01): T1:D1:C1 => T2:D2:C2 3485.80732 35.21017
 CollateralReady for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3485.80732 35.21017
 PreAuth Payment for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3485.80732
@@ -141,7 +142,7 @@ Fill Basket Asset: AX    q=15.91580 pos=12.73264 aq=12.73264 cf=1.00000 afr=0.80
 Fill Basket Asset: AZ    q=1.29539 pos=1.03631 aq=1.03631 cf=1.00000 afr=0.80000
 Fill Index Order: ifq=1.53852 irc=1519.01750 iec=408.40799 ics=1593.59200 cs=1593.59200 rc=1927.42549 bfr=80.000% ofr=45.259%
 IndexOrderManager: Fill: ClientOrderId(Order01) 1.53852 (+1.53852), Remaining Collateral: 1519.01750 (-1593.59200)
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.53852 1927.42549 1593.59200 2025-05-14 15:56:38.141893 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.53852 1927.42549 1593.59200 2025-05-14 17:34:27.672732 UTC
 FIX response sent
 
 Solver: Handle Inventory Event OpenLot Buy AX    3.18316 @ 100.79800 + fee 0.32085 (0.100%)
@@ -157,7 +158,7 @@ Fill Basket Asset: AX    q=15.91580 pos=15.91580 aq=15.91580 cf=1.00000 afr=1.00
 Fill Basket Asset: AZ    q=1.29539 pos=1.29539 aq=1.29539 cf=1.00000 afr=1.00000
 Fill Index Order: ifq=1.92315 irc=1519.01750 iec=8.80879 ics=1993.19120 cs=399.59919 rc=1527.82630 bfr=100.000% ofr=56.608%
 IndexOrderManager: Fill: ClientOrderId(Order01) 1.92315 (+0.38463), Remaining Collateral: 1519.01750 (-1993.19120)
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.92315 1527.82630 1993.19120 2025-05-14 15:56:38.141893 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.92315 1527.82630 1993.19120 2025-05-14 17:34:27.672732 UTC
 FIX response sent
 <<< End events
 
@@ -171,18 +172,18 @@ Begin solve
 Process credits...
 Mint indexes...
 Engage more orders...
-Price: Buy AZ 300.0
 Price: Buy AX 100.0
-Price Limit: AX 101.000
+Price: Buy AZ 300.0
 Price Limit: AZ 303.000
+Price Limit: AX 101.000
 Index Price: IX 1039.9553332142219045917455780
 Collateral to Quantity for Index Order: ClientOrderId(Order01) c=1519.01750 ca=1526.30880 cu=1526.30880 p=1039.95533 q=1.46766 ff=1.00100
 Asset Quantity for Index Order: ClientOrderId(Order01) AX q=12.14621 baq=8.27586 oq=1.46766
 Asset Quantity for Index Order: ClientOrderId(Order01) AZ q=0.98858 baq=0.67357 oq=1.46766
 Fitting Quantity for Index Order: ClientOrderId(Order01) AZ 1.46766 tal=50.00000 taq=0.98858 acf=1.00000 alc=50.00000 poq=74.23076
 Fitting Quantity for Index Order: ClientOrderId(Order01) AX 1.46766 tal=20.00000 taq=12.14621 acf=1.00000 alc=20.00000 poq=2.41666
-Asset Fractions for Index Order: ClientOrderId(Order01) AZ taq=0.98858 acf=1.00000
 Asset Fractions for Index Order: ClientOrderId(Order01) AX taq=12.14621 acf=1.00000
+Asset Fractions for Index Order: ClientOrderId(Order01) AZ taq=0.98858 acf=1.00000
 Solver Order Engagement: ClientOrderId(Order01) IX eq=1.46766 ep=1039.95533 ec=1527.83510
 Should update!
 IndexOrderManager: Engage ClientOrderId(Order01) eca=+1519.02630 iec=1527.82630 irc=0.00000
@@ -220,7 +221,7 @@ Fill Basket Asset: AX    q=12.14621 pos=9.71697 aq=9.71697 cf=1.00000 afr=0.8000
 Fill Basket Asset: AZ    q=0.98858 pos=0.79086 aq=0.79086 cf=1.00000 afr=0.80000
 Fill Index Order: ifq=3.09729 irc=0.00000 iec=302.86075 ics=3209.34794 cs=1216.15674 rc=302.86075 bfr=80.000% ofr=91.376%
 IndexOrderManager: Fill: ClientOrderId(Order01) 3.09729 (+1.17413), Remaining Collateral: 0.00000 (-3209.34794)
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 3.09729 311.66955 3209.34794 2025-05-14 15:56:38.141893 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 3.09729 311.66955 3209.34794 2025-05-14 17:34:27.672732 UTC
 FIX response sent
 
 Solver: Handle Inventory Event OpenLot Buy AX    2.42924 @ 100.79800 + fee 0.24486 (0.100%)
@@ -236,7 +237,7 @@ Fill Basket Asset: AX    q=12.14621 pos=12.14621 aq=12.14621 cf=1.00000 afr=1.00
 Fill Basket Asset: AZ    q=0.98858 pos=0.98858 aq=0.98858 cf=1.00000 afr=1.00000
 Fill Index Order: ifq=3.39082 irc=0.00000 iec=-2.09513 ics=3514.30383 cs=304.95588 rc=-2.09513 bfr=100.000% ofr=100.059%
 IndexOrderManager: Fill: ClientOrderId(Order01) 3.39082 (+0.29353), Remaining Collateral: 0.00000 (-3514.30383)
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 3.39082 6.71366 3514.30383 2025-05-14 15:56:38.141893 UTC
+FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 3.39082 6.71366 3514.30383 2025-05-14 17:34:27.672732 UTC
 FIX response sent
 Set Index Order Status: ClientOrderId(Order01) PartlyMintable
 Set Index Order Status: ClientOrderId(Order01) FullyMintable
@@ -251,7 +252,7 @@ FIX response received
 Begin solve
 Process credits...
 Mint indexes...
-Minted Index: 1 IX    Quantity: 3.39082 User: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 @3514.30383 2025-05-14 15:56:38.141893 UTC
+Minted Index: 1 IX    Quantity: 3.39082 User: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 @3514.30383 2025-05-14 17:34:27.672732 UTC
 Chain response sent
 Set Index Order Status: ClientOrderId(Order01) Minted
 Engage more orders...
@@ -265,5 +266,5 @@ Chain response received
     ================================================================| Scenario completed |==
 test solver::solver::test::sbe_solver ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.01s
 

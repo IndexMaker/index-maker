@@ -904,12 +904,11 @@ mod test {
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::{
-            collateral_manager::{
+            collateral_router::{
                 test_util::{
                     MockTradingDesignation, MockTradingDesignationBridge,
                     MockTradingDesignationBridgeInternalEvent,
-                },
-                TradingDesignationBridgeEvent,
+                }, CollateralRouter, TradingDesignationBridgeEvent
             },
             index_quote_manager::test_util::MockQuoteRequestManager,
             position::LotId,
@@ -1011,6 +1010,8 @@ mod test {
             unbounded::<OrderTrackerNotification>();
         let (order_connector_sender, order_connector_receiver) =
             unbounded::<OrderConnectorNotification>();
+        let (collateral_router_sender, collateral_router_receiver) =
+            unbounded::<TradingDesignationBridgeEvent>();
         let (trading_bridge_sender, trading_bridge_receiver) =
             unbounded::<TradingDesignationBridgeEvent>();
 
@@ -1039,11 +1040,6 @@ mod test {
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let collateral_manager = Arc::new(RwLock::new(CollateralManager::new(
-            tolerance,
-            fund_wait_period,
-        )));
-
         let trading_designation_1 = Arc::new(RwLock::new(MockTradingDesignation {
             type_: "T1".into(),
             name: "D1".into(),
@@ -1065,10 +1061,18 @@ mod test {
             trading_designation_2,
         )));
 
-        collateral_manager
+        let collateral_router = Arc::new(RwLock::new(CollateralRouter::new()));
+
+        collateral_router
             .write()
             .add_bridge(trading_designation_bridge.clone())
             .expect("Duplicate bridge");
+
+        let collateral_manager = Arc::new(RwLock::new(CollateralManager::new(
+            collateral_router.clone(),
+            tolerance,
+            fund_wait_period,
+        )));
 
         let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(
             fix_server.clone(),
@@ -1132,6 +1136,11 @@ mod test {
             .set_observer_from(collateral_sender);
 
         trading_designation_bridge
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(collateral_router_sender);
+
+        collateral_router
             .write()
             .get_single_observer_mut()
             .set_observer_from(trading_bridge_sender);
@@ -1406,7 +1415,12 @@ mod test {
                     recv(trading_bridge_receiver) -> res => solver.collateral_manager.write()
                         .handle_trading_bridge_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
-                        .expect("Failed to handle inventory event"),
+                        .expect("Failed to handle bridge event"),
+
+                    recv(collateral_router_receiver) -> res => collateral_router.write()
+                        .handle_trading_bridge_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle router event"),
 
                     recv(inventory_receiver) -> res => solver.handle_inventory_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
