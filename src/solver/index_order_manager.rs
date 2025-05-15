@@ -45,6 +45,9 @@ pub struct EngagedIndexOrder {
 
 pub enum IndexOrderEvent {
     NewIndexOrder {
+        // Chain ID
+        chain_id: u32,
+
         // ID of the original NewOrder request
         original_client_order_id: ClientOrderId,
 
@@ -53,9 +56,6 @@ pub enum IndexOrderEvent {
 
         // ID of the NewOrder request
         client_order_id: ClientOrderId,
-
-        /// An ID of the on-chain payment
-        payment_id: PaymentId,
 
         /// Symbol of an Index
         symbol: Symbol,
@@ -144,9 +144,9 @@ impl IndexOrderManager {
     /// this can be Buy or Sell Index.
     fn new_index_order(
         &mut self,
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
-        payment_id: PaymentId,
         symbol: Symbol,
         side: Side,
         collateral_amount: Amount,
@@ -163,6 +163,7 @@ impl IndexOrderManager {
             .entry(symbol.clone())
             .or_insert_with(|| {
                 let order = Arc::new(RwLock::new(IndexOrder::new(
+                    chain_id,
                     address.clone(),
                     client_order_id.clone(),
                     symbol.clone(),
@@ -177,9 +178,7 @@ impl IndexOrderManager {
 
         // Add update to index order
         let update_order_outcome = index_order.write().update_order(
-            address.clone(),
             client_order_id.clone(),
-            payment_id.clone(),
             side,
             collateral_amount,
             timestamp,
@@ -192,10 +191,10 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
+                        chain_id,
                         original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
-                        payment_id,
                         symbol,
                         side,
                         collateral_amount: new_collateral_amount,
@@ -229,10 +228,10 @@ impl IndexOrderManager {
                     });
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
+                        chain_id,
                         original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
-                        payment_id,
                         symbol,
                         side,
                         collateral_amount: new_collateral_amount,
@@ -257,7 +256,6 @@ impl IndexOrderManager {
         &self,
         address: Address,
         client_order_id: ClientOrderId,
-        payment_id: PaymentId,
         symbol: Symbol,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
@@ -311,17 +309,17 @@ impl IndexOrderManager {
     pub fn handle_server_message(&mut self, notification: &ServerEvent) -> Result<()> {
         match notification {
             ServerEvent::NewIndexOrder {
+                chain_id,
                 address,
                 client_order_id,
-                payment_id,
                 symbol,
                 side,
                 collateral_amount,
                 timestamp,
             } => self.new_index_order(
+                *chain_id,
                 address.clone(),
                 client_order_id.clone(),
-                payment_id.clone(),
                 symbol.clone(),
                 *side,
                 *collateral_amount,
@@ -330,14 +328,12 @@ impl IndexOrderManager {
             ServerEvent::CancelIndexOrder {
                 address,
                 client_order_id,
-                payment_id,
                 symbol,
                 collateral_amount,
                 timestamp,
             } => self.cancel_index_order(
                 address.clone(),
                 client_order_id.clone(),
-                payment_id.clone(),
                 symbol.clone(),
                 *collateral_amount,
                 timestamp.clone(),
@@ -367,7 +363,7 @@ impl IndexOrderManager {
                 index_order.engaged_collateral =
                     Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
                 println!(
-                    "IndexOrderManager: Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} (-{:0.5})",
+                    "(index-order-manager) Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} (-{:0.5})",
                     client_order_id,
                     index_order.filled_quantity,
                     fill_amount,
@@ -413,7 +409,7 @@ impl IndexOrderManager {
                 let unmatched_collateral =
                     index_order.solver_engage(engage_order.collateral_amount, self.tolerance)?;
                 println!(
-                    "IndexOrderManager: Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
+                    "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
                     engage_order.client_order_id,
                     engage_order.collateral_amount,
                     index_order.engaged_collateral.unwrap_or_default(),

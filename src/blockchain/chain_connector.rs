@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    core::bits::{Address, Amount, PaymentId, Symbol},
+    core::bits::{Address, Amount, Symbol},
     index::basket::{Basket, BasketDefinition},
 };
 
@@ -13,14 +13,14 @@ use crate::{
 pub enum ChainNotification {
     CuratorWeightsSet(Symbol, BasketDefinition), // ...more
     Deposit {
+        chain_id: u32,
         address: Address,
-        payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
     WithdrawalRequest {
+        chain_id: u32,
         address: Address,
-        payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
@@ -31,15 +31,17 @@ pub trait ChainConnector {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>);
     fn mint_index(
         &self,
+        chain_id: u32,
         symbol: Symbol,
         quantity: Amount,
         receipient: Address,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     );
-    fn burn_index(&self, symbol: Symbol, quantity: Amount, receipient: Address);
+    fn burn_index(&self, chain_id: u32, symbol: Symbol, quantity: Amount, receipient: Address);
     fn withdraw(
         &self,
+        chain_id: u32,
         receipient: Address,
         amount: Amount,
         execution_price: Amount,
@@ -56,7 +58,7 @@ pub mod test_util {
 
     use crate::{
         core::{
-            bits::{Address, Amount, PaymentId, Symbol},
+            bits::{Address, Amount, Symbol},
             functional::{IntoObservableSingle, PublishSingle, SingleObserver},
         },
         index::basket::{Basket, BasketDefinition},
@@ -68,6 +70,7 @@ pub mod test_util {
     pub enum MockChainInternalNotification {
         SolverWeightsSet(Symbol, Arc<Basket>),
         MintIndex {
+            chain_id: u32,
             symbol: Symbol,
             quantity: Amount,
             receipient: Address,
@@ -75,11 +78,13 @@ pub mod test_util {
             execution_time: DateTime<Utc>,
         },
         BurnIndex {
+            chain_id: u32,
             symbol: Symbol,
             quantity: Amount,
             receipient: Address,
         },
         Withdraw {
+            chain_id: u32,
             receipient: Address,
             amount: Amount,
             execution_price: Amount,
@@ -120,14 +125,14 @@ pub mod test_util {
 
         pub fn notify_deposit(
             &self,
+            chain_id: u32,
             address: Address,
-            payment_id: PaymentId,
             amount: Amount,
             timestamp: DateTime<Utc>,
         ) {
             self.observer.publish_single(ChainNotification::Deposit {
+                chain_id,
                 address,
-                payment_id,
                 amount,
                 timestamp,
             });
@@ -135,15 +140,15 @@ pub mod test_util {
 
         pub fn notify_withdrawal_request(
             &self,
+            chain_id: u32,
             address: Address,
-            payment_id: PaymentId,
             amount: Amount,
             timestamp: DateTime<Utc>,
         ) {
             self.observer
                 .publish_single(ChainNotification::WithdrawalRequest {
+                    chain_id,
                     address,
-                    payment_id,
                     amount,
                     timestamp,
                 });
@@ -176,6 +181,7 @@ pub mod test_util {
 
         fn mint_index(
             &self,
+            chain_id: u32,
             symbol: Symbol,
             quantity: Amount,
             receipient: Address,
@@ -184,6 +190,7 @@ pub mod test_util {
         ) {
             self.implementor
                 .publish_single(MockChainInternalNotification::MintIndex {
+                    chain_id,
                     symbol,
                     quantity,
                     receipient,
@@ -192,9 +199,10 @@ pub mod test_util {
                 });
         }
 
-        fn burn_index(&self, symbol: Symbol, quantity: Amount, receipient: Address) {
+        fn burn_index(&self, chain_id: u32, symbol: Symbol, quantity: Amount, receipient: Address) {
             self.implementor
                 .publish_single(MockChainInternalNotification::BurnIndex {
+                    chain_id,
                     symbol,
                     quantity,
                     receipient,
@@ -203,6 +211,7 @@ pub mod test_util {
 
         fn withdraw(
             &self,
+            chain_id: u32,
             receipient: Address,
             amount: Amount,
             execution_price: Amount,
@@ -210,6 +219,7 @@ pub mod test_util {
         ) {
             self.implementor
                 .publish_single(MockChainInternalNotification::Withdraw {
+                    chain_id,
                     receipient,
                     amount,
                     execution_price,
@@ -371,6 +381,7 @@ mod tests {
             }));
 
         mock_chain_connection.write().mint_index(
+            1,
             get_mock_index_name_1(),
             dec!(0.5),
             get_mock_address_1(),

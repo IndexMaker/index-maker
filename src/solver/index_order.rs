@@ -11,27 +11,13 @@ use crate::core::{
 };
 
 pub struct IndexOrderUpdate {
-    /// On-chain wallet address
-    ///
-    /// An address of subsequent buyer / seller. Users may have exchange token
-    /// on-chain, and ownership is split.
-    pub address: Address,
-
     /// ID of the update assigned by the user (<- FIX)
     pub client_order_id: ClientOrderId,
-
-    /// An ID of the corresponding payment
-    ///
-    /// Note: In case of Buy it is an ID allocated for the payment that will
-    /// come from them to cover for the transaction. And in case of Sell, there
-    /// will be ID allocated to identify the payment that we will make to them
-    /// in relationship with this update.
-    pub payment_id: PaymentId,
 
     /// Buy or Sell
     pub side: Side,
 
-    /// Collateral for which to buy or sell index
+    /// Collateral for which to buy or sell index (BASE:USDC)
     pub original_collateral_amount: Amount,
 
     /// Collateral remaining after applying matching update
@@ -55,6 +41,9 @@ pub struct IndexOrderUpdate {
 
 /// An order to buy index
 pub struct IndexOrder {
+    /// Chain ID
+    pub chain_id: u32,
+    
     /// On-chain wallet address
     ///
     /// An address of the first user who had the index created. First buyer.
@@ -130,6 +119,7 @@ pub enum CancelIndexOrderOutcome {
 impl IndexOrder {
     /// Create brand new Index order
     pub fn new(
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
@@ -137,6 +127,7 @@ impl IndexOrder {
         timestamp: DateTime<Utc>,
     ) -> Self {
         Self {
+            chain_id,
             original_address: address,
             original_client_order_id: client_order_id,
             symbol,
@@ -158,9 +149,7 @@ impl IndexOrder {
     /// Add an update for an existing Index order
     pub fn update_order(
         &mut self,
-        address: Address,
         client_order_id: ClientOrderId,
-        payment_id: PaymentId,
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
@@ -168,9 +157,7 @@ impl IndexOrder {
     ) -> Result<UpdateIndexOrderOutcome> {
         // Allocate new Index order update
         let index_order_update = Arc::new(RwLock::new(IndexOrderUpdate {
-            address: address.clone(),
             client_order_id: client_order_id.clone(),
-            payment_id: payment_id.clone(),
             side,
             original_collateral_amount: collateral_amount,
             remaining_collateral: collateral_amount,
@@ -458,25 +445,23 @@ mod test {
     fn test_index_order_1() {
         let tolerance = dec!(0.00001);
 
+        let chain_id = 1u32;
         let address = get_mock_address_1();
         let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
-        let mut order = IndexOrder::new(address, order_id, symbol, Side::Buy, timestamp);
+        let mut order = IndexOrder::new(chain_id, address, order_id, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
         let order_id1 = "Order02".into();
-        let pay_id1 = "Pay01".into();
         let collateral1 = dec!(10.0);
         let timestamp1 = Utc::now();
 
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id1,
-                    pay_id1,
                     Side::Buy,
                     collateral1,
                     timestamp1,
@@ -505,16 +490,13 @@ mod test {
 
         // Add another update on Buy side
         let order_id2 = "Order03".into();
-        let pay_id2 = "Pay02".into();
         let collateral2 = dec!(20.0);
         let timestamp2 = Utc::now();
 
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id2,
-                    pay_id2,
                     Side::Buy,
                     collateral2,
                     timestamp2,
@@ -547,16 +529,13 @@ mod test {
 
         // Add small update on Sell side
         let order_id3 = "Order04".into();
-        let pay_id3 = "Pay03".into();
         let collateral3 = dec!(5.0);
         let timestamp3 = Utc::now();
 
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id3,
-                    pay_id3,
                     Side::Sell,
                     collateral3,
                     timestamp3,
@@ -596,16 +575,13 @@ mod test {
 
         // Add bigger update on Sell side
         let order_id4 = "Order05".into();
-        let pay_id4 = "Pay04".into();
         let collateral4 = dec!(20.0);
         let timestamp4 = Utc::now();
 
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id4,
-                    pay_id4,
                     Side::Sell,
                     collateral4,
                     timestamp4,
@@ -645,15 +621,12 @@ mod test {
 
         // Another update on Sell side should flip
         let order_id5 = "Order06".into();
-        let pay_id5 = "Pay05".into();
         let collateral5 = dec!(20.0);
         let timestamp5 = Utc::now();
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id5,
-                    pay_id5,
                     Side::Sell,
                     collateral5,
                     timestamp5,
@@ -725,25 +698,23 @@ mod test {
     fn test_index_order_2() {
         let tolerance = dec!(0.00001);
 
+        let chain_id = 1u32;
         let address = get_mock_address_1();
         let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
-        let mut order = IndexOrder::new(address, order_id, symbol, Side::Buy, timestamp);
+        let mut order = IndexOrder::new(chain_id, address, order_id, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
         let order_id1 = "Order02".into();
-        let pay_id1 = "Pay01".into();
         let collateral1 = dec!(10.0);
         let timestamp1 = Utc::now();
 
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id1,
-                    pay_id1,
                     Side::Buy,
                     collateral1,
                     timestamp1,
@@ -771,16 +742,13 @@ mod test {
         }
         // Add another update on Buy side
         let order_id2 = "Order03".into();
-        let pay_id2 = "Pay02".into();
         let collateral2 = dec!(20.0);
         let timestamp2 = Utc::now();
 
         {
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id2,
-                    pay_id2,
                     Side::Buy,
                     collateral2,
                     timestamp2,
@@ -892,15 +860,12 @@ mod test {
         {
             // Add bigger update on Sell side
             let order_id4 = "Order05".into();
-            let pay_id4 = "Pay04".into();
             let collateral4 = dec!(20.0);
             let timestamp4 = Utc::now();
 
             let update_index_order_outcome = order
                 .update_order(
-                    address,
                     order_id4,
-                    pay_id4,
                     Side::Sell,
                     collateral4,
                     timestamp4,

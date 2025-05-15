@@ -6,6 +6,11 @@ pub mod blockchain {
     pub mod chain_connector;
 }
 
+pub mod collateral {
+    pub mod collateral_manager;
+    pub mod collateral_router;
+}
+
 pub mod core {
     pub mod bits;
     pub mod decimal_ext;

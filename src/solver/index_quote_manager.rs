@@ -56,6 +56,7 @@ pub mod test_util {
         pub fn handle_server_message(&mut self, notification: &ServerEvent) {
             match notification {
                 ServerEvent::NewQuoteRequest {
+                    chain_id: _,
                     address: _,
                     client_order_id: _,
                     symbol: _,

@@ -6,7 +6,7 @@ use std::{
 
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
 use crate::{
@@ -16,8 +16,8 @@ use crate::{
     },
     index::basket::Basket,
     solver::solver::{
-        EngagedSolverOrders, SolverOrder, SolverOrderEngagement, SolverOrderStatus, SolverStrategy,
-        SolverStrategyHost,
+        CollateralManagement, EngagedSolverOrders, SolveEngagementsResult, SolverOrder,
+        SolverOrderEngagement, SolverOrderStatus, SolverStrategy, SolverStrategyHost,
     },
 };
 
@@ -86,7 +86,7 @@ impl SimpleSolver {
             }
             Err(err) => {
                 eprintln!(
-                    "Error while {} for IndexOrder {}: {:?}",
+                    "(simple-solver) Error while {} for IndexOrder {}: {:?}",
                     error_action, order_upread.client_order_id, err
                 );
                 set_order_status(order_upread, error_status);
@@ -119,12 +119,7 @@ impl SimpleSolver {
         locked_order_batch.retain_mut(|(order_ptr, order_upread)| {
             match (|| -> Result<()> {
                 let symbol = order_upread.symbol.clone();
-                match strategy_host
-                    .get_basket_manager()
-                    .read()
-                    .get_basket(&symbol)
-                    .cloned()
-                {
+                match strategy_host.get_basket(&symbol) {
                     Some(basket) => {
                         baskets.entry(symbol.clone()).or_insert(basket);
                     }
@@ -193,15 +188,12 @@ impl SimpleSolver {
         };
 
         // Get top of the book prices
-        let get_prices = strategy_host
-            .get_price_tracker()
-            .read()
-            .get_prices(price_type, &symbols);
+        let get_prices = strategy_host.get_prices(price_type, &symbols);
 
         let prices_len = get_prices.prices.len();
 
         for (k, v) in &get_prices.prices {
-            println!("Price: {:?} {} {}", side, k, v);
+            println!("(simple-solver) Price: {:?} {} {}", side, k, v);
         }
 
         let price_limits: HashMap<_, _> = get_prices
@@ -215,7 +207,7 @@ impl SimpleSolver {
         }
 
         for (k, v) in &price_limits {
-            println!("Price Limit: {} {}", k, v);
+            println!("(simple-solver) Price Limit: {} {}", k, v);
         }
 
         Ok((price_limits, get_prices.missing_symbols))
@@ -236,11 +228,11 @@ impl SimpleSolver {
             .map(|(symbol, basket)| (symbol.clone(), basket.get_current_price(asset_prices)))
             .partition_map(|(symbol, index_price_result)| match index_price_result {
                 Ok(price) => {
-                    println!("Index Price: {} {}", symbol, price);
+                    println!("(simple-solver) Index Price: {} {}", symbol, price);
                     Either::Left((symbol, price))
                 }
                 Err(err) => {
-                    eprintln!("Failed to compute index price for {}: {:?}", symbol, err);
+                    eprintln!("(simple-solver) Failed to compute index price for {}: {:?}", symbol, err);
                     Either::Right(symbol)
                 }
             });
@@ -292,7 +284,7 @@ impl SimpleSolver {
             .ok_or_eyre("Index order quantity computation error")?;
 
         println!(
-            "Collateral to Quantity for Index Order: {} c={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
+            "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
             client_order_id,
             collateral_amount,
             collateral_available,
@@ -309,7 +301,7 @@ impl SimpleSolver {
                 let asset_symbol = &basket_asset.weight.asset.name;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
                 println!(
-                    "Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
+                    "(simple-solver) Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
                     client_order_id,
                     asset_symbol,
                     asset_quantity,
@@ -351,7 +343,7 @@ impl SimpleSolver {
             .ok_or_eyre("Cannot calculate capped order quantity")?;
 
         println!(
-            "Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
+            "(simple-solver) Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
             client_order_id, order_quantity, capped_order_quantity
         );
 
@@ -365,7 +357,7 @@ impl SimpleSolver {
             capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
 
             println!(
-                "Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
+                "(simple-solver) Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
                 asset_symbol, asset_quantity, capped_asset_quantity
             );
         }
@@ -532,7 +524,7 @@ impl SimpleSolver {
             fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
             println!(
-                "Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",
+                "(simple-solver) Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",
                 client_order_id,
                 asset_symbol,
                 fitting_order_quantity,
@@ -646,7 +638,7 @@ impl SimpleSolver {
             asset_contribution_fractions.insert(asset_symbol.clone(), asset_contribution_fraction);
 
             println!(
-                "Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
+                "(simple-solver) Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
                 client_order_id, asset_symbol, total_asset_quantity, asset_contribution_fraction,
             );
         }
@@ -856,10 +848,8 @@ impl SimpleSolver {
         }
 
         // Next we want to know available liquidity for all the assets
-        let asset_liquidity = strategy_host
-            .get_book_manager()
-            .read()
-            .get_liquidity(side.opposite_side(), &asset_price_limits)?;
+        let asset_liquidity =
+            strategy_host.get_liquidity(side.opposite_side(), &asset_price_limits)?;
 
         // Then we need to know how much quantity of each asset is needed for
         // each index order to fill up available collateral.
@@ -951,17 +941,92 @@ impl SimpleSolver {
 }
 
 impl SolverStrategy for SimpleSolver {
+    fn query_collateral_management(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        order: Arc<RwLock<SolverOrder>>,
+    ) -> Result<CollateralManagement> {
+        let order = order.read();
+        let collateral_amount = order.remaining_collateral;
+        let index_symbol = &order.symbol;
+
+        let basket = strategy_host
+            .get_basket(index_symbol)
+            .ok_or_eyre("Basket not found")?;
+
+        let basket_assets = HashSet::<Symbol>::from_iter(
+            basket
+                .basket_assets
+                .iter()
+                .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+        );
+
+        let symbols = basket_assets.into_iter().collect_vec();
+
+        // Note: We use current price limits to understand how much collateral
+        // will need to be moved to which sub-account. We understand that price
+        // may move at any time, and that would affect the distribution of the
+        // collateral too. We need to emiprically observe the impact of this
+        // behaviour. Note that price limits already set higher requirement than
+        // expected execution prices, so it is possible that price move won't
+        // affect that much the execution of the index orders.
+        let (prices, missing_symbols) =
+            self.get_asset_price_limits(strategy_host, order.side, &symbols)?;
+
+        if !missing_symbols.is_empty() {
+            Err(eyre!("Missing symbols"))?;
+        }
+
+        // Note: We include collateral carried as it will contribute to total
+        // quantity we will be able to buy or sell, however collateral manager
+        // should check how much collateral is already on sub-accounts, and move
+        // it accordingly to fulfill the requirements that we will return from
+        // this function.
+        let collateral_available =
+            safe!(safe!(collateral_amount / self.fee_factor) + order.collateral_carried)
+                .ok_or_eyre("Fee factor multiplication error")?;
+
+        let index_price = basket.get_current_price(&prices)?;
+
+        let mut collateral_management = CollateralManagement {
+            chain_id: order.chain_id,
+            address: order.address,
+            client_order_id: order.client_order_id.clone(),
+            side: order.side,
+            collateral_amount,
+            asset_requirements: HashMap::new(),
+        };
+
+        for basket_asset in &basket.basket_assets {
+            let asset_symbol = &basket_asset.weight.asset.name;
+            let asset_price = *prices.get(asset_symbol).ok_or_eyre("Missing asset price")?;
+
+            // We calculate how big is the portion of the collateral that needs
+            // to be assigned to this asset. This is critical when we route
+            // collateral to sub-accounts, we must know how much to route and to
+            // where.
+            let asset_contribution = safe!(index_price / asset_price)
+                .ok_or_eyre("Failed to compute asset contribution")?;
+
+            let asset_requirement = safe!(collateral_available * asset_contribution)
+                .ok_or_eyre("Failed to compute asset requirement")?;
+
+            collateral_management
+                .asset_requirements
+                .insert(asset_symbol.clone(), asset_requirement);
+            // ^ we could include whole asset instead of just symbol, because
+            // perhaps we would have some additional information in the asset,
+            // e.g. associated sub-accounts.
+        }
+
+        Ok(collateral_management)
+    }
+
     fn solve_engagements(
         &self,
         strategy_host: &dyn SolverStrategyHost,
-    ) -> Result<Option<EngagedSolverOrders>> {
-        let order_batch = strategy_host.get_order_batch();
-
-        if order_batch.is_empty() {
-            // it is not an error if nothing there to process
-            return Ok(None);
-        }
-
+        order_batch: Vec<Arc<RwLock<SolverOrder>>>,
+    ) -> Result<SolveEngagementsResult> {
         let locked_order_batch = order_batch
             .iter()
             .map(|order| (order, order.upgradable_read()));
@@ -974,22 +1039,15 @@ impl SolverStrategy for SimpleSolver {
                     Side::Sell => Either::Right((order_ptr, order_upread)),
                 });
 
+        let set_order_status = |upread: &mut RwLockUpgradableReadGuard<SolverOrder>, status| {
+            upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
+        };
+
         let (mut engaged_buys, failed_buys) =
-            self.solve_engagements_for(strategy_host, Side::Buy, &mut buys, |upread, status| {
-                upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
-            })?;
+            self.solve_engagements_for(strategy_host, Side::Buy, &mut buys, set_order_status)?;
 
         let (engaged_sells, failed_sells) =
-            self.solve_engagements_for(strategy_host, Side::Sell, &mut sells, |upread, status| {
-                upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
-            })?;
-
-        if !failed_buys.is_empty() || !failed_sells.is_empty() {
-            // TBD: We could ignore those, and continue with the ones that were
-            // good.  Also some errors are temporary if, e.g. market data was
-            // missing, so we should retry later.
-            Err(eyre!("Failed to solve engagements for some of the orders"))?;
-        }
+            self.solve_engagements_for(strategy_host, Side::Sell, &mut sells, set_order_status)?;
 
         if !engaged_sells.baskets.is_empty() {
             todo!("Selling isn't fully supported yet")
@@ -1047,7 +1105,7 @@ impl SolverStrategy for SimpleSolver {
             };
 
             println!(
-                "Solver Order Engagement: {} {} eq={:0.5} ep={:0.5} ec={:0.5}",
+                "(simple-solver) Solver Order Engagement: {} {} eq={:0.5} ep={:0.5} ec={:0.5}",
                 engagement.client_order_id,
                 engagement.symbol,
                 engagement.engaged_quantity,
@@ -1058,6 +1116,12 @@ impl SolverStrategy for SimpleSolver {
             engagenments.engaged_orders.push(RwLock::new(engagement));
         }
 
-        Ok(Some(engagenments))
+        let failed_buys = failed_buys.into_iter().cloned().collect_vec();
+        let failed_sells = failed_sells.into_iter().cloned().collect_vec();
+
+        Ok(SolveEngagementsResult {
+            engaged_orders: engagenments,
+            failed_orders: [failed_buys, failed_sells].concat(),
+        })
     }
 }

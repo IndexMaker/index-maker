@@ -264,25 +264,25 @@ impl InventoryManager {
     }
 
     /// receive new order requests from Solver
-    pub fn new_order(&self, basket_order: Arc<BatchOrder>) -> Result<()> {
+    pub fn new_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
         // Start writing to Order Tracker
         let mut guard = self.order_tracker.write();
         // Send all orders out
-        for asset_order in &basket_order.asset_orders {
+        for asset_order in &batch_order.asset_orders {
             guard
                 .new_order(Arc::new(SingleOrder {
                     order_id: asset_order.order_id.clone(),
-                    batch_order_id: basket_order.batch_order_id.clone(),
+                    batch_order_id: batch_order.batch_order_id.clone(),
                     symbol: asset_order.symbol.clone(),
                     side: asset_order.side,
                     price: asset_order.price,
                     quantity: asset_order.quantity,
-                    created_timestamp: basket_order.created_timestamp,
+                    created_timestamp: batch_order.created_timestamp,
                 }))
                 .or(Err(eyre!(
                     "Failed to create new order for {} in basket {}",
                     asset_order.symbol,
-                    basket_order.batch_order_id
+                    batch_order.batch_order_id
                 )))?;
         }
         // All orders out
@@ -615,7 +615,7 @@ mod test {
             // Let's send simple batch order to buy single asset
             inventory_manager
                 .write()
-                .new_order(Arc::new(BatchOrder {
+                .new_order_batch(Arc::new(BatchOrder {
                     batch_order_id: buy_batch_order_id.clone(),
                     created_timestamp: buy_timestamp.clone(),
                     asset_orders: vec![AssetOrder {
@@ -894,7 +894,7 @@ mod test {
             // Let's send simple batch order to buy single asset
             inventory_manager
                 .write()
-                .new_order(Arc::new(BatchOrder {
+                .new_order_batch(Arc::new(BatchOrder {
                     batch_order_id: sell_batch_order_id,
                     created_timestamp: sell_timestamp,
                     asset_orders: vec![AssetOrder {
