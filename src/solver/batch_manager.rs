@@ -332,7 +332,7 @@ impl BatchManager {
 
         for batch in batches {
             println!(
-                "Sending Batch: {}",
+                "(batch-manager) Sending Batch: {}",
                 batch
                     .asset_orders
                     .iter()
@@ -416,7 +416,7 @@ impl BatchManager {
                 Some(x.min(avialable_fill_rate))
             });
             println!(
-                "Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
+                "(batch-manager) Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
                 asset_symbol,
                 asset_quantity,
                 position.position,
@@ -521,7 +521,7 @@ impl BatchManager {
             .ok_or_eyre("Math Problem")?;
 
         println!(
-            "Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
+            "(batch-manager) Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
             index_order_write.filled_quantity,
             index_order_write.remaining_collateral,
             index_order_write.engaged_collateral,
@@ -655,7 +655,7 @@ impl BatchManager {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         println!(
-            "\nSolver: Handle Index Order EngageIndexOrder {}",
+            "\n(batch-manager) Handle Index Order EngageIndexOrder {}",
             batch_order_id
         );
         match self.engagements.write().get(&batch_order_id) {
@@ -759,7 +759,7 @@ impl BatchManager {
             position.last_update_timestamp = timestamp;
 
             println!(
-                "Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
+                "(batch-manager) Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
                 position.side,
                 position.symbol,
                 position.order_quantity,
@@ -770,7 +770,7 @@ impl BatchManager {
             );
 
             println!(
-                "Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
+                "(batch-manager) Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
                 batch_order_id,
                 batch.volley_size,
                 batch.filled_volley,

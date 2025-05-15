@@ -363,7 +363,7 @@ impl IndexOrderManager {
                 index_order.engaged_collateral =
                     Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
                 println!(
-                    "IndexOrderManager: Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} (-{:0.5})",
+                    "(index-order-manager) Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} (-{:0.5})",
                     client_order_id,
                     index_order.filled_quantity,
                     fill_amount,
@@ -409,7 +409,7 @@ impl IndexOrderManager {
                 let unmatched_collateral =
                     index_order.solver_engage(engage_order.collateral_amount, self.tolerance)?;
                 println!(
-                    "IndexOrderManager: Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
+                    "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
                     engage_order.client_order_id,
                     engage_order.collateral_amount,
                     index_order.engaged_collateral.unwrap_or_default(),

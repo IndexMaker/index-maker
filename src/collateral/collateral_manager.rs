@@ -10,15 +10,14 @@ use parking_lot::RwLock;
 use eyre::{OptionExt, Result};
 use safe_math::safe;
 
-use crate::core::{
+use crate::{core::{
     bits::{Address, Amount, ClientOrderId, PaymentId},
     decimal_ext::DecimalExt,
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-};
+}, solver::solver::{CollateralManagement, SetSolverOrderStatus}};
 
 use super::{
     collateral_router::{CollateralRouter, CollateralTransferEvent},
-    solver::{CollateralManagement, SetSolverOrderStatus},
 };
 
 pub enum CollateralEvent {
@@ -156,7 +155,7 @@ impl CollateralManager {
             fund_write.last_update_timestamp = ready_timestamp;
             fund_write.completed_transactions.extend(completed);
             println!(
-                "New balance for {} {:0.5}",
+                "(collateral-manager) New balance for {} {:0.5}",
                 fund_write.address, fund_write.balance
             );
             // TODO: We need to do some magic here to know where we want to send those funds
@@ -175,7 +174,7 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!("Deposit form {} {} {:0.5}", chain_id, address, amount);
+        println!("(collateral-manager) Deposit from [{}:{}] {:0.5}", chain_id, address, amount);
         let collateral_position = self
             .client_funds
             .entry(address)
@@ -208,7 +207,7 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!("Withdrawal form {} {} {:0.5}", chain_id, address, amount);
+        println!("(collateral-manager) Withdrawal from [{}:{}] {:0.5}", chain_id, address, amount);
         let collateral_position = self
             .client_funds
             .entry(address)
@@ -245,7 +244,7 @@ impl CollateralManager {
         address: Address,
         amount_payable: Amount,
     ) -> Result<PaymentStatus> {
-        println!("PreAuth Payment for {} {:0.5}", address, amount_payable);
+        println!("(collateral-manager) PreAuth Payment for {} {:0.5}", address, amount_payable);
         if let Some(funds) = self.get_funds(&address) {
             let mut funds_write = funds.write();
 
@@ -306,7 +305,7 @@ impl CollateralManager {
 
     pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
         println!(
-            "ManageCollateral for {} {}",
+            "(collateral-manager) ManageCollateral for {} {}",
             collateral_management.address, collateral_management.client_order_id
         );
         self.collateral_management_requests
@@ -328,7 +327,7 @@ impl CollateralManager {
                 fee,
             } => {
                 println!(
-                    "Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
+                    "(collateral-manager) Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
                     chain_id, address, client_order_id, transfer_from, transfer_to, amount, fee
                 );
                 self.observer

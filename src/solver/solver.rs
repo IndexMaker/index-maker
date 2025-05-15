@@ -10,8 +10,10 @@ use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
 use crate::{
-    assets::asset::Asset,
     blockchain::chain_connector::{ChainConnector, ChainNotification},
+    collateral::collateral_manager::{
+        CollateralEvent, CollateralManager, CollateralManagerHost, PaymentStatus,
+    },
     core::{
         bits::{
             Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
@@ -31,9 +33,6 @@ use crate::{
 
 use super::{
     batch_manager::{BatchManager, BatchManagerHost},
-    collateral_manager::{
-        CollateralEvent, CollateralManager, CollateralManagerHost, PaymentStatus,
-    },
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
@@ -386,26 +385,26 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        println!("\nBegin solve");
+        println!("\n(solver) Begin solve");
 
         //
         // check if there is some collateral we could use
         //
-        println!("Process credits...");
+        println!("(solver) * Process credits");
         if let Err(err) = self
             .collateral_manager
             .write()
             .process_credits(self, timestamp)
         {
-            eprintln!("Error while processing credits: {:?}", err);
+            eprintln!("(solver) Error while processing credits: {:?}", err);
         }
 
         //
         // check if there is some index orders we could mint
         //
-        println!("Mint indexes...");
+        println!("(solver) * Mint indexes");
         if let Err(err) = self.mint_indexes(timestamp) {
-            eprintln!("Error while processing mints: {:?}", err);
+            eprintln!("(solver) Error while processing mints: {:?}", err);
         }
 
         //
@@ -414,17 +413,17 @@ impl Solver {
         //
         // TODO: We may also track open liquidity promised to open orders
         //
-        println!("Engage more orders...");
+        println!("(solver) * Engage more orders");
         if let Err(err) = self.engage_more_orders() {
             eprintln!("Error while engaging more orders: {:?}", err);
         }
 
-        println!("Send more batches...");
+        println!("(solver) * Send more batches");
         if let Err(err) = self.batch_manager.send_more_batches(self, timestamp) {
-            eprintln!("Error while sending more batches: {:?}", err);
+            eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
-        println!("End solve\n");
+        println!("(solver) End solve\n");
     }
 
     /// Quoting function (fast)
@@ -456,7 +455,7 @@ impl Solver {
     pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
         match notification {
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-                println!("Solver: Handle Chain Event CuratorWeigthsSet {}", symbol);
+                println!("(solver) Handle Chain Event CuratorWeigthsSet {}", symbol);
                 let symbols = basket_definition
                     .weights
                     .iter()
@@ -470,7 +469,7 @@ impl Solver {
 
                 if !get_prices_response.missing_symbols.is_empty() {
                     println!(
-                        "Solver: No prices available for some symbols: {:?}",
+                        "(solver) No prices available for some symbols: {:?}",
                         get_prices_response.missing_symbols
                     );
                 }
@@ -483,7 +482,7 @@ impl Solver {
                     &get_prices_response.prices,
                     target_price,
                 ) {
-                    println!("Solver: Error while setting curator weights: {err}");
+                    println!("(solver) Error while setting curator weights: {err}");
                 }
                 Ok(())
             }
@@ -518,7 +517,7 @@ impl Solver {
                 fee,
             } => {
                 println!(
-                    "CollateralReady for {} {} {:0.5} {:0.5}",
+                    "(solver) CollateralReady for {} {} {:0.5} {:0.5}",
                     chain_id, address, collateral_amount, fee
                 );
                 if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
@@ -537,7 +536,7 @@ impl Solver {
                         // If we're implementing message based protocol, we should make PaymentApproved
                         // a message that we will receive from collateral manager.
                         PaymentStatus::Approved { payment_id } => {
-                            println!("PaymentApproved: {}", payment_id);
+                            println!("(solver) PaymentApproved: {}", payment_id);
                             let mut order_write = order.write();
                             order_write
                                 .payment_id
@@ -570,7 +569,7 @@ impl Solver {
                 timestamp,
             } => {
                 println!(
-                    "\nSolver: Handle Index Order NewIndexOrder {} {} < {} from {}",
+                    "\n(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
                     symbol, original_client_order_id, client_order_id, address
                 );
                 match self
@@ -619,7 +618,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "\nSolver: Handle Index Order UpdateIndexOrder{} < {} from {}",
+                    "\n(solver) Handle Index Order UpdateIndexOrder{} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
@@ -641,7 +640,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "\nSolver: Handle Index Order CancelIndexOrder {} < {} from {}",
+                    "\n(solver) Handle Index Order CancelIndexOrder {} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
@@ -651,7 +650,7 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, _notification: QuoteRequestEvent) {
-        println!("\nSolver: Handle Quote Request");
+        println!("\n(solver) Handle Quote Request");
         //self.quote(());
     }
 
@@ -672,7 +671,7 @@ impl Solver {
                 timestamp,
             } => {
                 println!(
-                    "\nSolver: Handle Inventory Event OpenLot {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    "\n(solver) Handle Inventory Event OpenLot {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
                     side,
                     symbol,
                     quantity,
@@ -714,7 +713,7 @@ impl Solver {
                 closing_timestamp,
             } => {
                 println!(
-                    "\nSolver: Handle Inventory Event CloseLot {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "\n(solver) Handle Inventory Event CloseLot {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
                     side,
                     symbol,
                     quantity_closed,
@@ -743,7 +742,7 @@ impl Solver {
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
             PriceEvent::PriceChange { symbol } => {
-                println!("Solver: Handle Price Event {:5}", symbol)
+                println!("(solver) Handle Price Event {:5}", symbol)
             }
         };
     }
@@ -752,10 +751,10 @@ impl Solver {
     pub fn handle_book_event(&self, notification: OrderBookEvent) {
         match notification {
             OrderBookEvent::BookUpdate { symbol } => {
-                println!("Solver: Handle Book Event {:5}", symbol);
+                println!("(solver) Handle Book Event {:5}", symbol);
             }
             OrderBookEvent::UpdateError { symbol, error } => {
-                println!("Solver: Handle Book Event {:5}, Error: {}", symbol, error);
+                println!("(solver) Handle Book Event {:5}, Error: {}", symbol, error);
             }
         }
     }
@@ -765,14 +764,14 @@ impl Solver {
         // TODO: (move this) once solvign is done notify new weights were applied
         match notification {
             BasketNotification::BasketAdded(symbol, basket) => {
-                println!("Solver: Handle Basket Notification BasketAdded {}", symbol);
+                println!("(solver) Handle Basket Notification BasketAdded {}", symbol);
                 self.chain_connector
                     .write()
                     .solver_weights_set(symbol, basket)
             }
             BasketNotification::BasketUpdated(symbol, basket) => {
                 println!(
-                    "Solver: Handle Basket Notification BasketUpdated {}",
+                    "(solver) Handle Basket Notification BasketUpdated {}",
                     symbol
                 );
                 self.chain_connector
@@ -781,7 +780,7 @@ impl Solver {
             }
             BasketNotification::BasketRemoved(symbol) => {
                 println!(
-                    "Solver: Handle Basket Notification BasketRemoved {}",
+                    "(solver) Handle Basket Notification BasketRemoved {}",
                     symbol
                 );
                 todo!()
@@ -793,7 +792,7 @@ impl Solver {
 impl SetSolverOrderStatus for Solver {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
         println!(
-            "Set Index Order Status: {} {:?}",
+            "(solver) Set Index Order Status: {} {:?}",
             order.client_order_id, status
         );
         order.status = status;
@@ -877,6 +876,13 @@ mod test {
         blockchain::chain_connector::test_util::{
             MockChainConnector, MockChainInternalNotification,
         },
+        collateral::collateral_router::{
+            test_util::{
+                MockCollateralBridge, MockCollateralBridgeInternalEvent, MockCollateralDesignation,
+            },
+            CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
+            CollateralTransferEvent,
+        },
         core::{
             bits::{PricePointEntry, SingleOrder},
             functional::{
@@ -904,16 +910,7 @@ mod test {
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::{
-            collateral_router::{
-                test_util::{
-                    MockCollateralBridge, MockCollateralBridgeInternalEvent,
-                    MockCollateralDesignation,
-                },
-                CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
-                CollateralTransferEvent,
-            },
-            index_quote_manager::test_util::MockQuoteRequestManager,
-            position::LotId,
+            index_quote_manager::test_util::MockQuoteRequestManager, position::LotId,
             solvers::simple_solver::SimpleSolver,
         },
     };
@@ -1273,6 +1270,7 @@ mod test {
                 let q1 = e.quantity * dec!(0.8);
                 let q2 = e.quantity * dec!(0.2);
                 let defer = defer_1.clone();
+                println!("(mock) SingleOrder {} {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}", e.symbol, lot_id, q1, p1, q2, p2);
                 // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
@@ -1318,7 +1316,7 @@ mod test {
             .set_observer_fn(move |response| {
                 match &response {
                     MockChainInternalNotification::SolverWeightsSet(symbol, _) => {
-                        println!("Solver Weights Set: {}", symbol);
+                        println!("(mock) SolverWeightsSet: {}", symbol);
                     }
                     MockChainInternalNotification::MintIndex {
                         chain_id,
@@ -1329,7 +1327,7 @@ mod test {
                         execution_time,
                     } => {
                         println!(
-                            "Minted Index: {} {:5} Quantity: {:0.5} User: {} @{:0.5} {}",
+                            "(mock) MintedIndex: {} {:5} Quantity: {:0.5} User: {} @{:0.5} {}",
                             chain_id, symbol, quantity, receipient, execution_price, execution_time
                         );
                     }
@@ -1354,7 +1352,7 @@ mod test {
                 mock_chain_sender
                     .send(response)
                     .expect("Failed to send chain response");
-                println!("Chain response sent");
+                println!("(mock) Chain response sent");
             });
 
         fix_server
@@ -1368,7 +1366,7 @@ mod test {
                         timestamp,
                     } => {
                         println!(
-                            "FIX Response: {} {} {}",
+                            "(mock) FIX Response: {} {} {}",
                             address, client_order_id, timestamp
                         );
                     }
@@ -1381,7 +1379,7 @@ mod test {
                         timestamp,
                     } => {
                         println!(
-                            "FIX Response: {} {} {:0.5} {:0.5} {:0.5} {}",
+                            "(mock) FIX Response: {} {} {:0.5} {:0.5} {:0.5} {}",
                             address,
                             client_order_id,
                             filled_quantity,
@@ -1394,7 +1392,7 @@ mod test {
                 mock_fix_sender
                     .send(response)
                     .expect("Failed to send FIX response");
-                println!("FIX response sent");
+                println!("(mock) FIX response sent");
             });
 
         let impl_collateral_bridge =
@@ -1417,7 +1415,7 @@ mod test {
                                 amount,
                             } => {
                                 println!(
-                                    "TransferFunds from {} {} {} for {:0.5}",
+                                    "(mock) TransferFunds: from {} {} {} for {:0.5}",
                                     chain_id, address, client_order_id, amount
                                 );
                                 let chain_id = *chain_id;
@@ -1445,7 +1443,7 @@ mod test {
                         mock_bridge_sender
                             .send(event)
                             .expect("Failed to send bridge event");
-                        println!("Bridge event sent");
+                        println!("(mock) Bridge event sent");
                     });
             });
 
@@ -1543,12 +1541,12 @@ mod test {
 
         let heading = |s: &str| {
             println!(
-                "    ================================================================| {} |==",
+                "    ================================================================| ^^^ {} |==",
                 s
             )
         };
 
-        heading("Scenario begins");
+        heading(" -> Scenario begins");
 
         let mut timestamp = Utc::now();
 
@@ -1780,7 +1778,7 @@ mod test {
                 }
             ));
 
-            println!("FIX response received");
+            println!(" -> FIX response received");
         }
 
         solver_tick(timestamp);
@@ -1808,7 +1806,7 @@ mod test {
                 }
             ));
 
-            println!("FIX response received");
+            println!(" -> FIX response received");
         }
 
         timestamp += fund_wait_period;
@@ -1833,7 +1831,7 @@ mod test {
             }
         ));
 
-        println!("Chain response received");
+        println!(" -> Chain response received");
 
         heading("Scenario completed");
     }

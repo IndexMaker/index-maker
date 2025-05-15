@@ -1,22 +1,17 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::Arc,
 };
 
-use chrono::{DateTime, TimeDelta, Utc};
 use itertools::Itertools;
 use parking_lot::RwLock;
 
 use eyre::{OptionExt, Result};
-use safe_math::safe;
 
-use crate::core::{
-    bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
-    decimal_ext::DecimalExt,
+use crate::{core::{
+    bits::{Address, Amount, ClientOrderId, Symbol},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-};
-
-use super::solver::{CollateralManagement, SetSolverOrderStatus};
+}, solver::solver::CollateralManagement};
 
 pub enum CollateralTransferEvent {
     TransferComplete {
@@ -203,7 +198,7 @@ impl CollateralRouter {
             })
             .ok_or_eyre("Route not found")?;
 
-        println!("Found route: {}", route.iter().join(", "));
+        println!("(collateral-router) Found route: {}", route.iter().join(", "));
 
         let next_hop_name = if source.eq(route_from) {
             (route[0].clone(), route[1].clone())
@@ -239,7 +234,7 @@ impl CollateralRouter {
             } => {
                 if route_to.eq(&destination) {
                     println!(
-                        "Route Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
+                        "(collateral-router) Route Complete for [{}:{}] {}: {} => {} {:0.5} {:0.5}",
                         chain_id, address, client_order_id, route_from, route_to, amount, fee
                     );
                     self.observer
@@ -256,7 +251,7 @@ impl CollateralRouter {
                 } else {
                     let next_hop = self.next_hop(&destination, &route_from, &route_to)?;
                     println!(
-                        "Route Hop for {} {} {}: ({}) {} => {} => {} ({}) {:0.5} {:0.5}",
+                        "(collateral-router) Route Hop for [{}:{}] {}: ({}) {} .. [{}] => {} ({}) {:0.5} {:0.5}",
                         chain_id,
                         address,
                         client_order_id,
