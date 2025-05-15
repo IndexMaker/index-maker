@@ -11,13 +11,13 @@ use eyre::{OptionExt, Result};
 use safe_math::safe;
 
 use crate::core::{
-    bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
+    bits::{Address, Amount, ClientOrderId, PaymentId},
     decimal_ext::DecimalExt,
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
 use super::{
-    collateral_router::{CollateralRouter, TradingDesignationBridgeEvent},
+    collateral_router::{CollateralRouter, CollateralTransferEvent},
     solver::{CollateralManagement, SetSolverOrderStatus},
 };
 
@@ -160,8 +160,8 @@ impl CollateralManager {
                 fund_write.address, fund_write.balance
             );
             // TODO: We need to do some magic here to know where we want to send those funds
-            if let Some(unwrapped) = self.collateral_management_requests.pop_front() {
-                self.router.write().transfer_funds_todo(unwrapped, fund_write.balance);
+            if let Some(collateral_management) = self.collateral_management_requests.pop_front() {
+                self.router.write().transfer_collateral(collateral_management, fund_write.balance);
             }
         }
         Ok(())
@@ -313,23 +313,23 @@ impl CollateralManager {
             .push_back(collateral_management);
     }
 
-    pub fn handle_trading_bridge_event(
+    pub fn handle_collateral_transfer_event(
         &mut self,
-        event: TradingDesignationBridgeEvent,
+        event: CollateralTransferEvent,
     ) -> Result<()> {
         match event {
-            TradingDesignationBridgeEvent::TransferComplete {
+            CollateralTransferEvent::TransferComplete {
                 chain_id,
                 address,
                 client_order_id,
-                source,
-                destination,
+                transfer_from,
+                transfer_to,
                 amount,
                 fee,
             } => {
                 println!(
                     "Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
-                    chain_id, address, client_order_id, source, destination, amount, fee
+                    chain_id, address, client_order_id, transfer_from, transfer_to, amount, fee
                 );
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {

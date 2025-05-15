@@ -906,9 +906,11 @@ mod test {
         solver::{
             collateral_router::{
                 test_util::{
-                    MockTradingDesignation, MockTradingDesignationBridge,
-                    MockTradingDesignationBridgeInternalEvent,
-                }, CollateralRouter, TradingDesignationBridgeEvent
+                    MockCollateralBridge, MockCollateralBridgeInternalEvent,
+                    MockCollateralDesignation,
+                },
+                CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
+                CollateralTransferEvent,
             },
             index_quote_manager::test_util::MockQuoteRequestManager,
             position::LotId,
@@ -991,6 +993,8 @@ mod test {
     ///
     #[test]
     fn sbe_solver() {
+        let collateral_amount = dec!(1005.0) * dec!(3.5) * (Amount::ONE + dec!(0.001));
+        let chain_id = 1;
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let fund_wait_period = TimeDelta::new(600, 0).unwrap();
@@ -1011,9 +1015,9 @@ mod test {
         let (order_connector_sender, order_connector_receiver) =
             unbounded::<OrderConnectorNotification>();
         let (collateral_router_sender, collateral_router_receiver) =
-            unbounded::<TradingDesignationBridgeEvent>();
-        let (trading_bridge_sender, trading_bridge_receiver) =
-            unbounded::<TradingDesignationBridgeEvent>();
+            unbounded::<CollateralRouterEvent>();
+        let (collateral_transfer_sender, collateral_transfer_receiver) =
+            unbounded::<CollateralTransferEvent>();
 
         /*
         NOTES:
@@ -1040,7 +1044,7 @@ mod test {
         let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let trading_designation_1 = Arc::new(RwLock::new(MockTradingDesignation {
+        let collateral_designation_1 = Arc::new(RwLock::new(MockCollateralDesignation {
             type_: "T1".into(),
             name: "D1".into(),
             collateral_symbol: "C1".into(),
@@ -1048,7 +1052,7 @@ mod test {
             balance: dec!(0.0),
         }));
 
-        let trading_designation_2 = Arc::new(RwLock::new(MockTradingDesignation {
+        let collateral_designation_2 = Arc::new(RwLock::new(MockCollateralDesignation {
             type_: "T2".into(),
             name: "D2".into(),
             collateral_symbol: "C2".into(),
@@ -1056,17 +1060,57 @@ mod test {
             balance: dec!(0.0),
         }));
 
-        let trading_designation_bridge = Arc::new(RwLock::new(MockTradingDesignationBridge::new(
-            trading_designation_1,
-            trading_designation_2,
+        let collateral_designation_3 = Arc::new(RwLock::new(MockCollateralDesignation {
+            type_: "T3".into(),
+            name: "D3".into(),
+            collateral_symbol: "C3".into(),
+            full_name: "T3:D3:C3".into(),
+            balance: dec!(0.0),
+        }));
+
+        let collateral_bridge_1 = Arc::new(RwLock::new(MockCollateralBridge::new(
+            collateral_designation_1.clone(),
+            collateral_designation_2.clone(),
+        )));
+
+        let collateral_bridge_2 = Arc::new(RwLock::new(MockCollateralBridge::new(
+            collateral_designation_2.clone(),
+            collateral_designation_3.clone(),
         )));
 
         let collateral_router = Arc::new(RwLock::new(CollateralRouter::new()));
 
         collateral_router
             .write()
-            .add_bridge(trading_designation_bridge.clone())
-            .expect("Duplicate bridge");
+            .add_bridge(collateral_bridge_1.clone())
+            .expect("Failed to add bridge");
+
+        collateral_router
+            .write()
+            .add_bridge(collateral_bridge_2.clone())
+            .expect("Failed to add bridge");
+
+        collateral_router
+            .write()
+            .add_chain_source(
+                chain_id,
+                collateral_designation_1.read().get_full_name().clone(),
+            )
+            .expect("Failed to add chain source");
+
+        collateral_router
+            .write()
+            .set_default_destination(collateral_designation_3.read().get_full_name().clone())
+            .expect("Failed to set default destination");
+
+        collateral_router
+            .write()
+            .add_route(&[
+                collateral_designation_1.read().get_full_name().clone(),
+                collateral_designation_2.read().get_full_name().clone(),
+                collateral_designation_3.read().get_full_name().clone(),
+            ])
+            .expect("Failed to add route");
 
         let collateral_manager = Arc::new(RwLock::new(CollateralManager::new(
             collateral_router.clone(),
@@ -1135,7 +1179,12 @@ mod test {
             .get_single_observer_mut()
             .set_observer_from(collateral_sender);
 
-        trading_designation_bridge
+        collateral_bridge_1
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(collateral_router_sender.clone());
+
+        collateral_bridge_2
             .write()
             .get_single_observer_mut()
             .set_observer_from(collateral_router_sender);
@@ -1143,7 +1192,7 @@ mod test {
         collateral_router
             .write()
             .get_single_observer_mut()
-            .set_observer_from(trading_bridge_sender);
+            .set_observer_from(collateral_transfer_sender);
 
         index_order_manager
             .write()
@@ -1260,7 +1309,7 @@ mod test {
 
         let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
         let (mock_bridge_sender, mock_bridge_receiver) =
-            unbounded::<MockTradingDesignationBridgeInternalEvent>();
+            unbounded::<MockCollateralBridgeInternalEvent>();
         let (mock_fix_sender, mock_fix_receiver) = unbounded::<ServerResponse>();
 
         chain_connector
@@ -1348,48 +1397,68 @@ mod test {
                 println!("FIX response sent");
             });
 
-        let trading_designation_bridge_weak = Arc::downgrade(&trading_designation_bridge);
-        trading_designation_bridge
-            .write()
-            .implementor
-            .set_observer_fn(move |event| {
-                let trading_designation_bridge = trading_designation_bridge_weak.upgrade().unwrap();
-                match &event {
-                    MockTradingDesignationBridgeInternalEvent::TransferFunds {
-                        chain_id,
-                        address,
-                        client_order_id,
-                        amount,
-                    } => {
-                        println!(
-                            "TransferFunds from {} {} {} for {:0.5}",
-                            chain_id, address, client_order_id, amount
-                        );
-                        let chain_id = *chain_id;
-                        let address = *address;
-                        let client_order_id = client_order_id.clone();
-                        let amount = *amount;
-                        let fee = amount * dec!(0.01);
-                        defer_2
-                            .send(Box::new(move || {
-                                trading_designation_bridge
-                                    .write()
-                                    .notify_trading_designation_bridge_event(
-                                        chain_id,
-                                        address,
-                                        client_order_id,
-                                        amount - fee,
-                                        fee,
-                                    );
-                            }))
-                            .expect("Failed to send");
-                    }
-                }
-                mock_bridge_sender
-                    .send(event)
-                    .expect("Failed to send bridge event");
-                println!("Bridge event sent");
+        let impl_collateral_bridge =
+            (move |collateral_bridge: &Arc<RwLock<MockCollateralBridge>>,
+                   mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
+                   defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
+                let collateral_bridge_weak = Arc::downgrade(collateral_bridge);
+                collateral_bridge
+                    .write()
+                    .implementor
+                    .set_observer_fn(move |event| {
+                        let collateral_bridge = collateral_bridge_weak.upgrade().unwrap();
+                        match &event {
+                            MockCollateralBridgeInternalEvent::TransferFunds {
+                                chain_id,
+                                address,
+                                client_order_id,
+                                route_from,
+                                route_to,
+                                amount,
+                            } => {
+                                println!(
+                                    "TransferFunds from {} {} {} for {:0.5}",
+                                    chain_id, address, client_order_id, amount
+                                );
+                                let chain_id = *chain_id;
+                                let address = *address;
+                                let client_order_id = client_order_id.clone();
+                                let route_from = route_from.clone();
+                                let route_to = route_to.clone();
+                                let amount = *amount;
+                                let fee = amount * dec!(0.01);
+                                defer_2
+                                    .send(Box::new(move || {
+                                        collateral_bridge.write().notify_collateral_router_event(
+                                            chain_id,
+                                            address,
+                                            client_order_id,
+                                            route_from,
+                                            route_to,
+                                            amount - fee,
+                                            fee,
+                                        );
+                                    }))
+                                    .expect("Failed to send");
+                            }
+                        }
+                        mock_bridge_sender
+                            .send(event)
+                            .expect("Failed to send bridge event");
+                        println!("Bridge event sent");
+                    });
             });
+
+        impl_collateral_bridge(
+            &collateral_bridge_1,
+            mock_bridge_sender.clone(),
+            defer_2.clone(),
+        );
+        impl_collateral_bridge(
+            &collateral_bridge_2,
+            mock_bridge_sender.clone(),
+            defer_2.clone(),
+        );
 
         let (solver_tick_sender, solver_tick_receiver) = unbounded::<DateTime<Utc>>();
         let solver_tick = |msg| solver_tick_sender.send(msg).unwrap();
@@ -1412,13 +1481,13 @@ mod test {
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle collateral event"),
 
-                    recv(trading_bridge_receiver) -> res => solver.collateral_manager.write()
-                        .handle_trading_bridge_event(res.unwrap())
+                    recv(collateral_transfer_receiver) -> res => solver.collateral_manager.write()
+                        .handle_collateral_transfer_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle bridge event"),
 
                     recv(collateral_router_receiver) -> res => collateral_router.write()
-                        .handle_trading_bridge_event(res.unwrap())
+                        .handle_collateral_router_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle router event"),
 
@@ -1602,9 +1671,6 @@ mod test {
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
 
-        let collateral_amount = dec!(1005.0) * dec!(3.5) * (Amount::ONE + dec!(0.001));
-        let chain_id = 1;
-
         chain_connector.write().notify_deposit(
             chain_id,
             get_mock_address_1(),
@@ -1640,19 +1706,23 @@ mod test {
         flush_events();
         heading("Clock moved 10 minutes forward");
 
-        let mock_bridge_event = mock_bridge_receiver
-            .recv_timeout(Duration::from_secs(1))
-            .expect("Failed to receive TransferFunds bridge request");
+        for _ in 0..2 {
+            let mock_bridge_event = mock_bridge_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Failed to receive TransferFunds bridge request");
 
-        assert!(matches!(
-            mock_bridge_event,
-            MockTradingDesignationBridgeInternalEvent::TransferFunds {
-                chain_id: _,
-                address: _,
-                client_order_id: _,
-                amount: _
-            }
-        ));
+            assert!(matches!(
+                mock_bridge_event,
+                MockCollateralBridgeInternalEvent::TransferFunds {
+                    chain_id: _,
+                    address: _,
+                    client_order_id: _,
+                    route_from: _,
+                    route_to: _,
+                    amount: _
+                }
+            ));
+        }
 
         solver_tick(timestamp);
         flush_events();
