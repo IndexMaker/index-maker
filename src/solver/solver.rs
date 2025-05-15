@@ -152,6 +152,8 @@ pub struct CollateralManagement {
     pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
+    pub side: Side,
+    pub collateral_amount: Amount,
     pub asset_requirements: HashMap<Symbol, Amount>,
 }
 
@@ -527,10 +529,12 @@ impl Solver {
                     // amount of balance, so that any next order from that user won't double-spend.
                     // We assign payment ID so that  we can identify association between order and
                     // allocated collateral.
+                    let side = order.read().side;
                     match self.collateral_manager.write().preauth_payment(
                         self,
                         chain_id,
                         address,
+                        side,
                         collateral_amount,
                     )? {
                         // If we're implementing message based protocol, we should make PaymentApproved
@@ -547,7 +551,9 @@ impl Solver {
                             self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
                             self.ready_orders.lock().push_back(order.clone());
                         }
-                        _ => {}
+                        PaymentStatus::NotEnoughFunds => {
+                            eprintln!("(solver) Not enough funds")
+                        }
                     }
                 }
             }

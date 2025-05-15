@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    sync::Arc,
+    collections::HashMap, ops::Add, sync::Arc
 };
 
 use itertools::Itertools;
@@ -9,7 +8,7 @@ use parking_lot::RwLock;
 use eyre::{OptionExt, Result};
 
 use crate::{core::{
-    bits::{Address, Amount, ClientOrderId, Symbol},
+    bits::{Address, Amount, ClientOrderId, Side, Symbol},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 }, solver::solver::CollateralManagement};
 
@@ -151,7 +150,10 @@ impl CollateralRouter {
 
     pub fn transfer_collateral(
         &self,
-        collateral_management: CollateralManagement,
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        side: Side,
         amount: Amount,
     ) -> Result<()> {
         //
@@ -160,10 +162,14 @@ impl CollateralRouter {
         //
         // Note that for now we have single "default" destination
         //
+        if let Side::Sell = side {
+            // Sell requires us to pull cash from destination back to source
+            todo!("Collateral routing for sell is not yet supported");
+        }
 
         let transfer_from = self
             .chain_sources
-            .get(&collateral_management.chain_id)
+            .get(&chain_id)
             .ok_or_eyre("Failed to find source")?;
 
         let transfer_to = self
@@ -174,9 +180,9 @@ impl CollateralRouter {
         let first_hop = self.next_hop(transfer_from, transfer_from, &transfer_to)?;
 
         first_hop.write().transfer_funds(
-            collateral_management.chain_id,
-            collateral_management.address,
-            collateral_management.client_order_id,
+            chain_id,
+            address,
+            client_order_id,
             transfer_from.clone(),
             transfer_to.clone(),
             amount,
