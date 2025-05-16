@@ -47,6 +47,7 @@ Work included in Phase 1.:
 * [x] Index Order should use Collateral Amount instead of Price & Quantity
     - Change New Order data structures
     - Change liquidity fitting to fit collateral
+    - Carry over remaining collateral between batches
 * [x] Collateral Management (Buy side)
     - Obtain collateral management details from Solver
     - Route collateral from different chains to single destination
