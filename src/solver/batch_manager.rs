@@ -145,9 +145,10 @@ impl BatchAssetPosition {
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
             println!(
-                "(batch-asset-position) IndexOrder allocation for {} {} {:0.5} {:0.5} +{:0.5}",
+                "(batch-asset-position) IndexOrder allocation for {} {} {} q={:0.5} p={:0.5} fee={:0.5}",
                 index_order.client_order_id,
                 asset_allocation.lot_id,
+                asset_allocation.symbol,
                 asset_allocation.quantity,
                 asset_allocation.price,
                 asset_allocation.fee
@@ -377,7 +378,6 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         batch: &mut BatchOrderStatus,
         engaged_order: &RwLock<SolverOrderEngagement>,
-        lot_id: LotId,
     ) -> Result<Option<Arc<RwLock<SolverOrder>>>> {
         let mut engaged_order = engaged_order.upgradable_read();
         let engaged_quantity = engaged_order.engaged_quantity;
@@ -577,7 +577,6 @@ impl BatchManager {
         &self,
         host: &dyn BatchManagerHost,
         batch: &mut BatchOrderStatus,
-        lot_id: LotId,
     ) -> Result<()> {
         let engagements_read = self.engagements.read();
         let engagement = engagements_read
@@ -588,7 +587,7 @@ impl BatchManager {
 
         for engaged_order in &engagement.engaged_orders {
             if let Some(index_order) =
-                self.fill_index_order(host, batch, engaged_order, lot_id.clone())?
+                self.fill_index_order(host, batch, engaged_order)?
             {
                 ready_orders.push_back(index_order);
             }
@@ -773,7 +772,7 @@ impl BatchManager {
 
             position.open_lots.push_back(BatchAssetLot {
                 order_id,
-                lot_id: lot_id.clone(),
+                lot_id,
                 original_quantity: quantity,
                 remaining_quantity: quantity,
                 price,
@@ -809,6 +808,6 @@ impl BatchManager {
 
         batch.last_update_timestamp = timestamp;
 
-        self.fill_batch_orders(host, batch, lot_id)
+        self.fill_batch_orders(host, batch)
     }
 }
