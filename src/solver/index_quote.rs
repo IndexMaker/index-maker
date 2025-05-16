@@ -18,13 +18,13 @@ pub struct IndexQuote {
 
     /// Quantity that collateral can buy
     pub quantity: Amount,
-    
+
     /// Fees that will be paid if quantity was executed
     pub fees: Amount,
 
     /// Time quote was created
     pub created_timestamp: DateTime<Utc>,
-    
+
     /// Time quote was responded (updated)
     pub last_update_timestamp: DateTime<Utc>,
 }

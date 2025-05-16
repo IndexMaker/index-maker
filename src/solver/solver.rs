@@ -12,7 +12,7 @@ use safe_math::safe;
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::collateral_manager::{
-        CollateralEvent, CollateralManager, CollateralManagerHost, PreAuthStatus,
+        CollateralEvent, CollateralManager, CollateralManagerHost, ConfirmStatus, PreAuthStatus,
     },
     core::{
         bits::{
@@ -360,22 +360,12 @@ impl Solver {
         self.collateral_manager.write().confirm_payment(
             index_order.chain_id,
             &index_order.address,
+            &index_order.client_order_id,
             &payment_id,
             timestamp,
             index_order.side,
             total_cost,
         )?;
-
-        self.chain_connector.write().mint_index(
-            index_order.chain_id,
-            index_order.symbol.clone(),
-            index_order.filled_quantity,
-            index_order.address,
-            total_cost,
-            index_order.timestamp,
-        );
-
-        self.set_order_status(index_order, SolverOrderStatus::Minted);
 
         Ok(())
     }
@@ -543,27 +533,40 @@ impl Solver {
                     self.collateral_manager.write().preauth_payment(
                         self,
                         chain_id,
-                        address,
-                        client_order_id,
+                        &address,
+                        &client_order_id,
                         timestamp,
                         side,
                         collateral_amount,
                     )?;
+
+                    let symbol = &order.read().symbol;
+                    self.index_order_manager.write().collateral_ready(
+                        &address,
+                        &client_order_id,
+                        symbol,
+                        collateral_amount,
+                        fee,
+                        timestamp,
+                    )?;
                 }
             }
             CollateralEvent::PreAuthResponse {
-                chain_id: _,
+                chain_id,
                 address,
                 client_order_id,
-                amount_payable: _,
+                timestamp: _,
+                amount_payable,
                 status,
             } => {
-                if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
-                    match status {
-                        // If we're implementing message based protocol, we should make PaymentApproved
-                        // a message that we will receive from collateral manager.
-                        PreAuthStatus::Approved { payment_id } => {
-                            println!("(solver) PaymentApproved: {}", payment_id);
+                match status {
+                    // If we're implementing message based protocol, we should make PaymentApproved
+                    // a message that we will receive from collateral manager.
+                    PreAuthStatus::Approved { payment_id } => {
+                        if let Some(order) =
+                            self.client_orders.read().get(&(address, client_order_id))
+                        {
+                            println!("(solver) PreAuth approved: {}", payment_id);
                             let mut order_write = order.write();
                             order_write
                                 .payment_id
@@ -571,15 +574,64 @@ impl Solver {
                                 .is_none()
                                 .then_some(())
                                 .ok_or_eyre("Payment ID already set")?;
-                            self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
-                            self.ready_orders.lock().push_back(order.clone());
+
+                            if let SolverOrderStatus::Ready = order_write.status {
+                                // index order manager has sent back update
+                                self.ready_orders.lock().push_back(order.clone());
+                            } else {
+                                // we're waiting for index order manager
+                                self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
+                            }
+                        } else {
+                            eprintln!("(solver) PreAuth approved handling failed: {}", payment_id)
                         }
-                        PreAuthStatus::NotEnoughFunds => {
-                            eprintln!("(solver) Not enough funds")
-                        }
+                    }
+                    PreAuthStatus::NotEnoughFunds => {
+                        eprintln!(
+                            "(solver) PreAuth failed: Not enough funds to pay [{}:{}] {} {:0.5}",
+                            chain_id, address, client_order_id, amount_payable
+                        )
                     }
                 }
             }
+            CollateralEvent::ConfirmResponse {
+                chain_id,
+                address,
+                client_order_id,
+                payment_id,
+                timestamp,
+                amount_paid,
+                status,
+            } => match status {
+                ConfirmStatus::Authorized => {
+                    if let Some(order) = self.client_orders.read().get(&(address, client_order_id))
+                    {
+                        println!("(solver) Payment authorized: {}", payment_id);
+                        let mut order_write = order.write();
+                        self.chain_connector.write().mint_index(
+                            order_write.chain_id,
+                            order_write.symbol.clone(),
+                            order_write.filled_quantity,
+                            order_write.address,
+                            amount_paid,
+                            timestamp,
+                        );
+
+                        self.set_order_status(&mut order_write, SolverOrderStatus::Minted);
+                    } else {
+                        eprintln!(
+                            "(solver) Payment authorized handling failed: {}",
+                            payment_id
+                        )
+                    }
+                }
+                ConfirmStatus::NotEnoughFunds => {
+                    eprintln!(
+                        "(solver) Payment failed: Not enough funds to pay [{}:{}] {} {}",
+                        chain_id, address, client_order_id, payment_id
+                    )
+                }
+            },
         }
         Ok(())
     }
@@ -647,10 +699,46 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "\n(solver) Handle Index Order UpdateIndexOrder{} < {} from {}",
+                    "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
                     original_client_order_id, client_order_id, address
                 );
                 todo!();
+            }
+            IndexOrderEvent::CollateralReady {
+                original_client_order_id,
+                address,
+                client_order_id,
+                collateral_remaining,
+                collateral_spent,
+                fees: _,
+                timestamp,
+            } => {
+                println!(
+                    "\n(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
+                    original_client_order_id,
+                    client_order_id,
+                    address,
+                    collateral_remaining,
+                    collateral_spent
+                );
+                if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
+                    let mut order_write = order.write();
+                    order_write.collateral_spent = collateral_spent;
+                    order_write.remaining_collateral = collateral_remaining;
+                    order_write.timestamp = timestamp;
+
+                    if let SolverOrderStatus::Ready = order_write.status {
+                        // collateral manager has sent back pre-auth
+                        self.ready_orders.lock().push_back(order.clone());
+                    } else {
+                        // we're waiting for colalteral manager
+                        self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
+                    }
+
+                    Ok(())
+                } else {
+                    Err(eyre!("(solver) Handle collateral ready ack: Missing order"))
+                }
             }
             IndexOrderEvent::EngageIndexOrder {
                 batch_order_id,
@@ -1444,6 +1532,7 @@ mod test {
                                 route_from,
                                 route_to,
                                 amount,
+                                cumulative_fee,
                             } => {
                                 println!(
                                     "(mock) TransferFunds: from {} {} {} for {:0.5}",
@@ -1456,6 +1545,7 @@ mod test {
                                 let route_to = route_to.clone();
                                 let amount = *amount;
                                 let fee = amount * dec!(0.01);
+                                let cumulative_fee = cumulative_fee + fee;
                                 let timestamp = Utc::now();
                                 defer_2
                                     .send(Box::new(move || {
@@ -1467,7 +1557,7 @@ mod test {
                                             route_from,
                                             route_to,
                                             amount - fee,
-                                            fee,
+                                            cumulative_fee,
                                         );
                                     }))
                                     .expect("Failed to send");
@@ -1750,7 +1840,8 @@ mod test {
                     client_order_id: _,
                     route_from: _,
                     route_to: _,
-                    amount: _
+                    amount: _,
+                    cumulative_fee: _
                 }
             ));
         }

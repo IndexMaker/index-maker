@@ -232,7 +232,10 @@ impl SimpleSolver {
                     Either::Left((symbol, price))
                 }
                 Err(err) => {
-                    eprintln!("(simple-solver) Failed to compute index price for {}: {:?}", symbol, err);
+                    eprintln!(
+                        "(simple-solver) Failed to compute index price for {}: {:?}",
+                        symbol, err
+                    );
                     Either::Right(symbol)
                 }
             });

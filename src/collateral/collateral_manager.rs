@@ -26,6 +26,10 @@ pub enum PreAuthStatus {
     Approved { payment_id: PaymentId },
     NotEnoughFunds,
 }
+pub enum ConfirmStatus {
+    Authorized,
+    NotEnoughFunds,
+}
 
 pub enum CollateralEvent {
     CollateralReady {
@@ -41,7 +45,17 @@ pub enum CollateralEvent {
         address: Address,
         client_order_id: ClientOrderId,
         amount_payable: Amount,
+        timestamp: DateTime<Utc>,
         status: PreAuthStatus,
+    },
+    ConfirmResponse {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        payment_id: PaymentId,
+        amount_paid: Amount,
+        timestamp: DateTime<Utc>,
+        status: ConfirmStatus,
     },
 }
 
@@ -164,17 +178,16 @@ impl CollateralSide {
         &mut self,
         amount_deliverable: Amount,
         timestamp: DateTime<Utc>,
-        zero_threashold: Amount,
+        zero_threshold: Amount,
     ) -> Option<()> {
         let res = self
             .open_lots
             .iter()
             .fold_while(Some((amount_deliverable, 0)), |acc, lot| {
                 let res = acc.and_then(|(amount, pos)| {
-                    let unconfirmed_remaining = safe!(lot.unconfirmed_amount - amount)?;
-                    if unconfirmed_remaining < zero_threashold {
-                        let amount = safe!(amount + unconfirmed_remaining)?;
-                        Some(Continue(Some((amount, pos + 1))))
+                    let remaining_amount = safe!(amount - lot.unconfirmed_amount)?;
+                    if -zero_threshold < remaining_amount {
+                        Some(Continue(Some((remaining_amount, pos + 1))))
                     } else {
                         Some(Done(Some((amount, pos))))
                     }
@@ -188,13 +201,13 @@ impl CollateralSide {
         let (amount, pos) = res.into_inner()?;
         if res.is_done() {
             let lot = &mut self.open_lots[pos];
-            let ready_balance = safe!(lot.preauth_amount + amount)?;
-            let unconfirmed_balance = safe!(lot.preauth_amount - amount)?;
+            let ready_balance = safe!(lot.ready_amount + amount)?;
+            let unconfirmed_balance = safe!(lot.unconfirmed_amount - amount)?;
             lot.unconfirmed_amount = unconfirmed_balance;
             lot.ready_amount = ready_balance;
             println!(
-                "(colateral-side) AddReady for {} {:0.5} (partly confirmed)",
-                lot.payment_id, amount
+                "(colateral-side) AddReady for {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial confirm)",
+                lot.payment_id, amount, lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
         }
 
@@ -205,8 +218,8 @@ impl CollateralSide {
             lot.ready_amount = ready_balance;
             lot.last_update_timestamp = timestamp;
             println!(
-                "(colateral-side) AddReady for {} {:0.5} (fully confirmed)",
-                lot.payment_id, amount
+                "(colateral-side) AddReady for {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full confirm)",
+                lot.payment_id, amount, lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
         }
 
@@ -226,17 +239,16 @@ impl CollateralSide {
         payment_id: PaymentId,
         timestamp: DateTime<Utc>,
         amount_payable: Amount,
-        zero_threashold: Amount,
+        zero_threshold: Amount,
     ) -> Option<PreAuthStatus> {
         let res = self
             .open_lots
             .iter()
             .fold_while(Some((amount_payable, 0)), |acc, lot| {
                 let res = acc.and_then(|(amount, pos)| {
-                    let ready_remaining = safe!(lot.ready_amount - amount)?;
-                    if ready_remaining < zero_threashold {
-                        let amount = safe!(amount + ready_remaining)?;
-                        Some(Continue(Some((amount, pos + 1))))
+                    let remaining_amount = safe!(amount - lot.ready_amount)?;
+                    if -zero_threshold < remaining_amount {
+                        Some(Continue(Some((remaining_amount, pos + 1))))
                     } else {
                         Some(Done(Some((amount, pos))))
                     }
@@ -251,7 +263,7 @@ impl CollateralSide {
         if res.is_done() {
             let lot = &mut self.open_lots[pos];
             let preauth_balance = safe!(lot.preauth_amount + amount)?;
-            let ready_balance = safe!(lot.preauth_amount - amount)?;
+            let ready_balance = safe!(lot.ready_amount - amount)?;
             lot.ready_amount = ready_balance;
             lot.preauth_amount = preauth_balance;
             let spend = CollateralSpend {
@@ -262,8 +274,9 @@ impl CollateralSide {
                 timestamp,
             };
             println!(
-                "(colateral-side) PreAuth for {} {}:{} {:0.5} (partial spend)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, spend.preauth_amount
+                "(colateral-side) PreAuth for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial preauth)",
+                lot.payment_id, spend.client_order_id, spend.payment_id, spend.preauth_amount,
+                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
             lot.spends.push(spend);
         }
@@ -282,8 +295,9 @@ impl CollateralSide {
                 timestamp,
             };
             println!(
-                "(colateral-side) PreAuth for {} {}:{} {:0.5} (full spend)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, spend.preauth_amount
+                "(colateral-side) PreAuth for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full preauth)",
+                lot.payment_id, spend.client_order_id, spend.payment_id, spend.preauth_amount,
+                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
             lot.spends.push(spend);
         }
@@ -302,29 +316,28 @@ impl CollateralSide {
         payment_id: &PaymentId,
         timestamp: DateTime<Utc>,
         amount_paid: Amount,
-        zero_threashold: Amount,
-    ) -> Option<()> {
+        zero_threshold: Amount,
+    ) -> Option<(ConfirmStatus)> {
         let res = self
             .open_lots
             .iter()
             .fold_while(Some((amount_paid, 0)), |acc, lot| {
                 let res = acc.and_then(|(amount, pos)| {
-                    // TODO: This is incorrect!
-                    // We should sum up preauth from all spends with matching payment_id
-                    if lot
+                    // We answer the question:
+                    // How much preauth for this particular payment ID is in this lot?
+                    let lot_preauth_amount: Amount = lot
                         .spends
                         .iter()
-                        .any(|spend| spend.payment_id.eq(payment_id))
-                    {
-                        let preauth_remaining = safe!(lot.preauth_amount - amount)?;
-                        if preauth_remaining < zero_threashold {
-                            let amount = safe!(amount + preauth_remaining)?;
-                            Some(Continue(Some((amount, pos + 1))))
-                        } else {
-                            Some(Done(Some((amount, pos))))
-                        }
+                        .filter(|spend| spend.payment_id.eq(payment_id))
+                        .map(|spend| spend.preauth_amount)
+                        .sum();
+                    // We just want to find boundary position after which we
+                    // don't want to scan lots
+                    let remaining_amount = safe!(amount - lot_preauth_amount)?;
+                    if -zero_threshold < remaining_amount {
+                        Some(Continue(Some((remaining_amount, pos + 1))))
                     } else {
-                        Some(Continue(Some((amount, pos + 1))))
+                        Some(Done(Some((amount, pos))))
                     }
                 });
                 match res {
@@ -348,9 +361,11 @@ impl CollateralSide {
                 .iter()
                 .find(|spend| spend.payment_id.eq(payment_id))?;
             println!(
-                "(colateral-side) Spend for {} {}:{} {:0.5} (full spend)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, spent_balance
+                "(colateral-side) Spend for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full spend)",
+                lot.payment_id, spend.client_order_id, spend.payment_id, amount,
+                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
+            // TODO: Push to closed lots
         }
 
         if res.is_done() {
@@ -358,7 +373,7 @@ impl CollateralSide {
             // We should remove ammounts spent based on self.spends, which have matching payment ID
             let lot = &mut self.open_lots[pos];
             let spent_balance = safe!(lot.spent_amount + amount)?;
-            let preauth_balance = safe!(lot.spent_amount - amount)?;
+            let preauth_balance = safe!(lot.preauth_amount - amount)?;
             lot.preauth_amount = preauth_balance;
             lot.spent_amount = spent_balance;
             let spend = lot
@@ -366,8 +381,9 @@ impl CollateralSide {
                 .iter()
                 .find(|spend| spend.payment_id.eq(payment_id))?;
             println!(
-                "(colateral-side) Spend for {} {}:{} {:0.5} (partial spend)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, spent_balance
+                "(colateral-side) Spend for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
+                lot.payment_id, spend.client_order_id, spend.payment_id, amount,
+                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
         }
 
@@ -379,7 +395,7 @@ impl CollateralSide {
         self.preauth_balance = preauth_balance;
         self.spent_balance = spent_balance;
 
-        Some(())
+        Some(ConfirmStatus::Authorized)
     }
 }
 
@@ -467,15 +483,20 @@ impl CollateralPosition {
         timestamp: DateTime<Utc>,
         side: Side,
         amount_paid: Amount,
-        zero_threashold: Amount,
-    ) -> Option<()> {
+        zero_threshold: Amount,
+    ) -> Option<ConfirmStatus> {
         // Swap cr/dr for Sell - maybe it will work :)
         let side_cr = match side {
             Side::Buy => &mut self.side_cr,
             Side::Sell => &mut self.side_dr,
         };
+        let balance_remaining = safe!(side_cr.preauth_balance - amount_paid)?;
 
-        side_cr.confirm_payment(payment_id, timestamp, amount_paid, zero_threashold)
+        if balance_remaining < -zero_threshold {
+            Some(ConfirmStatus::NotEnoughFunds)
+        } else {
+            side_cr.confirm_payment(payment_id, timestamp, amount_paid, zero_threshold)
+        }
     }
 }
 
@@ -634,8 +655,8 @@ impl CollateralManager {
         &self,
         host: &dyn CollateralManagerHost,
         chain_id: u32,
-        address: Address,
-        client_order_id: ClientOrderId,
+        address: &Address,
+        client_order_id: &ClientOrderId,
         timestamp: DateTime<Utc>,
         side: Side,
         amount_payable: Amount,
@@ -664,9 +685,10 @@ impl CollateralManager {
         self.observer
             .publish_single(CollateralEvent::PreAuthResponse {
                 chain_id,
-                address,
-                client_order_id: client_order_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
                 amount_payable,
+                timestamp,
                 status,
             });
 
@@ -684,6 +706,7 @@ impl CollateralManager {
         &mut self,
         chain_id: u32,
         address: &Address,
+        client_order_id: &ClientOrderId,
         payment_id: &PaymentId,
         timestamp: DateTime<Utc>,
         side: Side,
@@ -698,10 +721,27 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        funds
+        let status = funds
             .write()
-            .confirm_payment(payment_id, timestamp, side, amount_paid, self.zero_threshold)
+            .confirm_payment(
+                payment_id,
+                timestamp,
+                side,
+                amount_paid,
+                self.zero_threshold,
+            )
             .ok_or_eyre("Math Problem")?;
+
+        self.observer
+            .publish_single(CollateralEvent::ConfirmResponse {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                payment_id: payment_id.clone(),
+                amount_paid,
+                timestamp,
+                status,
+            });
 
         Ok(())
     }
@@ -753,17 +793,43 @@ impl CollateralManager {
                     .get_position(chain_id, &address)
                     .ok_or_eyre("Failed to find position")?;
 
+                let mut funds_write = funds.write();
+
                 // TODO: We need to also support Sell & Withdraw
                 let side = Side::Buy;
 
-                // TODO: Charge fee
-                // add_ready(fee, timestamp, zero_threshold)?;
-                // preauth_payment(client_order_id, payment_id, timestamp, free, zero_threashold)?;
-                // confirm_payment(payment_id, fee, timestamp, zero_threshold)?;
-
-                funds
-                    .write()
+                funds_write
                     .add_ready(side, amount, timestamp, self.zero_threshold)
+                    .ok_or_eyre("Math Problem")?;
+
+                // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
+                let get_payment_id = || "Charges".into();
+                let payment_id = get_payment_id();
+                funds_write
+                    .add_ready(side, fee, timestamp, self.zero_threshold)
+                    .ok_or_eyre("Math Problem")?;
+                funds_write
+                    .preauth_payment(
+                        &client_order_id,
+                        timestamp,
+                        side,
+                        fee,
+                        self.zero_threshold,
+                        get_payment_id,
+                    )
+                    .ok_or_eyre("Math Problem")?;
+                //funds_write
+                //    .preauth_payment(
+                //        &client_order_id,
+                //        timestamp,
+                //        side,
+                //        amount,
+                //        self.zero_threshold,
+                //        get_payment_id,
+                //    )
+                //    .ok_or_eyre("Math Problem")?;
+                funds_write
+                    .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;
 
                 self.observer

@@ -1,6 +1,4 @@
-use std::{
-    collections::HashMap, ops::Add, sync::Arc
-};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
@@ -89,6 +87,7 @@ pub trait CollateralBridge: Send + Sync {
         route_from: Symbol,
         route_to: Symbol,
         amount: Amount,
+        cumulative_fee: Amount,
     ) -> Result<()>;
 }
 
@@ -189,6 +188,7 @@ impl CollateralRouter {
             transfer_from.clone(),
             transfer_to.clone(),
             amount,
+            Amount::ZERO, // we could charge some initial fee too!
         )
     }
 
@@ -207,7 +207,10 @@ impl CollateralRouter {
             })
             .ok_or_eyre("Route not found")?;
 
-        println!("(collateral-router) Found route: {}", route.iter().join(", "));
+        println!(
+            "(collateral-router) Found route: {}",
+            route.iter().join(", ")
+        );
 
         let next_hop_name = if source.eq(route_from) {
             (route[0].clone(), route[1].clone())
@@ -247,7 +250,6 @@ impl CollateralRouter {
                         "(collateral-router) Route Complete for [{}:{}] {}: {} => {} {:0.5} {:0.5}",
                         chain_id, address, client_order_id, route_from, route_to, amount, fee
                     );
-                    // TODO: Accumulate fees from all hops
                     self.observer
                         .publish_single(CollateralTransferEvent::TransferComplete {
                             chain_id,
@@ -259,7 +261,7 @@ impl CollateralRouter {
                             amount,
                             fee,
                         });
-                        Ok(())
+                    Ok(())
                 } else {
                     let next_hop = self.next_hop(&destination, &route_from, &route_to)?;
                     println!(
@@ -282,6 +284,7 @@ impl CollateralRouter {
                         route_from,
                         route_to,
                         amount,
+                        fee,
                     )
                 }
             }
@@ -344,6 +347,7 @@ pub mod test_util {
             route_from: Symbol,
             route_to: Symbol,
             amount: Amount,
+            cumulative_fee: Amount,
         },
     }
 
@@ -417,6 +421,7 @@ pub mod test_util {
             route_from: Symbol,
             route_to: Symbol,
             amount: Amount,
+            cumulative_fee: Amount,
         ) -> Result<()> {
             self.implementor
                 .publish_single(MockCollateralBridgeInternalEvent::TransferFunds {
@@ -426,6 +431,7 @@ pub mod test_util {
                     route_from,
                     route_to,
                     amount,
+                    cumulative_fee,
                 });
             Ok(())
         }

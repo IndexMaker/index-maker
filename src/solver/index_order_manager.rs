@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -17,7 +18,7 @@ use crate::{
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
-use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+use super::index_order::{self, CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
 
 pub struct EngageOrderRequest {
     pub address: Address,
@@ -75,6 +76,28 @@ pub enum IndexOrderEvent {
 
         // A set of index orders in the engagement batch
         engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
+
+        /// Time when requested
+        timestamp: DateTime<Utc>,
+    },
+    CollateralReady {
+        // ID of the original NewOrder request
+        original_client_order_id: ClientOrderId,
+
+        /// On-chain address of the User
+        address: Address,
+
+        // ID of the NewOrder request
+        client_order_id: ClientOrderId,
+
+        /// Quantity remaining
+        collateral_remaining: Amount,
+
+        /// Quantity spent
+        collateral_spent: Amount,
+
+        /// Quantity in fees
+        fees: Amount,
 
         /// Time when requested
         timestamp: DateTime<Utc>,
@@ -342,6 +365,77 @@ impl IndexOrderManager {
         }
     }
 
+    pub fn collateral_ready(
+        &mut self,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+        collateral_amount: Amount,
+        fees: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        self.index_orders
+            .get(address)
+            .and_then(|x| x.get(symbol))
+            .and_then(|index_order| Some(index_order.upgradable_read()))
+            .and_then(|mut order_upread| {
+                let (update_remaining_collateral, update_collateral_spent, update_fee) = (|| {
+                    let update = order_upread
+                        .order_updates
+                        .iter()
+                        .find(|update| update.read().client_order_id.eq(client_order_id))?;
+                    let mut update_upread = update.upgradable_read();
+
+                    let update_collateral_spent = safe!(update_upread.collateral_spent + fees)?;
+                    let update_fee = safe!(update_upread.update_fee + fees)?;
+                    let update_remaining_collateral =
+                        safe!(update_upread.remaining_collateral - fees)?;
+
+                    if update_remaining_collateral < safe!(collateral_amount - self.tolerance)? {
+                        eprintln!(
+                            "(index-order-manager) Error updating collateral ready: {:0.5} < {:0.5}",
+                            update_remaining_collateral, collateral_amount
+                        );
+                        return None;
+                    }
+
+                    update_upread.with_upgraded(|update_write| {
+                        update_write.collateral_spent = update_collateral_spent;
+                        update_write.update_fee = update_fee;
+                        update_write.remaining_collateral = update_remaining_collateral;
+                        update_write.timestamp = timestamp;
+                    });
+                    Some((update_remaining_collateral, update_collateral_spent, update_fee))
+                })()?;
+
+                let order_remaining_collateral = safe!(order_upread.remaining_collateral - fees)?;
+                let order_collateral_spent = safe!(order_upread.collateral_spent + fees)?;
+                let order_fees = safe!(order_upread.fees + fees)?;
+
+                order_upread.with_upgraded(|order_write| {
+                    order_write.remaining_collateral = order_remaining_collateral;
+                    order_write.collateral_spent = order_collateral_spent;
+                    order_write.fees = order_fees;
+                    order_write.last_update_timestamp = timestamp;
+                });
+
+                self.observer
+                    .publish_single(IndexOrderEvent::CollateralReady {
+                        original_client_order_id: order_upread.original_client_order_id.clone(),
+                        address: *address,
+                        client_order_id: client_order_id.clone(),
+                        collateral_remaining: update_remaining_collateral,
+                        collateral_spent: update_collateral_spent,
+                        fees: update_fee,
+                        timestamp,
+                    });
+
+                Some(())
+            })
+            .ok_or_eyre("Failed to update index order")?;
+        Ok(())
+    }
+
     /// provide a method to fill index order request
     pub fn fill_order_request(
         &mut self,
@@ -357,7 +451,7 @@ impl IndexOrderManager {
             .and_then(|x| x.get(symbol))
             .and_then(|index_order| Some(index_order.write()))
             .and_then(|mut index_order| {
-                // TOOD: We need to fill the updates too!
+                // TODO: We need to fill the updates too!
                 index_order.filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
                 index_order.collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
                 index_order.engaged_collateral =

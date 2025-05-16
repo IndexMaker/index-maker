@@ -43,7 +43,7 @@ pub struct IndexOrderUpdate {
 pub struct IndexOrder {
     /// Chain ID
     pub chain_id: u32,
-    
+
     /// On-chain wallet address
     ///
     /// An address of the first user who had the index created. First buyer.
@@ -460,13 +460,7 @@ mod test {
 
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id1,
-                    Side::Buy,
-                    collateral1,
-                    timestamp1,
-                    tolerance,
-                )
+                .update_order(order_id1, Side::Buy, collateral1, timestamp1, tolerance)
                 .unwrap();
 
             assert!(matches!(
@@ -495,13 +489,7 @@ mod test {
 
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id2,
-                    Side::Buy,
-                    collateral2,
-                    timestamp2,
-                    tolerance,
-                )
+                .update_order(order_id2, Side::Buy, collateral2, timestamp2, tolerance)
                 .unwrap();
 
             assert!(matches!(
@@ -534,13 +522,7 @@ mod test {
 
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id3,
-                    Side::Sell,
-                    collateral3,
-                    timestamp3,
-                    tolerance,
-                )
+                .update_order(order_id3, Side::Sell, collateral3, timestamp3, tolerance)
                 .unwrap();
 
             assert!(matches!(
@@ -580,13 +562,7 @@ mod test {
 
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id4,
-                    Side::Sell,
-                    collateral4,
-                    timestamp4,
-                    tolerance,
-                )
+                .update_order(order_id4, Side::Sell, collateral4, timestamp4, tolerance)
                 .unwrap();
 
             assert!(matches!(
@@ -625,13 +601,7 @@ mod test {
         let timestamp5 = Utc::now();
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id5,
-                    Side::Sell,
-                    collateral5,
-                    timestamp5,
-                    tolerance,
-                )
+                .update_order(order_id5, Side::Sell, collateral5, timestamp5, tolerance)
                 .unwrap();
 
             let collateral_added =
@@ -713,13 +683,7 @@ mod test {
 
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id1,
-                    Side::Buy,
-                    collateral1,
-                    timestamp1,
-                    tolerance,
-                )
+                .update_order(order_id1, Side::Buy, collateral1, timestamp1, tolerance)
                 .unwrap();
 
             assert!(matches!(
@@ -747,13 +711,7 @@ mod test {
 
         {
             let update_index_order_outcome = order
-                .update_order(
-                    order_id2,
-                    Side::Buy,
-                    collateral2,
-                    timestamp2,
-                    tolerance,
-                )
+                .update_order(order_id2, Side::Buy, collateral2, timestamp2, tolerance)
                 .unwrap();
 
             assert!(matches!(
@@ -864,13 +822,7 @@ mod test {
             let timestamp4 = Utc::now();
 
             let update_index_order_outcome = order
-                .update_order(
-                    order_id4,
-                    Side::Sell,
-                    collateral4,
-                    timestamp4,
-                    tolerance,
-                )
+                .update_order(order_id4, Side::Sell, collateral4, timestamp4, tolerance)
                 .unwrap();
 
             let collateral_removed =
