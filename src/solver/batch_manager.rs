@@ -64,12 +64,11 @@ pub struct BatchAssetLot {
 impl BatchAssetLot {
     fn try_build_solver_asset_lot(
         &self,
-        lot_id: LotId,
         symbol: Symbol,
         quantity: Amount,
     ) -> Option<SolverOrderAssetLot> {
         Some(SolverOrderAssetLot {
-            lot_id,
+            lot_id: self.lot_id.clone(),
             symbol,
             quantity,
             price: self.price,
@@ -138,14 +137,21 @@ impl BatchAssetPosition {
     pub fn try_allocate_lots(
         &mut self,
         index_order: &mut SolverOrder,
-        lot_id: LotId,
         mut quantity: Amount,
     ) -> Option<(Amount, Amount)> {
         let mut collateral_spent = Amount::ZERO;
         let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
-            let asset_allocation = lot.try_build_solver_asset_lot(lot_id.clone(), self.symbol.clone(), quantity)?;
+            let asset_allocation = lot.try_build_solver_asset_lot(self.symbol.clone(), quantity)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
+            println!(
+                "(batch-asset-position) IndexOrder allocation for {} {} {:0.5} {:0.5} +{:0.5}",
+                index_order.client_order_id,
+                asset_allocation.lot_id,
+                asset_allocation.quantity,
+                asset_allocation.price,
+                asset_allocation.fee
+            );
             index_order.lots.push(asset_allocation);
             Some(())
         };
@@ -468,9 +474,10 @@ impl BatchManager {
             // It is critical that this function will match exactly full
             // quantity, as otherwise our numbers wouldn't match up. That is
             // because lots are opened in total quantity matching position.
-            let asset_collateral_spent = match position
-                .try_allocate_lots(&mut index_order_write, lot_id.clone(), asset_quantity)
-            {
+            let asset_collateral_spent = match position.try_allocate_lots(
+                &mut index_order_write,
+                asset_quantity,
+            ) {
                 None => Err(eyre!("Math Problem")),
                 Some((quantity, collateral_spent)) if quantity > self.zero_threshold => Err(eyre!(
                     "Couldn't allocate sufficient lots for Index Order: q={:0.5} cs={:0.5} +{:0.5}",
@@ -580,7 +587,9 @@ impl BatchManager {
         let mut ready_orders = VecDeque::new();
 
         for engaged_order in &engagement.engaged_orders {
-            if let Some(index_order) = self.fill_index_order(host, batch, engaged_order, lot_id.clone())? {
+            if let Some(index_order) =
+                self.fill_index_order(host, batch, engaged_order, lot_id.clone())?
+            {
                 ready_orders.push_back(index_order);
             }
         }
