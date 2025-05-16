@@ -56,6 +56,9 @@ Work included in Phase 1.:
     - Obtain collateral management details after filling index order
     - Confirm collateral before withdrawal
     - Burn index token
+* [ ] Quote Requests
+    - Manage Quote Requests
+    - Compute Quotes
 * [ ] Additional requirements
     - Collapse multiple orders for same assets in batches
     - Ensure individual orders in a batch have size at least minimum
