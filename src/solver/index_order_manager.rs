@@ -467,11 +467,12 @@ impl IndexOrderManager {
                 index_order.engaged_collateral =
                     Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
                 println!(
-                    "(index-order-manager) Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} (-{:0.5})",
+                    "(index-order-manager) Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} + {:0.5} (-{:0.5})",
                     client_order_id,
                     index_order.filled_quantity,
                     fill_amount,
                     index_order.remaining_collateral,
+                    index_order.engaged_collateral.unwrap_or_default(),
                     index_order.collateral_spent,
                 );
 
