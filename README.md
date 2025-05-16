@@ -93,19 +93,19 @@ Work included in Phase 1.:
 
 ## Phase 2. FIX integration
 
-### Goal
+### Goal
 
 The goal is to have fully functional FIX server capable of receiving NewOrder, CancelOrder etc messages
 
 ## Phase 3. Chain integration
 
-### Goal
+### Goal
 
 The goal is to have fully functiona chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
 
 ## Phase 4. Binance Market Data integration
 
-### Goal
+### Goal
 
 The goal is to integrate market data from Binance, and observe system behavior and accuracy dependant on changing market conditions.
 We would be sending orders into mock connector, yet using real market data. This is to confirm that orders look as expected and system
