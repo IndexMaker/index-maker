@@ -44,10 +44,23 @@ Work included in Phase 1.:
 * [x] Minting Index Tokens
     - Calculate execution price, i.e. We track prices and fees for each individual portion of the Index Order fill, and we sum those up to calculate the execution price of the Index Token.
     - Send request to Mint Token
-* [ ] Index Order should use Collateral Amount instead of Price & Quantity
+* [x] Index Order should use Collateral Amount instead of Price & Quantity
     - Change New Order data structures
     - Change liquidity fitting to fit collateral
+* [x] Collateral Management (Buy side)
+    - Obtain collateral management details from Solver
+    - Route collateral from different chains to single destination
+    - Track collateral journey using lots accounting
+    - Reserve confirmed collateral for Solver to start creating order batches
+* [ ] Sell side implementation
+    - Obtain collateral management details after filling index order
+    - Confirm collateral before withdrawal
+    - Burn index token
+* [ ] Additional requirements
     - Collapse multiple orders for same assets in batches
+    - Ensure individual orders in a batch have size at least minimum
+    - Ensure order rate is within limits
+    - Ensure total volley size across batches is not exceeded
 
 #### Design & Performance
 
@@ -77,4 +90,40 @@ Work included in Phase 1.:
     support.
 * Disaster recovery plan
     - We need to understand our system well, make sure logging is 
+
+## Phase 2. FIX integration
+
+### Goal
+
+The goal is to have fully functional FIX server capable of receiving NewOrder, CancelOrder etc messages
+
+## Phase 3. Chain integration
+
+### Goal
+
+The goal is to have fully functiona chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
+
+## Phase 4. Binance Market Data integration
+
+### Goal
+
+The goal is to integrate market data from Binance, and observe system behavior and accuracy dependant on changing market conditions.
+We would be sending orders into mock connector, yet using real market data. This is to confirm that orders look as expected and system
+works correctly.
+
+## Phase 5. Binance Orders integration
+
+### Goal
+
+The goal is to integrate order sending with Binance, and to conrifm that orders are sent, they don't exceed limits, they get
+executed, we track them correctly all the way up until minting.
+
+## Phase X. Future Development
+
+After delivering working system, which is capable of accepting Index Orders, and sending order batches to Binance, we will
+look into robustness of the solution, performance, scalling, fixing bugs and adding more features.
+
+
+
+
 
