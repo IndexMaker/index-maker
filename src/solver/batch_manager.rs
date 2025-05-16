@@ -542,13 +542,7 @@ impl BatchManager {
         )?;
 
         match index_order_write.status {
-            SolverOrderStatus::PartlyMintable => {
-                // then index order is already in the mintable queue
-            }
-            SolverOrderStatus::FullyMintable => {
-                // then index order is already in the mintable queue
-            }
-            _ if self.mint_threshold < order_fill_rate => {
+            SolverOrderStatus::Engaged if self.mint_threshold < order_fill_rate => {
                 host.set_order_status(&mut index_order_write, SolverOrderStatus::PartlyMintable);
                 self.ready_mints.lock().push_back(index_order.clone());
             }
@@ -674,26 +668,43 @@ impl BatchManager {
                             engaged_order_stored.client_order_id.clone(),
                         )) {
                             Some(engaged_order) => {
+                                match safe!(
+                                    engaged_order.collateral_engaged
+                                        + index_order_stored.collateral_carried
+                                ) {
+                                    Some(engaged_collateral) => {
+                                        index_order_stored.engaged_collateral = engaged_collateral;
+                                        engaged_order_stored.engaged_collateral =
+                                            engaged_collateral;
+                                    }
+                                    None => {
+                                        host.set_order_status(
+                                            &mut index_order_stored,
+                                            SolverOrderStatus::MathOverflow,
+                                        );
+                                        return;
+                                    }
+                                };
+
                                 index_order_stored.remaining_collateral =
                                     engaged_order.collateral_remaining;
 
-                                index_order_stored.engaged_collateral =
-                                    engaged_order.collateral_engaged;
-
                                 index_order_stored.collateral_carried = Amount::ZERO;
 
-                                engaged_order_stored.engaged_collateral =
-                                    engaged_order.collateral_engaged;
-
-                                host.set_order_status(
-                                    &mut index_order_stored,
-                                    SolverOrderStatus::Engaged,
-                                );
+                                match index_order_stored.status {
+                                    SolverOrderStatus::Ready => {
+                                        host.set_order_status(
+                                            &mut index_order_stored,
+                                            SolverOrderStatus::Engaged,
+                                        );
+                                    }
+                                    _ => (),
+                                }
                             }
                             None => {
                                 host.set_order_status(
                                     &mut index_order_stored,
-                                    SolverOrderStatus::MathOverflow,
+                                    SolverOrderStatus::InvalidOrder,
                                 );
                             }
                         }

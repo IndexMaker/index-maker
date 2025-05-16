@@ -277,7 +277,7 @@ impl SimpleSolver {
         })?;
 
         let collateral_available =
-            safe!(safe!(collateral_amount / self.fee_factor) + order_upread.collateral_carried)
+            safe!(safe!(collateral_amount + order_upread.collateral_carried) / self.fee_factor)
                 .ok_or_eyre("Fee factor multiplication error")?;
 
         // Cap order volley size
@@ -287,9 +287,10 @@ impl SimpleSolver {
             .ok_or_eyre("Index order quantity computation error")?;
 
         println!(
-            "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
+            "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} cc={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
             client_order_id,
             collateral_amount,
+            order_upread.collateral_carried,
             collateral_available,
             collateral_usable,
             index_price,

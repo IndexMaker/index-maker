@@ -49,6 +49,7 @@ pub enum SolverOrderStatus {
     MissingPrices,
     InvalidSymbol,
     MathOverflow,
+    InvalidOrder,
 }
 
 /// Solver's view of the Index Order
@@ -387,11 +388,11 @@ impl Solver {
         //
         // check if there is some collateral we could use
         //
-        println!("(solver) * Process credits");
+        println!("(solver) * Process collateral");
         if let Err(err) = self
             .collateral_manager
             .write()
-            .process_credits(self, timestamp)
+            .process_collateral(self, timestamp)
         {
             eprintln!("(solver) Error while processing credits: {:?}", err);
         }
@@ -766,8 +767,12 @@ impl Solver {
     }
 
     // receive QR
-    pub fn handle_quote_request(&self, _notification: QuoteRequestEvent) {
+    pub fn handle_quote_request(&self, notification: QuoteRequestEvent) {
         println!("\n(solver) Handle Quote Request");
+        match notification {
+            QuoteRequestEvent::NewQuoteRequest => {}
+            QuoteRequestEvent::CancelQuoteRequest => {}
+        }
         //self.quote(());
     }
 
@@ -1111,8 +1116,7 @@ mod test {
         let chain_id = 1;
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
-        let fund_wait_period = TimeDelta::new(600, 0).unwrap();
-        let mint_wait_period = TimeDelta::new(600, 0).unwrap();
+        let mint_wait_period = TimeDelta::new(10, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (collateral_sender, collateral_receiver) = unbounded::<CollateralEvent>();
@@ -1243,11 +1247,15 @@ mod test {
 
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
             order_ids: VecDeque::from_iter(
-                ["Order01", "Order02", "Order03", "Order04"]
-                    .into_iter()
-                    .map_into(),
+                [
+                    "Order01", "Order02", "Order03", "Order04", "Order05", "Order06",
+                ]
+                .into_iter()
+                .map_into(),
             ),
-            batch_order_ids: VecDeque::from_iter(["Batch01", "Batch02"].into_iter().map_into()),
+            batch_order_ids: VecDeque::from_iter(
+                ["Batch01", "Batch02", "Batch03"].into_iter().map_into(),
+            ),
             payment_ids: VecDeque::from_iter(["Payment01", "Payment02"].into_iter().map_into()),
         }));
 
@@ -1363,6 +1371,8 @@ mod test {
             "Lot02".into(),
             "Lof03".into(),
             "Lot04".into(),
+            "Lot05".into(),
+            "Lot06".into(),
         ]));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
@@ -1822,10 +1832,10 @@ mod test {
         flush_events();
         heading("Awaiting collateral");
 
-        timestamp += fund_wait_period;
-        solver_tick(timestamp);
-        flush_events();
-        heading("Clock moved 10 minutes forward");
+        // timestamp += fund_wait_period;
+        // solver_tick(timestamp);
+        // flush_events();
+        // heading("Clock moved 10 minutes forward");
 
         for _ in 0..2 {
             let mock_bridge_event = mock_bridge_receiver
@@ -1905,38 +1915,42 @@ mod test {
             println!(" -> FIX response received");
         }
 
-        solver_tick(timestamp);
-        flush_events();
-        heading("Second order batch engaged");
-
-        solver_tick(timestamp);
-        flush_events();
-        heading("Second order batch filled");
-
         for _ in 0..2 {
-            let fix_response = mock_fix_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Failed to receive ServerResponse");
+            solver_tick(timestamp);
+            flush_events();
+            heading("Second order batch engaged");
 
-            assert!(matches!(
-                fix_response,
-                ServerResponse::IndexOrderFill {
-                    address: _,
-                    client_order_id: _,
-                    filled_quantity: _,
-                    collateral_remaining: _,
-                    collateral_spent: _,
-                    timestamp: _
-                }
-            ));
+            solver_tick(timestamp);
+            flush_events();
+            heading("Second order batch filled");
 
-            println!(" -> FIX response received");
+            for _ in 0..2 {
+                let fix_response = mock_fix_receiver
+                    .recv_timeout(Duration::from_secs(1))
+                    .expect("Failed to receive ServerResponse");
+
+                assert!(matches!(
+                    fix_response,
+                    ServerResponse::IndexOrderFill {
+                        address: _,
+                        client_order_id: _,
+                        filled_quantity: _,
+                        collateral_remaining: _,
+                        collateral_spent: _,
+                        timestamp: _
+                    }
+                ));
+
+                println!(" -> FIX response received");
+            }
         }
 
-        timestamp += fund_wait_period;
+        flush_events();
+
+        timestamp += mint_wait_period;
         solver_tick(timestamp);
         flush_events();
-        heading("Clock moved 10 minutes forward");
+        heading(format!("Clock moved forward {:0.1}s", mint_wait_period.as_seconds_f32()).as_str());
 
         // wait for solver to solve...
         let mint_index = mock_chain_receiver

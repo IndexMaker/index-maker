@@ -572,7 +572,7 @@ impl CollateralManager {
         }
     }
 
-    pub fn process_credits(
+    pub fn process_collateral(
         &mut self,
         _host: &dyn CollateralManagerHost,
         _timestamp: DateTime<Utc>,
