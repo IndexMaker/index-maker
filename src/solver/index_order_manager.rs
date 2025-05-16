@@ -199,6 +199,16 @@ impl IndexOrderManager {
 
         let original_client_order_id = index_order.read().original_client_order_id.clone();
 
+        if !index_order.read().order_updates.is_empty() {
+            // TODO: Our current support for order updates is limitted, i.e. we
+            // can accept updates, but then neither Solver nor CollateralManager
+            // will be able to handle them correctly yet. Also we don't handle
+            // correctly fills here should order have more updates.
+            Err(eyre!("{} - {}",
+                "We currently cannot support order updates",
+                "IndexOrder must be fully processed before any next order"))?;
+        }
+
         // Add update to index order
         let update_order_outcome = index_order.write().update_order(
             client_order_id.clone(),

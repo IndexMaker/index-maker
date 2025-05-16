@@ -274,8 +274,8 @@ impl CollateralSide {
                 timestamp,
             };
             println!(
-                "(colateral-side) PreAuth for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial preauth)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, spend.preauth_amount,
+                "(colateral-side) PreAuth for {} [{}] {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial preauth)",
+                lot.payment_id, spend.payment_id, spend.client_order_id, spend.preauth_amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
             lot.spends.push(spend);
@@ -295,8 +295,8 @@ impl CollateralSide {
                 timestamp,
             };
             println!(
-                "(colateral-side) PreAuth for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full preauth)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, spend.preauth_amount,
+                "(colateral-side) PreAuth for {} [{}] {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full preauth)",
+                lot.payment_id, spend.payment_id, spend.client_order_id, spend.preauth_amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
             lot.spends.push(spend);
@@ -317,7 +317,7 @@ impl CollateralSide {
         timestamp: DateTime<Utc>,
         amount_paid: Amount,
         zero_threshold: Amount,
-    ) -> Option<(ConfirmStatus)> {
+    ) -> Option<ConfirmStatus> {
         let res = self
             .open_lots
             .iter()
@@ -348,41 +348,90 @@ impl CollateralSide {
 
         let (amount, pos) = res.into_inner()?;
 
+        let mut closed_lots = Vec::new();
+
+        // Fully close spends (not lots!)
         for lot in self.open_lots.iter_mut().take(pos) {
-            // TODO: This is incorrect!
-            // We should remove ammounts spent based on self.spends, which have matching payment ID
-            let amount = lot.preauth_amount;
+            // Update spends
+            let mut spent_amount = Amount::ZERO;
+            for spend in lot
+                .spends
+                .iter_mut()
+                .filter(|spend| spend.payment_id.eq(payment_id))
+            {
+                let amount = spend.preauth_amount;
+                let spent_balance = safe!(spend.spent_amount + amount)?;
+                spend.preauth_amount = Amount::ZERO;
+                spend.spent_amount = spent_balance;
+                spend.timestamp = timestamp;
+                // Total amount spent in spends for this payment ID in this lot
+                spent_amount = safe!(spent_amount + amount)?;
+            }
+
+            let amount = spent_amount;
             let spent_balance = safe!(lot.spent_amount + amount)?;
-            lot.preauth_amount = Amount::ZERO;
+            lot.preauth_amount = safe!(lot.preauth_amount - amount)?;
             lot.spent_amount = spent_balance;
             lot.last_update_timestamp = timestamp;
-            let spend = lot
-                .spends
-                .iter()
-                .find(|spend| spend.payment_id.eq(payment_id))?;
-            println!(
-                "(colateral-side) Spend for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full spend)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, amount,
-                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
-            );
-            // TODO: Push to closed lots
+
+            if lot.unconfirmed_amount < zero_threshold
+                && lot.ready_amount < zero_threshold
+                && lot.preauth_amount < zero_threshold
+            {
+                println!(
+                    "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full spend)",
+                        lot.payment_id, payment_id, amount,
+                        lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
+                    );
+
+                closed_lots.push(lot.payment_id.clone());
+            } else {
+                println!(
+                    "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
+                        lot.payment_id, payment_id, amount,
+                        lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
+                    );
+            }
         }
 
         if res.is_done() {
-            // TODO: This is incorrect!
-            // We should remove ammounts spent based on self.spends, which have matching payment ID
             let lot = &mut self.open_lots[pos];
+
+            // Update spends
+            let mut spent_amount = Amount::ZERO;
+            for spend in lot
+                .spends
+                .iter_mut()
+                .filter(|spend| spend.payment_id.eq(payment_id))
+            {
+                let amount = safe!(amount - spent_amount)?;
+                let amount_remaining = safe!(amount - spend.preauth_amount)?;
+                if zero_threshold < amount_remaining {
+                    let sub_amount = spend.preauth_amount;
+                    let spent_balance = safe!(spend.spent_amount + sub_amount)?;
+                    spend.preauth_amount = Amount::ZERO;
+                    spend.spent_amount = spent_balance;
+                    spend.timestamp = timestamp;
+                    // Total amount spent in spends for this payment ID in this lot
+                    spent_amount = safe!(spent_amount + sub_amount)?;
+                } else {
+                    let spent_balance = safe!(spend.spent_amount + amount)?;
+                    spend.preauth_amount = Amount::ZERO;
+                    spend.spent_amount = spent_balance;
+                    spend.timestamp = timestamp;
+                    // Total amount spent in spends for this payment ID in this lot
+                    spent_amount = safe!(spent_amount + amount)?;
+                }
+            }
+
             let spent_balance = safe!(lot.spent_amount + amount)?;
             let preauth_balance = safe!(lot.preauth_amount - amount)?;
             lot.preauth_amount = preauth_balance;
             lot.spent_amount = spent_balance;
-            let spend = lot
-                .spends
-                .iter()
-                .find(|spend| spend.payment_id.eq(payment_id))?;
+
             println!(
-                "(colateral-side) Spend for {} [{}/{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
-                lot.payment_id, spend.client_order_id, spend.payment_id, amount,
+                "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
+                lot.payment_id, payment_id, amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
         }
