@@ -56,13 +56,12 @@ pub mod test_util {
         pub fn handle_server_message(&mut self, notification: &ServerEvent) {
             match notification {
                 ServerEvent::NewQuoteRequest {
+                    chain_id: _,
                     address: _,
                     client_order_id: _,
                     symbol: _,
                     side: _,
-                    price: _,
-                    price_threshold: _,
-                    quantity: _,
+                    collateral_amount: _,
                     timestamp: _,
                 } => {
                     self.new_quote_request(());

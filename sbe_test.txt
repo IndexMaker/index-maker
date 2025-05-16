@@ -1,222 +1,287 @@
 
 running 1 test
-Solver: Handle Price Event AX   
-Solver: Handle Price Event AZ   
-Solver: Handle Book Event AX   
-Solver: Handle Price Event AX   
-Solver: Handle Book Event AZ   
-Solver: Handle Price Event AZ   
-Solver: Handle Chain Event CuratorWeigthsSet IX
-Solver: Handle Basket Notification BasketAdded IX
-Solver Weights Set: IX
-Chain response sent.
-Chain response received.FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2025-05-02 14:30:29.103859 UTC
-FIX response sent.
+    ================================================================| ^^^  -> Scenario begins |==
 
-Solver: Handle Index Order NewIndexOrder IX ClientOrderId(Order01) < ClientOrderId(Order01) from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
-Solver Tick: We sent NewOrderSingle FIX message
+>>> Begin events
+(solver) Handle Price Event AX   
+(solver) Handle Price Event AZ   
+(solver) Handle Price Event AX   
+(solver) Handle Price Event AZ   
+(solver) Handle Book Event AX   
+(solver) Handle Book Event AZ   
+<<< End events
 
-Solve...
-Engage More Orders...
+    ================================================================| ^^^ Market data sent |==
 
-More Orders...
- * individual_asset_prices > (AX    p=96.66666)
- * individual_asset_prices > (AZ    p=296.92307)
+>>> Begin events
+(solver) Handle Chain Event CuratorWeigthsSet IX
+(solver) Handle Basket Notification BasketAdded IX
+(mock) SolverWeightsSet: IX
+(mock) Chain response sent
+<<< End events
 
-Find Order Liquidity...
-   q   quantity
-   p   price
-   t   threshold
-   l   liquidity
+    ================================================================| ^^^ Solver weights sent |==
 
- * index order: IX    ClientOrderId(Order01) < ClientOrderId(Order01) Buy p=1005.00000 q=2.50000 t=0.05000
+>>> Begin events
+(collateral-manager) Deposit from [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] 3521.01750
 
-- Find target asset prices and quantites...
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(solver) * Engage more orders
+(solver) * Send more batches
+(solver) End solve
 
- * asset_quantity AX    20.68965 = 8.27586 * 2.50000
- * target_asset_price AX    97.15000 = 96.66666 * 1005.00000 / 1000.00000
- * asset_quantity AZ    1.68393 = 0.67357 * 2.50000
- * target_asset_price AZ    298.40769 = 296.92307 * 1005.00000 / 1000.00000
+<<< End events
 
-- Find liquidity for prices with threshold...
+    ================================================================| ^^^ Deposit sent |==
 
- * liquidity >> AX    t=0.05000 l=20.00000
- * asset_total_weighted_liquidity << AX    l=413.79310 q=20.68965
+>>> Begin events
+(mock) FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2025-05-16 11:43:40.238411 UTC
+(mock) FIX response sent
 
- * liquidity >> AZ    t=0.05000 l=200.00000
- * asset_total_weighted_liquidity << AZ    l=336.78756 q=1.68393
+(solver) Handle Index Order NewIndexOrder IX ClientOrderId(Order01) < ClientOrderId(Order01) from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+(simple-solver) Price: Buy AZ 300.0
+(simple-solver) Price: Buy AX 100.0
+(simple-solver) Price Limit: AX 101.000
+(simple-solver) Price Limit: AZ 303.000
+(collateral-manager) ManageCollateral for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01)
+<<< End events
 
+    ================================================================| ^^^ Sent FIX message: NewIndexOrder |==
 
-Find Order Contribution...
-   q   asset_order_quantity
-   tq  asset_total_quantity
-   tl  asset_liquidity
-   acf asset_contribution_fraction
-   alc asset_liquidity_contribution
-   of  order_fraction
-   oq  order_quantity
+>>> Begin events
 
- * find_order_contribution: ClientOrderId(Order01) AX    q=20.68965 tq=20.68965 tl=20.00000 acf=1.00000 alc=20.00000 of=0.96666 oq=2.41666
- * find_order_contribution: ClientOrderId(Order01) AZ    q=1.68393 tq=1.68393 tl=200.00000 acf=1.00000 alc=200.00000 of=0.96666 oq=2.41666
+(solver) Begin solve
+(solver) * Process credits
+(collateral-router) Found route: T1:D1:C1, T2:D2:C2, T3:D3:C3
+(mock) TransferFunds: from 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) for 3521.01750
+(mock) Bridge event sent
+(solver) * Mint indexes
+(solver) * Engage more orders
+(solver) * Send more batches
+(solver) End solve
 
-Engage Orders...
-IndexOrderManager: Engage ClientOrderId(Order01) 2.41666 2.41666 0.08333
-Compute...
+(collateral-router) Found route: T1:D1:C1, T2:D2:C2, T3:D3:C3
+(collateral-router) Route Hop for [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] ClientOrderId(Order01): (T1:D1:C1) T1:D1:C1 .. [T2:D2:C2] => T3:D3:C3 (T3:D3:C3) 3485.80732 35.21017
+(mock) TransferFunds: from 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) for 3485.80732
+(mock) Bridge event sent
+(collateral-router) Route Complete for [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] ClientOrderId(Order01): T1:D1:C1 => T3:D3:C3 3450.94925 70.06824
+(collateral-manager) Transfer Complete for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01): T1:D1:C1 => T3:D3:C3 3450.94925 70.06824
+(colateral-side) AddReady for PaymentId(Payment01) 3450.94925 ua=70.06824 ra=3450.94925 pa=0.00000 sa=0.00000 (partial confirm)
+(colateral-side) AddReady for PaymentId(Payment01) 70.06824 ua=0.00000 ra=3521.01750 pa=0.00000 sa=0.00000 (full confirm)
+(colateral-side) PreAuth for PaymentId(Payment01) [PaymentId(Charges)] ClientOrderId(Order01) 70.06824 ua=0.00000 ra=3450.94925 pa=70.06824 sa=0.00000 (partial preauth)
+(colateral-side) Spend for PaymentId(Payment01) [PaymentId(Charges)] 70.06824 ua=0.00000 ra=3450.94925 pa=0.00000 sa=70.06824 (partial spend)
+(solver) CollateralReady for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3450.94925 70.06824
+(collateral-manager) PreAuth Payment for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3450.94925
+(colateral-side) PreAuth for PaymentId(Payment01) [PaymentId(Payment02)] ClientOrderId(Order01) 3450.94925 ua=0.00000 ra=0.00000 pa=3450.94925 sa=70.06824 (full preauth)
 
-Send Order Batches...
+(solver) Handle Index Order CollateralReady ClientOrderId(Order01) < ClientOrderId(Order01) from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045: 3450.94925 70.06824
+(solver) Set Index Order Status: ClientOrderId(Order01) Ready
+(solver) PreAuth approved: PaymentId(Payment02)
+<<< End events
 
-Solver: Handle Index Order EngageIndexOrder BatchOrderId(Batch01)
-Solver Tick: IndexOrderManager responded to EngageOrders
+    ================================================================| ^^^ Awaiting collateral |==
 
-Solve...
-Engage More Orders...
-Compute...
+>>> Begin events
 
-Send Order Batches...
-Sending Batch: Buy AX: 20.00000 @ 97.15000; Buy AZ: 1.62780 @ 298.40769
-
-Solver: Handle Inventory Event OpenLot Buy AX    16.00000 @ 96.66425 + fee 1.54662 (0.100%)
-Batch Position: Buy AX    price=20.00000 volley=1943.00000 real=1546.62800 + fee=1.54662
-Batch Status: BatchOrderId(Batch01) volley=2428.75000 fill=1554.40000 frac=0.64000 real=1546.62800 fee=1.54662
-AX    q=20.00000 p=16.00000 aq=16.00000 cf=1.00000 afr=0.80000
-AZ    q=1.62780 p=0.00000 aq=0.00000 cf=1.00000 afr=0.00000
-Fill Index Order: ClientOrderId(Order01) 0.00000 (+0.00000 0.000%)
-
-Solver: Handle Inventory Event OpenLot Buy AZ    1.30224 @ 296.91565 + fee 0.38665 (0.100%)
-Batch Position: Buy AZ    price=1.62780 volley=485.74999 real=386.65699 + fee=0.38665
-Batch Status: BatchOrderId(Batch01) volley=2428.75000 fill=1943.00000 frac=0.80000 real=1933.28500 fee=1.93328
-AX    q=20.00000 p=16.00000 aq=16.00000 cf=1.00000 afr=0.80000
-AZ    q=1.62780 p=1.30224 aq=1.30224 cf=1.00000 afr=0.80000
-Fill Index Order: ClientOrderId(Order01) 1.93333 (+1.93333 80.000%)
-IndexOrder (Solver): ifq=1.93333 irq=0.08333 ieq=0.48333 rq=0.56666
-IndexOrderManager: Fill: ClientOrderId(Order01) 1.93333 (+1.93333), Remainig Quantity: 0.08333
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.93333 0.56666 2025-05-02 14:30:29.104144 UTC
-FIX response sent.
-
-Solver: Handle Inventory Event OpenLot Buy AX    4.00000 @ 96.95570 + fee 0.38782 (0.100%)
-Batch Position: Buy AX    price=20.00000 volley=1943.00000 real=1934.45080 + fee=1.93445
-Batch Status: BatchOrderId(Batch01) volley=2428.75000 fill=2331.60000 frac=0.96000 real=2321.10780 fee=2.32110
-AX    q=20.00000 p=20.00000 aq=20.00000 cf=1.00000 afr=1.00000
-AZ    q=1.62780 p=1.30224 aq=1.30224 cf=1.00000 afr=0.80000
-Fill Index Order: ClientOrderId(Order01) 1.93333 (+0.00000 80.000%)
-
-Solver: Handle Inventory Event OpenLot Buy AZ    0.32556 @ 297.81087 + fee 0.09695 (0.100%)
-Batch Position: Buy AZ    price=1.62780 volley=485.74999 real=483.61269 + fee=0.48361
-Batch Status: BatchOrderId(Batch01) volley=2428.75000 fill=2428.75000 frac=1.00000 real=2418.06350 fee=2.41806
-AX    q=20.00000 p=20.00000 aq=20.00000 cf=1.00000 afr=1.00000
-AZ    q=1.62780 p=1.62780 aq=1.62780 cf=1.00000 afr=1.00000
-Fill Index Order: ClientOrderId(Order01) 2.41666 (+0.48333 100.000%)
-IndexOrder (Solver): ifq=2.41666 irq=0.08333 ieq=0.00000 rq=0.08333
-IndexOrderManager: Fill: ClientOrderId(Order01) 2.41666 (+0.48333), Remainig Quantity: 0.08333
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.41666 0.08333 2025-05-02 14:30:29.104144 UTC
-FIX response sent.
-IndexOrder batch fraction fully filled
-FIX response received.
-FIX response received.
-Solver Tick: Solver re-inserts IndexOrder from filled batch
-
-Solve...
-Engage More Orders...
-
-More Orders...
- * individual_asset_prices > (AZ    p=296.92307)
- * individual_asset_prices > (AX    p=96.66666)
-
-Find Order Liquidity...
-   q   quantity
-   p   price
-   t   threshold
-   l   liquidity
-
- * index order: IX    ClientOrderId(Order01) < ClientOrderId(Order01) Buy p=1005.00000 q=0.08333 t=0.05000
-
-- Find target asset prices and quantites...
-
- * asset_quantity AX    0.68965 = 8.27586 * 0.08333
- * target_asset_price AX    97.15000 = 96.66666 * 1005.00000 / 1000.00000
- * asset_quantity AZ    0.05613 = 0.67357 * 0.08333
- * target_asset_price AZ    298.40769 = 296.92307 * 1005.00000 / 1000.00000
-
-- Find liquidity for prices with threshold...
-
- * liquidity >> AX    t=0.05000 l=20.00000
- * asset_total_weighted_liquidity << AX    l=13.79310 q=0.68965
-
- * liquidity >> AZ    t=0.05000 l=200.00000
- * asset_total_weighted_liquidity << AZ    l=11.22625 q=0.05613
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(solver) * Engage more orders
+(simple-solver) Price: Buy AX 100.0
+(simple-solver) Price: Buy AZ 300.0
+(simple-solver) Price Limit: AX 101.000
+(simple-solver) Price Limit: AZ 303.000
+(simple-solver) Index Price: IX 1039.9553332142219045917455780
+(simple-solver) Collateral to Quantity for Index Order: ClientOrderId(Order01) c=3450.94925 ca=3447.50175 cu=3000.00000 p=1039.95533 q=2.88473 ff=1.00100
+(simple-solver) Asset Quantity for Index Order: ClientOrderId(Order01) AX q=23.87370 baq=8.27586 oq=2.88473
+(simple-solver) Asset Quantity for Index Order: ClientOrderId(Order01) AZ q=1.94308 baq=0.67357 oq=2.88473
+(simple-solver) Fitting Quantity for Index Order: ClientOrderId(Order01) AZ 2.88473 tal=50.00000 taq=1.94308 acf=1.00000 alc=50.00000 poq=74.23076
+(simple-solver) Fitting Quantity for Index Order: ClientOrderId(Order01) AX 2.41666 tal=20.00000 taq=23.87370 acf=1.00000 alc=20.00000 poq=2.41666
+(simple-solver) Capping Volley Size for Index Order: ClientOrderId(Order01) oq=2.41666 coq=1.92315
+(simple-solver) Capping Volley Size for Asset: AZ aq=1.62780 caq=1.29539
+(simple-solver) Capping Volley Size for Asset: AX aq=20.00000 caq=15.91580
+(simple-solver) Asset Fractions for Index Order: ClientOrderId(Order01) AX taq=15.91580 acf=1.00000
+(simple-solver) Asset Fractions for Index Order: ClientOrderId(Order01) AZ taq=1.29539 acf=1.00000
+(simple-solver) Solver Order Engagement: ClientOrderId(Order01) IX eq=1.92315 ep=1039.95533 ec=2002.00000
+(index-order-manager) Engage ClientOrderId(Order01) eca=+2002.00000 iec=2002.00000 irc=1448.94925
+(solver) * Send more batches
+(solver) End solve
 
 
-Find Order Contribution...
-   q   asset_order_quantity
-   tq  asset_total_quantity
-   tl  asset_liquidity
-   acf asset_contribution_fraction
-   alc asset_liquidity_contribution
-   of  order_fraction
-   oq  order_quantity
+(batch-manager) Handle Index Order EngageIndexOrder BatchOrderId(Batch01)
+(solver) Set Index Order Status: ClientOrderId(Order01) Engaged
+<<< End events
 
- * find_order_contribution: ClientOrderId(Order01) AX    q=0.68965 tq=0.68965 tl=20.00000 acf=1.00000 alc=20.00000 of=1.00000 oq=0.08333
- * find_order_contribution: ClientOrderId(Order01) AZ    q=0.05613 tq=0.05613 tl=200.00000 acf=1.00000 alc=200.00000 of=1.00000 oq=0.08333
+    ================================================================| ^^^ Clock moved 10 minutes forward |==
 
-Engage Orders...
+>>> Begin events
+
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(solver) * Engage more orders
+(solver) * Send more batches
+(batch-manager) Sending Batch: Buy AX: 15.91580 @ 101.00000; Buy AZ: 1.29539 @ 303.00000
+(mock) SingleOrder AX ClientOrderID(Lot01) 12.73264 @ 100.49500 3.18316 @ 100.79800
+(mock) SingleOrder AZ ClientOrderID(Lot02) 1.03631 @ 301.48500 0.25907 @ 302.39400
+(solver) End solve
+
+
+(solver) Handle Inventory Event OpenLot Buy AX    12.73264 @ 100.49500 + fee 1.27956 (0.100%)
+(batch-manager) Batch Position: Buy AX    total=15.91580 volley=1607.49609 pos=12.73264 real=1279.56689 + fee=1.27956
+(batch-manager) Batch Status: BatchOrderId(Batch01) volley=2000.00000 fill=1285.99687 frac=0.64299 real=1279.56689 fee=1.27956
+(batch-manager) Fill Basket Asset: AX    q=15.91580 pos=12.73264 aq=12.73264 cf=1.00000 afr=0.80000
+(batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.00000 aq=0.00000 cf=1.00000 afr=0.00000
+
+(solver) Handle Inventory Event OpenLot Buy AZ    1.03631 @ 301.48500 + fee 0.31243 (0.100%)
+(batch-manager) Batch Position: Buy AZ    total=1.29539 volley=392.50390 pos=1.03631 real=312.43310 + fee=0.31243
+(batch-manager) Batch Status: BatchOrderId(Batch01) volley=2000.00000 fill=1600.00000 frac=0.80000 real=1592.00000 fee=1.59200
+(batch-manager) Fill Basket Asset: AX    q=15.91580 pos=12.73264 aq=12.73264 cf=1.00000 afr=0.80000
+(batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=1.03631 aq=1.03631 cf=1.00000 afr=0.80000
+(batch-manager) Fill Index Order: ifq=1.53852 irc=1448.94925 iec=408.40799 ics=1663.66024 cs=1593.59200 rc=1857.35725 bfr=80.000% ofr=47.249%
+(index-order-manager) Fill: ClientOrderId(Order01) 1.53852 (+1.53852), Remaining Collateral: 1448.94925 (-1663.66024)
+(mock) FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.53852 1857.35725 1663.66024 2025-05-16 11:53:40.238411 UTC
+(mock) FIX response sent
+
+(solver) Handle Inventory Event OpenLot Buy AX    3.18316 @ 100.79800 + fee 0.32085 (0.100%)
+(batch-manager) Batch Position: Buy AX    total=15.91580 volley=1607.49609 pos=15.91580 real=1600.42311 + fee=1.60042
+(batch-manager) Batch Status: BatchOrderId(Batch01) volley=2000.00000 fill=1921.49921 frac=0.96074 real=1912.85622 fee=1.91285
+(batch-manager) Fill Basket Asset: AX    q=15.91580 pos=15.91580 aq=15.91580 cf=1.00000 afr=1.00000
+(batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=1.03631 aq=1.03631 cf=1.00000 afr=0.80000
+
+(solver) Handle Inventory Event OpenLot Buy AZ    0.25907 @ 302.39400 + fee 0.07834 (0.100%)
+(batch-manager) Batch Position: Buy AZ    total=1.29539 volley=392.50390 pos=1.29539 real=390.77688 + fee=0.39077
+(batch-manager) Batch Status: BatchOrderId(Batch01) volley=2000.00000 fill=2000.00000 frac=1.00000 real=1991.20000 fee=1.99120
+(batch-manager) Fill Basket Asset: AX    q=15.91580 pos=15.91580 aq=15.91580 cf=1.00000 afr=1.00000
+(batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=1.29539 aq=1.29539 cf=1.00000 afr=1.00000
+(batch-manager) Fill Index Order: ifq=1.92315 irc=1448.94925 iec=8.80879 ics=2063.25944 cs=399.59919 rc=1457.75805 bfr=100.000% ofr=58.598%
+(index-order-manager) Fill: ClientOrderId(Order01) 1.92315 (+0.38463), Remaining Collateral: 1448.94925 (-2063.25944)
+(mock) FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 1.92315 1457.75805 2063.25944 2025-05-16 11:53:40.238411 UTC
+(mock) FIX response sent
+<<< End events
+
+    ================================================================| ^^^ First order batch engaged |==
+
+>>> Begin events
+
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(solver) * Engage more orders
+(simple-solver) Price: Buy AZ 300.0
+(simple-solver) Price: Buy AX 100.0
+(simple-solver) Price Limit: AX 101.000
+(simple-solver) Price Limit: AZ 303.000
+(simple-solver) Index Price: IX 1039.9553332142219045917455780
+(simple-solver) Collateral to Quantity for Index Order: ClientOrderId(Order01) c=1448.94925 ca=1456.31055 cu=1456.31055 p=1039.95533 q=1.40035 ff=1.00100
+(simple-solver) Asset Quantity for Index Order: ClientOrderId(Order01) AX q=11.58917 baq=8.27586 oq=1.40035
+(simple-solver) Asset Quantity for Index Order: ClientOrderId(Order01) AZ q=0.94324 baq=0.67357 oq=1.40035
+(simple-solver) Fitting Quantity for Index Order: ClientOrderId(Order01) AX 1.40035 tal=20.00000 taq=11.58917 acf=1.00000 alc=20.00000 poq=2.41666
+(simple-solver) Fitting Quantity for Index Order: ClientOrderId(Order01) AZ 1.40035 tal=50.00000 taq=0.94324 acf=1.00000 alc=50.00000 poq=74.23076
+(simple-solver) Asset Fractions for Index Order: ClientOrderId(Order01) AX taq=11.58917 acf=1.00000
+(simple-solver) Asset Fractions for Index Order: ClientOrderId(Order01) AZ taq=0.94324 acf=1.00000
+(simple-solver) Solver Order Engagement: ClientOrderId(Order01) IX eq=1.40035 ep=1039.95533 ec=1457.76686
 Should update!
-IndexOrderManager: Engage ClientOrderId(Order01) 0.08333 0.08333 0.00000
-Compute...
+(index-order-manager) Engage ClientOrderId(Order01) eca=+1448.95806 iec=1457.75805 irc=0.00000
+(solver) * Send more batches
+(solver) End solve
 
-Send Order Batches...
 
-Solver: Handle Index Order EngageIndexOrder BatchOrderId(Batch02)
-Solver Tick: Solver sends next batch
+(batch-manager) Handle Index Order EngageIndexOrder BatchOrderId(Batch02)
+(solver) Set Index Order Status: ClientOrderId(Order01) Engaged
+<<< End events
 
-Solve...
-Engage More Orders...
-Compute...
+    ================================================================| ^^^ First order batch filled |==
+ -> FIX response received
+ -> FIX response received
 
-Send Order Batches...
-Sending Batch: Buy AX: 0.68965 @ 97.15000; Buy AZ: 0.05613 @ 298.40769
+>>> Begin events
 
-Solver: Handle Inventory Event OpenLot Buy AX    0.55172 @ 96.66425 + fee 0.05333 (0.100%)
-Batch Position: Buy AX    price=0.68965 volley=66.99999 real=53.33199 + fee=0.05333
-Batch Status: BatchOrderId(Batch02) volley=83.74999 fill=53.59999 frac=0.63999 real=53.33199 fee=0.05333
-AX    q=0.68965 p=0.55172 aq=0.55172 cf=1.00000 afr=0.80000
-AZ    q=0.05613 p=0.00000 aq=0.00000 cf=1.00000 afr=0.00000
-Fill Index Order: ClientOrderId(Order01) 0.00000 (+0.00000 0.000%)
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(solver) * Engage more orders
+(solver) * Send more batches
+(batch-manager) Sending Batch: Buy AX: 11.58917 @ 101.00000; Buy AZ: 0.94324 @ 303.00000
+(mock) SingleOrder AX ClientOrderID(Lof03) 9.27134 @ 100.49500 2.31783 @ 100.79800
+(mock) SingleOrder AZ ClientOrderID(Lot04) 0.75459 @ 301.48500 0.18864 @ 302.39400
+(solver) End solve
 
-Solver: Handle Inventory Event OpenLot Buy AZ    0.04490 @ 296.91565 + fee 0.01333 (0.100%)
-Batch Position: Buy AZ    price=0.05613 volley=16.74999 real=13.33299 + fee=0.01333
-Batch Status: BatchOrderId(Batch02) volley=83.74999 fill=66.99999 frac=0.80000 real=66.66499 fee=0.06666
-AX    q=0.68965 p=0.55172 aq=0.55172 cf=1.00000 afr=0.80000
-AZ    q=0.05613 p=0.04490 aq=0.04490 cf=1.00000 afr=0.80000
-Fill Index Order: ClientOrderId(Order01) 0.06666 (+0.06666 80.000%)
-IndexOrder (Solver): ifq=2.48333 irq=0.00000 ieq=0.01666 rq=0.01666
-IndexOrderManager: Fill: ClientOrderId(Order01) 2.48333 (+0.06666), Remainig Quantity: 0.00000
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.48333 0.01666 2025-05-02 14:30:29.104753 UTC
-FIX response sent.
 
-Solver: Handle Inventory Event OpenLot Buy AX    0.13793 @ 96.95570 + fee 0.01337 (0.100%)
-Batch Position: Buy AX    price=0.68965 volley=66.99999 real=66.70519 + fee=0.06670
-Batch Status: BatchOrderId(Batch02) volley=83.74999 fill=80.39999 frac=0.96000 real=80.03819 fee=0.08003
-AX    q=0.68965 p=0.68965 aq=0.68965 cf=1.00000 afr=1.00000
-AZ    q=0.05613 p=0.04490 aq=0.04490 cf=1.00000 afr=0.80000
-Fill Index Order: ClientOrderId(Order01) 0.06666 (+0.00000 80.000%)
+(solver) Handle Inventory Event OpenLot Buy AX    9.27134 @ 100.49500 + fee 0.93172 (0.100%)
+(batch-manager) Batch Position: Buy AX    total=11.58917 volley=1170.50676 pos=9.27134 real=931.72338 + fee=0.93172
+(batch-manager) Batch Status: BatchOrderId(Batch02) volley=1456.31055 fill=936.40540 frac=0.64299 real=931.72338 fee=0.93172
+(batch-manager) Fill Basket Asset: AX    q=11.58917 pos=9.27134 aq=9.27134 cf=1.00000 afr=0.80000
+(batch-manager) Fill Basket Asset: AZ    q=0.94324 pos=0.00000 aq=0.00000 cf=1.00000 afr=0.00000
 
-Solver: Handle Inventory Event OpenLot Buy AZ    0.01122 @ 297.81087 + fee 0.00334 (0.100%)
-Batch Position: Buy AZ    price=0.05613 volley=16.74999 real=16.67629 + fee=0.01667
-Batch Status: BatchOrderId(Batch02) volley=83.74999 fill=83.74999 frac=1.00000 real=83.38149 fee=0.08338
-AX    q=0.68965 p=0.68965 aq=0.68965 cf=1.00000 afr=1.00000
-AZ    q=0.05613 p=0.05613 aq=0.05613 cf=1.00000 afr=1.00000
-Fill Index Order: ClientOrderId(Order01) 0.08333 (+0.01666 100.000%)
-IndexOrder (Solver): ifq=2.50000 irq=0.00000 ieq=0.00000 rq=0.00000
-Minted Index: IX    Quantity: 2.50000 User: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
-Chain response sent.
-IndexOrderManager: Fill: ClientOrderId(Order01) 2.50000 (+0.01666), Remainig Quantity: 0.00000
-FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 2.50000 0.00000 2025-05-02 14:30:29.104753 UTC
-FIX response sent.
-IndexOrder batch fraction fully filled
-Chain response received.
-FIX response received.
-FIX response received.
-Scenario completed.
+(solver) Handle Inventory Event OpenLot Buy AZ    0.75459 @ 301.48500 + fee 0.22749 (0.100%)
+(batch-manager) Batch Position: Buy AZ    total=0.94324 volley=285.80378 pos=0.75459 real=227.49981 + fee=0.22749
+(batch-manager) Batch Status: BatchOrderId(Batch02) volley=1456.31055 fill=1165.04844 frac=0.80000 real=1159.22319 fee=1.15922
+(batch-manager) Fill Basket Asset: AX    q=11.58917 pos=9.27134 aq=9.27134 cf=1.00000 afr=0.80000
+(batch-manager) Fill Basket Asset: AZ    q=0.94324 pos=0.75459 aq=0.75459 cf=1.00000 afr=0.80000
+(batch-manager) Fill Index Order: ifq=3.04344 irc=0.00000 iec=288.56683 ics=3223.64186 cs=1160.38242 rc=288.56683 bfr=80.000% ofr=91.783%
+(index-order-manager) Fill: ClientOrderId(Order01) 3.04344 (+1.12028), Remaining Collateral: 0.00000 (-3223.64186)
+(mock) FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 3.04344 297.37563 3223.64186 2025-05-16 11:53:40.238411 UTC
+(mock) FIX response sent
+
+(solver) Handle Inventory Event OpenLot Buy AX    2.31783 @ 100.79800 + fee 0.23363 (0.100%)
+(batch-manager) Batch Position: Buy AX    total=11.58917 volley=1170.50676 pos=11.58917 real=1165.35653 + fee=1.16535
+(batch-manager) Batch Status: BatchOrderId(Batch02) volley=1456.31055 fill=1399.14979 frac=0.96074 real=1392.85634 fee=1.39285
+(batch-manager) Fill Basket Asset: AX    q=11.58917 pos=11.58917 aq=11.58917 cf=1.00000 afr=1.00000
+(batch-manager) Fill Basket Asset: AZ    q=0.94324 pos=0.75459 aq=0.75459 cf=1.00000 afr=0.80000
+
+(solver) Handle Inventory Event OpenLot Buy AZ    0.18864 @ 302.39400 + fee 0.05704 (0.100%)
+(batch-manager) Batch Position: Buy AZ    total=0.94324 volley=285.80378 pos=0.94324 real=284.54625 + fee=0.28454
+(batch-manager) Batch Status: BatchOrderId(Batch02) volley=1456.31055 fill=1456.31055 frac=1.00000 real=1449.90278 fee=1.44990
+(batch-manager) Fill Basket Asset: AX    q=11.58917 pos=11.58917 aq=11.58917 cf=1.00000 afr=1.00000
+(batch-manager) Fill Basket Asset: AZ    q=0.94324 pos=0.94324 aq=0.94324 cf=1.00000 afr=1.00000
+(batch-manager) Fill Index Order: ifq=3.32351 irc=0.00000 iec=-2.40343 ics=3514.61213 cs=290.97026 rc=-2.40343 bfr=100.000% ofr=100.068%
+(index-order-manager) Fill: ClientOrderId(Order01) 3.32351 (+0.28007), Remaining Collateral: 0.00000 (-3514.61213)
+(mock) FIX Response: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ClientOrderId(Order01) 3.32351 6.40536 3514.61213 2025-05-16 11:53:40.238411 UTC
+(mock) FIX response sent
+(solver) Set Index Order Status: ClientOrderId(Order01) PartlyMintable
+(solver) Set Index Order Status: ClientOrderId(Order01) FullyMintable
+<<< End events
+
+    ================================================================| ^^^ Second order batch engaged |==
+
+>>> Begin events
+
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(solver) * Engage more orders
+(solver) * Send more batches
+(solver) End solve
+
+<<< End events
+
+    ================================================================| ^^^ Second order batch filled |==
+ -> FIX response received
+ -> FIX response received
+
+>>> Begin events
+
+(solver) Begin solve
+(solver) * Process credits
+(solver) * Mint indexes
+(collateral-manager) Confirm Payment for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3444.54388
+(colateral-side) Spend for PaymentId(Payment01) [PaymentId(Payment02)] 3444.54388 ua=0.00000 ra=0.00000 pa=6.40536 sa=3514.61213 (partial spend)
+(solver) * Engage more orders
+(solver) * Send more batches
+(solver) End solve
+
+(solver) Payment authorized: PaymentId(Payment02)
+(mock) MintedIndex: 1 IX    Quantity: 3.32351 User: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 @3444.54388 2025-05-16 12:03:40.238411 UTC
+(mock) Chain response sent
+(solver) Set Index Order Status: ClientOrderId(Order01) Minted
+<<< End events
+
+    ================================================================| ^^^ Clock moved 10 minutes forward |==
+ -> Chain response received
+    ================================================================| ^^^ Scenario completed |==
 test solver::solver::test::sbe_solver ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s

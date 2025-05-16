@@ -6,6 +6,11 @@ pub mod blockchain {
     pub mod chain_connector;
 }
 
+pub mod collateral {
+    pub mod collateral_manager;
+    pub mod collateral_router;
+}
+
 pub mod core {
     pub mod bits;
     pub mod decimal_ext;
@@ -43,6 +48,7 @@ pub mod server {
 }
 
 pub mod solver {
+    pub mod batch_manager;
     pub mod index_order;
     pub mod index_order_manager;
     pub mod index_quote;
@@ -50,4 +56,7 @@ pub mod solver {
     pub mod inventory_manager;
     pub mod position;
     pub mod solver;
+    pub mod solvers {
+        pub mod simple_solver;
+    }
 }

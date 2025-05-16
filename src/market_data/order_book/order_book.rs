@@ -44,10 +44,10 @@ struct PricePointEntriesOps {
 }
 
 impl PricePointEntriesOps {
-    fn try_new(side: Side, tolerance: Amount, price: Amount, threshold: Amount) -> Option<Self> {
+    fn try_new(side: Side, tolerance: Amount, price: Amount) -> Option<Self> {
         let bound = match side {
-            Side::Buy => safe!(safe!(price - safe!(price * threshold)?) - tolerance)?,
-            Side::Sell => safe!(safe!(price + safe!(price * threshold)?) + tolerance)?,
+            Side::Buy => safe!(price - tolerance)?,
+            Side::Sell => safe!(price + tolerance)?,
         };
         Some(Self { side, bound })
     }
@@ -141,10 +141,9 @@ impl PricePointEntries {
         }
     }
 
-    pub fn get_liquidity(&self, price: &Amount, threshold: Amount) -> Result<Amount> {
-        let ops =
-            PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone(), threshold)
-                .ok_or(eyre!("Math overflow"))?;
+    pub fn get_liquidity(&self, price: &Amount) -> Result<Amount> {
+        let ops = PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone())
+            .ok_or(eyre!("Math overflow"))?;
 
         let mut cursor = ops.begin_ops(&self.entries);
         let mut liquidity = Amount::ZERO;
@@ -188,10 +187,10 @@ impl PricePointBook {
         Ok(())
     }
 
-    pub fn get_liquidity(&self, side: Side, price: &Amount, threshold: Amount) -> Result<Amount> {
+    pub fn get_liquidity(&self, side: Side, price: &Amount) -> Result<Amount> {
         match side {
-            Side::Buy => self.bid_entries.get_liquidity(price, threshold),
-            Side::Sell => self.ask_entries.get_liquidity(price, threshold),
+            Side::Buy => self.bid_entries.get_liquidity(price),
+            Side::Sell => self.ask_entries.get_liquidity(price),
         }
     }
 }
@@ -214,7 +213,7 @@ pub mod test {
         let mut book = PricePointBook::new(tolerance);
 
         // Test that empty book has zero liquidity
-        let liquidity = book.get_liquidity(Side::Sell, &dec!(100.00), dec!(0.10));
+        let liquidity = book.get_liquidity(Side::Sell, &dec!(110.0));
 
         assert!(matches!(liquidity, Ok(_)));
         assert_decimal_approx_eq!(liquidity.unwrap(), Amount::ZERO, tolerance);
@@ -240,7 +239,7 @@ pub mod test {
 
         assert!(matches!(update_result, Ok(_)));
 
-        let liquidity_result = book.get_liquidity(Side::Sell, &dec!(100.0), dec!(0.10));
+        let liquidity_result = book.get_liquidity(Side::Sell, &dec!(110.0));
 
         assert!(matches!(liquidity_result, Ok(_)));
 
@@ -267,7 +266,7 @@ pub mod test {
 
         assert!(matches!(update_result, Ok(_)));
 
-        let liquidity_result = book.get_liquidity(Side::Buy, &dec!(100.0), dec!(0.20));
+        let liquidity_result = book.get_liquidity(Side::Buy, &dec!(80.0));
 
         assert!(matches!(liquidity_result, Ok(_)));
 
@@ -290,7 +289,7 @@ pub mod test {
 
         assert!(matches!(update_result, Ok(_)));
 
-        let liquidity_result = book.get_liquidity(Side::Sell, &dec!(100.0), dec!(0.10));
+        let liquidity_result = book.get_liquidity(Side::Sell, &dec!(110.0));
 
         assert!(matches!(liquidity_result, Ok(_)));
 
