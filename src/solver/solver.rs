@@ -1913,11 +1913,11 @@ mod test {
         for _ in 0..2 {
             solver_tick(timestamp);
             flush_events();
-            heading("Second order batch engaged");
+            heading("Next order batch engaged");
 
             solver_tick(timestamp);
             flush_events();
-            heading("Second order batch filled");
+            heading("Next order batch filled");
 
             for _ in 0..2 {
                 let fix_response = mock_fix_receiver
