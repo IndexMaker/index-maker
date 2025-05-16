@@ -12,7 +12,7 @@ use safe_math::safe;
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::collateral_manager::{
-        CollateralEvent, CollateralManager, CollateralManagerHost, PaymentStatus,
+        CollateralEvent, CollateralManager, CollateralManagerHost, PreAuthStatus,
     },
     core::{
         bits::{
@@ -337,7 +337,11 @@ impl Solver {
         Ok(())
     }
 
-    fn mint_index_order(&self, index_order: &mut SolverOrder) -> Result<()> {
+    fn mint_index_order(
+        &self,
+        index_order: &mut SolverOrder,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
         let total_cost = index_order
             .lots
             .iter()
@@ -356,8 +360,9 @@ impl Solver {
         self.collateral_manager.write().confirm_payment(
             index_order.chain_id,
             &index_order.address,
-            &index_order.client_order_id,
             &payment_id,
+            timestamp,
+            index_order.side,
             total_cost,
         )?;
 
@@ -379,7 +384,7 @@ impl Solver {
         let ready_mints = self.batch_manager.get_mintable_batch(timestamp);
 
         for mintable_order in ready_mints {
-            self.mint_index_order(&mut mintable_order.write())?;
+            self.mint_index_order(&mut mintable_order.write(), timestamp)?;
         }
 
         Ok(())
@@ -517,12 +522,17 @@ impl Solver {
                 client_order_id,
                 collateral_amount,
                 fee,
+                timestamp,
             } => {
                 println!(
                     "(solver) CollateralReady for {} {} {:0.5} {:0.5}",
                     chain_id, address, collateral_amount, fee
                 );
-                if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
+                if let Some(order) = self
+                    .client_orders
+                    .read()
+                    .get(&(address, client_order_id.clone()))
+                {
                     // TODO: Figure out: should collateral manager have already paid for the order?
                     // or CollateralEvent is only to tell us that collateral reached sub-accounts?
                     // NOTE: Paying for order, is just telling collateral manager to block certain
@@ -530,16 +540,29 @@ impl Solver {
                     // We assign payment ID so that  we can identify association between order and
                     // allocated collateral.
                     let side = order.read().side;
-                    match self.collateral_manager.write().preauth_payment(
+                    self.collateral_manager.write().preauth_payment(
                         self,
                         chain_id,
                         address,
+                        client_order_id,
+                        timestamp,
                         side,
                         collateral_amount,
-                    )? {
+                    )?;
+                }
+            }
+            CollateralEvent::PreAuthResponse {
+                chain_id: _,
+                address,
+                client_order_id,
+                amount_payable: _,
+                status,
+            } => {
+                if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
+                    match status {
                         // If we're implementing message based protocol, we should make PaymentApproved
                         // a message that we will receive from collateral manager.
-                        PaymentStatus::Approved { payment_id } => {
+                        PreAuthStatus::Approved { payment_id } => {
                             println!("(solver) PaymentApproved: {}", payment_id);
                             let mut order_write = order.write();
                             order_write
@@ -551,7 +574,7 @@ impl Solver {
                             self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
                             self.ready_orders.lock().push_back(order.clone());
                         }
-                        PaymentStatus::NotEnoughFunds => {
+                        PreAuthStatus::NotEnoughFunds => {
                             eprintln!("(solver) Not enough funds")
                         }
                     }
@@ -886,7 +909,7 @@ mod test {
             test_util::{
                 MockCollateralBridge, MockCollateralBridgeInternalEvent, MockCollateralDesignation,
             },
-            CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
+            CollateralDesignation, CollateralRouter, CollateralRouterEvent,
             CollateralTransferEvent,
         },
         core::{
@@ -1118,7 +1141,6 @@ mod test {
         let collateral_manager = Arc::new(RwLock::new(CollateralManager::new(
             collateral_router.clone(),
             tolerance,
-            fund_wait_period,
         )));
 
         let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(
@@ -1276,7 +1298,10 @@ mod test {
                 let q1 = e.quantity * dec!(0.8);
                 let q2 = e.quantity * dec!(0.2);
                 let defer = defer_1.clone();
-                println!("(mock) SingleOrder {} {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}", e.symbol, lot_id, q1, p1, q2, p2);
+                println!(
+                    "(mock) SingleOrder {} {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
+                    e.symbol, lot_id, q1, p1, q2, p2
+                );
                 // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
@@ -1431,12 +1456,14 @@ mod test {
                                 let route_to = route_to.clone();
                                 let amount = *amount;
                                 let fee = amount * dec!(0.01);
+                                let timestamp = Utc::now();
                                 defer_2
                                     .send(Box::new(move || {
                                         collateral_bridge.write().notify_collateral_router_event(
                                             chain_id,
                                             address,
                                             client_order_id,
+                                            timestamp,
                                             route_from,
                                             route_to,
                                             amount - fee,

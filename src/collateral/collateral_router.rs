@@ -2,21 +2,23 @@ use std::{
     collections::HashMap, ops::Add, sync::Arc
 };
 
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use parking_lot::RwLock;
 
 use eyre::{OptionExt, Result};
 
-use crate::{core::{
+use crate::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-}, solver::solver::CollateralManagement};
+};
 
 pub enum CollateralTransferEvent {
     TransferComplete {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
+        timestamp: DateTime<Utc>,
         transfer_from: Symbol,
         transfer_to: Symbol,
         amount: Amount,
@@ -29,6 +31,7 @@ pub enum CollateralRouterEvent {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
+        timestamp: DateTime<Utc>,
         source: Symbol,
         destination: Symbol,
         route_from: Symbol,
@@ -231,6 +234,7 @@ impl CollateralRouter {
                 chain_id,
                 address,
                 client_order_id,
+                timestamp,
                 source,
                 destination,
                 route_from,
@@ -243,11 +247,13 @@ impl CollateralRouter {
                         "(collateral-router) Route Complete for [{}:{}] {}: {} => {} {:0.5} {:0.5}",
                         chain_id, address, client_order_id, route_from, route_to, amount, fee
                     );
+                    // TODO: Accumulate fees from all hops
                     self.observer
                         .publish_single(CollateralTransferEvent::TransferComplete {
                             chain_id,
                             address,
                             client_order_id,
+                            timestamp,
                             transfer_from: route_from,
                             transfer_to: route_to,
                             amount,
@@ -291,6 +297,7 @@ impl IntoObservableSingle<CollateralTransferEvent> for CollateralRouter {
 
 #[cfg(test)]
 pub mod test_util {
+    use chrono::{DateTime, Utc};
     use eyre::Result;
     use std::sync::Arc;
 
@@ -365,6 +372,7 @@ pub mod test_util {
             chain_id: u32,
             address: Address,
             client_order_id: ClientOrderId,
+            timestamp: DateTime<Utc>,
             route_from: Symbol,
             route_to: Symbol,
             amount: Amount,
@@ -375,6 +383,7 @@ pub mod test_util {
                     chain_id,
                     address,
                     client_order_id,
+                    timestamp,
                     source: self.source.read().get_full_name(),
                     destination: self.destination.read().get_full_name(),
                     route_from,
