@@ -64,10 +64,12 @@ pub struct BatchAssetLot {
 impl BatchAssetLot {
     fn try_build_solver_asset_lot(
         &self,
+        lot_id: LotId,
         symbol: Symbol,
         quantity: Amount,
     ) -> Option<SolverOrderAssetLot> {
         Some(SolverOrderAssetLot {
+            lot_id,
             symbol,
             quantity,
             price: self.price,
@@ -136,11 +138,12 @@ impl BatchAssetPosition {
     pub fn try_allocate_lots(
         &mut self,
         index_order: &mut SolverOrder,
+        lot_id: LotId,
         mut quantity: Amount,
     ) -> Option<(Amount, Amount)> {
         let mut collateral_spent = Amount::ZERO;
         let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
-            let asset_allocation = lot.try_build_solver_asset_lot(self.symbol.clone(), quantity)?;
+            let asset_allocation = lot.try_build_solver_asset_lot(lot_id.clone(), self.symbol.clone(), quantity)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
             index_order.lots.push(asset_allocation);
@@ -368,6 +371,7 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         batch: &mut BatchOrderStatus,
         engaged_order: &RwLock<SolverOrderEngagement>,
+        lot_id: LotId,
     ) -> Result<Option<Arc<RwLock<SolverOrder>>>> {
         let mut engaged_order = engaged_order.upgradable_read();
         let engaged_quantity = engaged_order.engaged_quantity;
@@ -465,7 +469,7 @@ impl BatchManager {
             // quantity, as otherwise our numbers wouldn't match up. That is
             // because lots are opened in total quantity matching position.
             let asset_collateral_spent = match position
-                .try_allocate_lots(&mut index_order_write, asset_quantity)
+                .try_allocate_lots(&mut index_order_write, lot_id.clone(), asset_quantity)
             {
                 None => Err(eyre!("Math Problem")),
                 Some((quantity, collateral_spent)) if quantity > self.zero_threshold => Err(eyre!(
@@ -566,6 +570,7 @@ impl BatchManager {
         &self,
         host: &dyn BatchManagerHost,
         batch: &mut BatchOrderStatus,
+        lot_id: LotId,
     ) -> Result<()> {
         let engagements_read = self.engagements.read();
         let engagement = engagements_read
@@ -575,7 +580,7 @@ impl BatchManager {
         let mut ready_orders = VecDeque::new();
 
         for engaged_order in &engagement.engaged_orders {
-            if let Some(index_order) = self.fill_index_order(host, batch, engaged_order)? {
+            if let Some(index_order) = self.fill_index_order(host, batch, engaged_order, lot_id.clone())? {
                 ready_orders.push_back(index_order);
             }
         }
@@ -759,7 +764,7 @@ impl BatchManager {
 
             position.open_lots.push_back(BatchAssetLot {
                 order_id,
-                lot_id,
+                lot_id: lot_id.clone(),
                 original_quantity: quantity,
                 remaining_quantity: quantity,
                 price,
@@ -795,6 +800,6 @@ impl BatchManager {
 
         batch.last_update_timestamp = timestamp;
 
-        self.fill_batch_orders(host, batch)
+        self.fill_batch_orders(host, batch, lot_id)
     }
 }

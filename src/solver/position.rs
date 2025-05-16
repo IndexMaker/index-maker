@@ -27,7 +27,7 @@ pub struct LotId(pub String);
 
 impl Display for LotId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ClientOrderID({})", self.0)
+        write!(f, "LotId({})", self.0)
     }
 }
 

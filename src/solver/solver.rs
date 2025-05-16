@@ -35,7 +35,7 @@ use super::{
     batch_manager::{BatchManager, BatchManagerHost},
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
-    inventory_manager::{InventoryEvent, InventoryManager},
+    inventory_manager::{InventoryEvent, InventoryManager}, position::LotId,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -104,6 +104,9 @@ pub struct SolverOrder {
 /// portion of what was executed to each index order in the batch using
 /// contribution factor.
 pub struct SolverOrderAssetLot {
+    /// Associated Inventory lot ID
+    pub lot_id: LotId,
+
     /// Symbol of an asset
     pub symbol: Symbol,
 
@@ -793,7 +796,8 @@ impl Solver {
                 timestamp,
             } => {
                 println!(
-                    "\n(solver) Handle Inventory Event OpenLot {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    "\n(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    lot_id,
                     side,
                     symbol,
                     quantity,
@@ -817,7 +821,7 @@ impl Solver {
             InventoryEvent::CloseLot {
                 original_order_id: _,
                 original_batch_order_id: _,
-                original_lot_id: _,
+                original_lot_id,
                 closing_order_id,
                 closing_batch_order_id,
                 closing_lot_id,
@@ -835,7 +839,9 @@ impl Solver {
                 closing_timestamp,
             } => {
                 println!(
-                    "\n(solver) Handle Inventory Event CloseLot {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "\n(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    original_lot_id,
+                    closing_lot_id,
                     side,
                     symbol,
                     quantity_closed,
@@ -1247,16 +1253,14 @@ mod test {
 
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
             order_ids: VecDeque::from_iter(
-                [
-                    "Order01", "Order02", "Order03", "Order04", "Order05", "Order06",
-                ]
-                .into_iter()
-                .map_into(),
+                (1..7).map(|n| OrderId(format!("O-{:02}", n)))
             ),
             batch_order_ids: VecDeque::from_iter(
-                ["Batch01", "Batch02", "Batch03"].into_iter().map_into(),
+                (1..4).map(|n| BatchOrderId(format!("B-{:02}", n)))
             ),
-            payment_ids: VecDeque::from_iter(["Payment01", "Payment02"].into_iter().map_into()),
+            payment_ids: VecDeque::from_iter(
+                (1..4).map(|n| PaymentId(format!("P-{:02}", n)))
+            ),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1366,14 +1370,9 @@ mod test {
 
         let order_tracker_2 = order_tracker.clone();
 
-        let lot_ids = RwLock::new(VecDeque::<LotId>::from([
-            "Lot01".into(),
-            "Lot02".into(),
-            "Lof03".into(),
-            "Lot04".into(),
-            "Lot05".into(),
-            "Lot06".into(),
-        ]));
+        let lot_ids = RwLock::new(VecDeque::<LotId>::from_iter(
+            (1..13).map(|n| LotId(format!("L-{:02}", n)))
+        ));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
         let defer_2 = defer_1.clone();
@@ -1382,7 +1381,8 @@ mod test {
             .implementor
             .set_observer_fn(move |e: Arc<SingleOrder>| {
                 let order_connector = order_connector_weak.upgrade().unwrap();
-                let lot_id = lot_ids.write().pop_front().unwrap();
+                let lot_id_1 = lot_ids.write().pop_front().unwrap();
+                let lot_id_2 = lot_ids.write().pop_front().unwrap();
                 let p1 = e.price
                     * match e.side {
                         Side::Buy => dec!(0.995),
@@ -1397,15 +1397,15 @@ mod test {
                 let q2 = e.quantity * dec!(0.2);
                 let defer = defer_1.clone();
                 println!(
-                    "(mock) SingleOrder {} {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
-                    e.symbol, lot_id, q1, p1, q2, p2
+                    "(mock) SingleOrder {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
+                    e.symbol, q1, p1, q2, p2
                 );
                 // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
                         order_connector.write().notify_fill(
                             e.order_id.clone(),
-                            lot_id.clone(),
+                            lot_id_1.clone(),
                             e.symbol.clone(),
                             e.side,
                             p1,
@@ -1420,7 +1420,7 @@ mod test {
                             .send(Box::new(move || {
                                 order_connector.write().notify_fill(
                                     e.order_id.clone(),
-                                    lot_id.clone(),
+                                    lot_id_2.clone(),
                                     e.symbol.clone(),
                                     e.side,
                                     p2,
@@ -1818,7 +1818,7 @@ mod test {
             .notify_server_event(Arc::new(ServerEvent::NewIndexOrder {
                 chain_id,
                 address: get_mock_address_1(),
-                client_order_id: "Order01".into(),
+                client_order_id: "C-01".into(),
                 symbol: get_mock_index_name_1(),
                 side: Side::Buy,
                 collateral_amount,
@@ -1872,8 +1872,8 @@ mod test {
             }
         ));
 
-        let order1 = order_tracker_2.read().get_order(&"Order01".into());
-        let order2 = order_tracker_2.read().get_order(&"Order02".into());
+        let order1 = order_tracker_2.read().get_order(&"O-01".into());
+        let order2 = order_tracker_2.read().get_order(&"O-02".into());
 
         assert!(matches!(order1, Some(_)));
         assert!(matches!(order2, Some(_)));
