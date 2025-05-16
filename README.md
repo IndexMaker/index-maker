@@ -47,7 +47,6 @@ Work included in Phase 1.:
 * [x] Index Order should use Collateral Amount instead of Price & Quantity
     - Change New Order data structures
     - Change liquidity fitting to fit collateral
-    - Carry over remaining collateral between batches
 * [x] Collateral Management (Buy side)
     - Obtain collateral management details from Solver
     - Route collateral from different chains to single destination
@@ -65,6 +64,26 @@ Work included in Phase 1.:
     - Ensure individual orders in a batch have size at least minimum
     - Ensure order rate is within limits
     - Ensure total volley size across batches is not exceeded
+* [ ] Manage Order Batches correctly
+    - Carry over remaining collateral between batches
+    - Remove fully-filled batches
+* [ ] Manage Index Orders correctly
+    - After minting remove Index Order
+    - Fill correct Index Order update based on client order ID
+    - Support Index Order updates
+* [ ] Manage Collateral lots correctly
+    - Investigate what happens when there is both a deposit for Buy trade, and a withdrawal for Sell
+    - Remove closed lots
+* [ ] Logging & Error handling
+    - Find out best way to handle runtime errors
+    - Explore logging mechanism, and craft log messages
+* [ ] Improve Solver Strategy
+    - Investigate behaviour of SimpleSolver in various scenarios
+    - Adjust SimpleSolver liquiditiy fitting algoithm
+    - See if MatrixSolver would be beneficial
+* [ ] Improve Collateral Routing
+    - Multiple destinations
+    - Create a relationship between destinations and Order Connector
 
 #### Design & Performance
 
