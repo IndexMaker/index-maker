@@ -1832,11 +1832,6 @@ mod test {
         flush_events();
         heading("Awaiting collateral");
 
-        // timestamp += fund_wait_period;
-        // solver_tick(timestamp);
-        // flush_events();
-        // heading("Clock moved 10 minutes forward");
-
         for _ in 0..2 {
             let mock_bridge_event = mock_bridge_receiver
                 .recv_timeout(Duration::from_secs(1))
