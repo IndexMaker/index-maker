@@ -146,7 +146,7 @@ pub struct SolverOrderEngagement {
 
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
-    pub engaged_orders: Vec<RwLock<SolverOrderEngagement>>,
+    pub engaged_orders: Vec<SolverOrderEngagement>,
 }
 
 pub struct SolveEngagementsResult {
@@ -206,7 +206,7 @@ pub trait SolverStrategy {
 pub struct Solver {
     // solver strategy for calculating order batches
     strategy: Arc<dyn SolverStrategy>,
-    batch_manager: Arc<BatchManager>,
+    batch_manager: Arc<RwLock<BatchManager>>,
     basket_manager: Arc<RwLock<BasketManager>>,
     order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
     price_tracker: Arc<RwLock<PriceTracker>>,
@@ -244,13 +244,13 @@ impl Solver {
     ) -> Self {
         Self {
             strategy,
-            batch_manager: Arc::new(BatchManager::new(
+            batch_manager: Arc::new(RwLock::new(BatchManager::new(
                 max_batch_size,
                 zero_threshold,
                 fill_threshold,
                 mint_threshold,
                 mint_wait_period,
-            )),
+            ))),
             order_id_provider,
             basket_manager,
             price_tracker,
@@ -310,7 +310,6 @@ impl Solver {
                 .engaged_orders
                 .iter()
                 .map_while(|order| {
-                    let order = order.write();
                     let carried_collateral = order.index_order.read().collateral_carried;
                     if order.engaged_collateral < self.zero_threshold {
                         None
@@ -335,7 +334,11 @@ impl Solver {
                 todo!("We got some error! Send NAKs")
             }
 
-            let batch_order_id = self.batch_manager.handle_new_engagement(engaged_orders)?;
+            let batch_order_id = self
+                .batch_manager
+                .write()
+                .handle_new_engagement(Arc::new(RwLock::new(engaged_orders)))?;
+
             self.index_order_manager
                 .write()
                 .engage_orders(batch_order_id, send_engage)?;
@@ -377,7 +380,7 @@ impl Solver {
     }
 
     fn mint_indexes(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let ready_mints = self.batch_manager.get_mintable_batch(timestamp);
+        let ready_mints = self.batch_manager.read().get_mintable_batch(timestamp);
 
         for mintable_order in ready_mints {
             self.mint_index_order(&mut mintable_order.write(), timestamp)?;
@@ -422,7 +425,11 @@ impl Solver {
         }
 
         println!("(solver) * Send more batches");
-        if let Err(err) = self.batch_manager.send_more_batches(self, timestamp) {
+        if let Err(err) = self
+            .batch_manager
+            .write()
+            .send_more_batches(self, timestamp)
+        {
             eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
@@ -750,7 +757,7 @@ impl Solver {
                 batch_order_id,
                 engaged_orders,
                 timestamp,
-            } => self.batch_manager.handle_engage_index_order(
+            } => self.batch_manager.write().handle_engage_index_order(
                 self,
                 batch_order_id,
                 engaged_orders,
@@ -807,7 +814,7 @@ impl Solver {
                     fee,
                     (|| safe!(safe!(fee * Amount::ONE_HUNDRED) / safe!(quantity * price)?))().unwrap_or_default()
                 );
-                self.batch_manager.handle_new_lot(
+                self.batch_manager.read().handle_new_lot(
                     self,
                     order_id,
                     batch_order_id,
@@ -853,7 +860,7 @@ impl Solver {
                     (|| safe!(safe!(Amount::ONE_HUNDRED * safe!(original_quantity - quantity_remaining)?)?
                         / original_quantity))().unwrap_or_default()
                 );
-                self.batch_manager.handle_new_lot(
+                self.batch_manager.read().handle_new_lot(
                     self,
                     closing_order_id,
                     closing_batch_order_id,
@@ -882,7 +889,7 @@ impl Solver {
                     "(solver) Handle Inventory Event Cancel {} {} {}",
                     order_id, batch_order_id, symbol
                 );
-                self.batch_manager.handle_cancel_order(
+                self.batch_manager.read().handle_cancel_order(
                     batch_order_id,
                     symbol,
                     side,
