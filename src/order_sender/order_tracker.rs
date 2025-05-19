@@ -32,6 +32,7 @@ pub enum OrderTrackerNotification {
         fee_paid: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
+        is_cancelled: bool,
         fill_timestamp: DateTime<Utc>,
     },
     Cancel {
@@ -42,6 +43,7 @@ pub enum OrderTrackerNotification {
         quantity_cancelled: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
+        is_cancelled: bool,
         cancel_timestamp: DateTime<Utc>,
     },
 }
@@ -98,8 +100,9 @@ impl OrderTracker {
         &mut self,
         order_id: OrderId,
         quantity: Amount,
-    ) -> Result<(Arc<OrderEntry>, Amount)> {
-        match self.orders.entry(order_id) {
+        is_cancel: bool,
+    ) -> Result<(Arc<OrderEntry>, Amount, bool, bool)> {
+        match self.orders.entry(order_id.clone()) {
             // We're receiving a Fill or Cancel for an order, so we should be able to find it our records
             Entry::Occupied(entry) => {
                 let order_entry = entry.get();
@@ -111,19 +114,26 @@ impl OrderTracker {
                             if quantity_remaining < self.tolerance {
                                 order_entry
                                     .set_status(OrderStatus::Cancelled { quantity_remaining });
+                                Ok((order_entry.clone(), quantity_remaining, true, true))
                             } else {
                                 // ...otherwise there is quantity left, and we deem it alive
                                 order_entry.set_status(OrderStatus::Live { quantity_remaining });
+                                // We return quantity remaining to avoid unnecessary matching of status by the caller
+                                Ok((order_entry.clone(), quantity_remaining, true, false))
                             }
-                            // We return quantity remaining to avoid unnecessary matching of status by the caller
-                            Ok((order_entry.clone(), quantity_remaining))
                         } else {
                             Err(eyre!("Math overflow"))
                         }
                     }
-                    _ => Err(eyre!(
-                        "We shouldn't be getting fills for an order that was cancelled"
-                    )),
+                    _ => {
+                        if is_cancel && quantity < self.tolerance {
+                            Ok((order_entry.clone(), Amount::ZERO, false, true))
+                        } else {
+                            Err(eyre!(
+                                "We shouldn't be getting fills for an order that was cancelled"
+                            ))
+                        }
+                    }
                 }
             }
             Entry::Vacant(_) => Err(eyre!("Untracked order")),
@@ -131,7 +141,10 @@ impl OrderTracker {
     }
 
     /// Receive execution reports from OrderConnector
-    pub fn handle_order_notification(&mut self, notification: OrderConnectorNotification) {
+    pub fn handle_order_notification(
+        &mut self,
+        notification: OrderConnectorNotification,
+    ) -> Result<()> {
         match notification {
             OrderConnectorNotification::Fill {
                 order_id,
@@ -144,8 +157,8 @@ impl OrderTracker {
                 timestamp,
             } => {
                 // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
-                match self.update_order_status(order_id.clone(), quantity) {
-                    Ok((order_entry, quantity_remaining)) => {
+                match self.update_order_status(order_id.clone(), quantity, false) {
+                    Ok((order_entry, quantity_remaining, _, is_cancelled)) => {
                         // Notify about fills sending notification to subscriber (-> Inventory Manager)
                         self.observer
                             .publish_single(OrderTrackerNotification::Fill {
@@ -159,12 +172,12 @@ impl OrderTracker {
                                 fee_paid: fee,
                                 quantity_filled: quantity,
                                 quantity_remaining,
+                                is_cancelled,
                                 fill_timestamp: timestamp,
                             });
+                        Ok(())
                     }
-                    Err(_) => {
-                        // TBD: publish to error observer
-                    }
+                    Err(err) => Err(eyre!("Error for {} {}", order_id, err)),
                 }
             }
             OrderConnectorNotification::Cancel {
@@ -175,24 +188,26 @@ impl OrderTracker {
                 timestamp,
             } => {
                 // Update book keeping of all orders we sent to exchange (-> Binance Order Connector)
-                match self.update_order_status(order_id.clone(), quantity) {
-                    Ok((order_entry, quantity_remaining)) => {
+                match self.update_order_status(order_id.clone(), quantity, true) {
+                    Ok((order_entry, quantity_remaining, was_live, is_cancelled)) => {
                         // Notify about fills sending notification to subscriber (-> Inventory Manager)
-                        self.observer
-                            .publish_single(OrderTrackerNotification::Cancel {
-                                order_id,
-                                batch_order_id: order_entry.order.batch_order_id.clone(),
-                                symbol,
-                                side,
-                                original_quantity: order_entry.order.quantity,
-                                quantity_cancelled: quantity,
-                                quantity_remaining,
-                                cancel_timestamp: timestamp,
-                            });
+                        if was_live {
+                            self.observer
+                                .publish_single(OrderTrackerNotification::Cancel {
+                                    order_id,
+                                    batch_order_id: order_entry.order.batch_order_id.clone(),
+                                    symbol,
+                                    side,
+                                    original_quantity: order_entry.order.quantity,
+                                    quantity_cancelled: quantity,
+                                    quantity_remaining,
+                                    is_cancelled,
+                                    cancel_timestamp: timestamp,
+                                });
+                        } // otherwise we already notified in the fill
+                        Ok(())
                     }
-                    Err(_) => {
-                        // TBD: publish to error observer
-                    }
+                    Err(err) => Err(eyre!("Error for {} {}", order_id, err)),
                 }
             }
         }
@@ -373,6 +388,7 @@ mod test {
                             fee_paid,
                             original_quantity,
                             quantity_remaining,
+                            is_cancelled,
                             fill_timestamp,
                         } => {
                             flag_mock_atomic_bool(&flag_fill);
@@ -400,6 +416,7 @@ mod test {
                             quantity_cancelled,
                             original_quantity,
                             quantity_remaining,
+                            is_cancelled,
                             cancel_timestamp,
                         } => {
                             flag_mock_atomic_bool(&flag_cancel);

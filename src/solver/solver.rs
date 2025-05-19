@@ -29,13 +29,15 @@ use crate::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{GetPricesResponse, PriceEvent, PriceTracker},
     },
+    order_sender::order_tracker::OrderTrackerNotification,
 };
 
 use super::{
     batch_manager::{BatchManager, BatchManagerHost},
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
-    inventory_manager::{InventoryEvent, InventoryManager}, position::LotId,
+    inventory_manager::{InventoryEvent, InventoryManager},
+    position::LotId,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -810,6 +812,7 @@ impl Solver {
                     order_id,
                     batch_order_id,
                     lot_id,
+                    None,
                     symbol,
                     side,
                     price,
@@ -854,13 +857,38 @@ impl Solver {
                     self,
                     closing_order_id,
                     closing_batch_order_id,
-                    closing_lot_id,
+                    original_lot_id,
+                    Some(closing_lot_id),
                     symbol,
                     side,
                     closing_price,
                     quantity_closed,
                     closing_fee,
                     closing_timestamp,
+                )
+            }
+            InventoryEvent::Cancel {
+                order_id,
+                batch_order_id,
+                symbol,
+                side,
+                quantity_cancelled,
+                original_quantity: _,
+                quantity_remaining: _,
+                is_cancelled,
+                cancel_timestamp,
+            } => {
+                println!(
+                    "(solver) Handle Inventory Event Cancel {} {} {}",
+                    order_id, batch_order_id, symbol
+                );
+                self.batch_manager.handle_cancel_order(
+                    batch_order_id,
+                    symbol,
+                    side,
+                    quantity_cancelled,
+                    is_cancelled,
+                    cancel_timestamp,
                 )
             }
         }
@@ -1252,15 +1280,11 @@ mod test {
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
-            order_ids: VecDeque::from_iter(
-                (1..7).map(|n| OrderId(format!("O-{:02}", n)))
-            ),
+            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId(format!("O-{:02}", n)))),
             batch_order_ids: VecDeque::from_iter(
-                (1..4).map(|n| BatchOrderId(format!("B-{:02}", n)))
+                (1..4).map(|n| BatchOrderId(format!("B-{:02}", n))),
             ),
-            payment_ids: VecDeque::from_iter(
-                (1..4).map(|n| PaymentId(format!("P-{:02}", n)))
-            ),
+            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId(format!("P-{:02}", n)))),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1371,7 +1395,7 @@ mod test {
         let order_tracker_2 = order_tracker.clone();
 
         let lot_ids = RwLock::new(VecDeque::<LotId>::from_iter(
-            (1..13).map(|n| LotId(format!("L-{:02}", n)))
+            (1..13).map(|n| LotId(format!("L-{:02}", n))),
         ));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
@@ -1413,6 +1437,7 @@ mod test {
                             dec!(0.001) * p1 * q1,
                             e.created_timestamp,
                         );
+                        let defer_ = defer.clone();
                         // We defer second fill, so that fills of different orders
                         // will be interleaved. We do that to test progressive fill-rate
                         // of the Index Order in our simulation.
@@ -1428,6 +1453,17 @@ mod test {
                                     dec!(0.001) * p2 * q2,
                                     e.created_timestamp,
                                 );
+                                defer_
+                                    .send(Box::new(move || {
+                                        order_connector.write().notify_cancel(
+                                            e.order_id.clone(),
+                                            e.symbol.clone(),
+                                            e.side,
+                                            Amount::ZERO,
+                                            e.created_timestamp,
+                                        );
+                                    }))
+                                    .unwrap();
                             }))
                             .unwrap();
                     }))
@@ -1525,9 +1561,9 @@ mod test {
             });
 
         let impl_collateral_bridge =
-            (move |collateral_bridge: &Arc<RwLock<MockCollateralBridge>>,
-                   mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
-                   defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
+            move |collateral_bridge: &Arc<RwLock<MockCollateralBridge>>,
+                  mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
+                  defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
                 let collateral_bridge_weak = Arc::downgrade(collateral_bridge);
                 collateral_bridge
                     .write()
@@ -1578,7 +1614,7 @@ mod test {
                             .expect("Failed to send bridge event");
                         println!("(mock) Bridge event sent");
                     });
-            });
+            };
 
         impl_collateral_bridge(
             &collateral_bridge_1,
@@ -1628,7 +1664,7 @@ mod test {
 
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
-                        .expect("Failed to handle inventory event"),
+                        .expect("Failed to handle index order manager event"),
 
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
@@ -1645,7 +1681,7 @@ mod test {
                         index_order_manager
                             .write()
                             .handle_server_message(&e)
-                            .expect("Failed to handle index order");
+                            .expect("Failed to handle server event");
 
                         quote_request_manager
                             .write()
@@ -1655,12 +1691,13 @@ mod test {
                         inventory_manager
                             .write()
                             .handle_fill_report(res.unwrap())
-                            .expect("Failed to handle fill report");
+                            .expect("Failed to handle order tracker event");
                     },
                     recv(order_connector_receiver) -> res => {
                         order_tracker
                             .write()
-                            .handle_order_notification(res.unwrap());
+                            .handle_order_notification(res.unwrap())
+                            .expect("Failed to handle order connector event");
                     },
                     recv(deferred) -> res => (res.unwrap())(),
                     recv(solver_tick_receiver) -> res => {
@@ -1945,7 +1982,13 @@ mod test {
         timestamp += mint_wait_period;
         solver_tick(timestamp);
         flush_events();
-        heading(format!("Clock moved forward {:0.1}s", mint_wait_period.as_seconds_f32()).as_str());
+        heading(
+            format!(
+                "Clock moved forward {:0.1}s",
+                mint_wait_period.as_seconds_f32()
+            )
+            .as_str(),
+        );
 
         // wait for solver to solve...
         let mint_index = mock_chain_receiver

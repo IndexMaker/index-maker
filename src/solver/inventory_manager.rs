@@ -54,6 +54,17 @@ pub enum InventoryEvent {
         original_timestamp: DateTime<Utc>,
         closing_timestamp: DateTime<Utc>,
     },
+    Cancel {
+        order_id: OrderId,
+        batch_order_id: BatchOrderId,
+        symbol: Symbol,
+        side: Side,
+        quantity_cancelled: Amount,
+        original_quantity: Amount,
+        quantity_remaining: Amount,
+        is_cancelled: bool,
+        cancel_timestamp: DateTime<Utc>,
+    },
 }
 
 pub struct InventoryManager {
@@ -205,6 +216,7 @@ impl InventoryManager {
                 fee_paid,
                 original_quantity,
                 quantity_remaining,
+                is_cancelled,
                 fill_timestamp,
             } => {
                 // match against open lots, close lots
@@ -225,10 +237,10 @@ impl InventoryManager {
                     // open new lot
                     // send OpenLot event to subscriber (-> Solver)
                     self.create_lot(
-                        order_id,
-                        batch_order_id,
+                        order_id.clone(),
+                        batch_order_id.clone(),
                         lot_id,
-                        symbol,
+                        symbol.clone(),
                         side,
                         price_filled,
                         unmatched_quantity,
@@ -238,26 +250,44 @@ impl InventoryManager {
                         fill_timestamp,
                     )?;
                 }
+                if is_cancelled {
+                    self.observer.publish_single(InventoryEvent::Cancel {
+                        order_id,
+                        batch_order_id,
+                        symbol,
+                        side,
+                        quantity_cancelled: Amount::ZERO,
+                        original_quantity,
+                        quantity_remaining,
+                        is_cancelled: true,
+                        cancel_timestamp: fill_timestamp,
+                    });
+                }
                 Ok(())
             }
 
             OrderTrackerNotification::Cancel {
-                order_id: _,
-                batch_order_id: _,
-                symbol: _,
-                side: _,
-                quantity_cancelled: _,
-                original_quantity: _,
-                quantity_remaining: _,
-                cancel_timestamp: _,
+                order_id,
+                batch_order_id,
+                symbol,
+                side,
+                quantity_cancelled,
+                original_quantity,
+                quantity_remaining,
+                is_cancelled,
+                cancel_timestamp,
             } => {
-                // TBD: Cancel doesn't open or close any lots. It's just a
-                // notification to subscriber that order was cancelled
-                // Perhaps Solver will subscribe directly to OrderTracker for Cancells
-                // if required. OrderTracker needs to receive cancels from OrderConnector
-                // to track remaining quantity and whether order is live or not, but
-                // aside from that cancells may not be of any interest.
-                // We didn't work with lots, so no unmatched quantity to report.
+                self.observer.publish_single(InventoryEvent::Cancel {
+                    order_id,
+                    batch_order_id,
+                    symbol,
+                    side,
+                    quantity_cancelled,
+                    original_quantity,
+                    quantity_remaining,
+                    is_cancelled,
+                    cancel_timestamp,
+                });
                 Ok(())
             }
         }

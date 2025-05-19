@@ -66,6 +66,9 @@ Work included in Phase 1.:
     - Ensure total volley size across batches is not exceeded
 * [ ] Manage Order Batches correctly
     - Carry over remaining collateral between batches
+    - Carry over unused batch order lots between batches
+    - Notify inventory manager of lots assigned to index orders
+    - Notify index order manager of lots assigned to index orders
     - Remove fully-filled batches
 * [ ] Manage Index Orders correctly
     - After minting remove Index Order
