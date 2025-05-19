@@ -890,6 +890,7 @@ impl Solver {
                     order_id, batch_order_id, symbol
                 );
                 self.batch_manager.read().handle_cancel_order(
+                    self,
                     batch_order_id,
                     symbol,
                     side,
@@ -1407,6 +1408,7 @@ mod test {
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
         let defer_2 = defer_1.clone();
+        let fill_pattern = Arc::new(Mutex::new(VecDeque::from([(dec!(0.3), dec!(0.1)), (dec!(0.1), dec!(0.3))])));
         order_connector
             .write()
             .implementor
@@ -1424,8 +1426,9 @@ mod test {
                         Side::Buy => dec!(0.998),
                         Side::Sell => dec!(1.002),
                     };
-                let q1 = e.quantity * dec!(0.8);
-                let q2 = e.quantity * dec!(0.2);
+                let q1 = e.quantity * dec!(0.6);
+                let (f2, f3) = fill_pattern.lock().pop_front().unwrap_or((dec!(0.4), Amount::ZERO));
+                let (q2, q3) = (e.quantity * f2, e.quantity * f3);
                 let defer = defer_1.clone();
                 println!(
                     "(mock) SingleOrder {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
@@ -1466,7 +1469,7 @@ mod test {
                                             e.order_id.clone(),
                                             e.symbol.clone(),
                                             e.side,
-                                            Amount::ZERO,
+                                            q3,
                                             e.created_timestamp,
                                         );
                                     }))
