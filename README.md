@@ -52,11 +52,12 @@ Work included in Phase 1.:
     - Route collateral from different chains to single destination
     - Track collateral journey using lots accounting
     - Reserve confirmed collateral for Solver to start creating order batches
-* [ ] Manage Order Batches correctly
+* [x] Manage Order Batches correctly
     - [x] Collapse multiple orders for same assets in batches
     - [x] Carry over remaining collateral between batches
     - [x] Carry over unused batch order lots between batches
-    - [ ] Remove fully-filled batches
+    - [x] Report completed batches and mintable orders using events
+    - [x] Remove fully-filled batches
 * [ ] Manage Index Orders correctly
     - [ ] After minting remove Index Order
     - [ ] Support Index Order updates
