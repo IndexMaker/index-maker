@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    ops::DerefMut,
     sync::Arc,
 };
 
@@ -16,19 +17,30 @@ use crate::{
             Symbol,
         },
         decimal_ext::DecimalExt,
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     solver::solver::SolverOrderStatus,
 };
 
 use super::{
-    index_order_manager::{EngagedIndexOrder, IndexOrderManager},
-    inventory_manager::InventoryManager,
+    index_order,
+    index_order_manager::EngagedIndexOrder,
     position::LotId,
     solver::{
         EngagedSolverOrders, SetSolverOrderStatus, SolverOrder, SolverOrderAssetLot,
         SolverOrderEngagement,
     },
 };
+
+pub enum BatchEvent {
+    BatchComplete {
+        batch_order_id: BatchOrderId,
+        continued_orders: Vec<Arc<RwLock<SolverOrder>>>,
+    },
+    BatchMintable {
+        mintable_orders: Vec<Arc<RwLock<SolverOrder>>>,
+    },
+}
 
 /// Every execution of any order in the batch produces a lot of the asset on the
 /// order.
@@ -44,6 +56,9 @@ pub struct BatchAssetLot {
 
     /// Transaction ID
     pub lot_id: LotId,
+
+    /// Closing Transaction ID
+    pub closing_lot_id: Option<LotId>,
 
     /// Quantity filled
     pub original_quantity: Amount,
@@ -62,17 +77,30 @@ pub struct BatchAssetLot {
 }
 
 impl BatchAssetLot {
-    fn try_build_solver_asset_lot(
+    fn build_solver_asset_lot(
         &self,
         symbol: Symbol,
         quantity: Amount,
     ) -> Option<SolverOrderAssetLot> {
         Some(SolverOrderAssetLot {
+            lot_id: self.lot_id.clone(),
             symbol,
             quantity,
             price: self.price,
             fee: safe!(self.fee * safe!(quantity / self.original_quantity)?)?,
         })
+    }
+
+    fn split(&mut self) -> BatchAssetLot {
+        let carried_quantity = self.remaining_quantity;
+        self.remaining_quantity = Amount::ZERO;
+        BatchAssetLot {
+            order_id: self.order_id.clone(),
+            lot_id: self.lot_id.clone(),
+            closing_lot_id: self.closing_lot_id.clone(),
+            remaining_quantity: carried_quantity,
+            ..*self
+        }
     }
 }
 
@@ -107,6 +135,12 @@ struct BatchAssetPosition {
     /// Total fee we paid on the order
     fee: Amount,
 
+    /// Tell whether we should expect more updates to this position or not
+    is_cancelled: bool,
+
+    /// Tell if there was any quantity that was cancelled
+    quantity_cancelled: Amount,
+
     /// Time of the last transaction of this asset on this side
     last_update_timestamp: DateTime<Utc>,
 
@@ -127,6 +161,8 @@ impl BatchAssetPosition {
             position: Amount::ZERO,
             realized_value: Amount::ZERO,
             fee: Amount::ZERO,
+            is_cancelled: false,
+            quantity_cancelled: Amount::ZERO,
             last_update_timestamp: timestamp,
             open_lots: VecDeque::new(),
             closed_lots: VecDeque::new(),
@@ -137,29 +173,40 @@ impl BatchAssetPosition {
         &mut self,
         index_order: &mut SolverOrder,
         mut quantity: Amount,
+        tolerance: Amount,
     ) -> Option<(Amount, Amount)> {
         let mut collateral_spent = Amount::ZERO;
         let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
-            let asset_allocation = lot.try_build_solver_asset_lot(self.symbol.clone(), quantity)?;
+            let asset_allocation = lot.build_solver_asset_lot(self.symbol.clone(), quantity)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
+            println!(
+                "(batch-asset-position) IndexOrder allocation for {} {} {} q={:0.5} p={:0.5} fee={:0.5}",
+                index_order.client_order_id,
+                asset_allocation.lot_id,
+                asset_allocation.symbol,
+                asset_allocation.quantity,
+                asset_allocation.price,
+                asset_allocation.fee
+            );
             index_order.lots.push(asset_allocation);
             Some(())
         };
         while let Some(lot) = self.open_lots.front_mut() {
-            if lot.remaining_quantity < quantity {
+            let remaining_quantity = safe!(quantity - lot.remaining_quantity)?;
+            if -tolerance < remaining_quantity {
                 let mut lot = self
                     .open_lots
                     .pop_front()
                     .expect("Should have front at this stage");
                 let used_quantity = lot.remaining_quantity;
                 push_allocation(&mut lot, used_quantity)?;
-                quantity = safe!(quantity - used_quantity)?;
+                quantity = remaining_quantity;
                 lot.remaining_quantity = Amount::ZERO;
                 self.closed_lots.push_back(lot);
             } else {
                 push_allocation(lot, quantity)?;
-                lot.remaining_quantity = safe!(lot.remaining_quantity - quantity)?;
+                lot.remaining_quantity = -remaining_quantity;
                 quantity = Amount::ZERO;
                 break;
             }
@@ -206,6 +253,9 @@ struct BatchOrderStatus {
     /// Total fee we paid on the batch
     fee: Amount,
 
+    /// Tell is we should expect more updated from this batch
+    is_cancelled: bool,
+
     /// Time of the last transaction
     last_update_timestamp: DateTime<Utc>,
 }
@@ -220,6 +270,7 @@ impl BatchOrderStatus {
             filled_fraction: Amount::ZERO,
             realized_value: Amount::ZERO,
             fee: Amount::ZERO,
+            is_cancelled: false,
             last_update_timestamp: timestamp,
         }
     }
@@ -239,11 +290,195 @@ impl BatchOrderStatus {
         }
         Some(())
     }
+
+    pub fn update(
+        &mut self,
+        order_id: OrderId,
+        batch_order_id: BatchOrderId,
+        lot_id: LotId,
+        closing_lot_id: Option<LotId>,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        quantity: Amount,
+        fee: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let key = (symbol.clone(), side);
+        let position = self
+            .positions
+            .get_mut(&key)
+            .ok_or_eyre("Cannot find position")?;
+
+        (|| {
+            position.position = safe!(position.position + quantity)?;
+
+            let fraction_delta = safe!(quantity / position.order_quantity)?;
+            let filled_asset_volley = safe!(fraction_delta * position.volley_size)?;
+            self.filled_volley = safe!(self.filled_volley + filled_asset_volley)?;
+            self.filled_fraction = safe!(self.filled_volley / self.volley_size)?;
+
+            let filled_value = safe!(quantity * price)?;
+            position.realized_value = safe!(position.realized_value + filled_value)?;
+            self.realized_value = safe!(self.realized_value + filled_value)?;
+
+            position.fee = safe!(position.fee + fee)?;
+            self.fee = safe!(self.fee + fee)?;
+
+            position.open_lots.push_back(BatchAssetLot {
+                order_id,
+                lot_id,
+                closing_lot_id,
+                original_quantity: quantity,
+                remaining_quantity: quantity,
+                price,
+                fee,
+                timestamp,
+            });
+
+            position.last_update_timestamp = timestamp;
+            self.last_update_timestamp = timestamp;
+
+            Some(())
+        })()
+        .ok_or_eyre("Math Problem")?;
+
+        println!(
+            "(batch-manager) Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
+            position.side,
+            position.symbol,
+            position.order_quantity,
+            position.volley_size,
+            position.position,
+            position.realized_value,
+            position.fee
+        );
+
+        println!(
+            "(batch-manager) Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
+            batch_order_id,
+            self.volley_size,
+            self.filled_volley,
+            self.filled_fraction,
+            self.realized_value,
+            self.fee
+        );
+
+        Ok(())
+    }
+
+    pub fn cancel(
+        &mut self,
+        symbol: Symbol,
+        side: Side,
+        quantity_cancelled: Amount,
+        is_cancelled: bool,
+        cancel_timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let key = (symbol, side);
+        let position = self
+            .positions
+            .get_mut(&key)
+            .ok_or_eyre("Missing Position")?;
+
+        position.is_cancelled = is_cancelled;
+        position.quantity_cancelled = quantity_cancelled;
+        position.last_update_timestamp = cancel_timestamp;
+
+        if self
+            .positions
+            .values()
+            .all(|position| position.is_cancelled)
+        {
+            println!(
+                "(batch-manager) Batch is all cancelled {}",
+                self.batch_order_id
+            );
+            self.is_cancelled = true;
+        }
+
+        Ok(())
+    }
+
+    pub fn carry_over(
+        &mut self,
+        carry_overs: &mut HashMap<(Symbol, Side), BatchCarryOver>,
+    ) -> Result<()> {
+        for ((symbol, side), position) in self.positions.iter_mut() {
+            (|| {
+                if let Some(first) = position.open_lots.front_mut() {
+                    let mut carried_lots = VecDeque::new();
+                    carried_lots.push_back(first.split());
+                    carried_lots.extend(position.open_lots.drain(1..));
+                    let carried_position =
+                        carried_lots.iter().map(|lot| lot.remaining_quantity).sum();
+                    println!(
+                        "(batch-order-status) Carried over {} {:?} {:0.5}",
+                        symbol, side, carried_position
+                    );
+
+                    match carry_overs.entry((symbol.clone(), *side)) {
+                        Entry::Vacant(entry) => {
+                            entry.insert(BatchCarryOver {
+                                symbol: position.symbol.clone(),
+                                side: position.side,
+                                carried_position,
+                                carried_lots,
+                            });
+                        }
+                        Entry::Occupied(mut entry) => {
+                            let data = entry.get_mut();
+                            data.carried_position =
+                                safe!(data.carried_position + carried_position)?;
+                            data.carried_lots.extend(carried_lots);
+                        }
+                    }
+                }
+
+                Some(())
+            })()
+            .ok_or_eyre("Failed to compute carried over position")?;
+        }
+        Ok(())
+    }
+
+    pub fn carry_in(
+        &mut self,
+        carry_overs: &mut HashMap<(Symbol, Side), BatchCarryOver>,
+    ) -> Result<HashMap<(Symbol, Side), Amount>> {
+        let mut result = HashMap::new();
+        for ((symbol, side), position) in self.positions.iter_mut() {
+            match carry_overs.entry((symbol.clone(), *side)) {
+                Entry::Vacant(_) => {}
+                Entry::Occupied(entry) => {
+                    let carried = entry.remove(); // we should only carry once
+                    position.open_lots.extend(carried.carried_lots);
+                    position.position = safe!(position.position + carried.carried_position)
+                        .ok_or_eyre("Math Problem")?;
+                    result.insert((symbol.clone(), *side), carried.carried_position);
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+struct BatchCarryOver {
+    /// Symbol of an asset
+    symbol: Symbol,
+
+    /// Side of an order
+    side: Side,
+
+    /// Total quantity carried over
+    carried_position: Amount,
+
+    /// Unallocated lots
+    carried_lots: VecDeque<BatchAssetLot>,
 }
 
 pub trait BatchManagerHost: SetSolverOrderStatus {
     fn get_next_order_id(&self) -> OrderId;
-    fn handle_orders_ready(&self, ready_orders: VecDeque<Arc<RwLock<SolverOrder>>>);
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()>;
     fn fill_order_request(
         &self,
@@ -257,9 +492,11 @@ pub trait BatchManagerHost: SetSolverOrderStatus {
 }
 
 pub struct BatchManager {
-    batches: RwLock<HashMap<BatchOrderId, BatchOrderStatus>>,
-    engagements: RwLock<HashMap<BatchOrderId, EngagedSolverOrders>>,
-    ready_batches: Mutex<VecDeque<BatchOrderId>>,
+    observer: SingleObserver<BatchEvent>,
+    batches: HashMap<BatchOrderId, Arc<RwLock<BatchOrderStatus>>>,
+    engagements: HashMap<BatchOrderId, Arc<RwLock<EngagedSolverOrders>>>,
+    ready_batches: VecDeque<BatchOrderId>,
+    carry_overs: Mutex<HashMap<(Symbol, Side), BatchCarryOver>>,
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     max_batch_size: usize,
     zero_threshold: Amount,
@@ -277,9 +514,11 @@ impl BatchManager {
         mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
-            engagements: RwLock::new(HashMap::new()),
-            ready_batches: Mutex::new(VecDeque::new()),
-            batches: RwLock::new(HashMap::new()),
+            observer: SingleObserver::new(),
+            batches: HashMap::new(),
+            engagements: HashMap::new(),
+            ready_batches: VecDeque::new(),
+            carry_overs: Mutex::new(HashMap::new()),
             ready_mints: Mutex::new(VecDeque::new()),
             max_batch_size,
             zero_threshold,
@@ -289,77 +528,114 @@ impl BatchManager {
         }
     }
 
-    fn send_batch(
+    fn build_batch_order(
         &self,
         host: &dyn BatchManagerHost,
         engaged_orders: &EngagedSolverOrders,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
-        // TODO: we should generate IDs
+    ) -> Result<BatchOrder> {
         let batch_order_id = &engaged_orders.batch_order_id;
+        let mut batch_data = HashMap::new();
 
-        // TODO: we should compact these batches (and do matrix solving)
-        let batches = engaged_orders
-            .engaged_orders
-            .iter()
-            .map_while(|engage_order| {
-                let engage_order = engage_order.read();
-                Some(Arc::new(BatchOrder {
-                    batch_order_id: batch_order_id.clone(),
-                    created_timestamp: timestamp,
-                    asset_orders: engage_order
-                        .basket
-                        .basket_assets
-                        .iter()
-                        .map(|basket_asset| {
-                            let asset_symbol = &basket_asset.weight.asset.name;
-                            let price =
-                                *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
-                            let quantity =
-                                *engage_order.asset_quantities.get(&asset_symbol).unwrap();
-                            AssetOrder {
-                                order_id: host.get_next_order_id(),
-                                price,
-                                quantity,
-                                side: engage_order.engaged_side,
-                                symbol: basket_asset.weight.asset.name.clone(),
-                            }
-                        })
-                        .collect_vec(),
-                }))
-            })
-            .collect_vec();
-
-        for batch in batches {
-            println!(
-                "(batch-manager) Sending Batch: {}",
-                batch
-                    .asset_orders
-                    .iter()
-                    .map(|ba| format!(
-                        "{:?} {}: {:0.5} @ {:0.5}",
-                        ba.side, ba.symbol, ba.quantity, ba.price
-                    ))
-                    .join("; ")
-            );
-            let mut batch_order_status =
-                BatchOrderStatus::new(batch.batch_order_id.clone(), batch.created_timestamp);
-
-            for order in &batch.asset_orders {
-                batch_order_status
-                    .try_add_position(order, batch.created_timestamp)
-                    .ok_or_eyre("Math Problem")?;
+        for engage_order in engaged_orders.engaged_orders.iter() {
+            for basket_asset in engage_order.basket.basket_assets.iter() {
+                let asset_symbol = &basket_asset.weight.asset.name;
+                let price = *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
+                let quantity = *engage_order.asset_quantities.get(&asset_symbol).unwrap();
+                match batch_data.entry(asset_symbol.clone()) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(AssetOrder {
+                            order_id: host.get_next_order_id(),
+                            price,
+                            quantity,
+                            side: engage_order.engaged_side,
+                            symbol: basket_asset.weight.asset.name.clone(),
+                        });
+                    }
+                    Entry::Occupied(mut entry) => {
+                        let asset_order = entry.get_mut();
+                        asset_order.quantity =
+                            safe!(asset_order.quantity + quantity).ok_or_eyre("Math Problem")?;
+                    }
+                }
             }
-
-            self.batches
-                .write()
-                .insert(batch.batch_order_id.clone(), batch_order_status)
-                .is_none()
-                .then_some(())
-                .ok_or_eyre("Duplicate batch ID")?;
-
-            host.send_order_batch(batch)?;
         }
+
+        let batch = BatchOrder {
+            batch_order_id: batch_order_id.clone(),
+            created_timestamp: timestamp,
+            asset_orders: batch_data.into_values().collect_vec(),
+        };
+
+        Ok(batch)
+    }
+
+    fn adjust_order_batch(
+        &self,
+        batch: &mut BatchOrder,
+        carried_positions: HashMap<(Symbol, Side), Amount>,
+    ) -> Result<()> {
+        for asset_order in batch.asset_orders.iter_mut() {
+            if let Some(&carried_quantity) =
+                carried_positions.get(&(asset_order.symbol.clone(), asset_order.side))
+            {
+                let remainng_quantity =
+                    safe!(asset_order.quantity - carried_quantity).ok_or_eyre("Math Problem")?;
+
+                if self.zero_threshold < remainng_quantity {
+                    asset_order.quantity = remainng_quantity;
+                } else {
+                    asset_order.quantity = Amount::ZERO;
+                }
+            }
+        }
+        batch
+            .asset_orders
+            .retain(|asset_order| self.zero_threshold < asset_order.quantity);
+        Ok(())
+    }
+
+    fn send_batch(
+        &mut self,
+        host: &dyn BatchManagerHost,
+        engaged_orders: &EngagedSolverOrders,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let mut batch = self.build_batch_order(host, engaged_orders, timestamp)?;
+        let mut batch_order_status =
+            BatchOrderStatus::new(batch.batch_order_id.clone(), batch.created_timestamp);
+
+        for order in &batch.asset_orders {
+            batch_order_status
+                .try_add_position(order, batch.created_timestamp)
+                .ok_or_eyre("Math Problem")?;
+        }
+
+        let carried_positions = batch_order_status.carry_in(&mut self.carry_overs.lock())?;
+        self.adjust_order_batch(&mut batch, carried_positions)?;
+
+        println!(
+            "(batch-manager) Sending Batch: {}",
+            batch
+                .asset_orders
+                .iter()
+                .map(|ba| format!(
+                    "{:?} {}: {:0.5} @ {:0.5}",
+                    ba.side, ba.symbol, ba.quantity, ba.price
+                ))
+                .join("; ")
+        );
+
+        self.batches
+            .insert(
+                batch.batch_order_id.clone(),
+                Arc::new(RwLock::new(batch_order_status)),
+            )
+            .is_none()
+            .then_some(())
+            .ok_or_eyre("Duplicate batch ID")?;
+
+        host.send_order_batch(Arc::new(batch))?;
         Ok(())
     }
 
@@ -367,9 +643,8 @@ impl BatchManager {
         &self,
         host: &dyn BatchManagerHost,
         batch: &mut BatchOrderStatus,
-        engaged_order: &RwLock<SolverOrderEngagement>,
-    ) -> Result<Option<Arc<RwLock<SolverOrder>>>> {
-        let mut engaged_order = engaged_order.upgradable_read();
+        engaged_order: &mut SolverOrderEngagement,
+    ) -> Result<()> {
         let engaged_quantity = engaged_order.engaged_quantity;
         let index_order = engaged_order.index_order.clone();
         let mut index_order_write = index_order.write();
@@ -437,7 +712,7 @@ impl BatchManager {
 
         // We didn't fill any quantity on that index order
         if filled_quantity_delta < self.zero_threshold {
-            return Ok(None);
+            return Ok(());
         }
 
         // Allocate batch lots to index order
@@ -464,9 +739,11 @@ impl BatchManager {
             // It is critical that this function will match exactly full
             // quantity, as otherwise our numbers wouldn't match up. That is
             // because lots are opened in total quantity matching position.
-            let asset_collateral_spent = match position
-                .try_allocate_lots(&mut index_order_write, asset_quantity)
-            {
+            let asset_collateral_spent = match position.try_allocate_lots(
+                &mut index_order_write,
+                asset_quantity,
+                self.zero_threshold,
+            ) {
                 None => Err(eyre!("Math Problem")),
                 Some((quantity, collateral_spent)) if quantity > self.zero_threshold => Err(eyre!(
                     "Couldn't allocate sufficient lots for Index Order: q={:0.5} cs={:0.5} +{:0.5}",
@@ -491,9 +768,7 @@ impl BatchManager {
         }
 
         // Now we update it
-        engaged_order.with_upgraded(|x| {
-            x.filled_quantity = filled_quantity;
-        });
+        engaged_order.filled_quantity = filled_quantity;
 
         // And we add the delta to the Index Order filled quantity
         index_order_write.filled_quantity =
@@ -553,61 +828,82 @@ impl BatchManager {
 
         if self.fill_threshold < order_fill_rate {
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
-        } else if self.fill_threshold < fill_rate {
-            index_order_write.collateral_carried = index_order_write.engaged_collateral;
-            index_order_write.engaged_collateral = Amount::ZERO;
-            return Ok(Some(index_order.clone()));
         }
 
-        Ok(None)
+        Ok(())
     }
 
     fn fill_batch_orders(
         &self,
         host: &dyn BatchManagerHost,
-        batch: &mut BatchOrderStatus,
+        batch: Arc<RwLock<BatchOrderStatus>>,
     ) -> Result<()> {
-        let engagements_read = self.engagements.read();
-        let engagement = engagements_read
-            .get(&batch.batch_order_id)
-            .ok_or_else(|| eyre!("Engagement not found {}", batch.batch_order_id))?;
+        let batch_order_id = batch.read().batch_order_id.clone();
+        let engagement = self
+            .engagements
+            .get(&batch_order_id)
+            .ok_or_else(|| eyre!("Engagement not found {}", batch_order_id))?;
 
-        let mut ready_orders = VecDeque::new();
-
-        for engaged_order in &engagement.engaged_orders {
-            if let Some(index_order) = self.fill_index_order(host, batch, engaged_order)? {
-                ready_orders.push_back(index_order);
-            }
+        for engaged_order in engagement.write().engaged_orders.iter_mut() {
+            self.fill_index_order(host, &mut batch.write(), engaged_order)?
         }
 
-        host.handle_orders_ready(ready_orders);
+        Ok(())
+    }
+
+    pub fn cleanup_batches(&mut self) -> Result<()> {
+        self.batches.retain(|key, batch| {
+            if batch.read().is_cancelled {
+                let _ = self.engagements.remove(key);
+                false
+            }
+            else {
+                true
+            }
+        });
         Ok(())
     }
 
     pub fn send_more_batches(
-        &self,
+        &mut self,
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let engagements = self.engagements.read();
-
         let new_engagements = (|| {
-            let mut new_batches = self.ready_batches.lock();
+            let new_batches = &mut self.ready_batches;
             let max_drain = new_batches.len().min(self.max_batch_size);
             new_batches
                 .drain(..max_drain)
-                .filter_map(|batch_order_id| engagements.get(&batch_order_id))
+                .filter_map(|batch_order_id| self.engagements.get(&batch_order_id))
+                .cloned()
                 .collect_vec()
         })();
 
         for engaged_orders in new_engagements {
-            self.send_batch(host, engaged_orders, timestamp)?;
+            self.send_batch(host, &engaged_orders.read(), timestamp)?;
         }
 
         Ok(())
     }
 
-    pub fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
+    pub fn process_batches(
+        &mut self,
+        host: &dyn BatchManagerHost,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        self.send_more_batches(host, timestamp)?;
+        self.cleanup_batches()?;
+
+        let mintable_orders = self.get_mintable_batch(timestamp);
+        if !mintable_orders.is_empty() {
+            self.observer
+                .publish_single(BatchEvent::BatchMintable { mintable_orders });
+        }
+
+        Ok(())
+    }
+
+    fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.mint_wait_period;
         let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
         let ready_mints = (|| {
@@ -624,25 +920,19 @@ impl BatchManager {
     }
 
     pub fn handle_new_engagement(
-        &self,
-        engaged_orders: EngagedSolverOrders,
+        &mut self,
+        engaged_orders: Arc<RwLock<EngagedSolverOrders>>,
     ) -> Result<BatchOrderId> {
-        let batch_order_id = match self
-            .engagements
-            .write()
-            .entry(engaged_orders.batch_order_id.clone())
-        {
-            Entry::Vacant(entry) => entry.insert(engaged_orders).batch_order_id.clone(),
-            Entry::Occupied(_) => Err(eyre!(
-                "Dublicate Batch Id: {}",
-                engaged_orders.batch_order_id
-            ))?,
+        let batch_order_id = engaged_orders.read().batch_order_id.clone();
+        match self.engagements.entry(batch_order_id.clone()) {
+            Entry::Vacant(entry) => entry.insert(engaged_orders),
+            Entry::Occupied(_) => Err(eyre!("Dublicate Batch Id: {}", batch_order_id))?,
         };
         Ok(batch_order_id)
     }
 
     pub fn handle_engage_index_order(
-        &self,
+        &mut self,
         host: &dyn BatchManagerHost,
         batch_order_id: BatchOrderId,
         engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
@@ -652,14 +942,13 @@ impl BatchManager {
             "\n(batch-manager) Handle Index Order EngageIndexOrder {}",
             batch_order_id
         );
-        match self.engagements.write().get(&batch_order_id) {
+        match self.engagements.get(&batch_order_id) {
             Some(engaged_orders_stored) => {
                 engaged_orders_stored
+                    .write()
                     .engaged_orders
-                    .iter()
+                    .iter_mut()
                     .for_each(|engaged_order_stored| {
-                        let mut engaged_order_stored = engaged_order_stored.write();
-
                         let index_order = engaged_order_stored.index_order.clone();
                         let mut index_order_stored = index_order.write();
 
@@ -709,7 +998,7 @@ impl BatchManager {
                             }
                         }
                     });
-                self.ready_batches.lock().push_back(batch_order_id);
+                self.ready_batches.push_back(batch_order_id);
             }
             None => {
                 todo!()
@@ -724,6 +1013,7 @@ impl BatchManager {
         order_id: OrderId,
         batch_order_id: BatchOrderId,
         lot_id: LotId,
+        closing_lot_id: Option<LotId>,
         symbol: Symbol,
         side: Side,
         price: Amount,
@@ -731,70 +1021,109 @@ impl BatchManager {
         fee: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let mut write_batches = self.batches.write();
-        let batch = write_batches
-            .get_mut(&batch_order_id)
+        let batch = self
+            .batches
+            .get(&batch_order_id)
+            .cloned()
             .ok_or_eyre("Missing Batch")?;
 
-        let key = (symbol.clone(), side);
-        let position = batch
-            .positions
-            .get_mut(&key)
-            .ok_or_eyre("Missing Position")?;
-
-        (|| {
-            position.position = safe!(position.position + quantity)?;
-
-            let fraction_delta = safe!(quantity / position.order_quantity)?;
-            let filled_asset_volley = safe!(fraction_delta * position.volley_size)?;
-            batch.filled_volley = safe!(batch.filled_volley + filled_asset_volley)?;
-            batch.filled_fraction = safe!(batch.filled_volley / batch.volley_size)?;
-
-            let filled_value = safe!(quantity * price)?;
-            position.realized_value = safe!(position.realized_value + filled_value)?;
-            batch.realized_value = safe!(batch.realized_value + filled_value)?;
-
-            position.fee = safe!(position.fee + fee)?;
-            batch.fee = safe!(batch.fee + fee)?;
-
-            position.open_lots.push_back(BatchAssetLot {
-                order_id,
-                lot_id,
-                original_quantity: quantity,
-                remaining_quantity: quantity,
-                price,
-                fee,
-                timestamp,
-            });
-
-            position.last_update_timestamp = timestamp;
-
-            println!(
-                "(batch-manager) Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
-                position.side,
-                position.symbol,
-                position.order_quantity,
-                position.volley_size,
-                position.position,
-                position.realized_value,
-                position.fee
-            );
-
-            println!(
-                "(batch-manager) Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
-                batch_order_id,
-                batch.volley_size,
-                batch.filled_volley,
-                batch.filled_fraction,
-                batch.realized_value,
-                batch.fee
-            );
-            Some(())
-        })()
-        .ok_or_eyre("Math Problem")?;
-
-        batch.last_update_timestamp = timestamp;
+        batch.write().update(
+            order_id,
+            batch_order_id,
+            lot_id,
+            closing_lot_id,
+            symbol,
+            side,
+            price,
+            quantity,
+            fee,
+            timestamp,
+        )?;
 
         self.fill_batch_orders(host, batch)
+    }
+
+    pub fn handle_cancel_order(
+        &self,
+        host: &dyn BatchManagerHost,
+        batch_order_id: BatchOrderId,
+        symbol: Symbol,
+        side: Side,
+        quantity_cancelled: Amount,
+        is_cancelled: bool,
+        cancel_timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let batch = self
+            .batches
+            .get(&batch_order_id)
+            .cloned()
+            .ok_or_eyre("Missing Batch")?;
+
+        batch.write().cancel(
+            symbol,
+            side,
+            quantity_cancelled,
+            is_cancelled,
+            cancel_timestamp,
+        )?;
+
+        let is_all_cancelled = batch.read().is_cancelled;
+        if is_all_cancelled {
+            //
+            // TODO: Inventory Manager will let us know if batch is complete, and
+            // we should use that information to:
+            //  - carry-over any position that we didn't use to fill an index
+            //  order into next batch.
+            //  - remove batch status to save memory
+            //  - also need to carry over the index orders
+            //
+            let mut carry_overs = self.carry_overs.lock();
+            batch.write().carry_over(&mut carry_overs)?;
+
+            let engagement = self
+                .engagements
+                .get(&batch_order_id)
+                .cloned()
+                .ok_or_eyre("Missing engagement")?;
+
+            let mut continued_orders = Vec::new();
+
+            for engaged_order in engagement.read().engaged_orders.iter() {
+                let mut index_order = engaged_order.index_order.upgradable_read();
+                let collateral_carried = index_order.engaged_collateral;
+
+                if self.zero_threshold < collateral_carried {
+                    if let SolverOrderStatus::FullyMintable = index_order.status {
+                        println!(
+                            "(batch-manager) Index Order is Fully Mintable {} cc={:0.5}",
+                            engaged_order.client_order_id, collateral_carried
+                        );
+                    } else {
+                        println!(
+                            "(batch-manager) Will continue Index Order {} cc={:0.5}",
+                            engaged_order.client_order_id, collateral_carried
+                        );
+                        index_order.with_upgraded(|index_order_write| {
+                            index_order_write.collateral_carried = collateral_carried;
+                            index_order_write.engaged_collateral = Amount::ZERO;
+                        });
+                        continued_orders.push(engaged_order.index_order.clone());
+                    }
+                }
+            }
+
+            self.observer.publish_single(BatchEvent::BatchComplete {
+                batch_order_id,
+                continued_orders,
+            });
+        }
+
+        Ok(())
+    }
+}
+
+impl IntoObservableSingle<BatchEvent> for BatchManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<BatchEvent> {
+        &mut self.observer
     }
 }

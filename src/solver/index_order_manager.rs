@@ -2,13 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
 use crate::{
     core::{
-        bits::{BatchOrderId, PaymentId},
+        bits::BatchOrderId,
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
@@ -18,7 +17,7 @@ use crate::{
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
-use super::index_order::{self, CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
 
 pub struct EngageOrderRequest {
     pub address: Address,
@@ -204,9 +203,11 @@ impl IndexOrderManager {
             // can accept updates, but then neither Solver nor CollateralManager
             // will be able to handle them correctly yet. Also we don't handle
             // correctly fills here should order have more updates.
-            Err(eyre!("{} - {}",
+            Err(eyre!(
+                "{} - {}",
                 "We currently cannot support order updates",
-                "IndexOrder must be fully processed before any next order"))?;
+                "IndexOrder must be fully processed before any next order"
+            ))?;
         }
 
         // Add update to index order

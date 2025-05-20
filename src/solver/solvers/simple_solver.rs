@@ -1117,7 +1117,7 @@ impl SolverStrategy for SimpleSolver {
                 engagement.engaged_collateral
             );
 
-            engagenments.engaged_orders.push(RwLock::new(engagement));
+            engagenments.engaged_orders.push(engagement);
         }
 
         let failed_buys = failed_buys.into_iter().cloned().collect_vec();

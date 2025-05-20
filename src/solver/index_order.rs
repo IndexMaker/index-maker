@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 use safe_math::safe;
 
 use crate::core::{
-    bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
+    bits::{Address, Amount, ClientOrderId, Side, Symbol},
     decimal_ext::DecimalExt,
 };
 

@@ -32,10 +32,11 @@ use crate::{
 };
 
 use super::{
-    batch_manager::{BatchManager, BatchManagerHost},
+    batch_manager::{BatchEvent, BatchManager, BatchManagerHost},
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
+    position::LotId,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -104,6 +105,9 @@ pub struct SolverOrder {
 /// portion of what was executed to each index order in the batch using
 /// contribution factor.
 pub struct SolverOrderAssetLot {
+    /// Associated Inventory lot ID
+    pub lot_id: LotId,
+
     /// Symbol of an asset
     pub symbol: Symbol,
 
@@ -141,7 +145,7 @@ pub struct SolverOrderEngagement {
 
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
-    pub engaged_orders: Vec<RwLock<SolverOrderEngagement>>,
+    pub engaged_orders: Vec<SolverOrderEngagement>,
 }
 
 pub struct SolveEngagementsResult {
@@ -201,7 +205,7 @@ pub trait SolverStrategy {
 pub struct Solver {
     // solver strategy for calculating order batches
     strategy: Arc<dyn SolverStrategy>,
-    batch_manager: Arc<BatchManager>,
+    batch_manager: Arc<RwLock<BatchManager>>,
     basket_manager: Arc<RwLock<BasketManager>>,
     order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
     price_tracker: Arc<RwLock<PriceTracker>>,
@@ -215,6 +219,7 @@ pub struct Solver {
     // orders
     client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
     ready_orders: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
@@ -222,6 +227,7 @@ pub struct Solver {
 impl Solver {
     pub fn new(
         strategy: Arc<dyn SolverStrategy>,
+        batch_manager: Arc<RwLock<BatchManager>>,
         order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
@@ -233,19 +239,10 @@ impl Solver {
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
-        fill_threshold: Amount,
-        mint_threshold: Amount,
-        mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
             strategy,
-            batch_manager: Arc::new(BatchManager::new(
-                max_batch_size,
-                zero_threshold,
-                fill_threshold,
-                mint_threshold,
-                mint_wait_period,
-            )),
+            batch_manager,
             order_id_provider,
             basket_manager,
             price_tracker,
@@ -259,6 +256,7 @@ impl Solver {
             // orders
             client_orders: RwLock::new(HashMap::new()),
             ready_orders: Mutex::new(VecDeque::new()),
+            ready_mints: Mutex::new(VecDeque::new()),
             // parameters
             max_batch_size,
             zero_threshold,
@@ -305,7 +303,6 @@ impl Solver {
                 .engaged_orders
                 .iter()
                 .map_while(|order| {
-                    let order = order.write();
                     let carried_collateral = order.index_order.read().collateral_carried;
                     if order.engaged_collateral < self.zero_threshold {
                         None
@@ -330,7 +327,11 @@ impl Solver {
                 todo!("We got some error! Send NAKs")
             }
 
-            let batch_order_id = self.batch_manager.handle_new_engagement(engaged_orders)?;
+            let batch_order_id = self
+                .batch_manager
+                .write()
+                .handle_new_engagement(Arc::new(RwLock::new(engaged_orders)))?;
+
             self.index_order_manager
                 .write()
                 .engage_orders(batch_order_id, send_engage)?;
@@ -372,7 +373,7 @@ impl Solver {
     }
 
     fn mint_indexes(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let ready_mints = self.batch_manager.get_mintable_batch(timestamp);
+        let ready_mints = Vec::from_iter(self.ready_mints.lock().drain(..));
 
         for mintable_order in ready_mints {
             self.mint_index_order(&mut mintable_order.write(), timestamp)?;
@@ -416,8 +417,8 @@ impl Solver {
             eprintln!("Error while engaging more orders: {:?}", err);
         }
 
-        println!("(solver) * Send more batches");
-        if let Err(err) = self.batch_manager.send_more_batches(self, timestamp) {
+        println!("(solver) * Process batches");
+        if let Err(err) = self.batch_manager.write().process_batches(self, timestamp) {
             eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
@@ -502,6 +503,24 @@ impl Solver {
                 .collateral_manager
                 .write()
                 .handle_withdrawal(self, chain_id, address, amount, timestamp),
+        }
+    }
+
+    pub fn handle_batch_event(&self, notification: BatchEvent) -> Result<()> {
+        match notification {
+            BatchEvent::BatchComplete {
+                batch_order_id,
+                continued_orders,
+            } => {
+                println!("(solver) Handle Batch Complete {}", batch_order_id);
+                self.ready_orders.lock().extend(continued_orders);
+                Ok(())
+            }
+            BatchEvent::BatchMintable { mintable_orders } => {
+                println!("(solver) Handle Batch Mintable");
+                self.ready_mints.lock().extend(mintable_orders);
+                Ok(())
+            }
         }
     }
 
@@ -745,7 +764,7 @@ impl Solver {
                 batch_order_id,
                 engaged_orders,
                 timestamp,
-            } => self.batch_manager.handle_engage_index_order(
+            } => self.batch_manager.write().handle_engage_index_order(
                 self,
                 batch_order_id,
                 engaged_orders,
@@ -793,7 +812,8 @@ impl Solver {
                 timestamp,
             } => {
                 println!(
-                    "\n(solver) Handle Inventory Event OpenLot {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    "\n(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    lot_id,
                     side,
                     symbol,
                     quantity,
@@ -801,11 +821,12 @@ impl Solver {
                     fee,
                     (|| safe!(safe!(fee * Amount::ONE_HUNDRED) / safe!(quantity * price)?))().unwrap_or_default()
                 );
-                self.batch_manager.handle_new_lot(
+                self.batch_manager.read().handle_new_lot(
                     self,
                     order_id,
                     batch_order_id,
                     lot_id,
+                    None,
                     symbol,
                     side,
                     price,
@@ -817,7 +838,7 @@ impl Solver {
             InventoryEvent::CloseLot {
                 original_order_id: _,
                 original_batch_order_id: _,
-                original_lot_id: _,
+                original_lot_id,
                 closing_order_id,
                 closing_batch_order_id,
                 closing_lot_id,
@@ -835,7 +856,9 @@ impl Solver {
                 closing_timestamp,
             } => {
                 println!(
-                    "\n(solver) Handle Inventory Event CloseLot {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "\n(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    original_lot_id,
+                    closing_lot_id,
                     side,
                     symbol,
                     quantity_closed,
@@ -844,17 +867,43 @@ impl Solver {
                     (|| safe!(safe!(Amount::ONE_HUNDRED * safe!(original_quantity - quantity_remaining)?)?
                         / original_quantity))().unwrap_or_default()
                 );
-                self.batch_manager.handle_new_lot(
+                self.batch_manager.read().handle_new_lot(
                     self,
                     closing_order_id,
                     closing_batch_order_id,
-                    closing_lot_id,
+                    original_lot_id,
+                    Some(closing_lot_id),
                     symbol,
                     side,
                     closing_price,
                     quantity_closed,
                     closing_fee,
                     closing_timestamp,
+                )
+            }
+            InventoryEvent::Cancel {
+                order_id,
+                batch_order_id,
+                symbol,
+                side,
+                quantity_cancelled,
+                original_quantity: _,
+                quantity_remaining: _,
+                is_cancelled,
+                cancel_timestamp,
+            } => {
+                println!(
+                    "(solver) Handle Inventory Event Cancel {} {} {}",
+                    order_id, batch_order_id, symbol
+                );
+                self.batch_manager.read().handle_cancel_order(
+                    self,
+                    batch_order_id,
+                    symbol,
+                    side,
+                    quantity_cancelled,
+                    is_cancelled,
+                    cancel_timestamp,
                 )
             }
         }
@@ -946,10 +995,6 @@ impl SolverStrategyHost for Solver {
 impl BatchManagerHost for Solver {
     fn get_next_order_id(&self) -> OrderId {
         self.order_id_provider.write().next_order_id()
-    }
-
-    fn handle_orders_ready(&self, ready_orders: VecDeque<Arc<RwLock<SolverOrder>>>) {
-        self.ready_orders.lock().extend(ready_orders);
     }
 
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
@@ -1127,6 +1172,7 @@ mod test {
         let (price_sender, price_receiver) = unbounded::<PriceEvent>();
         let (market_sender, market_receiver) = unbounded::<Arc<MarketDataEvent>>();
         let (basket_sender, basket_receiver) = unbounded::<BasketNotification>();
+        let (batch_event_sender, batch_event_receiver) = unbounded::<BatchEvent>();
         let (fix_server_sender, fix_server_receiver) = unbounded::<Arc<ServerEvent>>();
         let (order_tracker_sender, order_tracker_receiver) =
             unbounded::<OrderTrackerNotification>();
@@ -1246,17 +1292,11 @@ mod test {
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
-            order_ids: VecDeque::from_iter(
-                [
-                    "Order01", "Order02", "Order03", "Order04", "Order05", "Order06",
-                ]
-                .into_iter()
-                .map_into(),
-            ),
+            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId(format!("O-{:02}", n)))),
             batch_order_ids: VecDeque::from_iter(
-                ["Batch01", "Batch02", "Batch03"].into_iter().map_into(),
+                (1..4).map(|n| BatchOrderId(format!("B-{:02}", n))),
             ),
-            payment_ids: VecDeque::from_iter(["Payment01", "Payment02"].into_iter().map_into()),
+            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId(format!("P-{:02}", n)))),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1266,8 +1306,17 @@ mod test {
             dec!(2000.0),
         ));
 
+        let batch_manager = Arc::new(RwLock::new(BatchManager::new(
+            max_batch_size,
+            tolerance,
+            dec!(0.9999),
+            dec!(0.99),
+            mint_wait_period,
+        )));
+
         let solver = Arc::new(Solver::new(
             solver_strategy.clone(),
+            batch_manager.clone(),
             order_id_provider.clone(),
             basket_manager.clone(),
             price_tracker.clone(),
@@ -1279,9 +1328,6 @@ mod test {
             inventory_manager.clone(),
             max_batch_size,
             tolerance,
-            dec!(0.9999),
-            dec!(0.99),
-            mint_wait_period,
         ));
 
         solver
@@ -1294,6 +1340,11 @@ mod test {
             .write()
             .get_single_observer_mut()
             .set_observer_from(chain_sender);
+
+        batch_manager
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(batch_event_sender);
 
         collateral_manager
             .write()
@@ -1366,23 +1417,23 @@ mod test {
 
         let order_tracker_2 = order_tracker.clone();
 
-        let lot_ids = RwLock::new(VecDeque::<LotId>::from([
-            "Lot01".into(),
-            "Lot02".into(),
-            "Lof03".into(),
-            "Lot04".into(),
-            "Lot05".into(),
-            "Lot06".into(),
-        ]));
+        let lot_ids = RwLock::new(VecDeque::<LotId>::from_iter(
+            (1..13).map(|n| LotId(format!("L-{:02}", n))),
+        ));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
         let defer_2 = defer_1.clone();
+        let fill_pattern = Arc::new(Mutex::new(VecDeque::from([
+            (dec!(0.3), dec!(0.1)),
+            (dec!(0.1), dec!(0.3)),
+        ])));
         order_connector
             .write()
             .implementor
             .set_observer_fn(move |e: Arc<SingleOrder>| {
                 let order_connector = order_connector_weak.upgrade().unwrap();
-                let lot_id = lot_ids.write().pop_front().unwrap();
+                let lot_id_1 = lot_ids.write().pop_front().unwrap();
+                let lot_id_2 = lot_ids.write().pop_front().unwrap();
                 let p1 = e.price
                     * match e.side {
                         Side::Buy => dec!(0.995),
@@ -1393,19 +1444,23 @@ mod test {
                         Side::Buy => dec!(0.998),
                         Side::Sell => dec!(1.002),
                     };
-                let q1 = e.quantity * dec!(0.8);
-                let q2 = e.quantity * dec!(0.2);
+                let q1 = e.quantity * dec!(0.6);
+                let (f2, f3) = fill_pattern
+                    .lock()
+                    .pop_front()
+                    .unwrap_or((dec!(0.4), Amount::ZERO));
+                let (q2, q3) = (e.quantity * f2, e.quantity * f3);
                 let defer = defer_1.clone();
                 println!(
-                    "(mock) SingleOrder {} {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
-                    e.symbol, lot_id, q1, p1, q2, p2
+                    "(mock) SingleOrder {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
+                    e.symbol, q1, p1, q2, p2
                 );
                 // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
                         order_connector.write().notify_fill(
                             e.order_id.clone(),
-                            lot_id.clone(),
+                            lot_id_1.clone(),
                             e.symbol.clone(),
                             e.side,
                             p1,
@@ -1413,6 +1468,7 @@ mod test {
                             dec!(0.001) * p1 * q1,
                             e.created_timestamp,
                         );
+                        let defer_ = defer.clone();
                         // We defer second fill, so that fills of different orders
                         // will be interleaved. We do that to test progressive fill-rate
                         // of the Index Order in our simulation.
@@ -1420,7 +1476,7 @@ mod test {
                             .send(Box::new(move || {
                                 order_connector.write().notify_fill(
                                     e.order_id.clone(),
-                                    lot_id.clone(),
+                                    lot_id_2.clone(),
                                     e.symbol.clone(),
                                     e.side,
                                     p2,
@@ -1428,6 +1484,17 @@ mod test {
                                     dec!(0.001) * p2 * q2,
                                     e.created_timestamp,
                                 );
+                                defer_
+                                    .send(Box::new(move || {
+                                        order_connector.write().notify_cancel(
+                                            e.order_id.clone(),
+                                            e.symbol.clone(),
+                                            e.side,
+                                            q3,
+                                            e.created_timestamp,
+                                        );
+                                    }))
+                                    .unwrap();
                             }))
                             .unwrap();
                     }))
@@ -1525,9 +1592,9 @@ mod test {
             });
 
         let impl_collateral_bridge =
-            (move |collateral_bridge: &Arc<RwLock<MockCollateralBridge>>,
-                   mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
-                   defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
+            move |collateral_bridge: &Arc<RwLock<MockCollateralBridge>>,
+                  mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
+                  defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
                 let collateral_bridge_weak = Arc::downgrade(collateral_bridge);
                 collateral_bridge
                     .write()
@@ -1578,7 +1645,7 @@ mod test {
                             .expect("Failed to send bridge event");
                         println!("(mock) Bridge event sent");
                     });
-            });
+            };
 
         impl_collateral_bridge(
             &collateral_bridge_1,
@@ -1608,6 +1675,10 @@ mod test {
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle chain event"),
 
+                    recv(batch_event_receiver) -> res => solver.handle_batch_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle batch_event event"),
+
                     recv(collateral_receiver) -> res => solver.handle_collateral_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle collateral event"),
@@ -1628,7 +1699,7 @@ mod test {
 
                     recv(index_order_receiver) -> res => solver.handle_index_order(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
-                        .expect("Failed to handle inventory event"),
+                        .expect("Failed to handle index order manager event"),
 
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
@@ -1645,7 +1716,7 @@ mod test {
                         index_order_manager
                             .write()
                             .handle_server_message(&e)
-                            .expect("Failed to handle index order");
+                            .expect("Failed to handle server event");
 
                         quote_request_manager
                             .write()
@@ -1655,12 +1726,13 @@ mod test {
                         inventory_manager
                             .write()
                             .handle_fill_report(res.unwrap())
-                            .expect("Failed to handle fill report");
+                            .expect("Failed to handle order tracker event");
                     },
                     recv(order_connector_receiver) -> res => {
                         order_tracker
                             .write()
-                            .handle_order_notification(res.unwrap());
+                            .handle_order_notification(res.unwrap())
+                            .expect("Failed to handle order connector event");
                     },
                     recv(deferred) -> res => (res.unwrap())(),
                     recv(solver_tick_receiver) -> res => {
@@ -1818,7 +1890,7 @@ mod test {
             .notify_server_event(Arc::new(ServerEvent::NewIndexOrder {
                 chain_id,
                 address: get_mock_address_1(),
-                client_order_id: "Order01".into(),
+                client_order_id: "C-01".into(),
                 symbol: get_mock_index_name_1(),
                 side: Side::Buy,
                 collateral_amount,
@@ -1872,8 +1944,8 @@ mod test {
             }
         ));
 
-        let order1 = order_tracker_2.read().get_order(&"Order01".into());
-        let order2 = order_tracker_2.read().get_order(&"Order02".into());
+        let order1 = order_tracker_2.read().get_order(&"O-01".into());
+        let order2 = order_tracker_2.read().get_order(&"O-02".into());
 
         assert!(matches!(order1, Some(_)));
         assert!(matches!(order2, Some(_)));
@@ -1945,7 +2017,16 @@ mod test {
         timestamp += mint_wait_period;
         solver_tick(timestamp);
         flush_events();
-        heading(format!("Clock moved forward {:0.1}s", mint_wait_period.as_seconds_f32()).as_str());
+        heading(
+            format!(
+                "Clock moved forward {:0.1}s",
+                mint_wait_period.as_seconds_f32()
+            )
+            .as_str(),
+        );
+        
+        solver_tick(timestamp);
+        flush_events();
 
         // wait for solver to solve...
         let mint_index = mock_chain_receiver
