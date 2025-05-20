@@ -56,34 +56,31 @@ Work included in Phase 1.:
     - [x] Collapse multiple orders for same assets in batches
     - [x] Carry over remaining collateral between batches
     - [x] Carry over unused batch order lots between batches
-    - [ ] Notify inventory manager of lots assigned to index orders
-    - [ ] Notify index order manager of lots assigned to index orders
     - [ ] Remove fully-filled batches
 * [ ] Manage Index Orders correctly
     - [ ] After minting remove Index Order
-    - [ ] Fill correct Index Order update based on client order ID
     - [ ] Support Index Order updates
-* [ ] Manage Collateral lots correctly
-    - [ ] Investigate what happens when there is both a deposit for Buy trade, and a withdrawal for Sell
-    - [ ] Remove closed lots
-* [ ] Logging & Error handling
-    - [ ] Find out best way to handle runtime errors
-    - [ ] Explore logging mechanism, and craft log messages
+    - [ ] Fill correct Index Order update based on client order ID
+    - [ ] Notify index order manager of lots assigned to index orders
 * [ ] Add Unit Tests
-    - [ ] Write unit tests for Collateral Manager
-    - [ ] Write unit tests for Batch Manager
     - [ ] Write unit tests for Simple Solver
-* [ ] Sell side implementation
-    - [ ] Obtain collateral management details after filling index order
-    - [ ] Confirm collateral before withdrawal
-    - [ ] Burn index token
+    - [ ] Write unit tests for Batch Manager
+    - [ ] Write unit tests for Collateral Manager
 * [ ] Quote Requests
     - [ ] Manage Quote Requests
     - [ ] Compute Quotes
-* [ ] Additional requirements
+* [ ] Sell side implementation
+    - [ ] Wait for index token collateral before selling assets
+    - [ ] Obtain USD cash management details after filling index order
+    - [ ] Confirm USD cash before withdrawal
+    - [ ] Burn index token collateral
+* [ ] Implement additional limits
     - [ ] Ensure individual orders in a batch have size at least minimum
     - [ ] Ensure order rate is within limits
     - [ ] Ensure total volley size across batches is not exceeded
+* [ ] Logging & Error handling
+    - [ ] Find out best way to handle runtime errors
+    - [ ] Explore logging mechanism, and craft log messages
 * [ ] Improve SBE Test Scenario
     - [ ] Convert SBE test scenario into a framework for scenario testing
     - [ ] Provide multiple test scenarios
@@ -93,6 +90,8 @@ Work included in Phase 1.:
     - [ ] Adjust SimpleSolver liquiditiy fitting algoithm
     - [ ] See if MatrixSolver would be beneficial
 * [ ] Improve Collateral Routing
+    - [ ] Remove closed lots
+    - [ ] Investigate what happens when there is both a deposit for Buy trade, and a withdrawal for Sell
     - [ ] Multiple destinations
     - [ ] Create a relationship between destinations and Order Connector
 
