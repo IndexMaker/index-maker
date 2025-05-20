@@ -29,11 +29,10 @@ use crate::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{GetPricesResponse, PriceEvent, PriceTracker},
     },
-    order_sender::order_tracker::OrderTrackerNotification,
 };
 
 use super::{
-    batch_manager::{BatchManager, BatchManagerHost},
+    batch_manager::{BatchEvent, BatchManager, BatchManagerHost},
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
@@ -220,6 +219,7 @@ pub struct Solver {
     // orders
     client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
     ready_orders: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
@@ -227,6 +227,7 @@ pub struct Solver {
 impl Solver {
     pub fn new(
         strategy: Arc<dyn SolverStrategy>,
+        batch_manager: Arc<RwLock<BatchManager>>,
         order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
@@ -238,19 +239,10 @@ impl Solver {
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
-        fill_threshold: Amount,
-        mint_threshold: Amount,
-        mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
             strategy,
-            batch_manager: Arc::new(RwLock::new(BatchManager::new(
-                max_batch_size,
-                zero_threshold,
-                fill_threshold,
-                mint_threshold,
-                mint_wait_period,
-            ))),
+            batch_manager,
             order_id_provider,
             basket_manager,
             price_tracker,
@@ -264,6 +256,7 @@ impl Solver {
             // orders
             client_orders: RwLock::new(HashMap::new()),
             ready_orders: Mutex::new(VecDeque::new()),
+            ready_mints: Mutex::new(VecDeque::new()),
             // parameters
             max_batch_size,
             zero_threshold,
@@ -380,7 +373,7 @@ impl Solver {
     }
 
     fn mint_indexes(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let ready_mints = self.batch_manager.read().get_mintable_batch(timestamp);
+        let ready_mints = Vec::from_iter(self.ready_mints.lock().drain(..));
 
         for mintable_order in ready_mints {
             self.mint_index_order(&mut mintable_order.write(), timestamp)?;
@@ -424,12 +417,8 @@ impl Solver {
             eprintln!("Error while engaging more orders: {:?}", err);
         }
 
-        println!("(solver) * Send more batches");
-        if let Err(err) = self
-            .batch_manager
-            .write()
-            .send_more_batches(self, timestamp)
-        {
+        println!("(solver) * Process batches");
+        if let Err(err) = self.batch_manager.write().process_batches(self, timestamp) {
             eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
@@ -514,6 +503,24 @@ impl Solver {
                 .collateral_manager
                 .write()
                 .handle_withdrawal(self, chain_id, address, amount, timestamp),
+        }
+    }
+
+    pub fn handle_batch_event(&self, notification: BatchEvent) -> Result<()> {
+        match notification {
+            BatchEvent::BatchComplete {
+                batch_order_id,
+                continued_orders,
+            } => {
+                println!("(solver) Handle Batch Complete {}", batch_order_id);
+                self.ready_orders.lock().extend(continued_orders);
+                Ok(())
+            }
+            BatchEvent::BatchMintable { mintable_orders } => {
+                println!("(solver) Handle Batch Mintable");
+                self.ready_mints.lock().extend(mintable_orders);
+                Ok(())
+            }
         }
     }
 
@@ -990,10 +997,6 @@ impl BatchManagerHost for Solver {
         self.order_id_provider.write().next_order_id()
     }
 
-    fn handle_orders_ready(&self, ready_orders: VecDeque<Arc<RwLock<SolverOrder>>>) {
-        self.ready_orders.lock().extend(ready_orders);
-    }
-
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
         self.inventory_manager.write().new_order_batch(batch_order)
     }
@@ -1169,6 +1172,7 @@ mod test {
         let (price_sender, price_receiver) = unbounded::<PriceEvent>();
         let (market_sender, market_receiver) = unbounded::<Arc<MarketDataEvent>>();
         let (basket_sender, basket_receiver) = unbounded::<BasketNotification>();
+        let (batch_event_sender, batch_event_receiver) = unbounded::<BatchEvent>();
         let (fix_server_sender, fix_server_receiver) = unbounded::<Arc<ServerEvent>>();
         let (order_tracker_sender, order_tracker_receiver) =
             unbounded::<OrderTrackerNotification>();
@@ -1302,8 +1306,17 @@ mod test {
             dec!(2000.0),
         ));
 
+        let batch_manager = Arc::new(RwLock::new(BatchManager::new(
+            max_batch_size,
+            tolerance,
+            dec!(0.9999),
+            dec!(0.99),
+            mint_wait_period,
+        )));
+
         let solver = Arc::new(Solver::new(
             solver_strategy.clone(),
+            batch_manager.clone(),
             order_id_provider.clone(),
             basket_manager.clone(),
             price_tracker.clone(),
@@ -1315,9 +1328,6 @@ mod test {
             inventory_manager.clone(),
             max_batch_size,
             tolerance,
-            dec!(0.9999),
-            dec!(0.99),
-            mint_wait_period,
         ));
 
         solver
@@ -1330,6 +1340,11 @@ mod test {
             .write()
             .get_single_observer_mut()
             .set_observer_from(chain_sender);
+
+        batch_manager
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(batch_event_sender);
 
         collateral_manager
             .write()
@@ -1408,7 +1423,10 @@ mod test {
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
         let defer_2 = defer_1.clone();
-        let fill_pattern = Arc::new(Mutex::new(VecDeque::from([(dec!(0.3), dec!(0.1)), (dec!(0.1), dec!(0.3))])));
+        let fill_pattern = Arc::new(Mutex::new(VecDeque::from([
+            (dec!(0.3), dec!(0.1)),
+            (dec!(0.1), dec!(0.3)),
+        ])));
         order_connector
             .write()
             .implementor
@@ -1427,7 +1445,10 @@ mod test {
                         Side::Sell => dec!(1.002),
                     };
                 let q1 = e.quantity * dec!(0.6);
-                let (f2, f3) = fill_pattern.lock().pop_front().unwrap_or((dec!(0.4), Amount::ZERO));
+                let (f2, f3) = fill_pattern
+                    .lock()
+                    .pop_front()
+                    .unwrap_or((dec!(0.4), Amount::ZERO));
                 let (q2, q3) = (e.quantity * f2, e.quantity * f3);
                 let defer = defer_1.clone();
                 println!(
@@ -1653,6 +1674,10 @@ mod test {
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle chain event"),
+
+                    recv(batch_event_receiver) -> res => solver.handle_batch_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle batch_event event"),
 
                     recv(collateral_receiver) -> res => solver.handle_collateral_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
@@ -1999,6 +2024,9 @@ mod test {
             )
             .as_str(),
         );
+        
+        solver_tick(timestamp);
+        flush_events();
 
         // wait for solver to solve...
         let mint_index = mock_chain_receiver

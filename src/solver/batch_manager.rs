@@ -17,6 +17,7 @@ use crate::{
             Symbol,
         },
         decimal_ext::DecimalExt,
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     solver::solver::SolverOrderStatus,
 };
@@ -30,6 +31,16 @@ use super::{
         SolverOrderEngagement,
     },
 };
+
+pub enum BatchEvent {
+    BatchComplete {
+        batch_order_id: BatchOrderId,
+        continued_orders: Vec<Arc<RwLock<SolverOrder>>>,
+    },
+    BatchMintable {
+        mintable_orders: Vec<Arc<RwLock<SolverOrder>>>,
+    },
+}
 
 /// Every execution of any order in the batch produces a lot of the asset on the
 /// order.
@@ -468,7 +479,6 @@ struct BatchCarryOver {
 
 pub trait BatchManagerHost: SetSolverOrderStatus {
     fn get_next_order_id(&self) -> OrderId;
-    fn handle_orders_ready(&self, ready_orders: VecDeque<Arc<RwLock<SolverOrder>>>);
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()>;
     fn fill_order_request(
         &self,
@@ -482,6 +492,7 @@ pub trait BatchManagerHost: SetSolverOrderStatus {
 }
 
 pub struct BatchManager {
+    observer: SingleObserver<BatchEvent>,
     batches: HashMap<BatchOrderId, Arc<RwLock<BatchOrderStatus>>>,
     engagements: HashMap<BatchOrderId, Arc<RwLock<EngagedSolverOrders>>>,
     ready_batches: VecDeque<BatchOrderId>,
@@ -503,6 +514,7 @@ impl BatchManager {
         mint_wait_period: TimeDelta,
     ) -> Self {
         Self {
+            observer: SingleObserver::new(),
             batches: HashMap::new(),
             engagements: HashMap::new(),
             ready_batches: VecDeque::new(),
@@ -839,6 +851,19 @@ impl BatchManager {
         Ok(())
     }
 
+    pub fn cleanup_batches(&mut self) -> Result<()> {
+        self.batches.retain(|key, batch| {
+            if batch.read().is_cancelled {
+                let _ = self.engagements.remove(key);
+                false
+            }
+            else {
+                true
+            }
+        });
+        Ok(())
+    }
+
     pub fn send_more_batches(
         &mut self,
         host: &dyn BatchManagerHost,
@@ -861,7 +886,24 @@ impl BatchManager {
         Ok(())
     }
 
-    pub fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
+    pub fn process_batches(
+        &mut self,
+        host: &dyn BatchManagerHost,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        self.send_more_batches(host, timestamp)?;
+        self.cleanup_batches()?;
+
+        let mintable_orders = self.get_mintable_batch(timestamp);
+        if !mintable_orders.is_empty() {
+            self.observer
+                .publish_single(BatchEvent::BatchMintable { mintable_orders });
+        }
+
+        Ok(())
+    }
+
+    fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.mint_wait_period;
         let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
         let ready_mints = (|| {
@@ -1044,7 +1086,7 @@ impl BatchManager {
                 .cloned()
                 .ok_or_eyre("Missing engagement")?;
 
-            let mut continued_orders = VecDeque::new();
+            let mut continued_orders = Vec::new();
 
             for engaged_order in engagement.read().engaged_orders.iter() {
                 let mut index_order = engaged_order.index_order.upgradable_read();
@@ -1065,14 +1107,23 @@ impl BatchManager {
                             index_order_write.collateral_carried = collateral_carried;
                             index_order_write.engaged_collateral = Amount::ZERO;
                         });
-                        continued_orders.push_back(engaged_order.index_order.clone());
+                        continued_orders.push(engaged_order.index_order.clone());
                     }
                 }
             }
 
-            host.handle_orders_ready(continued_orders);
+            self.observer.publish_single(BatchEvent::BatchComplete {
+                batch_order_id,
+                continued_orders,
+            });
         }
 
         Ok(())
+    }
+}
+
+impl IntoObservableSingle<BatchEvent> for BatchManager {
+    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<BatchEvent> {
+        &mut self.observer
     }
 }
