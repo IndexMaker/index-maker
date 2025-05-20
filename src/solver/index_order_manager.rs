@@ -1,13 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 
+use alloy::signers::k256::elliptic_curve::weierstrass::add;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
 use crate::{
     core::{
-        bits::BatchOrderId,
+        bits::{BatchOrderId, PaymentId},
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
@@ -17,9 +19,13 @@ use crate::{
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
-use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+use super::{
+    index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome},
+    solver::SolverOrderAssetLot,
+};
 
 pub struct EngageOrderRequest {
+    pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub symbol: Symbol,
@@ -27,8 +33,8 @@ pub struct EngageOrderRequest {
 }
 
 pub struct EngagedIndexOrder {
-    // ID of the original NewOrder request
-    pub original_client_order_id: ClientOrderId,
+    // Chain ID
+    pub chain_id: u32,
 
     /// On-chain address of the User
     pub address: Address,
@@ -47,9 +53,6 @@ pub enum IndexOrderEvent {
     NewIndexOrder {
         // Chain ID
         chain_id: u32,
-
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
 
         /// On-chain address of the User
         address: Address,
@@ -80,8 +83,8 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     CollateralReady {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // Chain ID
+        chain_id: u32,
 
         /// On-chain address of the User
         address: Address,
@@ -102,8 +105,8 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     UpdateIndexOrder {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // Chain ID
+        chain_id: u32,
 
         /// On-chain address of the User
         address: Address,
@@ -121,8 +124,8 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     CancelIndexOrder {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // Chain ID
+        chain_id: u32,
 
         /// On-chain address of the User
         address: Address,
@@ -187,7 +190,6 @@ impl IndexOrderManager {
                 let order = Arc::new(RwLock::new(IndexOrder::new(
                     chain_id,
                     address.clone(),
-                    client_order_id.clone(),
                     symbol.clone(),
                     side,
                     timestamp.clone(),
@@ -195,8 +197,6 @@ impl IndexOrderManager {
                 order
             })
             .clone();
-
-        let original_client_order_id = index_order.read().original_client_order_id.clone();
 
         if !index_order.read().order_updates.is_empty() {
             // TODO: Our current support for order updates is limitted, i.e. we
@@ -226,7 +226,6 @@ impl IndexOrderManager {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         chain_id,
-                        original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         symbol,
@@ -241,7 +240,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
-                        original_client_order_id,
+                        chain_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         collateral_removed: removed_collateral,
@@ -255,7 +254,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
-                        original_client_order_id: original_client_order_id.clone(),
+                        chain_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         timestamp,
@@ -263,7 +262,6 @@ impl IndexOrderManager {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         chain_id,
-                        original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         symbol,
@@ -288,6 +286,7 @@ impl IndexOrderManager {
     /// We would've received CancelOrder request from FIX server.
     fn cancel_index_order(
         &self,
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
@@ -304,8 +303,6 @@ impl IndexOrderManager {
             symbol
         ))?;
 
-        let original_client_order_id = index_order.read().original_client_order_id.clone();
-
         match index_order
             .write()
             .cancel_updates(collateral_amount, self.tolerance)?
@@ -315,7 +312,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
-                        original_client_order_id,
+                        chain_id,
                         address,
                         client_order_id,
                         timestamp,
@@ -327,7 +324,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
-                        original_client_order_id,
+                        chain_id,
                         address,
                         client_order_id,
                         collateral_removed: removed_collateral,
@@ -360,12 +357,14 @@ impl IndexOrderManager {
                 timestamp.clone(),
             ),
             ServerEvent::CancelIndexOrder {
+                chain_id,
                 address,
                 client_order_id,
                 symbol,
                 collateral_amount,
                 timestamp,
             } => self.cancel_index_order(
+                *chain_id,
                 address.clone(),
                 client_order_id.clone(),
                 symbol.clone(),
@@ -378,6 +377,7 @@ impl IndexOrderManager {
 
     pub fn collateral_ready(
         &mut self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -432,7 +432,7 @@ impl IndexOrderManager {
 
                 self.observer
                     .publish_single(IndexOrderEvent::CollateralReady {
-                        original_client_order_id: order_upread.original_client_order_id.clone(),
+                        chain_id,
                         address: *address,
                         client_order_id: client_order_id.clone(),
                         collateral_remaining: update_remaining_collateral,
@@ -447,9 +447,106 @@ impl IndexOrderManager {
         Ok(())
     }
 
+    /// print minting invoice into log
+    fn print_mint_invoice(
+        &self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+        payment_id: &PaymentId,
+        amount_paid: Amount,
+        lots: Vec<SolverOrderAssetLot>,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        println!("(index-order-manager) == Mint Invoice == ");
+        println!("(index-order-manager)");
+        println!("(index-order-manager) Date:  {} ", timestamp);
+        println!("(index-order-manager) To:    [{}:{}]", chain_id, address);
+        println!("(index-order-manager) Order: {}", client_order_id);
+        println!("(index-order-manager) Index: {}", symbol);
+        println!("(index-order-manager)");
+        println!(
+            "(index-order-manager) {: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
+            "Lot", "Symbol", "Qty", "Price", "Fee", "Amount"
+        );
+        println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+        let lots = lots
+            .into_iter()
+            .sorted_by_cached_key(|x| x.lot_id.0.clone())
+            .coalesce(|a, b| {
+                if a.lot_id.eq(&b.lot_id) {
+                    Ok(SolverOrderAssetLot {
+                        fee: a.fee + b.fee,
+                        quantity: a.quantity + b.quantity,
+                        ..a
+                    })
+                } else {
+                    Err((a, b))
+                }
+            })
+            .collect_vec();
+        let total_amount: Amount = lots.iter().map(|x| x.quantity * x.price + x.fee).sum();
+        for lot in lots {
+            println!(
+                "(index-order-manager) {: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
+                format!("{}", lot.lot_id),
+                lot.symbol,
+                lot.quantity,
+                lot.price,
+                lot.fee,
+                lot.quantity * lot.price + lot.fee
+            )
+        }
+        println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+        println!(
+            "(index-order-manager) {: <46} Total Amount  |{: >10.5}",
+            " ", total_amount,
+        );
+        println!(
+            "(index-order-manager) {: <46} Paid          |{: >10.5}",
+            format!("{}", payment_id),
+            amount_paid,
+        );
+        println!(
+            "(index-order-manager) {: <46} Balance       |{: >10.5}",
+            " ",
+            (total_amount - amount_paid),
+        );
+        println!("(index-order-manager)");
+        Ok(())
+    }
+
+    /// cleanup after minting
+    pub fn order_request_minted(
+        &mut self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+        payment_id: &PaymentId,
+        amount_paid: Amount,
+        lots: Vec<SolverOrderAssetLot>,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        // TODO: Move update from engaged to closed and later remove
+        self.print_mint_invoice(
+            chain_id,
+            address,
+            client_order_id,
+            symbol,
+            payment_id,
+            amount_paid,
+            lots,
+            timestamp,
+        )?;
+        Ok(())
+    }
+
     /// provide a method to fill index order request
     pub fn fill_order_request(
         &mut self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -468,7 +565,8 @@ impl IndexOrderManager {
                 index_order.engaged_collateral =
                     Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
                 println!(
-                    "(index-order-manager) Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} + {:0.5} (-{:0.5})",
+                    "(index-order-manager) Fill: [{}:{}] {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} + {:0.5} (-{:0.5})",
+                    chain_id,
                     client_order_id,
                     index_order.filled_quantity,
                     fill_amount,
@@ -532,7 +630,7 @@ impl IndexOrderManager {
                     engage_result.insert(
                         (engage_order.address, engage_order.client_order_id.clone()),
                         EngagedIndexOrder {
-                            original_client_order_id: index_order.original_client_order_id.clone(),
+                            chain_id: engage_order.chain_id,
                             address: engage_order.address,
                             client_order_id: engage_order.client_order_id.clone(),
                             collateral_engaged,
@@ -540,7 +638,7 @@ impl IndexOrderManager {
                         },
                     );
                 } else {
-                    index_order.solver_cancel("Math overflow");
+                    index_order.solver_cancel(engage_order.client_order_id, "Math overflow");
                 }
             } else {
                 return Err(eyre!(

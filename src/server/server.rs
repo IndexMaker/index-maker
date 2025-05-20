@@ -13,6 +13,7 @@ pub enum ServerEvent {
         timestamp: DateTime<Utc>,
     },
     CancelIndexOrder {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
@@ -29,6 +30,7 @@ pub enum ServerEvent {
         timestamp: DateTime<Utc>,
     },
     CancelQuoteRequest {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,

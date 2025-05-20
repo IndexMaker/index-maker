@@ -46,11 +46,8 @@ pub struct IndexOrder {
 
     /// On-chain wallet address
     ///
-    /// An address of the first user who had the index created. First buyer.
-    pub original_address: Address,
-
-    /// ID of the Index Order assigned by the user (<- FIX)
-    pub original_client_order_id: ClientOrderId,
+    /// An address of the user who had the index created.
+    pub address: Address,
 
     /// An index symbol
     pub symbol: Symbol,
@@ -121,15 +118,13 @@ impl IndexOrder {
     pub fn new(
         chain_id: u32,
         address: Address,
-        client_order_id: ClientOrderId,
         symbol: Symbol,
         side: Side,
         timestamp: DateTime<Utc>,
     ) -> Self {
         Self {
             chain_id,
-            original_address: address,
-            original_client_order_id: client_order_id,
+            address,
             symbol,
             side,
             remaining_collateral: Amount::ZERO,
@@ -267,13 +262,10 @@ impl IndexOrder {
         }
     }
 
-    pub fn solver_cancel(&mut self, reason: &str) {
+    pub fn solver_cancel(&mut self, client_order_id: ClientOrderId, reason: &str) {
         self.closed_updates.extend(self.order_updates.drain(..));
         //todo!("figure this one out - solver didn't like this order")
-        println!(
-            "Error in Order: {} {}",
-            self.original_client_order_id, reason
-        );
+        println!("Error in Order: {} {}", client_order_id, reason);
     }
 
     /// Drain
@@ -447,11 +439,10 @@ mod test {
 
         let chain_id = 1u32;
         let address = get_mock_address_1();
-        let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
-        let mut order = IndexOrder::new(chain_id, address, order_id, symbol, Side::Buy, timestamp);
+        let mut order = IndexOrder::new(chain_id, address, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
         let order_id1 = "Order02".into();
@@ -670,11 +661,10 @@ mod test {
 
         let chain_id = 1u32;
         let address = get_mock_address_1();
-        let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
-        let mut order = IndexOrder::new(chain_id, address, order_id, symbol, Side::Buy, timestamp);
+        let mut order = IndexOrder::new(chain_id, address, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
         let order_id1 = "Order02".into();

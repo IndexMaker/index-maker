@@ -482,6 +482,7 @@ pub trait BatchManagerHost: SetSolverOrderStatus {
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()>;
     fn fill_order_request(
         &self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -808,8 +809,9 @@ impl BatchManager {
         );
 
         host.fill_order_request(
+            index_order_write.chain_id,
             &index_order_write.address,
-            &index_order_write.original_client_order_id,
+            &index_order_write.client_order_id,
             &index_order_write.symbol,
             collateral_spent,
             filled_quantity_delta,

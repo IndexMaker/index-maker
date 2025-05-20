@@ -58,9 +58,6 @@ pub struct SolverOrder {
     // Chain ID
     pub chain_id: u32,
 
-    // ID of the original NewOrder request
-    pub original_client_order_id: ClientOrderId,
-
     /// On-chain address of the User
     pub address: Address,
 
@@ -132,6 +129,7 @@ pub struct SolverOrderEngagement {
     pub asset_contribution_fractions: HashMap<Symbol, Amount>,
     pub asset_quantities: HashMap<Symbol, Amount>,
     pub asset_price_limits: HashMap<Symbol, Amount>,
+    pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub symbol: Symbol,
@@ -217,7 +215,7 @@ pub struct Solver {
     quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
     // orders
-    client_orders: RwLock<HashMap<(Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
+    client_orders: RwLock<HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
     ready_orders: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     // parameters
@@ -308,6 +306,7 @@ impl Solver {
                         None
                     } else {
                         Some(EngageOrderRequest {
+                            chain_id: order.chain_id,
                             address: order.address,
                             client_order_id: order.client_order_id.clone(),
                             symbol: order.symbol.clone(),
@@ -541,7 +540,7 @@ impl Solver {
                 if let Some(order) = self
                     .client_orders
                     .read()
-                    .get(&(address, client_order_id.clone()))
+                    .get(&(chain_id, address, client_order_id.clone()))
                 {
                     // TODO: Figure out: should collateral manager have already paid for the order?
                     // or CollateralEvent is only to tell us that collateral reached sub-accounts?
@@ -562,6 +561,7 @@ impl Solver {
 
                     let symbol = &order.read().symbol;
                     self.index_order_manager.write().collateral_ready(
+                        chain_id,
                         &address,
                         &client_order_id,
                         symbol,
@@ -584,7 +584,7 @@ impl Solver {
                     // a message that we will receive from collateral manager.
                     PreAuthStatus::Approved { payment_id } => {
                         if let Some(order) =
-                            self.client_orders.read().get(&(address, client_order_id))
+                            self.client_orders.read().get(&(chain_id, address, client_order_id))
                         {
                             println!("(solver) PreAuth approved: {}", payment_id);
                             let mut order_write = order.write();
@@ -624,7 +624,7 @@ impl Solver {
                 status,
             } => match status {
                 ConfirmStatus::Authorized => {
-                    if let Some(order) = self.client_orders.read().get(&(address, client_order_id))
+                    if let Some(order) = self.client_orders.read().get(&(chain_id, address, client_order_id.clone()))
                     {
                         println!("(solver) Payment authorized: {}", payment_id);
                         let mut order_write = order.write();
@@ -636,6 +636,18 @@ impl Solver {
                             amount_paid,
                             timestamp,
                         );
+                        
+                        let lots = order_write.lots.drain(..).collect_vec();
+                        self.index_order_manager.write().order_request_minted(
+                            chain_id,
+                            &address,
+                            &client_order_id,
+                            &order_write.symbol,
+                            &payment_id,
+                            amount_paid,
+                            lots,
+                            timestamp,
+                        )?;
 
                         self.set_order_status(&mut order_write, SolverOrderStatus::Minted);
                     } else {
@@ -661,7 +673,6 @@ impl Solver {
         match notification {
             IndexOrderEvent::NewIndexOrder {
                 chain_id,
-                original_client_order_id,
                 address,
                 client_order_id,
                 symbol,
@@ -671,17 +682,16 @@ impl Solver {
             } => {
                 println!(
                     "\n(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
-                    symbol, original_client_order_id, client_order_id, address
+                    symbol, client_order_id, client_order_id, address
                 );
                 match self
                     .client_orders
                     .write()
-                    .entry((address, original_client_order_id.clone()))
+                    .entry((chain_id, address, client_order_id.clone()))
                 {
                     Entry::Vacant(entry) => {
                         let solver_order = Arc::new(RwLock::new(SolverOrder {
                             chain_id,
-                            original_client_order_id: original_client_order_id.clone(),
                             address,
                             client_order_id,
                             payment_id: None,
@@ -711,7 +721,7 @@ impl Solver {
                 }
             }
             IndexOrderEvent::UpdateIndexOrder {
-                original_client_order_id,
+                chain_id,
                 address,
                 client_order_id,
                 collateral_removed: _,
@@ -720,12 +730,12 @@ impl Solver {
             } => {
                 println!(
                     "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
-                    original_client_order_id, client_order_id, address
+                    client_order_id, client_order_id, address
                 );
                 todo!();
             }
             IndexOrderEvent::CollateralReady {
-                original_client_order_id,
+                chain_id,
                 address,
                 client_order_id,
                 collateral_remaining,
@@ -735,13 +745,13 @@ impl Solver {
             } => {
                 println!(
                     "\n(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
-                    original_client_order_id,
+                    chain_id,
                     client_order_id,
                     address,
                     collateral_remaining,
                     collateral_spent
                 );
-                if let Some(order) = self.client_orders.read().get(&(address, client_order_id)) {
+                if let Some(order) = self.client_orders.read().get(&(chain_id, address, client_order_id)) {
                     let mut order_write = order.write();
                     order_write.collateral_spent = collateral_spent;
                     order_write.remaining_collateral = collateral_remaining;
@@ -771,14 +781,14 @@ impl Solver {
                 timestamp,
             ),
             IndexOrderEvent::CancelIndexOrder {
-                original_client_order_id,
+                chain_id,
                 address,
                 client_order_id,
                 timestamp: _,
             } => {
                 println!(
-                    "\n(solver) Handle Index Order CancelIndexOrder {} < {} from {}",
-                    original_client_order_id, client_order_id, address
+                    "\n(solver) Handle Index Order CancelIndexOrder {} < {} from [{}:{}]",
+                    client_order_id, client_order_id, chain_id, address
                 );
                 todo!();
             }
@@ -1003,6 +1013,7 @@ impl BatchManagerHost for Solver {
 
     fn fill_order_request(
         &self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -1011,6 +1022,7 @@ impl BatchManagerHost for Solver {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         self.index_order_manager.write().fill_order_request(
+            chain_id,
             address,
             client_order_id,
             symbol,
@@ -2024,7 +2036,7 @@ mod test {
             )
             .as_str(),
         );
-        
+
         solver_tick(timestamp);
         flush_events();
 
