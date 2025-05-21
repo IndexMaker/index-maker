@@ -4,8 +4,15 @@ use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
+use safe_math::safe;
 
-use crate::{core::bits::{Address, Amount, ClientOrderId, PaymentId, Symbol}, solver::index_order};
+use crate::{
+    core::{
+        bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
+        decimal_ext::DecimalExt,
+    },
+    solver::index_order,
+};
 
 use super::{
     index_order::{IndexOrder, IndexOrderUpdate},
@@ -30,42 +37,120 @@ impl IndexOrderUpdateReport {
     pub fn report_closed_update(&self, update: Arc<RwLock<IndexOrderUpdate>>) {
         let update_read = update.read();
         println!(
-            "(index-order-manager) Closing Index Order [{}:{}] {} {} rc={:0.5} cs={:0.5} fill={:0.5} fee={:0.5}",
-            self.chain_id,
-            self.address,
-            self.symbol,
+            "(report) Closing Index Order [{}:{}] {}",
+            self.chain_id, self.address, update_read.client_order_id,
+        );
+        println!(
+            "(report) {} {} rc={:0.5} cs={:0.5} ec={:0.5} fill={:0.5} fee={:0.5} (closed)",
             update_read.client_order_id,
+            self.symbol,
             update_read.remaining_collateral,
             update_read.collateral_spent,
+            update_read.engaged_collateral.unwrap_or_default(),
             update_read.filled_quantity,
             update_read.update_fee,
         );
+        println!("(report)");
     }
+}
+
+fn print_heading(
+    title: &str,
+    index_order_read: &IndexOrder,
+    update_read: &IndexOrderUpdate,
+    timestamp: DateTime<Utc>,
+) {
+    println!("(report) == {} == ", title);
+    println!("(report)");
+    println!("(report) Date:  {} ", timestamp);
+    println!(
+        "(report) To:    [{}:{}]",
+        index_order_read.chain_id, index_order_read.address
+    );
+    println!("(report) Order: {}", update_read.client_order_id);
+    println!("(report) Index: {}", index_order_read.symbol);
+    println!("(report)");
+}
+
+pub fn print_fill_report(
+    index_order_read: &IndexOrder,
+    update_read: &IndexOrderUpdate,
+    fill_amount: Amount,
+    timestamp: DateTime<Utc>,
+) -> Result<()> {
+    print_heading("Fill Report", index_order_read, update_read, timestamp);
+    println!(
+        "(report) {: ^22}| {: ^10} |{: ^10}",
+        "Item", "Qty", "Amount"
+    );
+    println!("(report) {}", (0..46).map(|_| "-").join(""));
+    println!(
+        "(report) {: <22}| {: >10.5} |{: ^10}",
+        "Filled", fill_amount, ""
+    );
+    println!(
+        "(report) {: <22}| {: >10.5} |{: >10.5}",
+        "Total Filled", update_read.filled_quantity, update_read.collateral_spent
+    );
+    println!("(report) {}", (0..46).map(|_| "-").join(""));
+    println!(
+        "(report) {: <22}  {: <10} |{: >10.5}",
+        "Collateral",
+        "Engaged",
+        update_read.engaged_collateral.unwrap_or_default()
+    );
+    println!(
+        "(report) {: <22}  {: <10} |{: >10.5}",
+        " ", "Remaining", update_read.remaining_collateral,
+    );
+
+    println!("(report) {}", (0..46).map(|_| "-").join(""));
+
+    println!("(report)");
+    println!("(report) -- All User Orders --");
+    println!("(report)");
+    println!(
+        "(report) To:    [{}:{}]",
+        index_order_read.chain_id, index_order_read.address
+    );
+    println!("(report) Index: {}", index_order_read.symbol);
+    println!("(report)");
+    println!("(report) {}", (0..46).map(|_| "-").join(""));
+    println!(
+        "(report) {: <22}| {: >10.5} |{: >10.5}",
+        "Total Filled", index_order_read.filled_quantity, index_order_read.collateral_spent
+    );
+    println!("(report) {}", (0..46).map(|_| "-").join(""));
+    println!(
+        "(report) {: <22}  {: <10} |{: >10.5}",
+        "Collateral",
+        "Engaged",
+        index_order_read.engaged_collateral.unwrap_or_default()
+    );
+    println!(
+        "(report) {: <22}  {: <10} |{: >10.5}",
+        " ", "Remaining", index_order_read.remaining_collateral,
+    );
+
+    println!("(report)");
+    Ok(())
 }
 
 /// print minting invoice into log
 pub fn print_mint_invoice(
-    index_order: &Arc<RwLock<IndexOrder>>,
-    update: &Arc<RwLock<IndexOrderUpdate>>,
+    index_order_read: &IndexOrder,
+    update_read: &IndexOrderUpdate,
     payment_id: &PaymentId,
     amount_paid: Amount,
     lots: Vec<SolverOrderAssetLot>,
     timestamp: DateTime<Utc>,
 ) -> Result<()> {
-    let index_order_read = index_order.read();
-    let update_read = update.read();
-    println!("(index-order-manager) == Mint Invoice == ");
-    println!("(index-order-manager)");
-    println!("(index-order-manager) Date:  {} ", timestamp);
-    println!("(index-order-manager) To:    [{}:{}]", index_order_read.chain_id, index_order_read.address);
-    println!("(index-order-manager) Order: {}", update_read.client_order_id);
-    println!("(index-order-manager) Index: {}", index_order_read.symbol);
-    println!("(index-order-manager)");
+    print_heading("Mint Invoice", index_order_read, update_read, timestamp);
     println!(
-        "(index-order-manager) {: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
+        "(report) {: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
         "Lot", "Symbol", "Qty", "Price", "Fee", "Amount"
     );
-    println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+    println!("(report) {}", (0..72).map(|_| "-").join(""));
     let lots = lots
         .into_iter()
         .sorted_by_cached_key(|x| x.lot_id.0.clone())
@@ -103,7 +188,7 @@ pub fn print_mint_invoice(
         .collect_vec();
     for lot in lots {
         println!(
-            "(index-order-manager) {: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
+            "(report) {: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
             format!("{}", lot.lot_id),
             lot.symbol,
             lot.quantity,
@@ -112,49 +197,59 @@ pub fn print_mint_invoice(
             lot.quantity * lot.price + lot.fee
         )
     }
-    println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+    println!("(report) {}", (0..72).map(|_| "-").join(""));
     for sub_total in sub_totals {
         let average_price = (sub_total.3 - sub_total.2) / sub_total.1;
         println!(
-            "(index-order-manager) {: <12}| {: <10} |{: >10.5} |~{: >9.4} |{: >10.5} |{: >10.5}",
+            "(report) {: <12}| {: <10} |{: >10.5} |~{: >9.4} |{: >10.5} |{: >10.5}",
             "Sub-Total", sub_total.0, sub_total.1, average_price, sub_total.2, sub_total.3
         )
     }
-    println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+    println!("(report) {}", (0..72).map(|_| "-").join(""));
     println!(
-        "(index-order-manager) {: <46} Sub Total     |{: >10.5}",
+        "(report) {: <46} Sub Total     |{: >10.5}",
         " ", total_amount,
     );
     println!(
-        "(index-order-manager) {: <46} Paid          |{: >10.5}",
+        "(report) {: <46} Paid          |{: >10.5}",
         format!("{}", payment_id),
         amount_paid,
     );
     println!(
-        "(index-order-manager) {: <46} Balance       |{: >10.5}",
+        "(report) {: <46} Balance       |{: >10.5}",
         " ",
         (total_amount - amount_paid),
     );
-    println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+    println!("(report) {}", (0..72).map(|_| "-").join(""));
+    let total_collateral = total_amount
+        + update_read.update_fee
+        + index_order_read.engaged_collateral.unwrap_or_default();
+    let total_paid = amount_paid + update_read.update_fee;
     println!(
-        "(index-order-manager) {: <46} Deposited     |{: >10.5}",
-        "Collateral",
-        total_amount + update_read.update_fee + index_order_read.engaged_collateral.unwrap_or_default()
+        "(report) {: <46} Deposited     |{: >10.5}",
+        "Collateral", total_collateral,
     );
     println!(
-        "(index-order-manager) {: <46} Paid          |{: >10.5}",
-        "Management Fee",
-        update_read.update_fee,
+        "(report) {: <46} Paid          |{: >10.5}",
+        "Management Fee", update_read.update_fee,
     );
+    println!("(report) {: <46} Total Paid    |{: >10.5}", " ", total_paid,);
     println!(
-        "(index-order-manager) {: <46} Total Paid    |{: >10.5}",
-        " ", total_amount + update_read.update_fee
-    );
-    println!(
-        "(index-order-manager) {: <46} Balance       |{: >10.5}",
+        "(report) {: <46} Balance       |{: >10.5}",
         "Reached minting threshold before full spend",
         index_order_read.engaged_collateral.unwrap_or_default()
     );
-    println!("(index-order-manager)");
+    println!("(report) {}", (0..72).map(|_| "-").join(""));
+    println!(
+        "(report) {: <46} Fill Rate     |{: >9.5}%",
+        "Collateral used",
+        Amount::ONE_HUNDRED * total_paid / total_collateral
+    );
+    println!(
+        "(report) {: <46} Fill Rate     |{: >9.5}%",
+        "Less management fee",
+        Amount::ONE_HUNDRED * amount_paid / (total_collateral - update_read.update_fee)
+    );
+    println!("(report)");
     Ok(())
 }

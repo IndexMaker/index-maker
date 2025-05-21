@@ -286,8 +286,9 @@ impl IndexOrder {
         &self,
         client_order_id: &ClientOrderId,
     ) -> Option<(usize, &Arc<RwLock<IndexOrderUpdate>>)> {
-        self.engaged_updates
-            .iter()
+        // First update in order_updates can be partly enagaged, and 
+        // all updates in engaged_updates are always fully engaged.
+        self.order_updates.iter().take(1).chain(self.engaged_updates.iter())
             .find_position(|x| x.read().client_order_id.eq(client_order_id))
     }
 

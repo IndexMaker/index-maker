@@ -22,9 +22,7 @@ use crate::{
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 use super::{
-    index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
-    mint_invoice::{print_mint_invoice, IndexOrderUpdateReport},
-    solver::SolverOrderAssetLot,
+    index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome}, mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport}, position::LotId, solver::SolverOrderAssetLot
 };
 
 pub struct EngageOrderRequest {
@@ -458,24 +456,39 @@ impl IndexOrderManager {
         client_order_id: &ClientOrderId,
     ) -> Result<()> {
         match self.index_orders.entry(*address) {
-            Entry::Occupied(mut entry) => match entry.get_mut().entry(symbol.clone()) {
-                Entry::Occupied(mut inner_entry) => {
-                    let index_order = inner_entry.get_mut();
-
-                    let mut index_order_write = index_order.write();
-                    index_order_write.solver_complete(client_order_id)?;
-
-                    let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
-                    index_order_write.drain_closed_updates(|x| report.report_closed_update(x));
-
-                    Ok(())
+            Entry::Occupied(mut entry) => {
+                match entry.get_mut().entry(symbol.clone()) {
+                    Entry::Occupied(inner_entry) => {
+                        let should_remove = (|| -> Result<bool> {
+                            let index_order = inner_entry.get();
+                            let mut index_order_write = index_order.write();
+                            index_order_write.solver_complete(client_order_id)?;
+                            Ok(index_order_write.order_updates.is_empty())
+                        })()?;
+                        if should_remove {
+                            println!(
+                                "(index-order-manager) Removing entry for [{}:{}] {}",
+                                chain_id, address, symbol
+                            );
+                            inner_entry.remove();
+                        }
+                        Ok(())
+                    }
+                    Entry::Vacant(_) => Err(eyre!(
+                        "(index-order-manager) No Index orders found for: [{}:{}]",
+                        chain_id,
+                        address
+                    )),
+                }?;
+                if entry.get().is_empty() {
+                    println!(
+                        "(index-order-manager) Removing entry for [{}:{}]",
+                        chain_id, address
+                    );
+                    entry.remove();
                 }
-                Entry::Vacant(_) => Err(eyre!(
-                    "(index-order-manager) No Index orders found for: [{}:{}]",
-                    chain_id,
-                    address
-                )),
-            },
+                Ok(())
+            }
             Entry::Vacant(_) => Err(eyre!(
                 "(index-order-manager) No Index orders found for: [{}:{}]",
                 chain_id,
@@ -519,9 +532,22 @@ impl IndexOrderManager {
 
         self.remove_index_order(chain_id, address, symbol, client_order_id)?;
 
+        self.observer
+            .publish_single(IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                timestamp,
+            });
+
+        let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
+        index_order
+            .write()
+            .drain_closed_updates(|x| report.report_closed_update(x));
+
         print_mint_invoice(
-            &index_order,
-            &update,
+            &index_order.read(),
+            &update.read(),
             payment_id,
             amount_paid,
             lots,
@@ -542,46 +568,54 @@ impl IndexOrderManager {
         fill_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.index_orders
-            .get(address)
-            .and_then(|x| x.get(symbol))
-            .and_then(|index_order| Some(index_order.write()))
-            .and_then(|mut index_order| {
-                // TODO: We need to fill the updates too!
-                index_order.filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
-                index_order.collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
-                index_order.engaged_collateral =
-                    Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
-                println!(
-                    "(index-order-manager) Fill: [{}:{}] {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} + {:0.5} (-{:0.5})",
-                    chain_id,
-                    client_order_id,
-                    index_order.filled_quantity,
-                    fill_amount,
-                    index_order.remaining_collateral,
-                    index_order.engaged_collateral.unwrap_or_default(),
-                    index_order.collateral_spent,
-                );
+        let (index_order, update) = self
+            .find_engaged_update(chain_id, address, client_order_id, symbol)
+            .ok_or_eyre("cannot find order update")?;
 
-                let collateral_remaining =
-                    safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
+        (||{
+            let mut index_order = index_order.upgradable_read();
+            let mut update = update.upgradable_read();
+            
+            let index_order_filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
+            let index_order_collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
+            let index_order_engaged_collateral = Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
+            
+            let update_filled_quantity = safe!(update.filled_quantity + fill_amount)?;
+            let update_collateral_spent = safe!(update.collateral_spent + collateral_spent)?;
+            let update_engaged_collateral = Some(safe!(update.engaged_collateral? - collateral_spent)?);
 
-                self.server.write().respond_with(
-                    ServerResponse::IndexOrderFill {
-                        address: *address,
-                        client_order_id: client_order_id.clone(),
-                        filled_quantity: index_order.filled_quantity,
-                        collateral_spent: index_order.collateral_spent,
-                        collateral_remaining,
-                        timestamp,
-                    },
-                );
+            let collateral_remaining =
+                safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
 
-                // TODO: Fire UpdateIndexOrder event!
+            update.with_upgraded(|update| {
+                update.filled_quantity = update_filled_quantity;
+                update.collateral_spent = update_collateral_spent;
+                update.engaged_collateral = update_engaged_collateral;
+            });
+
+            index_order.with_upgraded(|index_order| {
+                index_order.filled_quantity = index_order_filled_quantity;
+                index_order.collateral_spent = index_order_collateral_spent;
+                index_order.engaged_collateral = index_order_engaged_collateral;
+            });
+
+            self.server
+                .write()
+                .respond_with(ServerResponse::IndexOrderFill {
+                    address: *address,
+                    client_order_id: client_order_id.clone(),
+                    filled_quantity: index_order.filled_quantity,
+                    collateral_spent: index_order.collateral_spent,
+                    collateral_remaining,
+                    timestamp,
+                });
 
                 Some(())
-            })
-            .ok_or_eyre("Failed to update index order")?;
+
+        })().ok_or_eyre("Failed to update index order")?;
+
+        print_fill_report(&index_order.read(), &update.read(), fill_amount, timestamp)?;
+
         Ok(())
     }
 

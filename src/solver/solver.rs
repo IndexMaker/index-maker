@@ -537,10 +537,10 @@ impl Solver {
                     "(solver) CollateralReady for {} {} {:0.5} {:0.5}",
                     chain_id, address, collateral_amount, fee
                 );
-                if let Some(order) = self
-                    .client_orders
-                    .read()
-                    .get(&(chain_id, address, client_order_id.clone()))
+                if let Some(order) =
+                    self.client_orders
+                        .read()
+                        .get(&(chain_id, address, client_order_id.clone()))
                 {
                     // TODO: Figure out: should collateral manager have already paid for the order?
                     // or CollateralEvent is only to tell us that collateral reached sub-accounts?
@@ -584,7 +584,9 @@ impl Solver {
                     // a message that we will receive from collateral manager.
                     PreAuthStatus::Approved { payment_id } => {
                         if let Some(order) =
-                            self.client_orders.read().get(&(chain_id, address, client_order_id))
+                            self.client_orders
+                                .read()
+                                .get(&(chain_id, address, client_order_id))
                         {
                             println!("(solver) PreAuth approved: {}", payment_id);
                             let mut order_write = order.write();
@@ -624,7 +626,10 @@ impl Solver {
                 status,
             } => match status {
                 ConfirmStatus::Authorized => {
-                    if let Some(order) = self.client_orders.read().get(&(chain_id, address, client_order_id.clone()))
+                    if let Some(order) =
+                        self.client_orders
+                            .read()
+                            .get(&(chain_id, address, client_order_id.clone()))
                     {
                         println!("(solver) Payment authorized: {}", payment_id);
                         let mut order_write = order.write();
@@ -636,7 +641,7 @@ impl Solver {
                             amount_paid,
                             timestamp,
                         );
-                        
+
                         let lots = order_write.lots.drain(..).collect_vec();
                         self.index_order_manager.write().order_request_minted(
                             chain_id,
@@ -745,13 +750,13 @@ impl Solver {
             } => {
                 println!(
                     "\n(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
-                    chain_id,
-                    client_order_id,
-                    address,
-                    collateral_remaining,
-                    collateral_spent
+                    chain_id, client_order_id, address, collateral_remaining, collateral_spent
                 );
-                if let Some(order) = self.client_orders.read().get(&(chain_id, address, client_order_id)) {
+                if let Some(order) =
+                    self.client_orders
+                        .read()
+                        .get(&(chain_id, address, client_order_id))
+                {
                     let mut order_write = order.write();
                     order_write.collateral_spent = collateral_spent;
                     order_write.remaining_collateral = collateral_remaining;
@@ -787,10 +792,14 @@ impl Solver {
                 timestamp: _,
             } => {
                 println!(
-                    "\n(solver) Handle Index Order CancelIndexOrder {} < {} from [{}:{}]",
-                    client_order_id, client_order_id, chain_id, address
+                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
+                    chain_id, address, client_order_id
                 );
-                todo!();
+                self.client_orders
+                    .write()
+                    .remove(&(chain_id, address, client_order_id))
+                    .ok_or_eyre("Failed to remove entry")?;
+                Ok(())
             }
         }
     }

@@ -58,11 +58,11 @@ Work included in Phase 1.:
     - [x] Carry over unused batch order lots between batches
     - [x] Report completed batches and mintable orders using events
     - [x] Remove fully-filled batches
-* [ ] Manage Index Orders correctly
-    - [ ] After minting remove Index Order
-    - [ ] Support Index Order updates
-    - [ ] Fill correct Index Order update based on client order ID
-    - [ ] Notify index order manager of lots assigned to index orders
+* [x] Manage Index Orders correctly
+    - [x] After minting remove Index Order
+    - [x] Support Index Order updates
+    - [x] Fill correct Index Order update based on client order ID
+    - [x] Notify index order manager of lots assigned to index orders
 * [ ] Add Unit Tests
     - [ ] Write unit tests for Simple Solver
     - [ ] Write unit tests for Batch Manager
