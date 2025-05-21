@@ -54,6 +54,7 @@ pub mod solver {
     pub mod index_quote;
     pub mod index_quote_manager;
     pub mod inventory_manager;
+    pub mod mint_invoice;
     pub mod position;
     pub mod solver;
     pub mod solvers {

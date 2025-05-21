@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -1043,7 +1043,7 @@ impl CollateralManagerHost for Solver {
 mod test {
     use std::{any::type_name, sync::Arc, time::Duration};
 
-    use chrono::Utc;
+    use chrono::{TimeDelta, Utc};
     use crossbeam::{
         channel::{unbounded, Sender},
         select,

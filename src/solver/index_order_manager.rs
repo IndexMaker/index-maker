@@ -1,6 +1,8 @@
-use std::{collections::HashMap, ops::Add, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
-use alloy::{dyn_abi::parser::is_id_continue, signers::k256::elliptic_curve::weierstrass::add};
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -20,7 +22,8 @@ use crate::{
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 use super::{
-    index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome},
+    index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
+    mint_invoice::{print_mint_invoice, IndexOrderUpdateReport},
     solver::SolverOrderAssetLot,
 };
 
@@ -447,94 +450,55 @@ impl IndexOrderManager {
         Ok(())
     }
 
-    /// print minting invoice into log
-    fn print_mint_invoice(
+    fn remove_index_order(
+        &mut self,
+        chain_id: u32,
+        address: &Address,
+        symbol: &Symbol,
+        client_order_id: &ClientOrderId,
+    ) -> Result<()> {
+        match self.index_orders.entry(*address) {
+            Entry::Occupied(mut entry) => match entry.get_mut().entry(symbol.clone()) {
+                Entry::Occupied(mut inner_entry) => {
+                    let index_order = inner_entry.get_mut();
+
+                    let mut index_order_write = index_order.write();
+                    index_order_write.solver_complete(client_order_id)?;
+
+                    let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
+                    index_order_write.drain_closed_updates(|x| report.report_closed_update(x));
+
+                    Ok(())
+                }
+                Entry::Vacant(_) => Err(eyre!(
+                    "(index-order-manager) No Index orders found for: [{}:{}]",
+                    chain_id,
+                    address
+                )),
+            },
+            Entry::Vacant(_) => Err(eyre!(
+                "(index-order-manager) No Index orders found for: [{}:{}]",
+                chain_id,
+                address
+            )),
+        }
+    }
+
+    fn find_engaged_update(
         &self,
         chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
-        payment_id: &PaymentId,
-        amount_paid: Amount,
-        lots: Vec<SolverOrderAssetLot>,
-        timestamp: DateTime<Utc>,
-    ) -> Result<()> {
-        println!("(index-order-manager) == Mint Invoice == ");
-        println!("(index-order-manager)");
-        println!("(index-order-manager) Date:  {} ", timestamp);
-        println!("(index-order-manager) To:    [{}:{}]", chain_id, address);
-        println!("(index-order-manager) Order: {}", client_order_id);
-        println!("(index-order-manager) Index: {}", symbol);
-        println!("(index-order-manager)");
-        println!(
-            "(index-order-manager) {: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
-            "Lot", "Symbol", "Qty", "Price", "Fee", "Amount"
-        );
-        println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
-        let lots = lots
-            .into_iter()
-            .sorted_by_cached_key(|x| x.lot_id.0.clone())
-            .coalesce(|a, b| {
-                if a.lot_id.eq(&b.lot_id) {
-                    Ok(SolverOrderAssetLot {
-                        fee: a.fee + b.fee,
-                        quantity: a.quantity + b.quantity,
-                        ..a
-                    })
-                } else {
-                    Err((a, b))
-                }
+    ) -> Option<(Arc<RwLock<IndexOrder>>, Arc<RwLock<IndexOrderUpdate>>)> {
+        self.index_orders
+            .get(address)
+            .and_then(|x| x.get(symbol))
+            .and_then(|x| {
+                let r = x.read();
+                let (_, u) = r.find_engaged_update(client_order_id)?;
+                Some((x.clone(), u.clone()))
             })
-            .collect_vec();
-        let total_amount: Amount = lots.iter().map(|x| x.quantity * x.price + x.fee).sum();
-        let sub_totals = lots
-            .iter()
-            .map(|x| (x.symbol.clone(), x.quantity, x.fee, x.price * x.quantity + x.fee))
-            .sorted_by_cached_key(|x| x.0.clone())
-            .coalesce(|a, b| {
-                if a.0.eq(&b.0) {
-                    Ok((a.0, a.1 + b.1, a.2 + b.2, a.3 + b.3))
-                } else {
-                    Err((a, b))
-                }
-            })
-            .collect_vec();
-        for lot in lots {
-            println!(
-                "(index-order-manager) {: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
-                format!("{}", lot.lot_id),
-                lot.symbol,
-                lot.quantity,
-                lot.price,
-                lot.fee,
-                lot.quantity * lot.price + lot.fee
-            )
-        }
-        println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
-        for sub_total in sub_totals {
-            let average_price = (sub_total.3 - sub_total.2)/ sub_total.1;
-            println!(
-                "(index-order-manager) {: <12}| {: <10} |{: >10.5} |~{: >9.4} |{: >10.5} |{: >10.5}",
-                "Sub-Total", sub_total.0, sub_total.1, average_price , sub_total.2, sub_total.3
-            )
-        }
-        println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
-        println!(
-            "(index-order-manager) {: <46} Total Amount  |{: >10.5}",
-            " ", total_amount,
-        );
-        println!(
-            "(index-order-manager) {: <46} Paid          |{: >10.5}",
-            format!("{}", payment_id),
-            amount_paid,
-        );
-        println!(
-            "(index-order-manager) {: <46} Balance       |{: >10.5}",
-            " ",
-            (total_amount - amount_paid),
-        );
-        println!("(index-order-manager)");
-        Ok(())
     }
 
     /// cleanup after minting
@@ -549,17 +513,21 @@ impl IndexOrderManager {
         lots: Vec<SolverOrderAssetLot>,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        // TODO: Move update from engaged to closed and later remove
-        self.print_mint_invoice(
-            chain_id,
-            address,
-            client_order_id,
-            symbol,
+        let (index_order, update) = self
+            .find_engaged_update(chain_id, address, client_order_id, symbol)
+            .ok_or_eyre("cannot find order update")?;
+
+        self.remove_index_order(chain_id, address, symbol, client_order_id)?;
+
+        print_mint_invoice(
+            &index_order,
+            &update,
             payment_id,
             amount_paid,
             lots,
             timestamp,
         )?;
+
         Ok(())
     }
 

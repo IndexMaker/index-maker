@@ -1,7 +1,8 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use eyre::{OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -262,14 +263,42 @@ impl IndexOrder {
         }
     }
 
+    pub fn solver_complete(&mut self, client_order_id: &ClientOrderId) -> Result<()> {
+        let (pos, update) = self
+            .find_engaged_update(client_order_id)
+            .ok_or_else(|| eyre!("Update not found {}", client_order_id))?;
+
+        // TODO: Check: did we already zero remaining collateral in fills?
+        println!(
+            "(index-order) Solver complete {} irc={:0.5} urc={:0.5}",
+            client_order_id,
+            self.remaining_collateral,
+            update.read().remaining_collateral
+        );
+
+        self.closed_updates
+            .push_back(self.engaged_updates.remove(pos).unwrap());
+
+        Ok(())
+    }
+
+    pub fn find_engaged_update(
+        &self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<(usize, &Arc<RwLock<IndexOrderUpdate>>)> {
+        self.engaged_updates
+            .iter()
+            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+    }
+
     pub fn solver_cancel(&mut self, client_order_id: ClientOrderId, reason: &str) {
         self.closed_updates.extend(self.order_updates.drain(..));
         //todo!("figure this one out - solver didn't like this order")
-        println!("Error in Order: {} {}", client_order_id, reason);
+        eprintln!("Error in Order: {} {}", client_order_id, reason);
     }
 
     /// Drain
-    pub fn drain_closed_updates(&mut self, cb: &impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
+    pub fn drain_closed_updates(&mut self, cb: impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
         self.closed_updates.drain(..).for_each(cb);
     }
 
