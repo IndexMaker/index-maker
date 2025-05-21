@@ -90,6 +90,10 @@ Work included in Phase 1.:
     - [ ] Investigate behaviour of SimpleSolver in various scenarios
     - [ ] Adjust SimpleSolver liquiditiy fitting algoithm
     - [ ] See if MatrixSolver would be beneficial
+* [ ] Improve Index Order Engage
+    - [ ] Ensure correct update is engaged
+    - [ ] Investigate if we want to carry engagement into next updates
+    - [ ] Investigate left-over collateral that stays engaged after minting
 * [ ] Improve Collateral Routing
     - [ ] Remove closed lots
     - [ ] Investigate what happens when there is both a deposit for Buy trade, and a withdrawal for Sell
