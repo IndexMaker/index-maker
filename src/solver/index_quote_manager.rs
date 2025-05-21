@@ -67,6 +67,7 @@ pub mod test_util {
                     self.new_quote_request(());
                 }
                 ServerEvent::CancelQuoteRequest {
+                    chain_id: _,
                     address: _,
                     client_order_id: _,
                     symbol: _,

@@ -1,7 +1,8 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use eyre::{OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -46,11 +47,8 @@ pub struct IndexOrder {
 
     /// On-chain wallet address
     ///
-    /// An address of the first user who had the index created. First buyer.
-    pub original_address: Address,
-
-    /// ID of the Index Order assigned by the user (<- FIX)
-    pub original_client_order_id: ClientOrderId,
+    /// An address of the user who had the index created.
+    pub address: Address,
 
     /// An index symbol
     pub symbol: Symbol,
@@ -121,15 +119,13 @@ impl IndexOrder {
     pub fn new(
         chain_id: u32,
         address: Address,
-        client_order_id: ClientOrderId,
         symbol: Symbol,
         side: Side,
         timestamp: DateTime<Utc>,
     ) -> Self {
         Self {
             chain_id,
-            original_address: address,
-            original_client_order_id: client_order_id,
+            address,
             symbol,
             side,
             remaining_collateral: Amount::ZERO,
@@ -267,17 +263,43 @@ impl IndexOrder {
         }
     }
 
-    pub fn solver_cancel(&mut self, reason: &str) {
+    pub fn solver_complete(&mut self, client_order_id: &ClientOrderId) -> Result<()> {
+        let (pos, update) = self
+            .find_engaged_update(client_order_id)
+            .ok_or_else(|| eyre!("Update not found {}", client_order_id))?;
+
+        // TODO: Check: did we already zero remaining collateral in fills?
+        println!(
+            "(index-order) Solver complete {} irc={:0.5} urc={:0.5}",
+            client_order_id,
+            self.remaining_collateral,
+            update.read().remaining_collateral
+        );
+
+        self.closed_updates
+            .push_back(self.engaged_updates.remove(pos).unwrap());
+
+        Ok(())
+    }
+
+    pub fn find_engaged_update(
+        &self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<(usize, &Arc<RwLock<IndexOrderUpdate>>)> {
+        // First update in order_updates can be partly enagaged, and 
+        // all updates in engaged_updates are always fully engaged.
+        self.order_updates.iter().take(1).chain(self.engaged_updates.iter())
+            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+    }
+
+    pub fn solver_cancel(&mut self, client_order_id: ClientOrderId, reason: &str) {
         self.closed_updates.extend(self.order_updates.drain(..));
         //todo!("figure this one out - solver didn't like this order")
-        println!(
-            "Error in Order: {} {}",
-            self.original_client_order_id, reason
-        );
+        eprintln!("Error in Order: {} {}", client_order_id, reason);
     }
 
     /// Drain
-    pub fn drain_closed_updates(&mut self, cb: &impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
+    pub fn drain_closed_updates(&mut self, cb: impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
         self.closed_updates.drain(..).for_each(cb);
     }
 
@@ -447,11 +469,10 @@ mod test {
 
         let chain_id = 1u32;
         let address = get_mock_address_1();
-        let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
-        let mut order = IndexOrder::new(chain_id, address, order_id, symbol, Side::Buy, timestamp);
+        let mut order = IndexOrder::new(chain_id, address, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
         let order_id1 = "Order02".into();
@@ -670,11 +691,10 @@ mod test {
 
         let chain_id = 1u32;
         let address = get_mock_address_1();
-        let order_id = "Order01".into();
         let symbol = get_mock_asset_name_1();
         let timestamp = Utc::now();
 
-        let mut order = IndexOrder::new(chain_id, address, order_id, symbol, Side::Buy, timestamp);
+        let mut order = IndexOrder::new(chain_id, address, symbol, Side::Buy, timestamp);
 
         // And first update on Buy side
         let order_id1 = "Order02".into();

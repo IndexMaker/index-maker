@@ -1,6 +1,5 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
-    ops::DerefMut,
     sync::Arc,
 };
 
@@ -23,7 +22,6 @@ use crate::{
 };
 
 use super::{
-    index_order,
     index_order_manager::EngagedIndexOrder,
     position::LotId,
     solver::{
@@ -482,6 +480,7 @@ pub trait BatchManagerHost: SetSolverOrderStatus {
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()>;
     fn fill_order_request(
         &self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -808,8 +807,9 @@ impl BatchManager {
         );
 
         host.fill_order_request(
+            index_order_write.chain_id,
             &index_order_write.address,
-            &index_order_write.original_client_order_id,
+            &index_order_write.client_order_id,
             &index_order_write.symbol,
             collateral_spent,
             filled_quantity_delta,
@@ -827,6 +827,10 @@ impl BatchManager {
         }
 
         if self.fill_threshold < order_fill_rate {
+            println!(
+                "(batch-manager) Index Order {} fill-rate {:0.5} is above fill threshold {:0.5}",
+                index_order_write.client_order_id, order_fill_rate, self.fill_threshold
+            );
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
         }
 
@@ -856,8 +860,7 @@ impl BatchManager {
             if batch.read().is_cancelled {
                 let _ = self.engagements.remove(key);
                 false
-            }
-            else {
+            } else {
                 true
             }
         });

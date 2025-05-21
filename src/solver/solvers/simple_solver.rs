@@ -1094,6 +1094,7 @@ impl SolverStrategy for SimpleSolver {
 
             let engagement = SolverOrderEngagement {
                 index_order: order_ptr.clone(),
+                chain_id: order_upread.chain_id,
                 address: order_upread.address,
                 client_order_id: client_order_id.clone(),
                 symbol: index_symbol.clone(),

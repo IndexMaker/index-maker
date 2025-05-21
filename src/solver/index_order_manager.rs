@@ -1,13 +1,17 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
 use crate::{
     core::{
-        bits::BatchOrderId,
+        bits::{BatchOrderId, PaymentId},
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
@@ -17,9 +21,12 @@ use crate::{
 
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
-use super::index_order::{CancelIndexOrderOutcome, UpdateIndexOrderOutcome};
+use super::{
+    index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome}, mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport}, position::LotId, solver::SolverOrderAssetLot
+};
 
 pub struct EngageOrderRequest {
+    pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub symbol: Symbol,
@@ -27,8 +34,8 @@ pub struct EngageOrderRequest {
 }
 
 pub struct EngagedIndexOrder {
-    // ID of the original NewOrder request
-    pub original_client_order_id: ClientOrderId,
+    // Chain ID
+    pub chain_id: u32,
 
     /// On-chain address of the User
     pub address: Address,
@@ -47,9 +54,6 @@ pub enum IndexOrderEvent {
     NewIndexOrder {
         // Chain ID
         chain_id: u32,
-
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
 
         /// On-chain address of the User
         address: Address,
@@ -80,8 +84,8 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     CollateralReady {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // Chain ID
+        chain_id: u32,
 
         /// On-chain address of the User
         address: Address,
@@ -102,8 +106,8 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     UpdateIndexOrder {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // Chain ID
+        chain_id: u32,
 
         /// On-chain address of the User
         address: Address,
@@ -121,8 +125,8 @@ pub enum IndexOrderEvent {
         timestamp: DateTime<Utc>,
     },
     CancelIndexOrder {
-        // ID of the original NewOrder request
-        original_client_order_id: ClientOrderId,
+        // Chain ID
+        chain_id: u32,
 
         /// On-chain address of the User
         address: Address,
@@ -187,7 +191,6 @@ impl IndexOrderManager {
                 let order = Arc::new(RwLock::new(IndexOrder::new(
                     chain_id,
                     address.clone(),
-                    client_order_id.clone(),
                     symbol.clone(),
                     side,
                     timestamp.clone(),
@@ -195,8 +198,6 @@ impl IndexOrderManager {
                 order
             })
             .clone();
-
-        let original_client_order_id = index_order.read().original_client_order_id.clone();
 
         if !index_order.read().order_updates.is_empty() {
             // TODO: Our current support for order updates is limitted, i.e. we
@@ -226,7 +227,6 @@ impl IndexOrderManager {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         chain_id,
-                        original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         symbol,
@@ -241,7 +241,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
-                        original_client_order_id,
+                        chain_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         collateral_removed: removed_collateral,
@@ -255,7 +255,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
-                        original_client_order_id: original_client_order_id.clone(),
+                        chain_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         timestamp,
@@ -263,7 +263,6 @@ impl IndexOrderManager {
                 self.observer
                     .publish_single(IndexOrderEvent::NewIndexOrder {
                         chain_id,
-                        original_client_order_id,
                         address,
                         client_order_id: client_order_id.clone(),
                         symbol,
@@ -288,6 +287,7 @@ impl IndexOrderManager {
     /// We would've received CancelOrder request from FIX server.
     fn cancel_index_order(
         &self,
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
@@ -304,8 +304,6 @@ impl IndexOrderManager {
             symbol
         ))?;
 
-        let original_client_order_id = index_order.read().original_client_order_id.clone();
-
         match index_order
             .write()
             .cancel_updates(collateral_amount, self.tolerance)?
@@ -315,7 +313,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::CancelIndexOrder {
-                        original_client_order_id,
+                        chain_id,
                         address,
                         client_order_id,
                         timestamp,
@@ -327,7 +325,7 @@ impl IndexOrderManager {
             } => {
                 self.observer
                     .publish_single(IndexOrderEvent::UpdateIndexOrder {
-                        original_client_order_id,
+                        chain_id,
                         address,
                         client_order_id,
                         collateral_removed: removed_collateral,
@@ -360,12 +358,14 @@ impl IndexOrderManager {
                 timestamp.clone(),
             ),
             ServerEvent::CancelIndexOrder {
+                chain_id,
                 address,
                 client_order_id,
                 symbol,
                 collateral_amount,
                 timestamp,
             } => self.cancel_index_order(
+                *chain_id,
                 address.clone(),
                 client_order_id.clone(),
                 symbol.clone(),
@@ -378,6 +378,7 @@ impl IndexOrderManager {
 
     pub fn collateral_ready(
         &mut self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -432,7 +433,7 @@ impl IndexOrderManager {
 
                 self.observer
                     .publish_single(IndexOrderEvent::CollateralReady {
-                        original_client_order_id: order_upread.original_client_order_id.clone(),
+                        chain_id,
                         address: *address,
                         client_order_id: client_order_id.clone(),
                         collateral_remaining: update_remaining_collateral,
@@ -447,9 +448,119 @@ impl IndexOrderManager {
         Ok(())
     }
 
+    fn remove_index_order(
+        &mut self,
+        chain_id: u32,
+        address: &Address,
+        symbol: &Symbol,
+        client_order_id: &ClientOrderId,
+    ) -> Result<()> {
+        match self.index_orders.entry(*address) {
+            Entry::Occupied(mut entry) => {
+                match entry.get_mut().entry(symbol.clone()) {
+                    Entry::Occupied(inner_entry) => {
+                        let should_remove = (|| -> Result<bool> {
+                            let index_order = inner_entry.get();
+                            let mut index_order_write = index_order.write();
+                            index_order_write.solver_complete(client_order_id)?;
+                            Ok(index_order_write.order_updates.is_empty())
+                        })()?;
+                        if should_remove {
+                            println!(
+                                "(index-order-manager) Removing entry for [{}:{}] {}",
+                                chain_id, address, symbol
+                            );
+                            inner_entry.remove();
+                        }
+                        Ok(())
+                    }
+                    Entry::Vacant(_) => Err(eyre!(
+                        "(index-order-manager) No Index orders found for: [{}:{}]",
+                        chain_id,
+                        address
+                    )),
+                }?;
+                if entry.get().is_empty() {
+                    println!(
+                        "(index-order-manager) Removing entry for [{}:{}]",
+                        chain_id, address
+                    );
+                    entry.remove();
+                }
+                Ok(())
+            }
+            Entry::Vacant(_) => Err(eyre!(
+                "(index-order-manager) No Index orders found for: [{}:{}]",
+                chain_id,
+                address
+            )),
+        }
+    }
+
+    fn find_engaged_update(
+        &self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+    ) -> Option<(Arc<RwLock<IndexOrder>>, Arc<RwLock<IndexOrderUpdate>>)> {
+        self.index_orders
+            .get(address)
+            .and_then(|x| x.get(symbol))
+            .and_then(|x| {
+                let r = x.read();
+                let (_, u) = r.find_engaged_update(client_order_id)?;
+                Some((x.clone(), u.clone()))
+            })
+    }
+
+    /// cleanup after minting
+    pub fn order_request_minted(
+        &mut self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        symbol: &Symbol,
+        payment_id: &PaymentId,
+        amount_paid: Amount,
+        lots: Vec<SolverOrderAssetLot>,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let (index_order, update) = self
+            .find_engaged_update(chain_id, address, client_order_id, symbol)
+            .ok_or_eyre("cannot find order update")?;
+
+        self.remove_index_order(chain_id, address, symbol, client_order_id)?;
+
+        self.observer
+            .publish_single(IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                timestamp,
+            });
+
+        let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
+        index_order
+            .write()
+            .drain_closed_updates(|x| report.report_closed_update(x));
+
+        print_mint_invoice(
+            &index_order.read(),
+            &update.read(),
+            payment_id,
+            amount_paid,
+            lots,
+            timestamp,
+        )?;
+
+        Ok(())
+    }
+
     /// provide a method to fill index order request
     pub fn fill_order_request(
         &mut self,
+        chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
@@ -457,45 +568,54 @@ impl IndexOrderManager {
         fill_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.index_orders
-            .get(address)
-            .and_then(|x| x.get(symbol))
-            .and_then(|index_order| Some(index_order.write()))
-            .and_then(|mut index_order| {
-                // TODO: We need to fill the updates too!
-                index_order.filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
-                index_order.collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
-                index_order.engaged_collateral =
-                    Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
-                println!(
-                    "(index-order-manager) Fill: {} {:0.5} (+{:0.5}), Remaining Collateral: {:0.5} + {:0.5} (-{:0.5})",
-                    client_order_id,
-                    index_order.filled_quantity,
-                    fill_amount,
-                    index_order.remaining_collateral,
-                    index_order.engaged_collateral.unwrap_or_default(),
-                    index_order.collateral_spent,
-                );
+        let (index_order, update) = self
+            .find_engaged_update(chain_id, address, client_order_id, symbol)
+            .ok_or_eyre("cannot find order update")?;
 
-                let collateral_remaining =
-                    safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
+        (||{
+            let mut index_order = index_order.upgradable_read();
+            let mut update = update.upgradable_read();
+            
+            let index_order_filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
+            let index_order_collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
+            let index_order_engaged_collateral = Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
+            
+            let update_filled_quantity = safe!(update.filled_quantity + fill_amount)?;
+            let update_collateral_spent = safe!(update.collateral_spent + collateral_spent)?;
+            let update_engaged_collateral = Some(safe!(update.engaged_collateral? - collateral_spent)?);
 
-                self.server.write().respond_with(
-                    ServerResponse::IndexOrderFill {
-                        address: *address,
-                        client_order_id: client_order_id.clone(),
-                        filled_quantity: index_order.filled_quantity,
-                        collateral_spent: index_order.collateral_spent,
-                        collateral_remaining,
-                        timestamp,
-                    },
-                );
+            let collateral_remaining =
+                safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
 
-                // TODO: Fire UpdateIndexOrder event!
+            update.with_upgraded(|update| {
+                update.filled_quantity = update_filled_quantity;
+                update.collateral_spent = update_collateral_spent;
+                update.engaged_collateral = update_engaged_collateral;
+            });
+
+            index_order.with_upgraded(|index_order| {
+                index_order.filled_quantity = index_order_filled_quantity;
+                index_order.collateral_spent = index_order_collateral_spent;
+                index_order.engaged_collateral = index_order_engaged_collateral;
+            });
+
+            self.server
+                .write()
+                .respond_with(ServerResponse::IndexOrderFill {
+                    address: *address,
+                    client_order_id: client_order_id.clone(),
+                    filled_quantity: index_order.filled_quantity,
+                    collateral_spent: index_order.collateral_spent,
+                    collateral_remaining,
+                    timestamp,
+                });
 
                 Some(())
-            })
-            .ok_or_eyre("Failed to update index order")?;
+
+        })().ok_or_eyre("Failed to update index order")?;
+
+        print_fill_report(&index_order.read(), &update.read(), fill_amount, timestamp)?;
+
         Ok(())
     }
 
@@ -532,7 +652,7 @@ impl IndexOrderManager {
                     engage_result.insert(
                         (engage_order.address, engage_order.client_order_id.clone()),
                         EngagedIndexOrder {
-                            original_client_order_id: index_order.original_client_order_id.clone(),
+                            chain_id: engage_order.chain_id,
                             address: engage_order.address,
                             client_order_id: engage_order.client_order_id.clone(),
                             collateral_engaged,
@@ -540,7 +660,7 @@ impl IndexOrderManager {
                         },
                     );
                 } else {
-                    index_order.solver_cancel("Math overflow");
+                    index_order.solver_cancel(engage_order.client_order_id, "Math overflow");
                 }
             } else {
                 return Err(eyre!(
