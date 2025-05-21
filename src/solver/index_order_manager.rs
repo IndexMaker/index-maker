@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Add, sync::Arc};
 
-use alloy::signers::k256::elliptic_curve::weierstrass::add;
+use alloy::{dyn_abi::parser::is_id_continue, signers::k256::elliptic_curve::weierstrass::add};
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -487,6 +487,18 @@ impl IndexOrderManager {
             })
             .collect_vec();
         let total_amount: Amount = lots.iter().map(|x| x.quantity * x.price + x.fee).sum();
+        let sub_totals = lots
+            .iter()
+            .map(|x| (x.symbol.clone(), x.quantity, x.price * x.quantity + x.fee))
+            .sorted_by_cached_key(|x| x.0.clone())
+            .coalesce(|a, b| {
+                if a.0.eq(&b.0) {
+                    Ok((a.0, a.1 + b.1, a.2 + b.2))
+                } else {
+                    Err((a, b))
+                }
+            })
+            .collect_vec();
         for lot in lots {
             println!(
                 "(index-order-manager) {: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
@@ -496,6 +508,13 @@ impl IndexOrderManager {
                 lot.price,
                 lot.fee,
                 lot.quantity * lot.price + lot.fee
+            )
+        }
+        println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
+        for sub_total in sub_totals {
+            println!(
+                "(index-order-manager) {: <12}| {: <10} |{: >10.5} |{: >22} |{: >10.5}",
+                "Sub-Total", sub_total.0, sub_total.1, " ", sub_total.2
             )
         }
         println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
