@@ -489,11 +489,11 @@ impl IndexOrderManager {
         let total_amount: Amount = lots.iter().map(|x| x.quantity * x.price + x.fee).sum();
         let sub_totals = lots
             .iter()
-            .map(|x| (x.symbol.clone(), x.quantity, x.price * x.quantity + x.fee))
+            .map(|x| (x.symbol.clone(), x.quantity, x.fee, x.price * x.quantity + x.fee))
             .sorted_by_cached_key(|x| x.0.clone())
             .coalesce(|a, b| {
                 if a.0.eq(&b.0) {
-                    Ok((a.0, a.1 + b.1, a.2 + b.2))
+                    Ok((a.0, a.1 + b.1, a.2 + b.2, a.3 + b.3))
                 } else {
                     Err((a, b))
                 }
@@ -512,9 +512,10 @@ impl IndexOrderManager {
         }
         println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
         for sub_total in sub_totals {
+            let average_price = (sub_total.3 - sub_total.2)/ sub_total.1;
             println!(
-                "(index-order-manager) {: <12}| {: <10} |{: >10.5} |{: >22} |{: >10.5}",
-                "Sub-Total", sub_total.0, sub_total.1, " ", sub_total.2
+                "(index-order-manager) {: <12}| {: <10} |{: >10.5} |~{: >9.4} |{: >10.5} |{: >10.5}",
+                "Sub-Total", sub_total.0, sub_total.1, average_price , sub_total.2, sub_total.3
             )
         }
         println!("(index-order-manager) {}", (0..72).map(|_| "-").join(""));
