@@ -58,11 +58,16 @@ Work included in Phase 1.:
     - [x] Carry over unused batch order lots between batches
     - [x] Report completed batches and mintable orders using events
     - [x] Remove fully-filled batches
-* [x] Manage Index Orders correctly
+* [ ] Manage Index Orders correctly
     - [x] After minting remove Index Order
     - [x] Support Index Order updates
     - [x] Fill correct Index Order update based on client order ID
     - [x] Notify index order manager of lots assigned to index orders
+* [x] Handle Index Order updates correctly
+    - [x] Solver must update remaining quantity to reflect Index Order
+* [ ] Handle Index Order Engagements correctly
+    - [x] Index Order Manager should only allow engagements in FIFO
+    - [ ] Solver must engage Index Order updates in FIFO
 * [ ] Add Unit Tests
     - [ ] Write unit tests for Simple Solver
     - [ ] Write unit tests for Batch Manager
@@ -103,7 +108,6 @@ Work included in Phase 1.:
     - [ ] Adjust SimpleSolver liquiditiy fitting algoithm
     - [ ] See if MatrixSolver would be beneficial
 * [ ] Improve Index Order Engage
-    - [ ] Ensure correct update is engaged
     - [ ] Investigate if we want to carry engagement into next updates
     - [ ] Investigate left-over collateral that stays engaged after minting
 * [ ] Improve Collateral Routing
@@ -111,6 +115,7 @@ Work included in Phase 1.:
     - [ ] Investigate what happens when there is both a deposit for Buy trade, and a withdrawal for Sell
     - [ ] Multiple destinations
     - [ ] Create a relationship between destinations and Order Connector
+    - [ ] Reuse collateral from cancelled order in the new order
 
 #### Design & Performance
 

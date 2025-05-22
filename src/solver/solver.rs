@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -42,6 +42,7 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
     Open,
+    ManageCollateral,
     Ready,
     Engaged,
     PartlyMintable,
@@ -215,12 +216,20 @@ pub struct Solver {
     quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
     // orders
+    /// A map of all index orders from all clients
     client_orders: RwLock<HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
+    /// A map of queues with index order client IDs, so that we process them in that order
+    client_order_queues: Mutex<HashMap<(u32, Address), VecDeque<ClientOrderId>>>,
+    /// An internal notification queue, that we check on solver tick
+    client_queue: Mutex<VecDeque<(u32, Address)>>,
+    /// A queue with orders that are ready to be engaged, after collateral reached destination
     ready_orders: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    /// A queue with orders that are ready to be minted
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
+    client_wait_period: TimeDelta,
 }
 impl Solver {
     pub fn new(
@@ -237,6 +246,7 @@ impl Solver {
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
+        client_wait_period: TimeDelta,
     ) -> Self {
         Self {
             strategy,
@@ -253,11 +263,14 @@ impl Solver {
             inventory_manager,
             // orders
             client_orders: RwLock::new(HashMap::new()),
+            client_order_queues: Mutex::new(HashMap::new()),
+            client_queue: Mutex::new(VecDeque::new()),
             ready_orders: Mutex::new(VecDeque::new()),
             ready_mints: Mutex::new(VecDeque::new()),
             // parameters
             max_batch_size,
             zero_threshold,
+            client_wait_period,
         }
     }
 
@@ -338,6 +351,66 @@ impl Solver {
         Ok(())
     }
 
+    fn manage_collateral(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
+        self.set_order_status(
+            &mut solver_order.write(),
+            SolverOrderStatus::ManageCollateral,
+        );
+
+        // Compute amount of collateral required for each asset in the Index basket
+        let collateral_management = self
+            .strategy
+            .query_collateral_management(self, solver_order)?;
+
+        // Manage collateral to have it ready at trading designation(s)
+        self.collateral_manager
+            .write()
+            .manage_collateral(collateral_management);
+
+        Ok(())
+    }
+
+    fn get_next_client_order(&self, timestamp: DateTime<Utc>) -> Option<Arc<RwLock<SolverOrder>>> {
+        let ready_timestamp = timestamp - self.client_wait_period;
+        let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
+        let mut client_queue_lock = self.client_queue.lock();
+        if let Some(front) = client_queue_lock.front().cloned() {
+            if let Some(queue) = self.client_order_queues.lock().get_mut(&front) {
+                if let Some(client_order_id) = queue.front() {
+                    if let Some(solver_order) = self
+                        .client_orders
+                        .read()
+                        .get(&(front.0, front.1, client_order_id.clone()))
+                        .cloned()
+                    {
+                        // NOTE: The client_queue has clients ordered in FIFO so
+                        // first in the queue will have lowest timestamp. If we
+                        // process first in the queue, we can move to second etc.
+                        // If we don't process first, then there is no point moving
+                        // to second, as their timestamp will be higher.
+                        let not_ready = check_not_ready(&solver_order.read());
+                        if !not_ready {
+                            client_queue_lock.pop_front();
+                            return Some(solver_order);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        while let Some(solver_order) = self.get_next_client_order(timestamp) {
+            let side = solver_order.read().side;
+            match side {
+                Side::Buy => self.manage_collateral(solver_order),
+                Side::Sell => Err(eyre!("We don't support Sell yet!")),
+            }?;
+        }
+        Ok(())
+    }
+
     fn mint_index_order(
         &self,
         index_order: &mut SolverOrder,
@@ -385,9 +458,6 @@ impl Solver {
     pub fn solve(&self, timestamp: DateTime<Utc>) {
         println!("\n(solver) Begin solve");
 
-        //
-        // check if there is some collateral we could use
-        //
         println!("(solver) * Process collateral");
         if let Err(err) = self
             .collateral_manager
@@ -397,20 +467,16 @@ impl Solver {
             eprintln!("(solver) Error while processing credits: {:?}", err);
         }
 
-        //
-        // check if there is some index orders we could mint
-        //
         println!("(solver) * Mint indexes");
         if let Err(err) = self.mint_indexes(timestamp) {
             eprintln!("(solver) Error while processing mints: {:?}", err);
         }
 
-        //
-        // NOTE: We should only engage new orders, and currently not much engaged
-        // otherwise currently engaged orders may consume the liquidity.
-        //
-        // TODO: We may also track open liquidity promised to open orders
-        //
+        println!("(solver) * Serve more clients");
+        if let Err(err) = self.serve_more_clients(timestamp) {
+            eprintln!("(solver) Error while serving more clients: {:?}", err);
+        }
+
         println!("(solver) * Engage more orders");
         if let Err(err) = self.engage_more_orders() {
             eprintln!("Error while engaging more orders: {:?}", err);
@@ -698,7 +764,7 @@ impl Solver {
                         let solver_order = Arc::new(RwLock::new(SolverOrder {
                             chain_id,
                             address,
-                            client_order_id,
+                            client_order_id: client_order_id.clone(),
                             payment_id: None,
                             symbol,
                             side,
@@ -712,33 +778,168 @@ impl Solver {
                             lots: Vec::new(),
                         }));
                         entry.insert(solver_order.clone());
-                        let collateral_management = self
-                            .strategy
-                            .query_collateral_management(self, solver_order)?;
-                        self.collateral_manager
-                            .write()
-                            .manage_collateral(collateral_management);
+
+                        // We want to ensure that only one index order from given user
+                        // is processed at one time.
+                        match self.client_order_queues.lock().entry((chain_id, address)) {
+                            Entry::Vacant(entry) => {
+                                // Current order is kept in the queue for as long as it is
+                                // still processed, i.e. until it's minted or cancelled.
+                                entry.insert(VecDeque::from([client_order_id.clone()]));
+
+                                // We use client queue to notify ourselves so that solve()
+                                // will pick order from the queue above at next tick.
+                                self.client_queue.lock().push_back((chain_id, address));
+                            }
+                            Entry::Occupied(mut entry) => {
+                                // User sent another index order, and we will store it
+                                // in the queue, and process once we finished with
+                                // current index order for that user.
+                                entry.get_mut().push_back(client_order_id.clone());
+                            }
+                        }
                         Ok(())
                     }
-                    Entry::Occupied(_) => {
-                        todo!();
+                    Entry::Occupied(_) => Err(eyre!(
+                        "Duplicate Client Order ID: [{}:{}] {}",
+                        chain_id,
+                        address,
+                        client_order_id
+                    )),
+                }
+            }
+            IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp: _,
+            } => {
+                println!(
+                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
+                    chain_id, address, client_order_id
+                );
+                self.client_orders
+                    .write()
+                    .remove(&(chain_id, address, client_order_id.clone()))
+                    .ok_or_eyre("Failed to remove entry")?;
+
+                // Note we can have two possible cases:
+                // 1. Order in front of FIFO queue is cancelled
+                // 2. Order in the middle of FIFO queue is cancelled
+                // Case 1. means that order is currently processed, and it could have
+                // been cancelled for two reasons:
+                //  a) it was minted
+                //  b) user cancelled it
+                // Case 2. means user cancelled it
+                match self.client_order_queues.lock().entry((chain_id, address)) {
+                    Entry::Occupied(mut entry) => {
+                        let queue = entry.get_mut();
+                        if let Some(front) = queue.front() {
+                            if front.eq(&client_order_id) {
+                                queue.pop_front();
+                                if queue.is_empty() {
+                                    // This means that there is no more index orders
+                                    // for that user
+                                    entry.remove();
+                                } else {
+                                    // Note we always keep current client_order_id in the
+                                    // queue, so that when we receive NewIndexOrder we know
+                                    // that current order is still being worked on.
+                                    self.client_queue.lock().push_back((chain_id, address));
+                                }
+                            } else {
+                                queue.retain(|x| !x.eq(&client_order_id));
+                            }
+                        } else {
+                            // This is rather unexpected, as we would remove queue from map
+                            // when it becomes empty.
+                            eprintln!(
+                                "(solver) Cancel order found empty index order queue for the user"
+                            );
+                            entry.remove();
+                        }
+                    }
+                    Entry::Vacant(_) => {
+                        // This is rather unexpected, as we would add any new index orders to
+                        // a queue and cancelling should always find a match in the queue.
+                        eprintln!(
+                            "(solver) Cancel order cannot find any index orders for the user"
+                        );
                     }
                 }
+                Ok(())
             }
             IndexOrderEvent::UpdateIndexOrder {
                 chain_id,
                 address,
                 client_order_id,
-                collateral_removed: _,
+                collateral_removed,
                 collateral_remaining: _,
-                timestamp: _,
+                timestamp,
             } => {
                 println!(
                     "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
                     client_order_id, client_order_id, address
                 );
-                todo!();
+                if let Some(order) =
+                    self.client_orders
+                        .read()
+                        .get(&(chain_id, address, client_order_id))
+                {
+                    let mut order_write = order.write();
+
+                    // Note that we update our solver view when we have a fill, so
+                    // the value of IndexOrderEvent::UpdateIndexOrder::collateral_remaining
+                    // wouldn't be adequate. It is true that Index Order Manager should
+                    // see same value, because after fill it should update it same way, but
+                    // we don't have any guarantees about when this event was published
+                    // and it could have been published before the fill, and that would
+                    // overwrite our local calculation. That is why we apply delta, which is
+                    // IndexOrderEvent::UpdateIndexOrder::collateral_removed
+                    order_write.remaining_collateral =
+                        safe!(order_write.remaining_collateral - collateral_removed)
+                            .ok_or_eyre("Math Problem")?;
+
+                    order_write.timestamp = timestamp;
+
+                    if let SolverOrderStatus::Open = order_write.status {
+                        // We want to ensure that any update to an order that can be picked up
+                        // by serve_more_clients() follows the timestamp rules, i.e. if user
+                        // cancelled quantity on the order, then we put that user at the end of
+                        // client_queue, because orders of other clients have lower timestamps
+                        // than this update.
+                        // Note that this only applies to orders with Open status. We wouldn't
+                        // have any entry in the client_queue for user for whom we are already
+                        // processing an order, and any next order will be added to queue for
+                        // that user in stored in client_order_queues. Also note that we added
+                        // check is status == Open purely for performance reasons, because if
+                        // code behaves as expected, the client_queue wouldn't have any entry
+                        // for this user.
+                        let mut client_queue = self.client_queue.lock();
+                        let key = (chain_id, address);
+                        if let Some((pos, _)) = client_queue.iter().find_position(|&x| x.eq(&key)) {
+                            if client_queue.len() > 1 {
+                                client_queue.remove(pos);
+                                client_queue.push_back(key);
+                            }
+                        }
+                    }
+
+                    Ok(())
+                } else {
+                    Err(eyre!("(solver) Handle order update: Missing order"))
+                }
             }
+            IndexOrderEvent::EngageIndexOrder {
+                batch_order_id,
+                engaged_orders,
+                timestamp,
+            } => self.batch_manager.write().handle_engage_index_order(
+                self,
+                batch_order_id,
+                engaged_orders,
+                timestamp,
+            ),
             IndexOrderEvent::CollateralReady {
                 chain_id,
                 address,
@@ -772,34 +973,10 @@ impl Solver {
 
                     Ok(())
                 } else {
+                    // TODO: Tell CollateralManager that order is no longer
+                    // Something needs to happen with collateral, e.g. reuse in next order
                     Err(eyre!("(solver) Handle collateral ready ack: Missing order"))
                 }
-            }
-            IndexOrderEvent::EngageIndexOrder {
-                batch_order_id,
-                engaged_orders,
-                timestamp,
-            } => self.batch_manager.write().handle_engage_index_order(
-                self,
-                batch_order_id,
-                engaged_orders,
-                timestamp,
-            ),
-            IndexOrderEvent::CancelIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                timestamp: _,
-            } => {
-                println!(
-                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
-                    chain_id, address, client_order_id
-                );
-                self.client_orders
-                    .write()
-                    .remove(&(chain_id, address, client_order_id))
-                    .ok_or_eyre("Failed to remove entry")?;
-                Ok(())
             }
         }
     }
@@ -1183,6 +1360,7 @@ mod test {
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let mint_wait_period = TimeDelta::new(10, 0).unwrap();
+        let client_wait_period = TimeDelta::new(10, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (collateral_sender, collateral_receiver) = unbounded::<CollateralEvent>();
@@ -1349,6 +1527,7 @@ mod test {
             inventory_manager.clone(),
             max_batch_size,
             tolerance,
+            client_wait_period,
         ));
 
         solver
@@ -1920,6 +2099,21 @@ mod test {
 
         flush_events();
         heading("Sent FIX message: NewIndexOrder");
+
+        solver_tick(timestamp);
+        flush_events();
+        heading("New client order");
+
+        timestamp += client_wait_period;
+        solver_tick(timestamp);
+        flush_events();
+        heading(
+            format!(
+                "Clock moved forward {:0.1}s",
+                client_wait_period.as_seconds_f32()
+            )
+            .as_str(),
+        );
 
         solver_tick(timestamp);
         flush_events();

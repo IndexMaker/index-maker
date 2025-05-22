@@ -263,33 +263,43 @@ impl IndexOrder {
         }
     }
 
-    pub fn solver_complete(&mut self, client_order_id: &ClientOrderId) -> Result<()> {
-        let (pos, update) = self
-            .find_engaged_update(client_order_id)
-            .ok_or_else(|| eyre!("Update not found {}", client_order_id))?;
+    /// Engage first update, which must match provided Client Oder ID
+    pub fn solver_engage_one(
+        &mut self,
+        client_order_id: &ClientOrderId,
+        collateral_amount: Amount,
+        tolerance: Amount,
+    ) -> Result<Option<Amount>> {
+        if let Some(unmatched_collateral) =
+            self.match_engage_one(client_order_id, collateral_amount, tolerance)?
+        {
+            let engaged_collateral =
+                safe!(collateral_amount - unmatched_collateral).ok_or_eyre("Math Problem")?;
+            safe!(self.engaged_collateral += engaged_collateral).ok_or_eyre("Math Problem")?;
+            self.remaining_collateral =
+                safe!(self.remaining_collateral - engaged_collateral).ok_or_eyre("Math Problem")?;
+            self.engaged_side = Some(self.side);
+            Ok(Some(unmatched_collateral))
+        } else {
+            safe!(self.engaged_collateral += collateral_amount).ok_or_eyre("Math Problem")?;
+            self.remaining_collateral =
+                safe!(self.remaining_collateral - collateral_amount).ok_or_eyre("Math Problem")?;
+            self.engaged_side = Some(self.side);
+            Ok(None)
+        }
+    }
 
-        // TODO: Check: did we already zero remaining collateral in fills?
-        println!(
-            "(index-order) Solver complete {} irc={:0.5} urc={:0.5}",
-            client_order_id,
-            self.remaining_collateral,
-            update.read().remaining_collateral
-        );
+    pub fn solver_complete(&mut self, client_order_id: &ClientOrderId) -> Result<()> {
+        let (pos, _) = self
+            .engaged_updates
+            .iter()
+            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+            .ok_or_else(|| eyre!("Engaged update not found {}", client_order_id))?;
 
         self.closed_updates
             .push_back(self.engaged_updates.remove(pos).unwrap());
 
         Ok(())
-    }
-
-    pub fn find_engaged_update(
-        &self,
-        client_order_id: &ClientOrderId,
-    ) -> Option<(usize, &Arc<RwLock<IndexOrderUpdate>>)> {
-        // First update in order_updates can be partly enagaged, and 
-        // all updates in engaged_updates are always fully engaged.
-        self.order_updates.iter().take(1).chain(self.engaged_updates.iter())
-            .find_position(|x| x.read().client_order_id.eq(client_order_id))
     }
 
     pub fn solver_cancel(&mut self, client_order_id: ClientOrderId, reason: &str) {
@@ -301,6 +311,32 @@ impl IndexOrder {
     /// Drain
     pub fn drain_closed_updates(&mut self, cb: impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
         self.closed_updates.drain(..).for_each(cb);
+    }
+
+    pub fn find_order_update(
+        &self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<&Arc<RwLock<IndexOrderUpdate>>> {
+        // First update in order_updates can be partly enagaged, and
+        // all updates in engaged_updates are always fully engaged.
+        self.order_updates
+            .iter()
+            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+            .map(|(_, update)| update)
+    }
+
+    pub fn find_engaged_update(
+        &self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<&Arc<RwLock<IndexOrderUpdate>>> {
+        // First update in order_updates can be partly enagaged, and
+        // all updates in engaged_updates are always fully engaged.
+        self.order_updates
+            .iter()
+            .take(1)
+            .chain(self.engaged_updates.iter())
+            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+            .map(|(_, update)| update)
     }
 
     /// Match updates against collateral amount and cancel
@@ -411,6 +447,60 @@ impl IndexOrder {
             };
         }
         Ok(Some(collateral_amount))
+    }
+
+    /// Match only first update against collateral and engage
+    /// Note that we are engaging updates in FIFO order, and
+    /// even though Client Order ID is provided, we must check
+    /// if that update is next in the queue. Note there is no
+    /// carry-over of the amount into next update.
+    fn match_engage_one(
+        &mut self,
+        client_order_id: &ClientOrderId,
+        collateral_amount: Amount,
+        tolerance: Amount,
+    ) -> Result<Option<Amount>> {
+        let (remaining_collateral, unmatched_collateral) = (|| -> Result<(Amount, Amount)> {
+            let update = self
+                .order_updates
+                .front()
+                .ok_or_eyre("Front update not found")?;
+
+            let mut update_upread = update.upgradable_read();
+            if !update_upread.client_order_id.eq(client_order_id) {
+                Err(eyre!("Can only engage next update in queue"))?;
+            }
+
+            let collateral_matched = collateral_amount.min(update_upread.remaining_collateral);
+            let unmatched_collateral =
+                safe!(collateral_amount - collateral_matched).ok_or_eyre("Math Problem")?;
+
+            let engaged_collateral = update_upread.engaged_collateral.map_or_else(
+                || Some(collateral_matched),
+                |x| safe!(x + collateral_matched),
+            );
+            let remaining_collateral =
+                safe!(update_upread.remaining_collateral - collateral_matched)
+                    .ok_or_eyre("Math Problem")?;
+
+            update_upread.with_upgraded(|x| {
+                x.engaged_collateral = engaged_collateral;
+                x.remaining_collateral = remaining_collateral;
+            });
+
+            Ok((remaining_collateral, unmatched_collateral))
+        })()?;
+
+        if remaining_collateral < tolerance {
+            let update = self.order_updates.pop_front().unwrap();
+            self.engaged_updates.push_back(update);
+        }
+
+        if unmatched_collateral < tolerance {
+            Ok(None)
+        } else {
+            Ok(Some(unmatched_collateral))
+        }
     }
 }
 
