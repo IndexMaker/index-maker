@@ -65,9 +65,9 @@ Work included in Phase 1.:
     - [x] Notify index order manager of lots assigned to index orders
 * [x] Handle Index Order updates correctly
     - [x] Solver must update remaining quantity to reflect Index Order
-* [ ] Handle Index Order Engagements correctly
+* [x] Handle Index Order Engagements correctly
     - [x] Index Order Manager should only allow engagements in FIFO
-    - [ ] Solver must engage Index Order updates in FIFO
+    - [x] Solver must engage Index Order updates in FIFO
 * [ ] Add Unit Tests
     - [ ] Write unit tests for Simple Solver
     - [ ] Write unit tests for Batch Manager
