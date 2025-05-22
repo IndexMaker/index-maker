@@ -70,11 +70,23 @@ Work included in Phase 1.:
 * [ ] Quote Requests
     - [ ] Manage Quote Requests
     - [ ] Compute Quotes
+* [ ] Actix Integration Investigation
+    - [ ] Investigate FIX server REST
+    - [ ] Investigate WebSockets
+    - [ ] Investigate Auth (Web3)
+    - [ ] FIX message signed by private wallet key
+    - [ ] Check minimum balance of the wallet to prevent bots
+* [ ] Binance Integration Investigation
+    - [ ] Reqwest vs ActiX
+    - [ ] Investigate work required to support Market Data
+    - [ ] Investigate work required to support Order Sending
 * [ ] Sell side implementation
     - [ ] Wait for index token collateral before selling assets
     - [ ] Obtain USD cash management details after filling index order
     - [ ] Confirm USD cash before withdrawal
     - [ ] Burn index token collateral
+* [ ] Rebalance
+    - [ ] Review rebalance code...
 * [ ] Implement additional limits
     - [ ] Ensure individual orders in a batch have size at least minimum
     - [ ] Ensure order rate is within limits
