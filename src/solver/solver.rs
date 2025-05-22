@@ -1,9 +1,9 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
-    sync::Arc,
+    sync::{Arc, RwLock as ComponentLock},
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -42,6 +42,7 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
     Open,
+    ManageCollateral,
     Ready,
     Engaged,
     PartlyMintable,
@@ -203,61 +204,73 @@ pub trait SolverStrategy {
 pub struct Solver {
     // solver strategy for calculating order batches
     strategy: Arc<dyn SolverStrategy>,
-    batch_manager: Arc<RwLock<BatchManager>>,
     basket_manager: Arc<RwLock<BasketManager>>,
     order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
     price_tracker: Arc<RwLock<PriceTracker>>,
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     // dependencies
-    chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
-    collateral_manager: Arc<RwLock<CollateralManager>>,
-    index_order_manager: Arc<RwLock<IndexOrderManager>>,
-    quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
+    chain_connector: Arc<ComponentLock<dyn ChainConnector + Send + Sync>>,
+    batch_manager: Arc<ComponentLock<BatchManager>>,
+    collateral_manager: Arc<ComponentLock<CollateralManager>>,
+    index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
+    quote_request_manager: Arc<ComponentLock<dyn QuoteRequestManager + Send + Sync>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
     // orders
+    /// A map of all index orders from all clients
     client_orders: RwLock<HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
+    /// A map of queues with index order client IDs, so that we process them in that order
+    client_order_queues: Mutex<HashMap<(u32, Address), VecDeque<ClientOrderId>>>,
+    /// An internal notification queue, that we check on solver tick
+    client_queue: Mutex<VecDeque<(u32, Address)>>,
+    /// A queue with orders that are ready to be engaged, after collateral reached destination
     ready_orders: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    /// A queue with orders that are ready to be minted
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
+    client_wait_period: TimeDelta,
 }
 impl Solver {
     pub fn new(
         strategy: Arc<dyn SolverStrategy>,
-        batch_manager: Arc<RwLock<BatchManager>>,
         order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
-        chain_connector: Arc<RwLock<dyn ChainConnector + Send + Sync>>,
-        collateral_manager: Arc<RwLock<CollateralManager>>,
-        index_order_manager: Arc<RwLock<IndexOrderManager>>,
-        quote_request_manager: Arc<RwLock<dyn QuoteRequestManager + Send + Sync>>,
+        chain_connector: Arc<ComponentLock<dyn ChainConnector + Send + Sync>>,
+        batch_manager: Arc<ComponentLock<BatchManager>>,
+        collateral_manager: Arc<ComponentLock<CollateralManager>>,
+        index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
+        quote_request_manager: Arc<ComponentLock<dyn QuoteRequestManager + Send + Sync>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
+        client_wait_period: TimeDelta,
     ) -> Self {
         Self {
             strategy,
-            batch_manager,
             order_id_provider,
             basket_manager,
             price_tracker,
             order_book_manager,
             // dependencies
             chain_connector,
+            batch_manager,
             collateral_manager,
             index_order_manager,
             quote_request_manager,
             inventory_manager,
             // orders
             client_orders: RwLock::new(HashMap::new()),
+            client_order_queues: Mutex::new(HashMap::new()),
+            client_queue: Mutex::new(VecDeque::new()),
             ready_orders: Mutex::new(VecDeque::new()),
             ready_mints: Mutex::new(VecDeque::new()),
             // parameters
             max_batch_size,
             zero_threshold,
+            client_wait_period,
         }
     }
 
@@ -329,11 +342,74 @@ impl Solver {
             let batch_order_id = self
                 .batch_manager
                 .write()
+                .map_err(|e| eyre!("Failed to access batch manager: {}", e))?
                 .handle_new_engagement(Arc::new(RwLock::new(engaged_orders)))?;
 
             self.index_order_manager
                 .write()
+                .map_err(|e| eyre!("Failed to access index order manager {}", e))?
                 .engage_orders(batch_order_id, send_engage)?;
+        }
+        Ok(())
+    }
+
+    fn manage_collateral(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
+        self.set_order_status(
+            &mut solver_order.write(),
+            SolverOrderStatus::ManageCollateral,
+        );
+
+        // Compute amount of collateral required for each asset in the Index basket
+        let collateral_management = self
+            .strategy
+            .query_collateral_management(self, solver_order)?;
+
+        // Manage collateral to have it ready at trading designation(s)
+        self.collateral_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
+            .manage_collateral(collateral_management);
+
+        Ok(())
+    }
+
+    fn get_next_client_order(&self, timestamp: DateTime<Utc>) -> Option<Arc<RwLock<SolverOrder>>> {
+        let ready_timestamp = timestamp - self.client_wait_period;
+        let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
+        let mut client_queue_lock = self.client_queue.lock();
+        if let Some(front) = client_queue_lock.front().cloned() {
+            if let Some(queue) = self.client_order_queues.lock().get_mut(&front) {
+                if let Some(client_order_id) = queue.front() {
+                    if let Some(solver_order) = self
+                        .client_orders
+                        .read()
+                        .get(&(front.0, front.1, client_order_id.clone()))
+                        .cloned()
+                    {
+                        // NOTE: The client_queue has clients ordered in FIFO so
+                        // first in the queue will have lowest timestamp. If we
+                        // process first in the queue, we can move to second etc.
+                        // If we don't process first, then there is no point moving
+                        // to second, as their timestamp will be higher.
+                        let not_ready = check_not_ready(&solver_order.read());
+                        if !not_ready {
+                            client_queue_lock.pop_front();
+                            return Some(solver_order);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        while let Some(solver_order) = self.get_next_client_order(timestamp) {
+            let side = solver_order.read().side;
+            match side {
+                Side::Buy => self.manage_collateral(solver_order),
+                Side::Sell => Err(eyre!("We don't support Sell yet!")),
+            }?;
         }
         Ok(())
     }
@@ -358,15 +434,18 @@ impl Solver {
             .clone()
             .ok_or_eyre("Missing payment ID")?;
 
-        self.collateral_manager.write().confirm_payment(
-            index_order.chain_id,
-            &index_order.address,
-            &index_order.client_order_id,
-            &payment_id,
-            timestamp,
-            index_order.side,
-            total_cost,
-        )?;
+        self.collateral_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
+            .confirm_payment(
+                index_order.chain_id,
+                &index_order.address,
+                &index_order.client_order_id,
+                &payment_id,
+                timestamp,
+                index_order.side,
+                total_cost,
+            )?;
 
         Ok(())
     }
@@ -385,39 +464,38 @@ impl Solver {
     pub fn solve(&self, timestamp: DateTime<Utc>) {
         println!("\n(solver) Begin solve");
 
-        //
-        // check if there is some collateral we could use
-        //
         println!("(solver) * Process collateral");
         if let Err(err) = self
             .collateral_manager
             .write()
-            .process_collateral(self, timestamp)
+            .map_err(|e| eyre!("Failed to access collateral manager {}", e))
+            .map(|mut x| x.process_collateral(self, timestamp))
         {
             eprintln!("(solver) Error while processing credits: {:?}", err);
         }
 
-        //
-        // check if there is some index orders we could mint
-        //
         println!("(solver) * Mint indexes");
         if let Err(err) = self.mint_indexes(timestamp) {
             eprintln!("(solver) Error while processing mints: {:?}", err);
         }
 
-        //
-        // NOTE: We should only engage new orders, and currently not much engaged
-        // otherwise currently engaged orders may consume the liquidity.
-        //
-        // TODO: We may also track open liquidity promised to open orders
-        //
+        println!("(solver) * Serve more clients");
+        if let Err(err) = self.serve_more_clients(timestamp) {
+            eprintln!("(solver) Error while serving more clients: {:?}", err);
+        }
+
         println!("(solver) * Engage more orders");
         if let Err(err) = self.engage_more_orders() {
             eprintln!("Error while engaging more orders: {:?}", err);
         }
 
         println!("(solver) * Process batches");
-        if let Err(err) = self.batch_manager.write().process_batches(self, timestamp) {
+        if let Err(err) = self
+            .batch_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access batch manager {}", e))
+            .map(|mut x| x.process_batches(self, timestamp))
+        {
             eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
@@ -447,7 +525,10 @@ impl Solver {
         // ...
 
         // send back quote
-        self.quote_request_manager.write().respond_quote(());
+        self.quote_request_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access quote request manager {}", e))
+            .map(|mut x| x.respond_quote(()));
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
@@ -492,6 +573,7 @@ impl Solver {
             } => self
                 .collateral_manager
                 .write()
+                .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
                 .handle_deposit(self, chain_id, address, amount, timestamp),
             ChainNotification::WithdrawalRequest {
                 chain_id,
@@ -501,6 +583,7 @@ impl Solver {
             } => self
                 .collateral_manager
                 .write()
+                .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
                 .handle_withdrawal(self, chain_id, address, amount, timestamp),
         }
     }
@@ -537,11 +620,14 @@ impl Solver {
                     "(solver) CollateralReady for {} {} {:0.5} {:0.5}",
                     chain_id, address, collateral_amount, fee
                 );
-                if let Some(order) =
-                    self.client_orders
-                        .read()
-                        .get(&(chain_id, address, client_order_id.clone()))
-                {
+
+                let order = self
+                    .client_orders
+                    .read()
+                    .get(&(chain_id, address, client_order_id.clone()))
+                    .cloned();
+
+                if let Some(order) = order {
                     // TODO: Figure out: should collateral manager have already paid for the order?
                     // or CollateralEvent is only to tell us that collateral reached sub-accounts?
                     // NOTE: Paying for order, is just telling collateral manager to block certain
@@ -549,26 +635,32 @@ impl Solver {
                     // We assign payment ID so that  we can identify association between order and
                     // allocated collateral.
                     let side = order.read().side;
-                    self.collateral_manager.write().preauth_payment(
-                        self,
-                        chain_id,
-                        &address,
-                        &client_order_id,
-                        timestamp,
-                        side,
-                        collateral_amount,
-                    )?;
+                    self.collateral_manager
+                        .write()
+                        .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
+                        .preauth_payment(
+                            self,
+                            chain_id,
+                            &address,
+                            &client_order_id,
+                            timestamp,
+                            side,
+                            collateral_amount,
+                        )?;
 
                     let symbol = &order.read().symbol;
-                    self.index_order_manager.write().collateral_ready(
-                        chain_id,
-                        &address,
-                        &client_order_id,
-                        symbol,
-                        collateral_amount,
-                        fee,
-                        timestamp,
-                    )?;
+                    self.index_order_manager
+                        .write()
+                        .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                        .collateral_ready(
+                            chain_id,
+                            &address,
+                            &client_order_id,
+                            symbol,
+                            collateral_amount,
+                            fee,
+                            timestamp,
+                        )?;
                 }
             }
             CollateralEvent::PreAuthResponse {
@@ -583,11 +675,12 @@ impl Solver {
                     // If we're implementing message based protocol, we should make PaymentApproved
                     // a message that we will receive from collateral manager.
                     PreAuthStatus::Approved { payment_id } => {
-                        if let Some(order) =
-                            self.client_orders
-                                .read()
-                                .get(&(chain_id, address, client_order_id))
-                        {
+                        let order = self
+                            .client_orders
+                            .read()
+                            .get(&(chain_id, address, client_order_id))
+                            .cloned();
+                        if let Some(order) = order {
                             println!("(solver) PreAuth approved: {}", payment_id);
                             let mut order_write = order.write();
                             order_write
@@ -626,33 +719,40 @@ impl Solver {
                 status,
             } => match status {
                 ConfirmStatus::Authorized => {
-                    if let Some(order) =
-                        self.client_orders
-                            .read()
-                            .get(&(chain_id, address, client_order_id.clone()))
-                    {
+                    let order = self
+                        .client_orders
+                        .read()
+                        .get(&(chain_id, address, client_order_id.clone()))
+                        .cloned();
+                    if let Some(order) = order {
                         println!("(solver) Payment authorized: {}", payment_id);
                         let mut order_write = order.write();
-                        self.chain_connector.write().mint_index(
-                            order_write.chain_id,
-                            order_write.symbol.clone(),
-                            order_write.filled_quantity,
-                            order_write.address,
-                            amount_paid,
-                            timestamp,
-                        );
+                        self.chain_connector
+                            .write()
+                            .map_err(|e| eyre!("Failed to access chain connector {}", e))?
+                            .mint_index(
+                                order_write.chain_id,
+                                order_write.symbol.clone(),
+                                order_write.filled_quantity,
+                                order_write.address,
+                                amount_paid,
+                                timestamp,
+                            );
 
                         let lots = order_write.lots.drain(..).collect_vec();
-                        self.index_order_manager.write().order_request_minted(
-                            chain_id,
-                            &address,
-                            &client_order_id,
-                            &order_write.symbol,
-                            &payment_id,
-                            amount_paid,
-                            lots,
-                            timestamp,
-                        )?;
+                        self.index_order_manager
+                            .write()
+                            .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                            .order_request_minted(
+                                chain_id,
+                                &address,
+                                &client_order_id,
+                                &order_write.symbol,
+                                &payment_id,
+                                amount_paid,
+                                lots,
+                                timestamp,
+                            )?;
 
                         self.set_order_status(&mut order_write, SolverOrderStatus::Minted);
                     } else {
@@ -698,7 +798,7 @@ impl Solver {
                         let solver_order = Arc::new(RwLock::new(SolverOrder {
                             chain_id,
                             address,
-                            client_order_id,
+                            client_order_id: client_order_id.clone(),
                             payment_id: None,
                             symbol,
                             side,
@@ -712,33 +812,186 @@ impl Solver {
                             lots: Vec::new(),
                         }));
                         entry.insert(solver_order.clone());
-                        let collateral_management = self
-                            .strategy
-                            .query_collateral_management(self, solver_order)?;
-                        self.collateral_manager
-                            .write()
-                            .manage_collateral(collateral_management);
+
                         Ok(())
                     }
-                    Entry::Occupied(_) => {
-                        todo!();
+                    Entry::Occupied(_) => Err(eyre!(
+                        "Duplicate Client Order ID: [{}:{}] {}",
+                        chain_id,
+                        address,
+                        client_order_id
+                    )),
+                }?;
+
+                // We want to ensure that only one index order from given user
+                // is processed at one time.
+                let notify = match self.client_order_queues.lock().entry((chain_id, address)) {
+                    Entry::Vacant(entry) => {
+                        // Current order is kept in the queue for as long as it is
+                        // still processed, i.e. until it's minted or cancelled.
+                        entry.insert(VecDeque::from([client_order_id.clone()]));
+                        true
                     }
+                    Entry::Occupied(mut entry) => {
+                        // User sent another index order, and we will store it
+                        // in the queue, and process once we finished with
+                        // current index order for that user.
+                        entry.get_mut().push_back(client_order_id.clone());
+                        false
+                    }
+                };
+
+                if notify {
+                    // We use client queue to notify ourselves so that solve()
+                    // will pick order from the queue above at next tick.
+                    self.client_queue.lock().push_back((chain_id, address));
                 }
+
+                Ok(())
+            }
+            IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp: _,
+            } => {
+                println!(
+                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
+                    chain_id, address, client_order_id
+                );
+                self.client_orders
+                    .write()
+                    .remove(&(chain_id, address, client_order_id.clone()))
+                    .ok_or_eyre("Failed to remove entry")?;
+
+                // Note we can have two possible cases:
+                // 1. Order in front of FIFO queue is cancelled
+                // 2. Order in the middle of FIFO queue is cancelled
+                // Case 1. means that order is currently processed, and it could have
+                // been cancelled for two reasons:
+                //  a) it was minted
+                //  b) user cancelled it
+                // Case 2. means user cancelled it
+                let notify = match self.client_order_queues.lock().entry((chain_id, address)) {
+                    Entry::Occupied(mut entry) => {
+                        let mut notify = false;
+                        let queue = entry.get_mut();
+                        if let Some(front) = queue.front() {
+                            if front.eq(&client_order_id) {
+                                queue.pop_front();
+                                if queue.is_empty() {
+                                    // This means that there is no more index orders
+                                    // for that user
+                                    entry.remove();
+                                } else {
+                                    // Note we always keep current client_order_id in the
+                                    // queue, so that when we receive NewIndexOrder we know
+                                    // that current order is still being worked on.
+                                    notify = true;
+                                }
+                            } else {
+                                queue.retain(|x| !x.eq(&client_order_id));
+                            }
+                        } else {
+                            // This is rather unexpected, as we would remove queue from map
+                            // when it becomes empty.
+                            eprintln!(
+                                "(solver) Cancel order found empty index order queue for the user"
+                            );
+                            entry.remove();
+                        }
+                        notify
+                    }
+                    Entry::Vacant(_) => {
+                        // This is rather unexpected, as we would add any new index orders to
+                        // a queue and cancelling should always find a match in the queue.
+                        eprintln!(
+                            "(solver) Cancel order cannot find any index orders for the user"
+                        );
+                        false
+                    }
+                };
+                if notify {
+                    self.client_queue.lock().push_back((chain_id, address));
+                }
+                Ok(())
             }
             IndexOrderEvent::UpdateIndexOrder {
                 chain_id,
                 address,
                 client_order_id,
-                collateral_removed: _,
+                collateral_removed,
                 collateral_remaining: _,
-                timestamp: _,
+                timestamp,
             } => {
                 println!(
                     "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
                     client_order_id, client_order_id, address
                 );
-                todo!();
+                let mut cleanup = false;
+                if let Some(order) =
+                    self.client_orders
+                        .read()
+                        .get(&(chain_id, address, client_order_id))
+                {
+                    let mut order_write = order.write();
+
+                    // Note that we update our solver view when we have a fill, so
+                    // the value of IndexOrderEvent::UpdateIndexOrder::collateral_remaining
+                    // wouldn't be adequate. It is true that Index Order Manager should
+                    // see same value, because after fill it should update it same way, but
+                    // we don't have any guarantees about when this event was published
+                    // and it could have been published before the fill, and that would
+                    // overwrite our local calculation. That is why we apply delta, which is
+                    // IndexOrderEvent::UpdateIndexOrder::collateral_removed
+                    order_write.remaining_collateral =
+                        safe!(order_write.remaining_collateral - collateral_removed)
+                            .ok_or_eyre("Math Problem")?;
+
+                    order_write.timestamp = timestamp;
+
+                    if let SolverOrderStatus::Open = order_write.status {
+                        // Note that this only applies to orders with Open status. We wouldn't
+                        // have any entry in the client_queue for user for whom we are already
+                        // processing an order, and any next order will be added to queue for
+                        // that user in stored in client_order_queues. Also note that we added
+                        // check is status == Open purely for performance reasons, because if
+                        // code behaves as expected, the client_queue wouldn't have any entry
+                        // for this user.
+                        cleanup = true;
+                    }
+
+                    Ok(())
+                } else {
+                    Err(eyre!("(solver) Handle order update: Missing order"))
+                }?;
+
+                if cleanup {
+                    // We want to ensure that any update to an order that can be picked up
+                    // by serve_more_clients() follows the timestamp rules, i.e. if user
+                    // cancelled quantity on the order, then we put that user at the end of
+                    // client_queue, because orders of other clients have lower timestamps
+                    // than this update.
+                    let mut client_queue = self.client_queue.lock();
+                    let key = (chain_id, address);
+                    if let Some((pos, _)) = client_queue.iter().find_position(|&x| x.eq(&key)) {
+                        if client_queue.len() > 1 {
+                            client_queue.remove(pos);
+                            client_queue.push_back(key);
+                        }
+                    }
+                }
+                Ok(())
             }
+            IndexOrderEvent::EngageIndexOrder {
+                batch_order_id,
+                engaged_orders,
+                timestamp,
+            } => self
+                .batch_manager
+                .write()
+                .map_err(|e| eyre!("Failed to access batch manager {}", e))?
+                .handle_engage_index_order(self, batch_order_id, engaged_orders, timestamp),
             IndexOrderEvent::CollateralReady {
                 chain_id,
                 address,
@@ -772,34 +1025,10 @@ impl Solver {
 
                     Ok(())
                 } else {
+                    // TODO: Tell CollateralManager that order is no longer
+                    // Something needs to happen with collateral, e.g. reuse in next order
                     Err(eyre!("(solver) Handle collateral ready ack: Missing order"))
                 }
-            }
-            IndexOrderEvent::EngageIndexOrder {
-                batch_order_id,
-                engaged_orders,
-                timestamp,
-            } => self.batch_manager.write().handle_engage_index_order(
-                self,
-                batch_order_id,
-                engaged_orders,
-                timestamp,
-            ),
-            IndexOrderEvent::CancelIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                timestamp: _,
-            } => {
-                println!(
-                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
-                    chain_id, address, client_order_id
-                );
-                self.client_orders
-                    .write()
-                    .remove(&(chain_id, address, client_order_id))
-                    .ok_or_eyre("Failed to remove entry")?;
-                Ok(())
             }
         }
     }
@@ -840,19 +1069,22 @@ impl Solver {
                     fee,
                     (|| safe!(safe!(fee * Amount::ONE_HUNDRED) / safe!(quantity * price)?))().unwrap_or_default()
                 );
-                self.batch_manager.read().handle_new_lot(
-                    self,
-                    order_id,
-                    batch_order_id,
-                    lot_id,
-                    None,
-                    symbol,
-                    side,
-                    price,
-                    quantity,
-                    fee,
-                    timestamp,
-                )
+                self.batch_manager
+                    .read()
+                    .map_err(|e| eyre!("Failed to access batch manager {}", e))?
+                    .handle_new_lot(
+                        self,
+                        order_id,
+                        batch_order_id,
+                        lot_id,
+                        None,
+                        symbol,
+                        side,
+                        price,
+                        quantity,
+                        fee,
+                        timestamp,
+                    )
             }
             InventoryEvent::CloseLot {
                 original_order_id: _,
@@ -886,19 +1118,22 @@ impl Solver {
                     (|| safe!(safe!(Amount::ONE_HUNDRED * safe!(original_quantity - quantity_remaining)?)?
                         / original_quantity))().unwrap_or_default()
                 );
-                self.batch_manager.read().handle_new_lot(
-                    self,
-                    closing_order_id,
-                    closing_batch_order_id,
-                    original_lot_id,
-                    Some(closing_lot_id),
-                    symbol,
-                    side,
-                    closing_price,
-                    quantity_closed,
-                    closing_fee,
-                    closing_timestamp,
-                )
+                self.batch_manager
+                    .read()
+                    .map_err(|e| eyre!("Failed to access batch manager {}", e))?
+                    .handle_new_lot(
+                        self,
+                        closing_order_id,
+                        closing_batch_order_id,
+                        original_lot_id,
+                        Some(closing_lot_id),
+                        symbol,
+                        side,
+                        closing_price,
+                        quantity_closed,
+                        closing_fee,
+                        closing_timestamp,
+                    )
             }
             InventoryEvent::Cancel {
                 order_id,
@@ -915,15 +1150,18 @@ impl Solver {
                     "(solver) Handle Inventory Event Cancel {} {} {}",
                     order_id, batch_order_id, symbol
                 );
-                self.batch_manager.read().handle_cancel_order(
-                    self,
-                    batch_order_id,
-                    symbol,
-                    side,
-                    quantity_cancelled,
-                    is_cancelled,
-                    cancel_timestamp,
-                )
+                self.batch_manager
+                    .read()
+                    .map_err(|e| eyre!("Failed to access batch manager {}", e))?
+                    .handle_cancel_order(
+                        self,
+                        batch_order_id,
+                        symbol,
+                        side,
+                        quantity_cancelled,
+                        is_cancelled,
+                        cancel_timestamp,
+                    )
             }
         }
     }
@@ -950,14 +1188,16 @@ impl Solver {
     }
 
     /// receive basket notification
-    pub fn handle_basket_event(&self, notification: BasketNotification) {
+    pub fn handle_basket_event(&self, notification: BasketNotification) -> Result<()> {
         // TODO: (move this) once solvign is done notify new weights were applied
         match notification {
             BasketNotification::BasketAdded(symbol, basket) => {
                 println!("(solver) Handle Basket Notification BasketAdded {}", symbol);
                 self.chain_connector
                     .write()
-                    .solver_weights_set(symbol, basket)
+                    .map_err(|e| eyre!("Failed to access chain connector {}", e))?
+                    .solver_weights_set(symbol, basket);
+                Ok(())
             }
             BasketNotification::BasketUpdated(symbol, basket) => {
                 println!(
@@ -966,7 +1206,9 @@ impl Solver {
                 );
                 self.chain_connector
                     .write()
-                    .solver_weights_set(symbol, basket)
+                    .map_err(|e| eyre!("Failed to access chain connector {}", e))?
+                    .solver_weights_set(symbol, basket);
+                Ok(())
             }
             BasketNotification::BasketRemoved(symbol) => {
                 println!(
@@ -1030,15 +1272,18 @@ impl BatchManagerHost for Solver {
         fill_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.index_order_manager.write().fill_order_request(
-            chain_id,
-            address,
-            client_order_id,
-            symbol,
-            collateral_spent,
-            fill_amount,
-            timestamp,
-        )
+        self.index_order_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+            .fill_order_request(
+                chain_id,
+                address,
+                client_order_id,
+                symbol,
+                collateral_spent,
+                fill_amount,
+                timestamp,
+            )
     }
 }
 
@@ -1050,7 +1295,11 @@ impl CollateralManagerHost for Solver {
 
 #[cfg(test)]
 mod test {
-    use std::{any::type_name, sync::Arc, time::Duration};
+    use std::{
+        any::type_name,
+        sync::{Arc, RwLock as ComponentLock},
+        time::Duration,
+    };
 
     use chrono::{TimeDelta, Utc};
     use crossbeam::{
@@ -1183,6 +1432,7 @@ mod test {
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let mint_wait_period = TimeDelta::new(10, 0).unwrap();
+        let client_wait_period = TimeDelta::new(10, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (collateral_sender, collateral_receiver) = unbounded::<CollateralEvent>();
@@ -1226,10 +1476,10 @@ mod test {
         let order_book_manager = Arc::new(RwLock::new(PricePointBookManager::new(tolerance)));
         let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
 
-        let chain_connector = Arc::new(RwLock::new(MockChainConnector::new()));
+        let chain_connector = Arc::new(ComponentLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let collateral_designation_1 = Arc::new(RwLock::new(MockCollateralDesignation {
+        let collateral_designation_1 = Arc::new(ComponentLock::new(MockCollateralDesignation {
             type_: "T1".into(),
             name: "D1".into(),
             collateral_symbol: "C1".into(),
@@ -1237,7 +1487,7 @@ mod test {
             balance: dec!(0.0),
         }));
 
-        let collateral_designation_2 = Arc::new(RwLock::new(MockCollateralDesignation {
+        let collateral_designation_2 = Arc::new(ComponentLock::new(MockCollateralDesignation {
             type_: "T2".into(),
             name: "D2".into(),
             collateral_symbol: "C2".into(),
@@ -1245,7 +1495,7 @@ mod test {
             balance: dec!(0.0),
         }));
 
-        let collateral_designation_3 = Arc::new(RwLock::new(MockCollateralDesignation {
+        let collateral_designation_3 = Arc::new(ComponentLock::new(MockCollateralDesignation {
             type_: "T3".into(),
             name: "D3".into(),
             collateral_symbol: "C3".into(),
@@ -1253,60 +1503,87 @@ mod test {
             balance: dec!(0.0),
         }));
 
-        let collateral_bridge_1 = Arc::new(RwLock::new(MockCollateralBridge::new(
+        let collateral_bridge_1 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
             collateral_designation_1.clone(),
             collateral_designation_2.clone(),
         )));
 
-        let collateral_bridge_2 = Arc::new(RwLock::new(MockCollateralBridge::new(
+        let collateral_bridge_2 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
             collateral_designation_2.clone(),
             collateral_designation_3.clone(),
         )));
 
-        let collateral_router = Arc::new(RwLock::new(CollateralRouter::new()));
+        let collateral_router = Arc::new(ComponentLock::new(CollateralRouter::new()));
 
         collateral_router
             .write()
+            .unwrap()
             .add_bridge(collateral_bridge_1.clone())
             .expect("Failed to add bridge");
 
         collateral_router
             .write()
+            .unwrap()
             .add_bridge(collateral_bridge_2.clone())
             .expect("Failed to add bridge");
 
         collateral_router
             .write()
+            .unwrap()
             .add_chain_source(
                 chain_id,
-                collateral_designation_1.read().get_full_name().clone(),
+                collateral_designation_1
+                    .read()
+                    .unwrap()
+                    .get_full_name()
+                    .clone(),
             )
             .expect("Failed to add chain source");
 
         collateral_router
             .write()
-            .set_default_destination(collateral_designation_3.read().get_full_name().clone())
+            .unwrap()
+            .set_default_destination(
+                collateral_designation_3
+                    .read()
+                    .unwrap()
+                    .get_full_name()
+                    .clone(),
+            )
             .expect("Failed to set default destination");
 
         collateral_router
             .write()
+            .unwrap()
             .add_route(&[
-                collateral_designation_1.read().get_full_name().clone(),
-                collateral_designation_2.read().get_full_name().clone(),
-                collateral_designation_3.read().get_full_name().clone(),
+                collateral_designation_1
+                    .read()
+                    .unwrap()
+                    .get_full_name()
+                    .clone(),
+                collateral_designation_2
+                    .read()
+                    .unwrap()
+                    .get_full_name()
+                    .clone(),
+                collateral_designation_3
+                    .read()
+                    .unwrap()
+                    .get_full_name()
+                    .clone(),
             ])
             .expect("Failed to add route");
 
-        let collateral_manager = Arc::new(RwLock::new(CollateralManager::new(
+        let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
             collateral_router.clone(),
             tolerance,
         )));
 
-        let index_order_manager = Arc::new(RwLock::new(IndexOrderManager::new(
+        let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
             fix_server.clone(),
             tolerance,
         )));
-        let quote_request_manager = Arc::new(RwLock::new(MockQuoteRequestManager::new(
+        let quote_request_manager = Arc::new(ComponentLock::new(MockQuoteRequestManager::new(
             fix_server.clone(),
         )));
 
@@ -1327,7 +1604,7 @@ mod test {
             dec!(2000.0),
         ));
 
-        let batch_manager = Arc::new(RwLock::new(BatchManager::new(
+        let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
             max_batch_size,
             tolerance,
             dec!(0.9999),
@@ -1337,18 +1614,19 @@ mod test {
 
         let solver = Arc::new(Solver::new(
             solver_strategy.clone(),
-            batch_manager.clone(),
             order_id_provider.clone(),
             basket_manager.clone(),
             price_tracker.clone(),
             order_book_manager.clone(),
             chain_connector.clone(),
+            batch_manager.clone(),
             collateral_manager.clone(),
             index_order_manager.clone(),
             quote_request_manager.clone(),
             inventory_manager.clone(),
             max_batch_size,
             tolerance,
+            client_wait_period,
         ));
 
         solver
@@ -1359,41 +1637,49 @@ mod test {
 
         chain_connector
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(chain_sender);
 
         batch_manager
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(batch_event_sender);
 
         collateral_manager
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(collateral_sender);
 
         collateral_bridge_1
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(collateral_router_sender.clone());
 
         collateral_bridge_2
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(collateral_router_sender);
 
         collateral_router
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(collateral_transfer_sender);
 
         index_order_manager
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(index_order_sender);
 
         quote_request_manager
             .write()
+            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(quote_request_sender);
 
@@ -1529,6 +1815,7 @@ mod test {
 
         chain_connector
             .write()
+            .unwrap()
             .implementor
             .set_observer_fn(move |response| {
                 match &response {
@@ -1613,12 +1900,13 @@ mod test {
             });
 
         let impl_collateral_bridge =
-            move |collateral_bridge: &Arc<RwLock<MockCollateralBridge>>,
+            move |collateral_bridge: &Arc<ComponentLock<MockCollateralBridge>>,
                   mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
                   defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
                 let collateral_bridge_weak = Arc::downgrade(collateral_bridge);
                 collateral_bridge
                     .write()
+                    .unwrap()
                     .implementor
                     .set_observer_fn(move |event| {
                         let collateral_bridge = collateral_bridge_weak.upgrade().unwrap();
@@ -1647,16 +1935,19 @@ mod test {
                                 let timestamp = Utc::now();
                                 defer_2
                                     .send(Box::new(move || {
-                                        collateral_bridge.write().notify_collateral_router_event(
-                                            chain_id,
-                                            address,
-                                            client_order_id,
-                                            timestamp,
-                                            route_from,
-                                            route_to,
-                                            amount - fee,
-                                            cumulative_fee,
-                                        );
+                                        collateral_bridge
+                                            .write()
+                                            .unwrap()
+                                            .notify_collateral_router_event(
+                                                chain_id,
+                                                address,
+                                                client_order_id,
+                                                timestamp,
+                                                route_from,
+                                                route_to,
+                                                amount - fee,
+                                                cumulative_fee,
+                                            );
                                     }))
                                     .expect("Failed to send");
                             }
@@ -1690,7 +1981,9 @@ mod test {
                     recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
                     recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
                     recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
-                    recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap()),
+                    recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle basket event"),
 
                     recv(chain_receiver) -> res => solver.handle_chain_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
@@ -1705,11 +1998,13 @@ mod test {
                         .expect("Failed to handle collateral event"),
 
                     recv(collateral_transfer_receiver) -> res => solver.collateral_manager.write()
+                        .unwrap()
                         .handle_collateral_transfer_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle bridge event"),
 
                     recv(collateral_router_receiver) -> res => collateral_router.write()
+                        .unwrap()
                         .handle_collateral_router_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle router event"),
@@ -1736,11 +2031,13 @@ mod test {
                         let e = res.unwrap();
                         index_order_manager
                             .write()
+                            .unwrap()
                             .handle_server_message(&e)
                             .expect("Failed to handle server event");
 
                         quote_request_manager
                             .write()
+                            .unwrap()
                             .handle_server_message(&e);
                     },
                     recv(order_tracker_receiver) -> res => {
@@ -1880,6 +2177,7 @@ mod test {
         // send basket weights
         chain_connector
             .write()
+            .unwrap()
             .notify_curator_weights_set(get_mock_index_name_1(), basket_definition);
 
         flush_events();
@@ -1895,7 +2193,7 @@ mod test {
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
 
-        chain_connector.write().notify_deposit(
+        chain_connector.write().unwrap().notify_deposit(
             chain_id,
             get_mock_address_1(),
             collateral_amount,
@@ -1920,6 +2218,17 @@ mod test {
 
         flush_events();
         heading("Sent FIX message: NewIndexOrder");
+
+        timestamp += client_wait_period;
+        solver_tick(timestamp);
+        flush_events();
+        heading(
+            format!(
+                "Clock moved forward {:0.1}s",
+                client_wait_period.as_seconds_f32()
+            )
+            .as_str(),
+        );
 
         solver_tick(timestamp);
         flush_events();

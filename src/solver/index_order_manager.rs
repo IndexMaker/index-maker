@@ -5,7 +5,6 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -22,7 +21,9 @@ use crate::{
 use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 
 use super::{
-    index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome}, mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport}, position::LotId, solver::SolverOrderAssetLot
+    index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
+    mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport},
+    solver::SolverOrderAssetLot,
 };
 
 pub struct EngageOrderRequest {
@@ -198,18 +199,6 @@ impl IndexOrderManager {
                 order
             })
             .clone();
-
-        if !index_order.read().order_updates.is_empty() {
-            // TODO: Our current support for order updates is limitted, i.e. we
-            // can accept updates, but then neither Solver nor CollateralManager
-            // will be able to handle them correctly yet. Also we don't handle
-            // correctly fills here should order have more updates.
-            Err(eyre!(
-                "{} - {}",
-                "We currently cannot support order updates",
-                "IndexOrder must be fully processed before any next order"
-            ))?;
-        }
 
         // Add update to index order
         let update_order_outcome = index_order.write().update_order(
@@ -509,7 +498,7 @@ impl IndexOrderManager {
             .and_then(|x| x.get(symbol))
             .and_then(|x| {
                 let r = x.read();
-                let (_, u) = r.find_engaged_update(client_order_id)?;
+                let u = r.find_engaged_update(client_order_id)?;
                 Some((x.clone(), u.clone()))
             })
     }
@@ -572,17 +561,20 @@ impl IndexOrderManager {
             .find_engaged_update(chain_id, address, client_order_id, symbol)
             .ok_or_eyre("cannot find order update")?;
 
-        (||{
+        (|| {
             let mut index_order = index_order.upgradable_read();
             let mut update = update.upgradable_read();
-            
+
             let index_order_filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
-            let index_order_collateral_spent = safe!(index_order.collateral_spent + collateral_spent)?;
-            let index_order_engaged_collateral = Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
-            
+            let index_order_collateral_spent =
+                safe!(index_order.collateral_spent + collateral_spent)?;
+            let index_order_engaged_collateral =
+                Some(safe!(index_order.engaged_collateral? - collateral_spent)?);
+
             let update_filled_quantity = safe!(update.filled_quantity + fill_amount)?;
             let update_collateral_spent = safe!(update.collateral_spent + collateral_spent)?;
-            let update_engaged_collateral = Some(safe!(update.engaged_collateral? - collateral_spent)?);
+            let update_engaged_collateral =
+                Some(safe!(update.engaged_collateral? - collateral_spent)?);
 
             let collateral_remaining =
                 safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
@@ -610,9 +602,9 @@ impl IndexOrderManager {
                     timestamp,
                 });
 
-                Some(())
-
-        })().ok_or_eyre("Failed to update index order")?;
+            Some(())
+        })()
+        .ok_or_eyre("Failed to update index order")?;
 
         print_fill_report(&index_order.read(), &update.read(), fill_amount, timestamp)?;
 
@@ -632,8 +624,11 @@ impl IndexOrderManager {
                 .and_then(|map| map.get_mut(&engage_order.symbol))
             {
                 let mut index_order = index_order.write();
-                let unmatched_collateral =
-                    index_order.solver_engage(engage_order.collateral_amount, self.tolerance)?;
+                let unmatched_collateral = index_order.solver_engage_one(
+                    &engage_order.client_order_id,
+                    engage_order.collateral_amount,
+                    self.tolerance,
+                )?;
                 println!(
                     "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
                     engage_order.client_order_id,

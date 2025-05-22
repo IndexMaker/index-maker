@@ -1,10 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock as ComponentLock},
+};
 
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use eyre::{OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 
 use crate::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
@@ -58,10 +61,10 @@ pub trait CollateralDesignation: Send + Sync {
 
 pub trait CollateralBridge: Send + Sync {
     /// e.g. EVM:ARBITRUM:USDC
-    fn get_source(&self) -> Arc<RwLock<dyn CollateralDesignation>>;
+    fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
 
     /// e.g. BINANCE:1:USDT
-    fn get_destination(&self) -> Arc<RwLock<dyn CollateralDesignation>>;
+    fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
 
     /// Transfer funds from this designation to target designation
     ///
@@ -93,7 +96,7 @@ pub trait CollateralBridge: Send + Sync {
 
 pub struct CollateralRouter {
     observer: SingleObserver<CollateralTransferEvent>,
-    bridges: HashMap<(Symbol, Symbol), Arc<RwLock<dyn CollateralBridge>>>,
+    bridges: HashMap<(Symbol, Symbol), Arc<ComponentLock<dyn CollateralBridge>>>,
     routes: Vec<Vec<Symbol>>,
     chain_sources: HashMap<u32, Symbol>,
     default_destination: Option<Symbol>,
@@ -110,14 +113,24 @@ impl CollateralRouter {
         }
     }
 
-    pub fn add_bridge(&mut self, bridge: Arc<RwLock<dyn CollateralBridge>>) -> Result<()> {
-        let key = (|| {
-            let bridge = bridge.read();
-            (
-                bridge.get_source().read().get_full_name(),
-                bridge.get_destination().read().get_full_name(),
-            )
-        })();
+    pub fn add_bridge(&mut self, bridge: Arc<ComponentLock<dyn CollateralBridge>>) -> Result<()> {
+        let key = (|| -> Result<(Symbol, Symbol)> {
+            let bridge = bridge
+                .read()
+                .map_err(|e| eyre!("Failed to access bridge {}", e))?;
+            Ok((
+                bridge
+                    .get_source()
+                    .read()
+                    .map_err(|e| eyre!("Failed to access source {}", e))?
+                    .get_full_name(),
+                bridge
+                    .get_destination()
+                    .read()
+                    .map_err(|e| eyre!("Failed to access destination {}", e))?
+                    .get_full_name(),
+            ))
+        })()?;
         self.bridges
             .insert(key, bridge)
             .is_none()
@@ -181,15 +194,18 @@ impl CollateralRouter {
 
         let first_hop = self.next_hop(transfer_from, transfer_from, &transfer_to)?;
 
-        first_hop.write().transfer_funds(
-            chain_id,
-            address,
-            client_order_id,
-            transfer_from.clone(),
-            transfer_to.clone(),
-            amount,
-            Amount::ZERO, // we could charge some initial fee too!
-        )
+        first_hop
+            .write()
+            .map_err(|e| eyre!("Failed to access next hop {}", e))?
+            .transfer_funds(
+                chain_id,
+                address,
+                client_order_id,
+                transfer_from.clone(),
+                transfer_to.clone(),
+                amount,
+                Amount::ZERO, // we could charge some initial fee too!
+            )
     }
 
     fn next_hop(
@@ -197,7 +213,7 @@ impl CollateralRouter {
         source: &Symbol,
         route_from: &Symbol,
         route_to: &Symbol,
-    ) -> Result<&Arc<RwLock<dyn CollateralBridge>>> {
+    ) -> Result<&Arc<ComponentLock<dyn CollateralBridge>>> {
         let route = self
             .routes
             .iter()
@@ -264,6 +280,9 @@ impl CollateralRouter {
                     Ok(())
                 } else {
                     let next_hop = self.next_hop(&destination, &route_from, &route_to)?;
+                    let next_hop = next_hop
+                        .write()
+                        .map_err(|e| eyre!("Failed to access next hop {}", e))?;
                     println!(
                         "(collateral-router) Route Hop for [{}:{}] {}: ({}) {} .. [{}] => {} ({}) {:0.5} {:0.5}",
                         chain_id,
@@ -271,13 +290,13 @@ impl CollateralRouter {
                         client_order_id,
                         route_from,
                         source,
-                        next_hop.read().get_source().read().get_full_name(),
-                        next_hop.read().get_destination().read().get_full_name(),
+                        next_hop.get_source().read().map(|x| x.get_full_name()).unwrap_or_default(),
+                        next_hop.get_destination().read().map(|x| x.get_full_name()).unwrap_or_default(),
                         route_to,
                         amount,
                         fee
                     );
-                    next_hop.write().transfer_funds(
+                    next_hop.transfer_funds(
                         chain_id,
                         address,
                         client_order_id,
@@ -302,7 +321,7 @@ impl IntoObservableSingle<CollateralTransferEvent> for CollateralRouter {
 pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLock as ComponentLock};
 
     use parking_lot::RwLock;
 
@@ -354,14 +373,14 @@ pub mod test_util {
     pub struct MockCollateralBridge {
         observer: SingleObserver<CollateralRouterEvent>,
         pub implementor: SingleObserver<MockCollateralBridgeInternalEvent>,
-        pub source: Arc<RwLock<MockCollateralDesignation>>,
-        pub destination: Arc<RwLock<MockCollateralDesignation>>,
+        pub source: Arc<ComponentLock<MockCollateralDesignation>>,
+        pub destination: Arc<ComponentLock<MockCollateralDesignation>>,
     }
 
     impl MockCollateralBridge {
         pub fn new(
-            source: Arc<RwLock<MockCollateralDesignation>>,
-            destination: Arc<RwLock<MockCollateralDesignation>>,
+            source: Arc<ComponentLock<MockCollateralDesignation>>,
+            destination: Arc<ComponentLock<MockCollateralDesignation>>,
         ) -> Self {
             Self {
                 observer: SingleObserver::new(),
@@ -388,8 +407,8 @@ pub mod test_util {
                     address,
                     client_order_id,
                     timestamp,
-                    source: self.source.read().get_full_name(),
-                    destination: self.destination.read().get_full_name(),
+                    source: self.source.read().unwrap().get_full_name(),
+                    destination: self.destination.read().unwrap().get_full_name(),
                     route_from,
                     route_to,
                     amount,
@@ -405,12 +424,12 @@ pub mod test_util {
     }
 
     impl CollateralBridge for MockCollateralBridge {
-        fn get_source(&self) -> Arc<RwLock<dyn CollateralDesignation>> {
-            (self.source).clone() as Arc<RwLock<dyn CollateralDesignation>>
+        fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
+            (self.source).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
         }
 
-        fn get_destination(&self) -> Arc<RwLock<dyn CollateralDesignation>> {
-            (self.destination).clone() as Arc<RwLock<dyn CollateralDesignation>>
+        fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
+            (self.destination).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
         }
 
         fn transfer_funds(
