@@ -1,12 +1,10 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    f32::consts::E,
     sync::Arc,
 };
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -25,7 +23,6 @@ use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
     mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport},
-    position::LotId,
     solver::SolverOrderAssetLot,
 };
 

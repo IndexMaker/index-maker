@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
+    sync::{Arc, RwLock as ComponentLock},
 };
 
 use chrono::{DateTime, Utc};
@@ -8,7 +8,7 @@ use itertools::FoldWhile::{Continue, Done};
 use itertools::{Either, Itertools};
 use parking_lot::RwLock;
 
-use eyre::{OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 use safe_math::safe;
 
 use crate::{
@@ -555,14 +555,14 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
-    router: Arc<RwLock<CollateralRouter>>,
+    router: Arc<ComponentLock<CollateralRouter>>,
     client_funds: HashMap<(u32, Address), Arc<RwLock<CollateralPosition>>>,
     collateral_management_requests: VecDeque<CollateralManagement>,
     zero_threshold: Amount,
 }
 
 impl CollateralManager {
-    pub fn new(router: Arc<RwLock<CollateralRouter>>, zero_threshold: Amount) -> Self {
+    pub fn new(router: Arc<ComponentLock<CollateralRouter>>, zero_threshold: Amount) -> Self {
         Self {
             observer: SingleObserver::new(),
             router,
@@ -602,13 +602,19 @@ impl CollateralManager {
         let failures = ready_to_route
             .into_iter()
             .filter_map(|(request, unconfirmed_balance)| {
-                match self.router.write().transfer_collateral(
-                    request.chain_id,
-                    request.address,
-                    request.client_order_id.clone(),
-                    request.side,
-                    unconfirmed_balance,
-                ) {
+                match self
+                    .router
+                    .write()
+                    .map_err(|e| eyre!("Failed to access router {}", e))
+                    .and_then(|x| {
+                        x.transfer_collateral(
+                            request.chain_id,
+                            request.address,
+                            request.client_order_id.clone(),
+                            request.side,
+                            unconfirmed_balance,
+                        )
+                    }) {
                     Ok(()) => None,
                     Err(err) => Some((err, request)),
                 }
