@@ -58,7 +58,7 @@ Work included in Phase 1.:
     - [x] Carry over unused batch order lots between batches
     - [x] Report completed batches and mintable orders using events
     - [x] Remove fully-filled batches
-* [ ] Manage Index Orders correctly
+* [x] Manage Index Orders correctly
     - [x] After minting remove Index Order
     - [x] Support Index Order updates
     - [x] Fill correct Index Order update based on client order ID
