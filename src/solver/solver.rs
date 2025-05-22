@@ -2100,10 +2100,6 @@ mod test {
         flush_events();
         heading("Sent FIX message: NewIndexOrder");
 
-        solver_tick(timestamp);
-        flush_events();
-        heading("New client order");
-
         timestamp += client_wait_period;
         solver_tick(timestamp);
         flush_events();
