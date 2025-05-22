@@ -96,12 +96,19 @@ pub fn print_fill_report(
     println!(
         "(report) {: <22}  {: <10} |{: >10.5}",
         "Collateral",
+        "Remaining",
+        update_read.remaining_collateral + update_read.engaged_collateral.unwrap_or_default()
+    );
+    println!("(report) {}", (0..46).map(|_| "-").join(""));
+    println!(
+        "(report) {: <22}  {: <10} |{: >10.5}",
+        "of which",
         "Engaged",
         update_read.engaged_collateral.unwrap_or_default()
     );
     println!(
         "(report) {: <22}  {: <10} |{: >10.5}",
-        " ", "Remaining", update_read.remaining_collateral,
+        " ", "Unengaged", update_read.remaining_collateral,
     );
 
     println!("(report) {}", (0..46).map(|_| "-").join(""));
@@ -123,13 +130,10 @@ pub fn print_fill_report(
     println!("(report) {}", (0..46).map(|_| "-").join(""));
     println!(
         "(report) {: <22}  {: <10} |{: >10.5}",
-        "Collateral",
-        "Engaged",
-        index_order_read.engaged_collateral.unwrap_or_default()
-    );
-    println!(
-        "(report) {: <22}  {: <10} |{: >10.5}",
-        " ", "Remaining", index_order_read.remaining_collateral,
+        "Total Collateral",
+        "Remaining",
+        index_order_read.remaining_collateral
+            + index_order_read.engaged_collateral.unwrap_or_default()
     );
 
     println!("(report)");
