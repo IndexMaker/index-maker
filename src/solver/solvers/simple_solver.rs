@@ -1067,6 +1067,7 @@ impl SolverStrategy for SimpleSolver {
             let client_order_id = order_upread.client_order_id.clone();
             let address_client_order_id = (*address, client_order_id.clone());
             let index_symbol = &order_upread.symbol;
+            let carried_collateral = order_upread.collateral_carried;
 
             let basket = engaged_buys
                 .baskets
@@ -1092,6 +1093,9 @@ impl SolverStrategy for SimpleSolver {
                 safe!(safe!(index_price_limit * order_quantity) * self.fee_factor)
                     .ok_or_eyre("Failed to compute enagaged collateral")?;
 
+            let new_engaged_collateral = safe!(engaged_collateral - carried_collateral)
+                    .ok_or_eyre("Failed to compute new enagaged collateral")?;
+            
             let engagement = SolverOrderEngagement {
                 index_order: order_ptr.clone(),
                 chain_id: order_upread.chain_id,
@@ -1105,6 +1109,7 @@ impl SolverStrategy for SimpleSolver {
                 engaged_quantity: order_quantity,
                 engaged_price: index_price_limit,
                 engaged_collateral,
+                new_engaged_collateral,
                 engaged_side: Side::Buy,
                 filled_quantity: Amount::ZERO,
             };

@@ -23,7 +23,7 @@ use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
     mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport},
-    solver::SolverOrderAssetLot,
+    solver::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
 pub struct EngageOrderRequest {
@@ -264,7 +264,8 @@ impl IndexOrderManager {
 
         self.server
             .write()
-            .respond_with(crate::server::server::ServerResponse::NewIndexOrderAck {
+            .respond_with(ServerResponse::NewIndexOrderAck {
+                chain_id,
                 address,
                 client_order_id,
                 timestamp,
@@ -594,6 +595,7 @@ impl IndexOrderManager {
             self.server
                 .write()
                 .respond_with(ServerResponse::IndexOrderFill {
+                    chain_id,
                     address: *address,
                     client_order_id: client_order_id.clone(),
                     filled_quantity: index_order.filled_quantity,
@@ -608,6 +610,26 @@ impl IndexOrderManager {
 
         print_fill_report(&index_order.read(), &update.read(), fill_amount, timestamp)?;
 
+        Ok(())
+    }
+
+    pub fn order_failed(
+        &mut self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+        status: SolverOrderStatus,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        self.server
+            .write()
+            .respond_with(ServerResponse::NewIndexOrderNak {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                reason: format!("Error handing order {:?}", status),
+                timestamp,
+            });
         Ok(())
     }
 
