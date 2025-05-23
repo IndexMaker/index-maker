@@ -41,11 +41,20 @@ pub enum ServerEvent {
 
 pub enum ServerResponse {
     NewIndexOrderAck {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
+    NewIndexOrderNak {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        reason: String,
+        timestamp: DateTime<Utc>,
+    },
     IndexOrderFill {
+        chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         filled_quantity: Amount,
