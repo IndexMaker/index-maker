@@ -21,6 +21,9 @@ pub mod core {
 
     #[cfg(test)]
     pub mod test_util;
+    
+    #[cfg(test)]
+    pub mod test_macros;
 }
 
 pub mod index {

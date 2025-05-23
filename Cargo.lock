@@ -2017,6 +2017,7 @@ dependencies = [
  "intrusive-collections",
  "itertools 0.14.0",
  "parking_lot",
+ "paste",
  "rust_decimal",
  "safe-math",
  "string_cache",

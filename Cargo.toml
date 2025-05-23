@@ -21,6 +21,9 @@ rust_decimal = { workspace = true }
 string_cache = "0.8.9"
 safe-math = { path = "./proc-macros/safe-math" }
 
+[dev-dependencies]
+paste = "1.0.15"
+
 [workspace.dependencies]
 eyre = "0.6.12"
 rust_decimal = { version = "1.37.1", features = ["macros"] }
