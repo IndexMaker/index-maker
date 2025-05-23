@@ -1,18 +1,11 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use eyre::{OptionExt, Result};
+use eyre::Result;
 use itertools::Itertools;
 use parking_lot::RwLock;
-use safe_math::safe;
 
-use crate::{
-    core::{
-        bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
-        decimal_ext::DecimalExt,
-    },
-    solver::index_order,
-};
+use crate::core::bits::{Address, Amount, PaymentId, Symbol};
 
 use super::{
     index_order::{IndexOrder, IndexOrderUpdate},

@@ -29,7 +29,6 @@ use crate::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{GetPricesResponse, PriceEvent, PriceTracker},
     },
-    order_sender::order_tracker::OrderStatus,
 };
 
 use super::{

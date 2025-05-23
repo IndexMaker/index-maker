@@ -1094,8 +1094,8 @@ impl SolverStrategy for SimpleSolver {
                     .ok_or_eyre("Failed to compute enagaged collateral")?;
 
             let new_engaged_collateral = safe!(engaged_collateral - carried_collateral)
-                    .ok_or_eyre("Failed to compute new enagaged collateral")?;
-            
+                .ok_or_eyre("Failed to compute new enagaged collateral")?;
+
             let engagement = SolverOrderEngagement {
                 index_order: order_ptr.clone(),
                 chain_id: order_upread.chain_id,

@@ -5,7 +5,6 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
@@ -322,8 +321,6 @@ pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;
     use std::sync::{Arc, RwLock as ComponentLock};
-
-    use parking_lot::RwLock;
 
     use crate::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
