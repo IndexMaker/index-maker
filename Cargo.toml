@@ -23,6 +23,7 @@ safe-math = { path = "./proc-macros/safe-math" }
 
 [dev-dependencies]
 paste = "1.0.15"
+test-case = "*"
 
 [workspace.dependencies]
 eyre = "0.6.12"

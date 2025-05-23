@@ -1161,8 +1161,9 @@ mod test {
         index::basket::*,
         market_data::price_tracker::*,
         solver::solver::*,
-        test_case,
     };
+
+    use test_case::test_case;
 
     use super::SimpleSolver;
 
@@ -1305,7 +1306,55 @@ mod test {
         }))
     }
 
-    fn run_test(
+    #[test_case(
+        "Unlimited",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(1.0), dec!(1000.0), dec!(1000.0)),
+            (dec!(5.0), dec!(1000.0), dec!(5000.0))
+        ]; "unlimited"
+    )]
+    #[test_case(
+        "Max Order Volley Set",
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(1.0), dec!(1000.0), dec!(1000.0)),
+            (dec!(1.0), dec!(1000.0), dec!(1000.0))
+        ]; "max_order_volley_set"
+    )]
+    #[test_case(
+        "Max Batch Volley Set",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0)),
+        vec![
+            (dec!(0.16666), dec!(1000.0), dec!(166.66666)),
+            (dec!(0.83333), dec!(1000.0), dec!(833.33333))
+        ]; "max_batch_volley_set"
+    )]
+    #[test_case(
+        "Max Volleys Set",
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0)),
+        vec![
+            (dec!(0.75), dec!(1000.0), dec!(750.0)),
+            (dec!(0.75), dec!(1000.0), dec!(750.0))
+        ]; "max_volleys_set"
+    )]
+    #[test_case(
+        "Fee Factor 1%",
+        (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(0.99009), dec!(1000.0), dec!(1000.0)),
+            (dec!(4.95049), dec!(1000.0), dec!(5000.0))
+        ]; "fee_factor_1pct"
+    )]
+    #[test_case(
+        "Price Threshold 1%",
+        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(0.99009), dec!(1010.0), dec!(1000.0)),
+            (dec!(4.95049), dec!(1010.0), dec!(5000.0))
+        ]; "price_threshold_1pct"
+    )]
+    fn test_simple_solver(
         title: &str,
         params: (Amount, Amount, Amount, Amount),
         expected: Vec<(Amount, Amount, Amount)>,
@@ -1374,70 +1423,5 @@ mod test {
                 dec!(0.00001)
             );
         }
-    }
-
-    test_case! {
-        name: "unlimited",
-        title: "Unlimited",
-        runner: run_test,
-        config: (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
-        expected: [
-            (dec!(1.0), dec!(1000.0), dec!(1000.0)),
-            (dec!(5.0), dec!(1000.0), dec!(5000.0))
-        ]
-    }
-
-    test_case! {
-        name: "max_order_volley_set",
-        title: "Max Order Volley Set",
-        runner: run_test,
-        config: (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0)),
-        expected: [
-            (dec!(1.0), dec!(1000.0), dec!(1000.0)),
-            (dec!(1.0), dec!(1000.0), dec!(1000.0))
-        ]
-    }
-    test_case! {
-        name: "max_batch_volley_set",
-        title: "Max Batch Volley Set",
-        runner: run_test,
-        config: (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0)),
-        expected: [
-            (dec!(0.16666), dec!(1000.0), dec!(166.66666)),
-            (dec!(0.83333), dec!(1000.0), dec!(833.33333))
-        ]
-    }
-
-    test_case! {
-        name: "max_volleys_set",
-        title: "Max Volleys Set",
-        runner: run_test,
-        config: (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0)),
-        expected: [
-            (dec!(0.75), dec!(1000.0), dec!(750.0)),
-            (dec!(0.75), dec!(1000.0), dec!(750.0))
-        ]
-    }
-
-    test_case! {
-        name: "fee_factor_1pct",
-        title: "Fee Factor 1%",
-        runner: run_test,
-        config: (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0)),
-        expected: [
-            (dec!(0.99009), dec!(1000.0), dec!(1000.0)),
-            (dec!(4.95049), dec!(1000.0), dec!(5000.0))
-        ]
-    }
-
-    test_case! {
-        name: "price_threshold_1pct",
-        title: "Price Threshold 1%",
-        runner: run_test,
-        config: (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
-        expected: [
-            (dec!(0.99009), dec!(1010.0), dec!(1000.0)),
-            (dec!(4.95049), dec!(1010.0), dec!(5000.0))
-        ]
     }
 }
