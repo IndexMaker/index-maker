@@ -152,7 +152,7 @@ pub enum IndexOrderEvent {
 pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
-    index_orders: HashMap<Address, HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
+    index_orders: HashMap<(u32, Address), HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
     tolerance: Amount,
 }
 
@@ -182,7 +182,7 @@ impl IndexOrderManager {
         // Create index orders for user if not created yet
         let user_index_orders = self
             .index_orders
-            .entry(address)
+            .entry((chain_id, address))
             .or_insert_with(|| HashMap::new());
 
         // Create index order if not created yet
@@ -285,7 +285,7 @@ impl IndexOrderManager {
     ) -> Result<()> {
         let user_orders = self
             .index_orders
-            .get(&address)
+            .get(&(chain_id, address))
             .ok_or(eyre!("No orders found for user {}", address))?;
         let index_order = user_orders.get(&symbol).ok_or(eyre!(
             "No order found for user {} for {}",
@@ -376,7 +376,7 @@ impl IndexOrderManager {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         self.index_orders
-            .get(address)
+            .get(&(chain_id, *address))
             .and_then(|x| x.get(symbol))
             .and_then(|index_order| Some(index_order.upgradable_read()))
             .and_then(|mut order_upread| {
@@ -444,7 +444,7 @@ impl IndexOrderManager {
         symbol: &Symbol,
         client_order_id: &ClientOrderId,
     ) -> Result<()> {
-        match self.index_orders.entry(*address) {
+        match self.index_orders.entry((chain_id, *address)) {
             Entry::Occupied(mut entry) => {
                 match entry.get_mut().entry(symbol.clone()) {
                     Entry::Occupied(inner_entry) => {
@@ -494,7 +494,7 @@ impl IndexOrderManager {
         symbol: &Symbol,
     ) -> Option<(Arc<RwLock<IndexOrder>>, Arc<RwLock<IndexOrderUpdate>>)> {
         self.index_orders
-            .get(address)
+            .get(&(chain_id, *address))
             .and_then(|x| x.get(symbol))
             .and_then(|x| {
                 let r = x.read();
@@ -620,7 +620,7 @@ impl IndexOrderManager {
         for engage_order in engaged_orders {
             if let Some(index_order) = self
                 .index_orders
-                .get_mut(&engage_order.address)
+                .get_mut(&(engage_order.chain_id, engage_order.address))
                 .and_then(|map| map.get_mut(&engage_order.symbol))
             {
                 let mut index_order = index_order.write();
