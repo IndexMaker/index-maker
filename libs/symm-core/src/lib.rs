@@ -3,6 +3,7 @@ pub mod assets {
 }
 
 pub mod core {
+    pub mod arcswaputil;
     pub mod async_loop;
     pub mod bits;
     pub mod decimal_ext;
