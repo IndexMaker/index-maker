@@ -12,6 +12,7 @@ pub mod collateral {
 }
 
 pub mod core {
+    pub mod arcswaputil;
     pub mod bits;
     pub mod decimal_ext;
     pub mod decimal_macros;

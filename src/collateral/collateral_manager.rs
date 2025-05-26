@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock as ComponentLock},
 };
 
+use arc_swap::{ArcSwap, ArcSwapAny, AsRaw};
 use chrono::{DateTime, Utc};
 use itertools::FoldWhile::{Continue, Done};
 use itertools::{Either, Itertools};
@@ -13,6 +14,7 @@ use safe_math::safe;
 
 use crate::{
     core::{
+        arcswaputil::SafeUpdate,
         bits::{Address, Amount, ClientOrderId, PaymentId, Side},
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
@@ -59,6 +61,7 @@ pub enum CollateralEvent {
     },
 }
 
+#[derive(Clone)]
 struct CollateralSpend {
     /// Client Order ID
     client_order_id: ClientOrderId,
@@ -76,6 +79,7 @@ struct CollateralSpend {
     timestamp: DateTime<Utc>,
 }
 
+#[derive(Clone)]
 struct CollateralLot {
     /// Payment ID of this funding (credit/debit)
     payment_id: PaymentId,
@@ -117,6 +121,7 @@ impl CollateralLot {
     }
 }
 
+#[derive(Clone)]
 struct CollateralSide {
     /// Total amount of funding (unconfirmed)
     unconfirmed_balance: Amount,
@@ -448,6 +453,7 @@ impl CollateralSide {
     }
 }
 
+#[derive(Clone)]
 struct CollateralPosition {
     /// Chain ID
     chain_id: u32,
@@ -556,7 +562,7 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
     router: Arc<ComponentLock<CollateralRouter>>,
-    client_funds: HashMap<(u32, Address), Arc<RwLock<CollateralPosition>>>,
+    client_funds: HashMap<(u32, Address), ArcSwap<CollateralPosition>>,
     collateral_management_requests: VecDeque<CollateralManagement>,
     zero_threshold: Amount,
 }
@@ -582,7 +588,7 @@ impl CollateralManager {
         let (ready_to_route, check_later): (Vec<_>, Vec<_>) =
             requests.into_iter().partition_map(|request| {
                 if let Some(position) = self.get_position(request.chain_id, &request.address) {
-                    let position_read = position.read();
+                    let position_read = position.load();
                     let unconfirmed_balance = match request.side {
                         Side::Buy => position_read.side_cr.unconfirmed_balance,
                         Side::Sell => position_read.side_dr.unconfirmed_balance,
@@ -663,17 +669,16 @@ impl CollateralManager {
             "(collateral-manager) Deposit from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
-        let collateral_position = self.add_position(chain_id, address, timestamp);
-        let mut collateral_position_write = collateral_position.write();
 
-        collateral_position_write.side_cr.open_lot(
-            host.get_next_payment_id(),
-            amount,
-            timestamp,
-        )?;
+        self.add_position(chain_id, address, timestamp)
+            .safe_update(|funds_write| {
+                funds_write
+                    .side_cr
+                    .open_lot(host.get_next_payment_id(), amount, timestamp)?;
 
-        collateral_position_write.last_update_timestamp = timestamp;
-        Ok(())
+                funds_write.last_update_timestamp = timestamp;
+                Ok(())
+            })
     }
 
     pub fn handle_withdrawal(
@@ -688,17 +693,15 @@ impl CollateralManager {
             "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
-        let collateral_position = self.add_position(chain_id, address, timestamp);
-        let mut collateral_position_write = collateral_position.write();
+        self.add_position(chain_id, address, timestamp)
+            .safe_update(|funds_write| {
+                funds_write
+                    .side_dr
+                    .open_lot(host.get_next_payment_id(), amount, timestamp)?;
 
-        collateral_position_write.side_dr.open_lot(
-            host.get_next_payment_id(),
-            amount,
-            timestamp,
-        )?;
-
-        collateral_position_write.last_update_timestamp = timestamp;
-        Ok(())
+                funds_write.last_update_timestamp = timestamp;
+                Ok(())
+            })
     }
 
     /// Pre-Authorize Payment
@@ -725,17 +728,18 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds
-            .write()
-            .preauth_payment(
-                &client_order_id,
-                timestamp,
-                side,
-                amount_payable,
-                self.zero_threshold,
-                || host.get_next_payment_id(),
-            )
-            .ok_or_eyre("Math Problem")?;
+        let status = funds.safe_update(|funds_write| {
+            funds_write
+                .preauth_payment(
+                    &client_order_id,
+                    timestamp,
+                    side,
+                    amount_payable,
+                    self.zero_threshold,
+                    || host.get_next_payment_id(),
+                )
+                .ok_or_eyre("Math Problem")
+        })?;
 
         self.observer
             .publish_single(CollateralEvent::PreAuthResponse {
@@ -772,20 +776,16 @@ impl CollateralManager {
             address, amount_paid
         );
 
+        let zero_threshold = self.zero_threshold;
         let funds = self
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds
-            .write()
-            .confirm_payment(
-                payment_id,
-                timestamp,
-                side,
-                amount_paid,
-                self.zero_threshold,
-            )
-            .ok_or_eyre("Math Problem")?;
+        let status = funds.safe_update(|funds_write| {
+            funds_write
+                .confirm_payment(payment_id, timestamp, side, amount_paid, zero_threshold)
+                .ok_or_eyre("Math Problem")
+        })?;
 
         self.observer
             .publish_single(CollateralEvent::ConfirmResponse {
@@ -806,22 +806,21 @@ impl CollateralManager {
         chain_id: u32,
         address: Address,
         timestamp: DateTime<Utc>,
-    ) -> Arc<RwLock<CollateralPosition>> {
+    ) -> &ArcSwap<CollateralPosition> {
         self.client_funds
             .entry((chain_id, address))
             .or_insert_with(|| {
-                Arc::new(RwLock::new(CollateralPosition::new(
+                ArcSwap::new(Arc::new(CollateralPosition::new(
                     chain_id, address, timestamp,
                 )))
             })
-            .clone()
     }
 
     fn get_position(
         &self,
         chain_id: u32,
         address: &Address,
-    ) -> Option<&Arc<RwLock<CollateralPosition>>> {
+    ) -> Option<&ArcSwap<CollateralPosition>> {
         self.client_funds.get(&(chain_id, address.clone()))
     }
 
@@ -848,44 +847,39 @@ impl CollateralManager {
                     .get_position(chain_id, &address)
                     .ok_or_eyre("Failed to find position")?;
 
-                let mut funds_write = funds.write();
+                funds.safe_update(|funds_write| -> Result<()> {
+                    // TODO: We need to also support Sell & Withdraw
+                    let side = Side::Buy;
 
-                // TODO: We need to also support Sell & Withdraw
-                let side = Side::Buy;
+                    funds_write
+                        .add_ready(side, amount, timestamp, self.zero_threshold)
+                        .ok_or_eyre("Math Problem")?;
 
-                funds_write
-                    .add_ready(side, amount, timestamp, self.zero_threshold)
-                    .ok_or_eyre("Math Problem")?;
+                    // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
+                    let get_payment_id = || "Charges".into();
+                    let payment_id = get_payment_id();
 
-                // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
-                let get_payment_id = || "Charges".into();
-                let payment_id = get_payment_id();
-                funds_write
-                    .add_ready(side, fee, timestamp, self.zero_threshold)
-                    .ok_or_eyre("Math Problem")?;
-                funds_write
-                    .preauth_payment(
-                        &client_order_id,
-                        timestamp,
-                        side,
-                        fee,
-                        self.zero_threshold,
-                        get_payment_id,
-                    )
-                    .ok_or_eyre("Math Problem")?;
-                //funds_write
-                //    .preauth_payment(
-                //        &client_order_id,
-                //        timestamp,
-                //        side,
-                //        amount,
-                //        self.zero_threshold,
-                //        get_payment_id,
-                //    )
-                //    .ok_or_eyre("Math Problem")?;
-                funds_write
-                    .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
-                    .ok_or_eyre("Math Problem")?;
+                    funds_write
+                        .add_ready(side, fee, timestamp, self.zero_threshold)
+                        .ok_or_eyre("Math Problem")?;
+
+                    funds_write
+                        .preauth_payment(
+                            &client_order_id,
+                            timestamp,
+                            side,
+                            fee,
+                            self.zero_threshold,
+                            get_payment_id,
+                        )
+                        .ok_or_eyre("Math Problem")?;
+
+                    funds_write
+                        .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
+                        .ok_or_eyre("Math Problem")?;
+
+                    Ok(())
+                })?;
 
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {
