@@ -3,11 +3,10 @@ use std::{
     sync::{Arc, RwLock as ComponentLock},
 };
 
-use arc_swap::{ArcSwap, ArcSwapAny, AsRaw};
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use itertools::FoldWhile::{Continue, Done};
 use itertools::{Either, Itertools};
-use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 use safe_math::safe;
@@ -167,12 +166,12 @@ impl CollateralSide {
         payment_id: PaymentId,
         amount: Amount,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
+    ) -> Result<(), CollateralPositionError> {
         self.open_lots
             .push(CollateralLot::new(payment_id, amount, timestamp));
 
-        self.unconfirmed_balance =
-            safe!(self.unconfirmed_balance + amount).ok_or_eyre("Math Problem")?;
+        self.unconfirmed_balance = safe!(self.unconfirmed_balance + amount)
+            .ok_or(CollateralPositionError::MathOverflow)?;
 
         self.last_update_timestamp = timestamp;
 
@@ -453,6 +452,12 @@ impl CollateralSide {
     }
 }
 
+#[derive(Clone, Copy)]
+enum CollateralPositionError {
+    MathOverflow,
+    LastError,
+}
+
 #[derive(Clone)]
 struct CollateralPosition {
     /// Chain ID
@@ -472,6 +477,9 @@ struct CollateralPosition {
 
     /// Last time we updated this position
     last_update_timestamp: DateTime<Utc>,
+
+    /// Store last update status
+    status: Result<(), CollateralPositionError>,
 }
 
 impl CollateralPosition {
@@ -483,6 +491,24 @@ impl CollateralPosition {
             side_dr: CollateralSide::new(timestmap),
             created_timestamp: timestmap,
             last_update_timestamp: timestmap,
+            status: Ok(()),
+        }
+    }
+
+    pub fn set_last_error(&mut self, status: CollateralPositionError, timestmap: DateTime<Utc>) {
+        match status {
+            CollateralPositionError::LastError => {}
+            err => {
+                self.status = Err(err);
+                self.last_update_timestamp = timestmap;
+            }
+        }
+    }
+
+    pub fn begin_update(&self) -> Result<(), CollateralPositionError> {
+        match self.status {
+            Err(_) => Err(CollateralPositionError::LastError),
+            Ok(_) => Ok(()),
         }
     }
 
@@ -670,14 +696,26 @@ impl CollateralManager {
             chain_id, address, amount
         );
 
-        self.add_position(chain_id, address, timestamp)
+        let funds = self.add_position(chain_id, address, timestamp);
+        funds
             .safe_update(|funds_write| {
+                funds_write.begin_update()?;
                 funds_write
                     .side_cr
                     .open_lot(host.get_next_payment_id(), amount, timestamp)?;
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
+            })
+            .map_err(|err| {
+                funds.must_update(|funds_write| funds_write.set_last_error(err, timestamp));
+                eyre!(
+                    "Failed to update collateral position for [{}:{}] {:0.5} {}",
+                    chain_id,
+                    address,
+                    amount,
+                    timestamp
+                )
             })
     }
 
@@ -693,14 +731,26 @@ impl CollateralManager {
             "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
-        self.add_position(chain_id, address, timestamp)
+        let funds = self.add_position(chain_id, address, timestamp);
+        funds
             .safe_update(|funds_write| {
+                funds_write.begin_update()?;
                 funds_write
                     .side_dr
                     .open_lot(host.get_next_payment_id(), amount, timestamp)?;
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
+            })
+            .map_err(|err| {
+                funds.must_update(|funds_write| funds_write.set_last_error(err, timestamp));
+                eyre!(
+                    "Failed to update collateral position for [{}:{}] {:0.5} {}",
+                    chain_id,
+                    address,
+                    amount,
+                    timestamp
+                )
             })
     }
 
@@ -728,18 +778,29 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds.safe_update(|funds_write| {
-            funds_write
-                .preauth_payment(
-                    &client_order_id,
-                    timestamp,
-                    side,
-                    amount_payable,
-                    self.zero_threshold,
-                    || host.get_next_payment_id(),
+        let status = funds
+            .safe_update(|funds_write| {
+                funds_write.begin_update()?;
+                funds_write
+                    .preauth_payment(
+                        &client_order_id,
+                        timestamp,
+                        side,
+                        amount_payable,
+                        self.zero_threshold,
+                        || host.get_next_payment_id(),
+                    )
+                    .ok_or(CollateralPositionError::MathOverflow)
+            })
+            .map_err(|err| {
+                funds.must_update(|funds_write| funds_write.set_last_error(err, timestamp));
+                eyre!(
+                    "Failed to update collateral position for [{}:{}] {}",
+                    chain_id,
+                    address,
+                    client_order_id
                 )
-                .ok_or_eyre("Math Problem")
-        })?;
+            })?;
 
         self.observer
             .publish_single(CollateralEvent::PreAuthResponse {
@@ -781,11 +842,22 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds.safe_update(|funds_write| {
-            funds_write
-                .confirm_payment(payment_id, timestamp, side, amount_paid, zero_threshold)
-                .ok_or_eyre("Math Problem")
-        })?;
+        let status = funds
+            .safe_update(|funds_write| {
+                funds_write.begin_update()?;
+                funds_write
+                    .confirm_payment(payment_id, timestamp, side, amount_paid, zero_threshold)
+                    .ok_or(CollateralPositionError::MathOverflow)
+            })
+            .map_err(|err| {
+                funds.must_update(|funds_write| funds_write.set_last_error(err, timestamp));
+                eyre!(
+                    "Failed to update collateral position for [{}:{}] {}",
+                    chain_id,
+                    address,
+                    client_order_id
+                )
+            })?;
 
         self.observer
             .publish_single(CollateralEvent::ConfirmResponse {
@@ -847,39 +919,55 @@ impl CollateralManager {
                     .get_position(chain_id, &address)
                     .ok_or_eyre("Failed to find position")?;
 
-                funds.safe_update(|funds_write| -> Result<()> {
-                    // TODO: We need to also support Sell & Withdraw
-                    let side = Side::Buy;
+                funds
+                    .safe_update(|funds_write| {
+                        funds_write.begin_update()?;
+                        // TODO: We need to also support Sell & Withdraw
+                        let side = Side::Buy;
 
-                    funds_write
-                        .add_ready(side, amount, timestamp, self.zero_threshold)
-                        .ok_or_eyre("Math Problem")?;
+                        funds_write
+                            .add_ready(side, amount, timestamp, self.zero_threshold)
+                            .ok_or(CollateralPositionError::MathOverflow)?;
 
-                    // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
-                    let get_payment_id = || "Charges".into();
-                    let payment_id = get_payment_id();
+                        // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
+                        let get_payment_id = || "Charges".into();
+                        let payment_id = get_payment_id();
 
-                    funds_write
-                        .add_ready(side, fee, timestamp, self.zero_threshold)
-                        .ok_or_eyre("Math Problem")?;
+                        funds_write
+                            .add_ready(side, fee, timestamp, self.zero_threshold)
+                            .ok_or(CollateralPositionError::MathOverflow)?;
 
-                    funds_write
-                        .preauth_payment(
-                            &client_order_id,
+                        funds_write
+                            .preauth_payment(
+                                &client_order_id,
+                                timestamp,
+                                side,
+                                fee,
+                                self.zero_threshold,
+                                get_payment_id,
+                            )
+                            .ok_or(CollateralPositionError::MathOverflow)?;
+
+                        funds_write
+                            .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
+                            .ok_or(CollateralPositionError::MathOverflow)?;
+
+                        Ok(())
+                    })
+                    .map_err(|err| {
+                        funds.must_update(|funds_write| funds_write.set_last_error(err, timestamp));
+                        eyre!(
+                            "Failed to update collateral position for [{}:{}] {} {} {} {} {} {}",
+                            chain_id,
+                            address,
+                            client_order_id,
                             timestamp,
-                            side,
+                            transfer_from,
+                            transfer_to,
+                            amount,
                             fee,
-                            self.zero_threshold,
-                            get_payment_id,
                         )
-                        .ok_or_eyre("Math Problem")?;
-
-                    funds_write
-                        .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
-                        .ok_or_eyre("Math Problem")?;
-
-                    Ok(())
-                })?;
+                    })?;
 
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {

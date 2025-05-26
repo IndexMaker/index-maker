@@ -97,6 +97,7 @@ Work included in Phase 1.:
     - [ ] Ensure order rate is within limits
     - [ ] Ensure total volley size across batches is not exceeded
 * [ ] Logging & Error handling
+    - [x] Explore transactional update handling with CAS and last error status
     - [ ] Find out best way to handle runtime errors
     - [ ] Explore logging mechanism, and craft log messages
 * [ ] Improve SBE Test Scenario

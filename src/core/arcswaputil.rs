@@ -3,19 +3,27 @@ use std::sync::Arc;
 
 pub trait SafeUpdate<T> {
     /// Safe Update
-    /// 
+    ///
     /// Perform modification on the copy, and if all operations were successful
     /// then write into store. Practically this is implemented as an RCU (Read-Compare-Update)
     /// loop, specifically for ArcSwap.
-    /// 
+    ///
     /// Trait requires that `self` is not changed if an `Err()` was returned by `f`, and only
     /// changed if `Ok()` was returned.
+    ///
+    fn safe_update<R, E>(&self, f: impl FnMut(&mut T) -> Result<R, E>) -> Result<R, E>;
+
+    /// Must Always Update
     /// 
-    fn safe_update<R, E>(&self, f: impl Fn(&mut T) -> Result<R, E>) -> Result<R, E>;
+    /// Perform modification on the copy, and the operation must be infallible.
+    /// 
+    /// This is to be used mainly to write failure status.
+    /// 
+    fn must_update(&self, f: impl FnMut(&mut T));
 }
 
 impl<T: Clone> SafeUpdate<T> for ArcSwapAny<Arc<T>> {
-    fn safe_update<R, E>(&self, f: impl Fn(&mut T) -> Result<R, E>) -> Result<R, E> {
+    fn safe_update<R, E>(&self, mut f: impl FnMut(&mut T) -> Result<R, E>) -> Result<R, E> {
         let mut loaded_guard = self.load();
         loop {
             let mut new_value = (**loaded_guard).clone();
@@ -28,6 +36,25 @@ impl<T: Clone> SafeUpdate<T> for ArcSwapAny<Arc<T>> {
             let swapped = Arc::ptr_eq(&*loaded_guard, &*prev_guard);
             if swapped {
                 return Ok(result_value);
+            } else {
+                loaded_guard = prev_guard;
+            }
+        }
+    }
+
+    fn must_update(&self, mut f: impl FnMut(&mut T)) {
+        let mut loaded_guard = self.load();
+        loop {
+            let mut new_value = (**loaded_guard).clone();
+
+            f(&mut new_value);
+
+            // Commit
+            let new_arc = Arc::new(new_value);
+            let prev_guard = self.compare_and_swap(&*loaded_guard, new_arc);
+            let swapped = Arc::ptr_eq(&*loaded_guard, &*prev_guard);
+            if swapped {
+                break;
             } else {
                 loaded_guard = prev_guard;
             }
