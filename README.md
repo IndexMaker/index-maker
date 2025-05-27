@@ -70,7 +70,7 @@ Work included in Phase 1.:
     - [x] Solver must engage Index Order updates in FIFO
 * [ ] Add Unit Tests
     - [x] Write unit tests for Simple Solver
-    - [ ] Write unit tests for Batch Manager
+    - [x] Write unit tests for Batch Manager
     - [ ] Write unit tests for Collateral Manager
 * [ ] Quote Requests
     - [ ] Manage Quote Requests
