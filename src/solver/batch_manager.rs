@@ -1451,7 +1451,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "Not implemented yet"]
     fn test_batch_manager() {
         let timestamp = Utc::now();
         let max_batch_size = 4;
