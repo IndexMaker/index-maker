@@ -1129,8 +1129,7 @@ impl IntoObservableSingle<BatchEvent> for BatchManager {
 #[cfg(test)]
 mod test {
     use std::{
-        collections::{HashMap, VecDeque},
-        sync::Arc,
+        collections::{HashMap, VecDeque}, sync::{atomic::{AtomicBool, Ordering}, Arc}
     };
 
     use chrono::{TimeDelta, Utc};
@@ -1144,19 +1143,16 @@ mod test {
         assert_decimal_approx_eq,
         core::{
             bits::{
-                Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId,
+                Address, Amount, AssetOrder, BatchOrder, ClientOrderId, OrderId,
                 PaymentId, Side, Symbol,
-            },
-            test_util::{get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_name_1},
+            }, functional::IntoObservableSingle, test_util::{flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool}
         },
         index::basket::{AssetWeight, Basket, BasketDefinition},
         solver::{
-            index_order_manager::EngagedIndexOrder,
-            position::LotId,
-            solver::{
+            batch_manager::BatchEvent, index_order_manager::EngagedIndexOrder, solver::{
                 EngagedSolverOrders, SetSolverOrderStatus, SolverOrder, SolverOrderAssetLot,
                 SolverOrderEngagement, SolverOrderStatus,
-            },
+            }
         },
     };
 
@@ -1469,6 +1465,21 @@ mod test {
             mint_wait_period,
         );
 
+        let (batch_complete_get, batch_complete_set) = get_mock_atomic_bool_pair();
+
+        batch_manager.get_single_observer_mut().set_observer_fn(move |e| match e {
+            BatchEvent::BatchComplete { batch_order_id, continued_orders } => {
+                assert_eq!(batch_order_id.0, "B-1".to_owned());
+                assert_eq!(continued_orders.len(), 1);
+
+                let first = continued_orders[0].read();
+                assert_eq!(first.client_order_id.0, "C-1".to_owned());
+
+                flag_mock_atomic_bool(&batch_complete_set);
+            }
+            _ => unreachable!()
+        });
+
         let index_order = Arc::new(RwLock::new(SolverOrder {
             chain_id: 1,
             address: get_mock_address_1(),
@@ -1620,5 +1631,7 @@ mod test {
             .iter()
             .zip(index_order_read.lots.iter())
             .for_each(assert_solver_lots_eq);
+    
+        assert!(test_mock_atomic_bool(&batch_complete_get));
     }
 }
