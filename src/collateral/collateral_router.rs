@@ -458,6 +458,7 @@ pub mod test_util {
         }
     }
 
+    /// Make mocked designation
     pub fn make_mock_designation(full_name: &str) -> Arc<ComponentLock<MockCollateralDesignation>> {
         let (t, n, c) = full_name.split(":").collect_tuple().unwrap();
         Arc::new(ComponentLock::new(MockCollateralDesignation {
@@ -469,6 +470,7 @@ pub mod test_util {
         }))
     }
 
+    /// Make mocked bridge w/o implementation
     pub fn make_mock_bridge(
         from: &Arc<ComponentLock<MockCollateralDesignation>>,
         to: &Arc<ComponentLock<MockCollateralDesignation>>,
@@ -479,6 +481,7 @@ pub mod test_util {
         )))
     }
 
+    /// Implement mocked bridge using fee calculation function
     pub fn implement_mock_bridge(
         tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
         bridge: &Arc<ComponentLock<MockCollateralBridge>>,
@@ -547,6 +550,7 @@ pub mod test_util {
         router.write().unwrap().add_bridge(bridge.clone()).unwrap();
     }
 
+    /// Create mocked router for unit-tests
     pub fn build_test_router(
         tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
         designations: &[&str],
@@ -626,6 +630,15 @@ mod test {
 
     use super::CollateralTransferEvent;
 
+    /// Test Collateral Router
+    /// -------
+    /// Collateral Router routes collateral by creating path from multiple
+    /// bridges.  It stores routing table that tells which bridges need to be
+    /// connected to obtain path from source to destination.
+    ///
+    /// This tests two paths to check that router will select correct route
+    /// depending on source chain.
+    ///
     #[test_case(1, "T1:N1:C1"; "Take first route")]
     #[test_case(2, "T2:N2:C2"; "Take second route")]
     fn test_collateral_router(expected_chain_id: u32, expected_from: &'static str) {

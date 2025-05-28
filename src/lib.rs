@@ -58,6 +58,7 @@ pub mod solver {
     pub mod mint_invoice;
     pub mod position;
     pub mod solver;
+    pub mod solver_order;
     pub mod solvers {
         pub mod simple_solver;
     }
