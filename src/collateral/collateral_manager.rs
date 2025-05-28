@@ -164,17 +164,10 @@ impl CollateralManager {
             "(collateral-manager) Deposit from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
-        let collateral_position = self.add_position(chain_id, address, timestamp);
-        let mut collateral_position_write = collateral_position.write();
-
-        collateral_position_write.side_cr.open_lot(
-            host.get_next_payment_id(),
-            amount,
-            timestamp,
-        )?;
-
-        collateral_position_write.last_update_timestamp = timestamp;
-        Ok(())
+        let payment_id = host.get_next_payment_id();
+        self.add_position(chain_id, address, timestamp)
+            .write()
+            .deposit(payment_id, amount, timestamp)
     }
 
     pub fn handle_withdrawal(
@@ -189,17 +182,10 @@ impl CollateralManager {
             "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
-        let collateral_position = self.add_position(chain_id, address, timestamp);
-        let mut collateral_position_write = collateral_position.write();
-
-        collateral_position_write.side_dr.open_lot(
-            host.get_next_payment_id(),
-            amount,
-            timestamp,
-        )?;
-
-        collateral_position_write.last_update_timestamp = timestamp;
-        Ok(())
+        let payment_id = host.get_next_payment_id();
+        self.add_position(chain_id, address, timestamp)
+            .write()
+            .withdraw(payment_id, amount, timestamp)
     }
 
     /// Pre-Authorize Payment
@@ -431,7 +417,9 @@ mod test {
             bits::{PaymentId, Side},
             functional::IntoObservableSingle,
             test_util::{
-                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
+                get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
+                run_mock_deferred, test_mock_atomic_bool,
             },
         },
         solver::solver::{
