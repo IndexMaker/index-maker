@@ -430,7 +430,7 @@ impl CollateralSide {
             lot.spent_amount = spent_balance;
 
             println!(
-                "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
+                "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend *)",
                 lot.payment_id, payment_id, amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
@@ -905,5 +905,293 @@ impl CollateralManager {
 impl IntoObservableSingle<CollateralEvent> for CollateralManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralEvent> {
         &mut self.observer
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{
+        collections::HashMap,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, RwLock as ComponentLock,
+        },
+    };
+
+    use chrono::{TimeDelta, Utc};
+    use rust_decimal::dec;
+
+    use crate::{
+        assert_decimal_approx_eq,
+        collateral::{
+            collateral_manager::{self, PreAuthStatus},
+            collateral_router::test_util::build_test_router,
+        },
+        core::{
+            bits::{PaymentId, Side},
+            functional::IntoObservableSingle,
+            test_util::{
+                get_mock_address_1, get_mock_asset_name_1, get_mock_asset_name_2,
+                get_mock_defer_channel, run_mock_deferred,
+            },
+        },
+        solver::solver::{
+            CollateralManagement, SetSolverOrderStatus, SolverOrder, SolverOrderStatus,
+        },
+    };
+
+    use super::{CollateralEvent, CollateralManager, CollateralManagerHost, ConfirmStatus};
+
+    struct MockCollateralManagerHost {
+        last_id: AtomicUsize,
+    }
+
+    impl MockCollateralManagerHost {
+        pub fn new() -> Self {
+            Self {
+                last_id: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl SetSolverOrderStatus for MockCollateralManagerHost {
+        fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
+            order.status = status;
+        }
+    }
+    impl CollateralManagerHost for MockCollateralManagerHost {
+        fn get_next_payment_id(&self) -> PaymentId {
+            let last_id = self.last_id.fetch_add(1, Ordering::SeqCst);
+            PaymentId(format!("P-{}", last_id))
+        }
+    }
+
+    #[test]
+    fn test_collateral_manager() {
+        let zero_threshold = dec!(0.0001);
+        let timestamp = Utc::now();
+
+        let host = MockCollateralManagerHost::new();
+
+        let (tx, rx) = get_mock_defer_channel();
+
+        let router = build_test_router(
+            &tx,
+            &["T1:N1:C1", "T2:N2:C2", "T3:N3:C3", "T4:N4:C4"],
+            &[
+                ("T1:N1:C1", "T3:N3:C3"),
+                ("T2:N2:C2", "T3:N3:C3"),
+                ("T3:N3:C3", "T4:N4:C4"),
+            ],
+            &[
+                &["T1:N1:C1", "T3:N3:C3", "T4:N4:C4"],
+                &["T2:N2:C2", "T3:N3:C3", "T4:N4:C4"],
+            ],
+            &[(1, "T1:N1:C1"), (2, "T2:N2:C2")],
+            "T4:N4:C4",
+            |amount, cumulative_fee| {
+                let fee = dec!(0.5);
+                let cumulative_fee = cumulative_fee + fee;
+                (amount - fee, cumulative_fee)
+            },
+        );
+
+        let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
+            router.clone(),
+            zero_threshold,
+        )));
+
+        let collateral_manager_weak = Arc::downgrade(&collateral_manager);
+        router
+            .write()
+            .unwrap()
+            .get_single_observer_mut()
+            .set_observer_fn(move |e| {
+                let collateral_manager = collateral_manager_weak.upgrade().unwrap();
+                tx.send(Box::new(move || {
+                    collateral_manager
+                        .write()
+                        .unwrap()
+                        .handle_collateral_transfer_event(e)
+                        .unwrap();
+                }))
+                .unwrap();
+            });
+
+        collateral_manager
+            .write()
+            .unwrap()
+            .get_single_observer_mut()
+            .set_observer_fn(move |e| match e {
+                CollateralEvent::CollateralReady {
+                    collateral_amount,
+                    fee,
+                    ..
+                } => {
+                    println!(
+                        "Collateral Ready Event {:0.5} {:0.5}",
+                        collateral_amount, fee
+                    );
+                }
+                CollateralEvent::PreAuthResponse { status, .. } => match status {
+                    PreAuthStatus::Approved { .. } => {
+                        println!("PreAuthResponse Event: Approved");
+                    }
+                    PreAuthStatus::NotEnoughFunds => {
+                        println!("PreAuthResponse Event: NotEnoughFunds");
+                    }
+                },
+                CollateralEvent::ConfirmResponse { status, .. } => match status {
+                    ConfirmStatus::Authorized => {
+                        println!("ConfirmRespnse Event: Authorized");
+                    }
+                    ConfirmStatus::NotEnoughFunds => {
+                        println!("ConfirmRespnse Event: NotEnoughFunds");
+                    }
+                },
+            });
+
+        let collateral_management = CollateralManagement {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            client_order_id: "C-1".into(),
+            side: Side::Buy,
+            collateral_amount: dec!(1000.0),
+            asset_requirements: HashMap::from([
+                (get_mock_asset_name_1(), dec!(800.0)),
+                (get_mock_asset_name_2(), dec!(200.0)),
+            ]),
+        };
+
+        collateral_manager
+            .write()
+            .unwrap()
+            .handle_deposit(&host, 1, get_mock_address_1(), dec!(1000.0), timestamp)
+            .unwrap();
+
+        collateral_manager
+            .write()
+            .unwrap()
+            .manage_collateral(collateral_management);
+
+        collateral_manager
+            .write()
+            .unwrap()
+            .process_collateral(&host, timestamp)
+            .unwrap();
+
+        run_mock_deferred(&rx);
+
+        {
+            let locked = collateral_manager.write().unwrap();
+            let pos = locked.get_position(1, &get_mock_address_1()).unwrap();
+            let pos_read = pos.read();
+
+            assert_decimal_approx_eq!(
+                pos_read.side_cr.unconfirmed_balance,
+                dec!(0.0),
+                zero_threshold
+            );
+            assert_decimal_approx_eq!(pos_read.side_cr.ready_balance, dec!(999.0), zero_threshold);
+            assert_decimal_approx_eq!(pos_read.side_cr.preauth_balance, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(pos_read.side_cr.spent_balance, dec!(1.0), zero_threshold);
+            assert_eq!(pos_read.side_cr.open_lots.len(), 1);
+            assert!(pos_read.side_cr.closed_lots.is_empty());
+
+            let first = &pos_read.side_cr.open_lots[0];
+            assert_decimal_approx_eq!(first.unconfirmed_amount, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(first.ready_amount, dec!(999.0), zero_threshold);
+            assert_decimal_approx_eq!(first.preauth_amount, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(first.spent_amount, dec!(1.0), zero_threshold);
+
+            assert_decimal_approx_eq!(
+                pos_read.side_dr.unconfirmed_balance,
+                dec!(0.0),
+                zero_threshold
+            );
+            assert_decimal_approx_eq!(pos_read.side_dr.ready_balance, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(pos_read.side_dr.preauth_balance, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(pos_read.side_dr.spent_balance, dec!(0.0), zero_threshold);
+            assert!(pos_read.side_dr.open_lots.is_empty());
+            assert!(pos_read.side_dr.closed_lots.is_empty());
+        }
+
+        collateral_manager
+            .write()
+            .unwrap()
+            .preauth_payment(
+                &host,
+                1,
+                &get_mock_address_1(),
+                &"C-1".into(),
+                timestamp,
+                Side::Buy,
+                dec!(999.0),
+            )
+            .unwrap();
+
+        {
+            let locked = collateral_manager.write().unwrap();
+            let pos = locked.get_position(1, &get_mock_address_1()).unwrap();
+            let pos_read = pos.read();
+
+            assert_decimal_approx_eq!(
+                pos_read.side_cr.unconfirmed_balance,
+                dec!(0.0),
+                zero_threshold
+            );
+            assert_decimal_approx_eq!(pos_read.side_cr.ready_balance, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(
+                pos_read.side_cr.preauth_balance,
+                dec!(999.0),
+                zero_threshold
+            );
+            assert_decimal_approx_eq!(pos_read.side_cr.spent_balance, dec!(1.0), zero_threshold);
+            assert_eq!(pos_read.side_cr.open_lots.len(), 1);
+            assert!(pos_read.side_cr.closed_lots.is_empty());
+
+            let first = &pos_read.side_cr.open_lots[0];
+            assert_decimal_approx_eq!(first.unconfirmed_amount, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(first.ready_amount, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(first.preauth_amount, dec!(999.0), zero_threshold);
+            assert_decimal_approx_eq!(first.spent_amount, dec!(1.0), zero_threshold);
+        }
+
+        collateral_manager
+            .write()
+            .unwrap()
+            .confirm_payment(
+                1,
+                &get_mock_address_1(),
+                &"C-1".into(),
+                &"P-1".into(),
+                timestamp,
+                Side::Buy,
+                dec!(995.0),
+            )
+            .unwrap();
+
+        {
+            let locked = collateral_manager.write().unwrap();
+            let pos = locked.get_position(1, &get_mock_address_1()).unwrap();
+            let pos_read = pos.read();
+
+            assert_decimal_approx_eq!(
+                pos_read.side_cr.unconfirmed_balance,
+                dec!(0.0),
+                zero_threshold
+            );
+            assert_decimal_approx_eq!(pos_read.side_cr.ready_balance, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(pos_read.side_cr.preauth_balance, dec!(4.0), zero_threshold);
+            assert_decimal_approx_eq!(pos_read.side_cr.spent_balance, dec!(996.0), zero_threshold);
+            assert_eq!(pos_read.side_cr.open_lots.len(), 1);
+            assert!(pos_read.side_cr.closed_lots.is_empty());
+
+            let first = &pos_read.side_cr.open_lots[0];
+            assert_decimal_approx_eq!(first.unconfirmed_amount, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(first.ready_amount, dec!(0.0), zero_threshold);
+            assert_decimal_approx_eq!(first.preauth_amount, dec!(4.0), zero_threshold);
+            assert_decimal_approx_eq!(first.spent_amount, dec!(996.0), zero_threshold);
+        }
     }
 }

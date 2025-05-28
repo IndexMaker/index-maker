@@ -320,14 +320,19 @@ impl IntoObservableSingle<CollateralTransferEvent> for CollateralRouter {
 pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;
-    use std::sync::{Arc, RwLock as ComponentLock};
+    use itertools::Itertools;
+    use rust_decimal::dec;
+    use std::{
+        collections::HashMap,
+        sync::{mpsc::Sender, Arc, RwLock as ComponentLock},
+    };
 
     use crate::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     };
 
-    use super::{CollateralBridge, CollateralDesignation, CollateralRouterEvent};
+    use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
 
     pub struct MockCollateralDesignation {
         pub type_: Symbol,
@@ -452,19 +457,167 @@ pub mod test_util {
             Ok(())
         }
     }
+
+    pub fn make_mock_designation(full_name: &str) -> Arc<ComponentLock<MockCollateralDesignation>> {
+        let (t, n, c) = full_name.split(":").collect_tuple().unwrap();
+        Arc::new(ComponentLock::new(MockCollateralDesignation {
+            type_: t.to_owned().into(),
+            name: n.to_owned().into(),
+            collateral_symbol: c.to_owned().into(),
+            full_name: full_name.to_owned().into(),
+            balance: dec!(0.0),
+        }))
+    }
+
+    pub fn make_mock_bridge(
+        from: &Arc<ComponentLock<MockCollateralDesignation>>,
+        to: &Arc<ComponentLock<MockCollateralDesignation>>,
+    ) -> Arc<ComponentLock<MockCollateralBridge>> {
+        Arc::new(ComponentLock::new(MockCollateralBridge::new(
+            from.clone(),
+            to.clone(),
+        )))
+    }
+
+    pub fn implement_mock_bridge(
+        tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
+        bridge: &Arc<ComponentLock<MockCollateralBridge>>,
+        router: &Arc<ComponentLock<CollateralRouter>>,
+        calculate_fee: &Arc<dyn Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync>,
+    ) {
+        // Send bridge events into router
+        let tx_clone = tx.clone();
+        let router_weak = Arc::downgrade(&router);
+        bridge
+            .write()
+            .unwrap()
+            .get_single_observer_mut()
+            .set_observer_fn(move |e| {
+                let router = router_weak.upgrade().unwrap();
+                tx_clone
+                    .send(Box::new(move || {
+                        router
+                            .write()
+                            .unwrap()
+                            .handle_collateral_router_event(e)
+                            .unwrap();
+                    }))
+                    .unwrap();
+            });
+
+        // Implement bridge
+        let tx_clone = tx.clone();
+        let bridge_weak = Arc::downgrade(bridge);
+        let calculate_fee = calculate_fee.clone();
+        bridge
+            .write()
+            .unwrap()
+            .implementor
+            .set_observer_fn(move |e| {
+                let bridge = bridge_weak.upgrade().unwrap();
+                let calculate_fee = calculate_fee.clone();
+                tx_clone
+                    .send(Box::new(move || match e {
+                        MockCollateralBridgeInternalEvent::TransferFunds {
+                            chain_id,
+                            address,
+                            client_order_id,
+                            route_from,
+                            route_to,
+                            amount,
+                            cumulative_fee,
+                        } => {
+                            let (amount, cumulative_fee) = calculate_fee(amount, cumulative_fee);
+                            bridge.write().unwrap().notify_collateral_router_event(
+                                chain_id,
+                                address,
+                                client_order_id,
+                                Utc::now(),
+                                route_from,
+                                route_to,
+                                amount,
+                                cumulative_fee,
+                            );
+                        }
+                    }))
+                    .unwrap();
+            });
+
+        // Add bridge to the router
+        router.write().unwrap().add_bridge(bridge.clone()).unwrap();
+    }
+
+    pub fn build_test_router(
+        tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
+        designations: &[&str],
+        bridges: &[(&str, &str)],
+        routes: &[&[&str]],
+        source_chain_map: &[(u32, &str)],
+        default_designation: &str,
+        calculate_fee: impl Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync + 'static,
+    ) -> Arc<ComponentLock<CollateralRouter>> {
+        let designations: HashMap<String, _> = HashMap::from_iter(
+            designations
+                .iter()
+                .map(|&n| (n.to_owned(), make_mock_designation(n))),
+        );
+
+        let bridges = bridges
+            .iter()
+            .map(|(a, b)| {
+                make_mock_bridge(designations.get(*a).unwrap(), designations.get(*b).unwrap())
+            })
+            .collect_vec();
+
+        let router = Arc::new(ComponentLock::new(CollateralRouter::new()));
+
+        let calculate_fee: Arc<dyn Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync + 'static> =
+            Arc::new(calculate_fee);
+
+        for bridge in bridges.iter() {
+            implement_mock_bridge(tx, bridge, &router, &calculate_fee);
+        }
+
+        for (chain_id, source) in source_chain_map {
+            router
+                .write()
+                .unwrap()
+                .add_chain_source(*chain_id, source.to_owned().into())
+                .unwrap();
+        }
+
+        router
+            .write()
+            .unwrap()
+            .set_default_destination(default_designation.to_owned().into())
+            .unwrap();
+
+        for &route in routes {
+            let route = route
+                .iter()
+                .map(|n| n.to_owned())
+                .map(Symbol::from)
+                .collect_vec();
+            router.write().unwrap().add_route(&route).unwrap();
+        }
+
+        router
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, RwLock as ComponentLock};
-    use chrono::Utc;
     use rust_decimal::dec;
+    use std::sync::{Arc, RwLock as ComponentLock};
     use test_case::test_case;
 
     use crate::{
         assert_decimal_approx_eq,
+        collateral::collateral_router::test_util::{
+            build_test_router, implement_mock_bridge, make_mock_designation,
+        },
         core::{
-            bits::Side,
+            bits::{Amount, Side},
             functional::IntoObservableSingle,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_atomic_bool_pair,
@@ -473,130 +626,34 @@ mod test {
         },
     };
 
-    use super::{
-        test_util::{
-            MockCollateralBridge, MockCollateralBridgeInternalEvent, MockCollateralDesignation,
-        },
-        CollateralRouter, CollateralTransferEvent,
-    };
+    use super::{test_util::make_mock_bridge, CollateralRouter, CollateralTransferEvent};
 
     #[test_case(1, "T1:N1:C1"; "Take first route")]
     #[test_case(2, "T2:N2:C2"; "Take second route")]
     fn test_collateral_router(expected_chain_id: u32, expected_from: &'static str) {
-        let designation_1 = Arc::new(ComponentLock::new(MockCollateralDesignation {
-            type_: "T1".into(),
-            name: "N1".into(),
-            collateral_symbol: "C1".into(),
-            full_name: "T1:N1:C1".into(),
-            balance: dec!(0.0),
-        }));
-
-        let designation_2 = Arc::new(ComponentLock::new(MockCollateralDesignation {
-            type_: "T2".into(),
-            name: "N2".into(),
-            collateral_symbol: "C2".into(),
-            full_name: "T2:N2:C2".into(),
-            balance: dec!(0.0),
-        }));
-
-        let designation_3 = Arc::new(ComponentLock::new(MockCollateralDesignation {
-            type_: "T3".into(),
-            name: "N3".into(),
-            collateral_symbol: "C3".into(),
-            full_name: "T3:N3:C3".into(),
-            balance: dec!(0.0),
-        }));
-
-        let designation_4 = Arc::new(ComponentLock::new(MockCollateralDesignation {
-            type_: "T4".into(),
-            name: "N4".into(),
-            collateral_symbol: "C4".into(),
-            full_name: "T4:N4:C4".into(),
-            balance: dec!(0.0),
-        }));
-
-        let bridge_1 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
-            designation_1.clone(),
-            designation_3.clone(),
-        )));
-
-        let bridge_2 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
-            designation_2.clone(),
-            designation_3.clone(),
-        )));
-
-        let bridge_3 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
-            designation_3.clone(),
-            designation_4.clone(),
-        )));
-
-        let router = Arc::new(ComponentLock::new(CollateralRouter::new()));
-
+        let (event_get, event_set) = get_mock_atomic_bool_pair();
         let (tx, rx) = get_mock_defer_channel();
 
-        for &bridge in &[&bridge_1, &bridge_2, &bridge_3] {
-            // Send bridge events into router
-            let tx_clone = tx.clone();
-            let router_weak = Arc::downgrade(&router);
-            bridge
-                .write()
-                .unwrap()
-                .get_single_observer_mut()
-                .set_observer_fn(move |e| {
-                    let router = router_weak.upgrade().unwrap();
-                    tx_clone
-                        .send(Box::new(move || {
-                            router
-                                .write()
-                                .unwrap()
-                                .handle_collateral_router_event(e)
-                                .unwrap();
-                        }))
-                        .unwrap();
-                });
-
-            // Implement bridge
-            let tx_clone = tx.clone();
-            let bridge_weak = Arc::downgrade(bridge);
-            bridge
-                .write()
-                .unwrap()
-                .implementor
-                .set_observer_fn(move |e| {
-                    let bridge = bridge_weak.upgrade().unwrap();
-                    tx_clone
-                        .send(Box::new(move || match e {
-                            MockCollateralBridgeInternalEvent::TransferFunds {
-                                chain_id,
-                                address,
-                                client_order_id,
-                                route_from,
-                                route_to,
-                                amount,
-                                cumulative_fee,
-                            } => {
-                                let fee = dec!(0.5);
-                                let cumulative_fee = cumulative_fee + fee;
-                                bridge.write().unwrap().notify_collateral_router_event(
-                                    chain_id,
-                                    address,
-                                    client_order_id,
-                                    Utc::now(),
-                                    route_from,
-                                    route_to,
-                                    amount - fee,
-                                    cumulative_fee,
-                                );
-                            }
-                        }))
-                        .unwrap();
-                });
-
-            // Add bridge to the router
-            router.write().unwrap().add_bridge(bridge.clone()).unwrap();
-        }
-
-        let (event_get, event_set) = get_mock_atomic_bool_pair();
+        let router = build_test_router(
+            &tx,
+            &["T1:N1:C1", "T2:N2:C2", "T3:N3:C3", "T4:N4:C4"],
+            &[
+                ("T1:N1:C1", "T3:N3:C3"),
+                ("T2:N2:C2", "T3:N3:C3"),
+                ("T3:N3:C3", "T4:N4:C4"),
+            ],
+            &[
+                &["T1:N1:C1", "T3:N3:C3", "T4:N4:C4"],
+                &["T2:N2:C2", "T3:N3:C3", "T4:N4:C4"],
+            ],
+            &[(1, "T1:N1:C1"), (2, "T2:N2:C2")],
+            "T4:N4:C4",
+            |amount, cumulative_fee| {
+                let fee = dec!(0.5);
+                let cumulative_fee = cumulative_fee + fee;
+                (amount - fee, cumulative_fee)
+            },
+        );
 
         router
             .write()
@@ -628,38 +685,6 @@ mod test {
                     flag_mock_atomic_bool(&event_set);
                 }
             });
-
-        // Add source Chain ID to Designation mapping
-        router
-            .write()
-            .unwrap()
-            .add_chain_source(1, "T1:N1:C1".into())
-            .unwrap();
-
-        router
-            .write()
-            .unwrap()
-            .add_chain_source(2, "T2:N2:C2".into())
-            .unwrap();
-
-        // Add default final Designation (we don't support multiple)
-        router
-            .write()
-            .unwrap()
-            .set_default_destination("T4:N4:C4".into())
-            .unwrap();
-
-        // Add routes from sources to final designation
-        router
-            .write()
-            .unwrap()
-            .add_route(&["T1:N1:C1".into(), "T3:N3:C3".into(), "T4:N4:C4".into()])
-            .unwrap();
-        router
-            .write()
-            .unwrap()
-            .add_route(&["T2:N2:C2".into(), "T3:N3:C3".into(), "T4:N4:C4".into()])
-            .unwrap();
 
         // Make test transfer
         // It will be coming from given Chain ID, and
