@@ -310,7 +310,7 @@ impl CollateralSide {
 
         let (amount, pos) = res.into_inner()?;
 
-        let mut closed_lots = Vec::new();
+        let mut closed_lots = VecDeque::new();
 
         // Fully close spends (not lots!)
         for lot in self.open_lots.iter_mut().take(pos) {
@@ -346,7 +346,7 @@ impl CollateralSide {
                         lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
                     );
 
-                closed_lots.push(lot.payment_id.clone());
+                closed_lots.push_back(lot.payment_id.clone());
             } else {
                 println!(
                     "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
@@ -398,7 +398,14 @@ impl CollateralSide {
             );
         }
 
-        //self.open_lots.splice(range, replace_with)
+        for lot_id in closed_lots {
+            let (pos, _) = self
+                .open_lots
+                .iter()
+                .find_position(|x| lot_id.eq(&x.payment_id))?;
+            let lot = self.open_lots.remove(pos);
+            self.closed_lots.push_back(lot);
+        }
 
         let preauth_balance = safe!(self.preauth_balance - amount_paid)?;
         let spent_balance = safe!(self.spent_balance + amount_paid)?;
@@ -537,68 +544,118 @@ impl CollateralPosition {
 mod test {
     use chrono::Utc;
     use rust_decimal::dec;
+    use test_case::test_case;
 
     use crate::{
         assert_decimal_approx_eq,
         collateral::collateral_position::{ConfirmStatus, PreAuthStatus},
-        core::{bits::Side, test_util::get_mock_address_1},
+        core::{
+            bits::{Amount, Side},
+            test_util::get_mock_address_1,
+        },
     };
 
     use super::CollateralPosition;
 
-    #[test]
-    fn test_collateral_position() {
+    #[test_case(
+        (dec!(1000.0), dec!(900.0), dec!(900.0), dec!(500.0)),
+        (dec!(1000.0), dec!(0.0), dec!(0.0), dec!(0.0)),
+        (dec!(100.0), dec!(900.0), dec!(0.0), dec!(0.0)),
+        (dec!(100.0), dec!(0.0), dec!(900.0), dec!(0.0)),
+        (dec!(100.0), dec!(0.0), dec!(400.0), dec!(500.0)),
+        false; "partial ready"
+    )]
+    #[test_case(
+        (dec!(1000.0), dec!(1000.0), dec!(900.0), dec!(500.0)),
+        (dec!(1000.0), dec!(0.0), dec!(0.0), dec!(0.0)),
+        (dec!(0.0), dec!(1000.0), dec!(0.0), dec!(0.0)),
+        (dec!(0.0), dec!(100.0), dec!(900.0), dec!(0.0)),
+        (dec!(0.0), dec!(100.0), dec!(400.0), dec!(500.0)),
+        false; "partial preauth"
+    )]
+    #[test_case(
+        (dec!(1000.0), dec!(1000.0), dec!(1000.0), dec!(500.0)),
+        (dec!(1000.0), dec!(0.0), dec!(0.0), dec!(0.0)),
+        (dec!(0.0), dec!(1000.0), dec!(0.0), dec!(0.0)),
+        (dec!(0.0), dec!(0.0), dec!(1000.0), dec!(0.0)),
+        (dec!(0.0), dec!(0.0), dec!(500.0), dec!(500.0)),
+        false; "partial spend"
+    )]
+    #[test_case(
+        (dec!(1000.0), dec!(900.0), dec!(800.0), dec!(500.0)),
+        (dec!(1000.0), dec!(0.0), dec!(0.0), dec!(0.0)),
+        (dec!(100.0), dec!(900.0), dec!(0.0), dec!(0.0)),
+        (dec!(100.0), dec!(100.0), dec!(800.0), dec!(0.0)),
+        (dec!(100.0), dec!(100.0), dec!(300.0), dec!(500.0)),
+        false; "partial all"
+    )]
+    #[test_case(
+        (dec!(1000.0), dec!(1000.0), dec!(1000.0), dec!(1000.0)),
+        (dec!(1000.0), dec!(0.0), dec!(0.0), dec!(0.0)),
+        (dec!(0.0), dec!(1000.0), dec!(0.0), dec!(0.0)),
+        (dec!(0.0), dec!(0.0), dec!(1000.0), dec!(0.0)),
+        (dec!(0.0), dec!(0.0), dec!(0.0), dec!(1000.0)),
+        true; "full spend"
+    )]
+    fn test_collateral_position(
+        inputs: (Amount, Amount, Amount, Amount),
+        post_deposit: (Amount, Amount, Amount, Amount),
+        post_ready: (Amount, Amount, Amount, Amount),
+        post_preauth: (Amount, Amount, Amount, Amount),
+        post_confirm: (Amount, Amount, Amount, Amount),
+        full_spend: bool,
+    ) {
         let timestamp = Utc::now();
         let zero_threshold = dec!(0.0001);
 
+        let (deposit, ready, preauth, confirm) = inputs;
+
         let mut pos = CollateralPosition::new(1, get_mock_address_1(), timestamp);
+
+        let test_asserts = |pos: &CollateralPosition, expected, check_closed_lot| {
+            let (unconfirmed, ready, preauth, confirm) = expected;
+
+            let side = &pos.side_cr;
+
+            assert_decimal_approx_eq!(side.unconfirmed_balance, unconfirmed, zero_threshold);
+            assert_decimal_approx_eq!(side.ready_balance, ready, zero_threshold);
+            assert_decimal_approx_eq!(side.preauth_balance, preauth, zero_threshold);
+            assert_decimal_approx_eq!(side.spent_balance, confirm, zero_threshold);
+
+            let first_lot = if check_closed_lot {
+                assert!(pos.side_cr.open_lots.is_empty());
+                assert_eq!(pos.side_cr.closed_lots.len(), 1);
+                &pos.side_cr.closed_lots[0]
+            } else {
+                assert!(pos.side_cr.closed_lots.is_empty());
+                assert_eq!(pos.side_cr.open_lots.len(), 1);
+                &pos.side_cr.open_lots[0]
+            };
+
+            assert_decimal_approx_eq!(first_lot.unconfirmed_amount, unconfirmed, zero_threshold);
+            assert_decimal_approx_eq!(first_lot.ready_amount, ready, zero_threshold);
+            assert_decimal_approx_eq!(first_lot.preauth_amount, preauth, zero_threshold);
+            assert_decimal_approx_eq!(first_lot.spent_amount, confirm, zero_threshold);
+        };
 
         // User deposits
         // -------------
         // This operation creates unconfirmed lots of collateral. Normally routing
         // would perform transfer from source chain into final destination, and
         // once transfers are complete, then we move to next state, which is ready.
-        pos.deposit("P-01".into(), dec!(1000.0), timestamp).unwrap();
+        pos.deposit("P-01".into(), deposit, timestamp).unwrap();
 
-        assert!(pos.side_cr.closed_lots.is_empty());
-        let side = &pos.side_cr;
-
-        assert_decimal_approx_eq!(side.unconfirmed_balance, dec!(1000.0), zero_threshold);
-        assert_decimal_approx_eq!(side.ready_balance, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(side.preauth_balance, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(side.spent_balance, dec!(0.0), zero_threshold);
-
-        assert_eq!(pos.side_cr.open_lots.len(), 1);
-        let first_lot = &pos.side_cr.open_lots[0];
-
-        assert_decimal_approx_eq!(first_lot.unconfirmed_amount, dec!(1000.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.ready_amount, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.preauth_amount, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.spent_amount, dec!(0.0), zero_threshold);
+        test_asserts(&pos, post_deposit, false);
 
         // Ready after collateral routing
         // ------------------------------
         // This operation selects unconfirmed lots of collateral, and moves them
         // into ready state. This normally means collateral arrived at destination
         // and we are recording this fact by moving its lots to ready state.
-        pos.add_ready(Side::Buy, dec!(900.0), timestamp, zero_threshold)
+        pos.add_ready(Side::Buy, ready, timestamp, zero_threshold)
             .unwrap();
 
-        assert!(pos.side_cr.closed_lots.is_empty());
-        let side = &pos.side_cr;
-
-        assert_decimal_approx_eq!(side.unconfirmed_balance, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(side.ready_balance, dec!(900.0), zero_threshold);
-        assert_decimal_approx_eq!(side.preauth_balance, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(side.spent_balance, dec!(0.0), zero_threshold);
-
-        assert_eq!(pos.side_cr.open_lots.len(), 1);
-        let first_lot = &pos.side_cr.open_lots[0];
-
-        assert_decimal_approx_eq!(first_lot.unconfirmed_amount, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.ready_amount, dec!(900.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.preauth_amount, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.spent_amount, dec!(0.0), zero_threshold);
+        test_asserts(&pos, post_ready, false);
 
         // Solver takes ownership of ready collateral
         // ------------------------------------------
@@ -611,7 +668,7 @@ mod test {
                 &"C-01".into(),
                 timestamp,
                 Side::Buy,
-                dec!(900.0),
+                preauth,
                 zero_threshold,
                 || "P-02".into(),
             )
@@ -619,21 +676,7 @@ mod test {
 
         assert!(matches!(status, PreAuthStatus::Approved { .. }));
 
-        assert!(pos.side_cr.closed_lots.is_empty());
-        let side = &pos.side_cr;
-
-        assert_decimal_approx_eq!(side.unconfirmed_balance, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(side.ready_balance, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(side.preauth_balance, dec!(900.0), zero_threshold);
-        assert_decimal_approx_eq!(side.spent_balance, dec!(0.0), zero_threshold);
-
-        assert_eq!(pos.side_cr.open_lots.len(), 1);
-        let first_lot = &pos.side_cr.open_lots[0];
-
-        assert_decimal_approx_eq!(first_lot.unconfirmed_amount, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.ready_amount, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.preauth_amount, dec!(900.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.spent_amount, dec!(0.0), zero_threshold);
+        test_asserts(&pos, post_preauth, false);
 
         // Solver confirms the payment just before minting index token
         // -----------------------------------------------------------
@@ -641,26 +684,17 @@ mod test {
         // into spent state. This is normally performed by Sover, once
         // index order becomes mintable, and Solver wants to mint the token.
         let status = pos
-            .confirm_payment(&"P-02".into(), timestamp, Side::Buy, dec!(800.0), zero_threshold)
+            .confirm_payment(
+                &"P-02".into(),
+                timestamp,
+                Side::Buy,
+                confirm,
+                zero_threshold,
+            )
             .unwrap();
 
         assert!(matches!(status, ConfirmStatus::Authorized));
-        
-        assert!(pos.side_cr.closed_lots.is_empty());
-        let side = &pos.side_cr;
 
-        assert_decimal_approx_eq!(side.unconfirmed_balance, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(side.ready_balance, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(side.preauth_balance, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(side.spent_balance, dec!(800.0), zero_threshold);
-
-        assert_eq!(pos.side_cr.open_lots.len(), 1);
-        let first_lot = &pos.side_cr.open_lots[0];
-
-        assert_decimal_approx_eq!(first_lot.unconfirmed_amount, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.ready_amount, dec!(0.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.preauth_amount, dec!(100.0), zero_threshold);
-        assert_decimal_approx_eq!(first_lot.spent_amount, dec!(800.0), zero_threshold);
-
+        test_asserts(&pos, post_confirm, full_spend);
     }
 }
