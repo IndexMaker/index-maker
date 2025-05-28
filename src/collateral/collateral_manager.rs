@@ -422,8 +422,9 @@ mod test {
                 run_mock_deferred, test_mock_atomic_bool,
             },
         },
-        solver::solver::{
-            CollateralManagement, SetSolverOrderStatus, SolverOrder, SolverOrderStatus,
+        solver::{
+            solver::{CollateralManagement, SetSolverOrderStatus},
+            solver_order::{SolverOrder, SolverOrderStatus},
         },
     };
 
@@ -453,6 +454,15 @@ mod test {
         }
     }
 
+    /// Test Collateral Manager
+    /// ------
+    /// Collateral Manager maintains accounts of user's collateral, and
+    /// delegates routing to Collateral Router.
+    ///
+    /// This test uses mocked collateral router with two routes possible, and
+    /// then we follow typical lifecycle of the collateral from deposit, through
+    /// routing, to spending on minting.
+    ///
     #[test]
     fn test_collateral_manager() {
         let zero_threshold = dec!(0.0001);

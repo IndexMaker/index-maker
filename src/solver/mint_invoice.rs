@@ -5,12 +5,12 @@ use eyre::Result;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use crate::core::bits::{Address, Amount, PaymentId, Symbol};
-
-use super::{
-    index_order::{IndexOrder, IndexOrderUpdate},
-    solver::SolverOrderAssetLot,
+use crate::{
+    core::bits::{Address, Amount, PaymentId, Symbol},
+    solver::solver_order::SolverOrderAssetLot,
 };
+
+use super::index_order::{IndexOrder, IndexOrderUpdate};
 
 pub struct IndexOrderUpdateReport {
     chain_id: u32,

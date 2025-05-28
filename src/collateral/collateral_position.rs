@@ -557,6 +557,13 @@ mod test {
 
     use super::CollateralPosition;
 
+    /// Test Collateral Position
+    /// ---
+    /// Collateral Position maintains single account of user's collateral.  It
+    /// tracks what happened with each collateral from deposit, through routing,
+    /// to spending on minting. Collateral position tracks the balances and lots
+    /// associated with those stages of collateral movement.
+    ///
     #[test_case(
         (dec!(1000.0), dec!(900.0), dec!(900.0), dec!(500.0)),
         (dec!(1000.0), dec!(0.0), dec!(0.0), dec!(0.0)),

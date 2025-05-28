@@ -15,9 +15,12 @@ use crate::{
         decimal_ext::DecimalExt,
     },
     index::basket::Basket,
-    solver::solver::{
-        CollateralManagement, EngagedSolverOrders, SolveEngagementsResult, SolverOrder,
-        SolverOrderEngagement, SolverOrderStatus, SolverStrategy, SolverStrategyHost,
+    solver::{
+        solver::{
+            CollateralManagement, EngagedSolverOrders, SolveEngagementsResult,
+            SolverOrderEngagement, SolverStrategy, SolverStrategyHost,
+        },
+        solver_order::{SolverOrder, SolverOrderStatus},
     },
 };
 
@@ -1160,7 +1163,10 @@ mod test {
         },
         index::basket::*,
         market_data::price_tracker::*,
-        solver::solver::*,
+        solver::{
+            solver::*,
+            solver_order::{SolverOrder, SolverOrderStatus},
+        },
     };
 
     use test_case::test_case;
@@ -1306,6 +1312,54 @@ mod test {
         }))
     }
 
+    /// Simple Solver - A simple implementation of the SolverStrategy
+    /// ------
+    /// Solver Strategy is a plugin for Solver, the role of which is to compute
+    /// batches of Asset Orders that are then sent to exchange. An individual
+    /// Index Order is an order from the user to buy or sell an Index. And Index
+    /// is a basket of assets in pre-defined quantities. A quantity of an Index
+    /// is a multiplication factor by which those pre-defined quantities need to
+    /// be multiplied to cover for an Index Order in that quantity. The
+    /// individual asset quantities resulting from that multiplication are then
+    /// placed in the Asset Orders, which are sent to exchange.
+    ///
+    /// Due to order-rate limitations as well as minimum-order-size, it would be
+    /// unfeasable to send all those asset orders for each Index Order
+    /// individually.  This is why we take a batch of Index Order (multiple
+    /// orders), and we compute gross quantity of each asset that we need to
+    /// order to satisfy all those Index Orders and not just one.
+    ///
+    /// When constructing this coallesced Asset Orders, we must adhere to additional
+    /// limits set by business logic:
+    /// - Max Order Volley Size - maximum amount of collateral that single Index
+    /// Order can use in one batch (rest needs to be carried over to next batch)
+    /// - Max Batch Vollet Size - maximum amount of collateral that all Index
+    /// Orders in the batch altogether can use
+    ///
+    /// Additionally not all of the collateral available for Index Order can be
+    /// used in Asset Orders. We must account for potential fees, so we use
+    /// - Fee Factor - 1.0 + maximum fee per order we would expect to pay
+    ///
+    /// When sending orders to exchange we must use Limit orders to ensure we
+    /// have a price limit that won't be exceeded, so that we can guarantee max
+    /// volley sizes won't be exceeded. We use deviation from top of the book
+    /// price:
+    /// - Price Threshold - maximum deviation of price from top of the book for
+    /// this batch order
+    ///
+    /// Note that Index Orders in this batch will be carried over to next batch
+    /// is not all collateral was utilised, and in that next batch different
+    /// price limits will be used following the market as it moves.
+    ///
+    /// SimpleSolver fits Asset Orders into liquidity available within price
+    /// threshold. This means that narrower price threshold may make batch
+    /// smaller.
+    ///
+    /// Fairness of the SimpleSolver is based on the quantity on Index Order
+    /// clamped by max order volley size. The purpose of max order volley size
+    /// is to improve fairness, as otherwise bigger Index Orders would outweigh
+    /// smaller ones.
+    ///
     #[test_case(
         "Unlimited",
         (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),

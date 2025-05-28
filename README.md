@@ -74,6 +74,7 @@ Work included in Phase 1.:
     - [x] Write unit tests for Collateral Manager
     - [x] Write unit tests for Collateral Router
     - [x] Write unit tests for Collateral Position
+    - [x] Write unit tests for Solver Client Orders
 * [ ] Quote Requests
     - [ ] Manage Quote Requests
     - [ ] Compute Quotes

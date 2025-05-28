@@ -23,7 +23,7 @@ use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
     mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport},
-    solver::{SolverOrderAssetLot, SolverOrderStatus},
+    solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
 pub struct EngageOrderRequest {

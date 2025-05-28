@@ -18,16 +18,14 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
-    solver::solver::SolverOrderStatus,
+    solver::solver_order::SolverOrderStatus,
 };
 
 use super::{
     index_order_manager::EngagedIndexOrder,
     position::LotId,
-    solver::{
-        EngagedSolverOrders, SetSolverOrderStatus, SolverOrder, SolverOrderAssetLot,
-        SolverOrderEngagement,
-    },
+    solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
+    solver_order::{SolverOrder, SolverOrderAssetLot},
 };
 
 pub enum BatchEvent {
@@ -1157,10 +1155,8 @@ mod test {
         solver::{
             batch_manager::BatchEvent,
             index_order_manager::EngagedIndexOrder,
-            solver::{
-                EngagedSolverOrders, SetSolverOrderStatus, SolverOrder, SolverOrderAssetLot,
-                SolverOrderEngagement, SolverOrderStatus,
-            },
+            solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
+            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
         },
     };
 
@@ -1454,6 +1450,27 @@ mod test {
         }
     }
 
+    /// Batch Manager
+    /// ------
+    /// Batch Manager manages batches of Index Orders that were previosuly
+    /// computed by SolverStrategy plugin (e.g. SimpleSolver). When Solver
+    /// receives collateral confirmation from Collateral Manager, it will
+    /// place Index Order in Ready state. Then Solver will pick a bunch of
+    /// Index Orders that are in Ready state and send it to SolverStrategy,
+    /// which will compute what we call here Engagement. An Engagement is
+    /// a result of computation by SolverStrategy, and it contains list of
+    /// Solver Orders (Solver views of Index Orders w/ Solver state), and
+    /// for each of those it contains Asset Contribution Fractions mapping,
+    /// which in case we get a fill, tells how much of the executed asset
+    /// we should assign to each Index Order.
+    ///
+    /// Note that we have multiple Index Order bashed together into batch, and
+    /// each single asset only gets one order sent to exchange, so we have to
+    /// split fills in-between contributing Index Orders following some
+    /// distribution, which is defined by Asset Contribution Fractions mapping
+    /// for each order. For any given asset, the value of that mapping for all
+    /// orders must sum up to 100%.
+    ///
     #[test]
     fn test_batch_manager() {
         let timestamp = Utc::now();
