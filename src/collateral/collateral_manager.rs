@@ -918,13 +918,13 @@ mod test {
         },
     };
 
-    use chrono::{TimeDelta, Utc};
+    use chrono::Utc;
     use rust_decimal::dec;
 
     use crate::{
         assert_decimal_approx_eq,
         collateral::{
-            collateral_manager::{self, PreAuthStatus},
+            collateral_manager::{PreAuthStatus},
             collateral_router::test_util::build_test_router,
         },
         core::{

@@ -1130,10 +1130,7 @@ impl IntoObservableSingle<BatchEvent> for BatchManager {
 mod test {
     use std::{
         collections::{HashMap, VecDeque},
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        },
+        sync::Arc,
     };
 
     use chrono::{TimeDelta, Utc};

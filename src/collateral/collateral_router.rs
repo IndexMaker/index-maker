@@ -608,16 +608,14 @@ pub mod test_util {
 #[cfg(test)]
 mod test {
     use rust_decimal::dec;
-    use std::sync::{Arc, RwLock as ComponentLock};
+    
     use test_case::test_case;
 
     use crate::{
         assert_decimal_approx_eq,
-        collateral::collateral_router::test_util::{
-            build_test_router, implement_mock_bridge, make_mock_designation,
-        },
+        collateral::collateral_router::test_util::build_test_router,
         core::{
-            bits::{Amount, Side},
+            bits::Side,
             functional::IntoObservableSingle,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_atomic_bool_pair,
@@ -626,7 +624,7 @@ mod test {
         },
     };
 
-    use super::{test_util::make_mock_bridge, CollateralRouter, CollateralTransferEvent};
+    use super::CollateralTransferEvent;
 
     #[test_case(1, "T1:N1:C1"; "Take first route")]
     #[test_case(2, "T2:N2:C2"; "Take second route")]
