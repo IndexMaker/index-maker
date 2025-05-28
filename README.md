@@ -72,6 +72,8 @@ Work included in Phase 1.:
     - [x] Write unit tests for Simple Solver
     - [x] Write unit tests for Batch Manager
     - [x] Write unit tests for Collateral Manager
+    - [x] Write unit tests for Collateral Router
+    - [x] Write unit tests for Collateral Position
 * [ ] Quote Requests
     - [ ] Manage Quote Requests
     - [ ] Compute Quotes
