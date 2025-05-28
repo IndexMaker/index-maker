@@ -608,7 +608,7 @@ pub mod test_util {
 #[cfg(test)]
 mod test {
     use rust_decimal::dec;
-    
+
     use test_case::test_case;
 
     use crate::{
