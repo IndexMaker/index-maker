@@ -68,10 +68,12 @@ Work included in Phase 1.:
 * [x] Handle Index Order Engagements correctly
     - [x] Index Order Manager should only allow engagements in FIFO
     - [x] Solver must engage Index Order updates in FIFO
-* [ ] Add Unit Tests
-    - [ ] Write unit tests for Simple Solver
-    - [ ] Write unit tests for Batch Manager
-    - [ ] Write unit tests for Collateral Manager
+* [x] Add Unit Tests
+    - [x] Write unit tests for Simple Solver
+    - [x] Write unit tests for Batch Manager
+    - [x] Write unit tests for Collateral Manager
+    - [x] Write unit tests for Collateral Router
+    - [x] Write unit tests for Collateral Position
 * [ ] Quote Requests
     - [ ] Manage Quote Requests
     - [ ] Compute Quotes

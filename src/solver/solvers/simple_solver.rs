@@ -1135,3 +1135,293 @@ impl SolverStrategy for SimpleSolver {
         })
     }
 }
+
+#[cfg(test)]
+mod test {
+    use chrono::{DateTime, Utc};
+    use eyre::*;
+    use parking_lot::RwLock;
+    use rust_decimal::dec;
+    use std::{
+        cell::RefCell,
+        collections::{hash_map::HashMap, VecDeque},
+        sync::Arc,
+    };
+
+    use crate::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::*,
+            test_util::{
+                get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
+                get_mock_asset_3_arc, get_mock_asset_name_1, get_mock_asset_name_2,
+                get_mock_asset_name_3, get_mock_index_name_1, get_mock_index_name_2,
+            },
+        },
+        index::basket::*,
+        market_data::price_tracker::*,
+        solver::solver::*,
+    };
+
+    use test_case::test_case;
+
+    use super::SimpleSolver;
+
+    struct MockSolverStrategyHost {
+        batch_order_ids: RefCell<VecDeque<BatchOrderId>>,
+        baskets: HashMap<Symbol, Arc<Basket>>,
+    }
+
+    impl MockSolverStrategyHost {
+        fn new() -> Self {
+            Self {
+                batch_order_ids: RefCell::new(VecDeque::new()),
+                baskets: HashMap::new(),
+            }
+        }
+    }
+
+    impl SetSolverOrderStatus for MockSolverStrategyHost {
+        fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
+            order.status = status;
+        }
+    }
+
+    impl SolverStrategyHost for MockSolverStrategyHost {
+        fn get_basket(&self, symbol: &Symbol) -> Option<Arc<Basket>> {
+            self.baskets.get(symbol).cloned()
+        }
+
+        fn get_liquidity(
+            &self,
+            side: Side,
+            symbols: &HashMap<Symbol, Amount>,
+        ) -> Result<HashMap<Symbol, Amount>> {
+            let _ = symbols;
+            let _ = side;
+            Ok(HashMap::from([
+                (get_mock_asset_name_1(), dec!(100.0)),
+                (get_mock_asset_name_2(), dec!(200.0)),
+                (get_mock_asset_name_3(), dec!(500.0)),
+            ]))
+        }
+
+        fn get_next_batch_order_id(&self) -> BatchOrderId {
+            self.batch_order_ids
+                .borrow_mut()
+                .pop_front()
+                .expect("No more Batch Order IDs")
+        }
+
+        fn get_prices(&self, price_type: PriceType, symbols: &[Symbol]) -> GetPricesResponse {
+            let _ = symbols;
+            let _ = price_type;
+            GetPricesResponse {
+                prices: HashMap::from([
+                    (get_mock_asset_name_1(), dec!(100.0)),
+                    (get_mock_asset_name_2(), dec!(200.0)),
+                    (get_mock_asset_name_3(), dec!(10.0)),
+                ]),
+                missing_symbols: Vec::new(),
+            }
+        }
+    }
+
+    fn make_basket_1() -> Arc<Basket> {
+        Arc::new(Basket {
+            basket_assets: vec![
+                BasketAsset {
+                    price: dec!(100.0),
+                    quantity: dec!(8.0),
+                    weight: AssetWeight {
+                        asset: get_mock_asset_1_arc(),
+                        weight: dec!(0.8),
+                    },
+                },
+                BasketAsset {
+                    price: dec!(200.0),
+                    quantity: dec!(1.0),
+                    weight: AssetWeight {
+                        asset: get_mock_asset_2_arc(),
+                        weight: dec!(0.2),
+                    },
+                },
+            ],
+            target_price: dec!(1000.0),
+        })
+    }
+
+    fn make_basket_2() -> Arc<Basket> {
+        Arc::new(Basket {
+            basket_assets: vec![
+                BasketAsset {
+                    price: dec!(100.0),
+                    quantity: dec!(5.0),
+                    weight: AssetWeight {
+                        asset: get_mock_asset_1_arc(),
+                        weight: dec!(0.5),
+                    },
+                },
+                BasketAsset {
+                    price: dec!(10.0),
+                    quantity: dec!(50.0),
+                    weight: AssetWeight {
+                        asset: get_mock_asset_3_arc(),
+                        weight: dec!(0.5),
+                    },
+                },
+            ],
+            target_price: dec!(1000.0),
+        })
+    }
+
+    fn gen_client_order_id(index: u32) -> ClientOrderId {
+        ClientOrderId(format!("C-{:02}", index))
+    }
+
+    fn make_solver_order(
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        symbol: Symbol,
+        side: Side,
+        collatera_amount: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Arc<RwLock<SolverOrder>> {
+        Arc::new(RwLock::new(SolverOrder {
+            chain_id,
+            address,
+            client_order_id,
+            symbol,
+            side,
+            remaining_collateral: collatera_amount,
+            payment_id: None,
+            engaged_collateral: Amount::ZERO,
+            collateral_carried: Amount::ZERO,
+            collateral_spent: Amount::ZERO,
+            filled_quantity: Amount::ZERO,
+            timestamp,
+            status: SolverOrderStatus::Open,
+            lots: Vec::new(),
+        }))
+    }
+
+    #[test_case(
+        "Unlimited",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(1.0), dec!(1000.0), dec!(1000.0)),
+            (dec!(5.0), dec!(1000.0), dec!(5000.0))
+        ]; "unlimited"
+    )]
+    #[test_case(
+        "Max Order Volley Set",
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(1.0), dec!(1000.0), dec!(1000.0)),
+            (dec!(1.0), dec!(1000.0), dec!(1000.0))
+        ]; "max_order_volley_set"
+    )]
+    #[test_case(
+        "Max Batch Volley Set",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0)),
+        vec![
+            (dec!(0.16666), dec!(1000.0), dec!(166.66666)),
+            (dec!(0.83333), dec!(1000.0), dec!(833.33333))
+        ]; "max_batch_volley_set"
+    )]
+    #[test_case(
+        "Max Volleys Set",
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0)),
+        vec![
+            (dec!(0.75), dec!(1000.0), dec!(750.0)),
+            (dec!(0.75), dec!(1000.0), dec!(750.0))
+        ]; "max_volleys_set"
+    )]
+    #[test_case(
+        "Fee Factor 1%",
+        (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(0.99009), dec!(1000.0), dec!(1000.0)),
+            (dec!(4.95049), dec!(1000.0), dec!(5000.0))
+        ]; "fee_factor_1pct"
+    )]
+    #[test_case(
+        "Price Threshold 1%",
+        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![
+            (dec!(0.99009), dec!(1010.0), dec!(1000.0)),
+            (dec!(4.95049), dec!(1010.0), dec!(5000.0))
+        ]; "price_threshold_1pct"
+    )]
+    fn test_simple_solver(
+        title: &str,
+        params: (Amount, Amount, Amount, Amount),
+        expected: Vec<(Amount, Amount, Amount)>,
+    ) {
+        println!("Test Case: {}", title);
+
+        let timestamp = Utc::now();
+
+        let mut strategy_host = MockSolverStrategyHost::new();
+
+        strategy_host
+            .batch_order_ids
+            .borrow_mut()
+            .push_back("B-01".into());
+
+        strategy_host
+            .baskets
+            .insert(get_mock_index_name_1(), make_basket_1());
+
+        strategy_host
+            .baskets
+            .insert(get_mock_index_name_2(), make_basket_2());
+
+        let order_batch = vec![
+            make_solver_order(
+                1,
+                get_mock_address_1(),
+                gen_client_order_id(1),
+                get_mock_index_name_1(),
+                Side::Buy,
+                dec!(1000.0),
+                timestamp,
+            ),
+            make_solver_order(
+                2,
+                get_mock_address_1(),
+                gen_client_order_id(2),
+                get_mock_index_name_2(),
+                Side::Buy,
+                dec!(5000.0),
+                timestamp,
+            ),
+        ];
+
+        let simple_solver = SimpleSolver::new(params.0, params.1, params.2, params.3);
+
+        let batch = simple_solver
+            .solve_engagements(&strategy_host, order_batch)
+            .expect("Failed to solve engagements");
+
+        assert_eq!(batch.engaged_orders.engaged_orders.len(), expected.len());
+        for n in 0..expected.len() {
+            assert_decimal_approx_eq!(
+                batch.engaged_orders.engaged_orders[n].engaged_quantity,
+                expected[n].0,
+                dec!(0.00001)
+            );
+            assert_decimal_approx_eq!(
+                batch.engaged_orders.engaged_orders[n].engaged_price,
+                expected[n].1,
+                dec!(0.00001)
+            );
+            assert_decimal_approx_eq!(
+                batch.engaged_orders.engaged_orders[n].engaged_collateral,
+                expected[n].2,
+                dec!(0.00001)
+            );
+        }
+    }
+}

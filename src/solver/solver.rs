@@ -11,8 +11,9 @@ use safe_math::safe;
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    collateral::collateral_manager::{
-        CollateralEvent, CollateralManager, CollateralManagerHost, ConfirmStatus, PreAuthStatus,
+    collateral::{
+        collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
+        collateral_position::{ConfirmStatus, PreAuthStatus},
     },
     core::{
         bits::{

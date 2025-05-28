@@ -8,6 +8,7 @@ pub mod blockchain {
 
 pub mod collateral {
     pub mod collateral_manager;
+    pub mod collateral_position;
     pub mod collateral_router;
 }
 

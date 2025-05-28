@@ -320,14 +320,19 @@ impl IntoObservableSingle<CollateralTransferEvent> for CollateralRouter {
 pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;
-    use std::sync::{Arc, RwLock as ComponentLock};
+    use itertools::Itertools;
+    use rust_decimal::dec;
+    use std::{
+        collections::HashMap,
+        sync::{mpsc::Sender, Arc, RwLock as ComponentLock},
+    };
 
     use crate::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     };
 
-    use super::{CollateralBridge, CollateralDesignation, CollateralRouterEvent};
+    use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
 
     pub struct MockCollateralDesignation {
         pub type_: Symbol,
@@ -451,5 +456,251 @@ pub mod test_util {
                 });
             Ok(())
         }
+    }
+
+    pub fn make_mock_designation(full_name: &str) -> Arc<ComponentLock<MockCollateralDesignation>> {
+        let (t, n, c) = full_name.split(":").collect_tuple().unwrap();
+        Arc::new(ComponentLock::new(MockCollateralDesignation {
+            type_: t.to_owned().into(),
+            name: n.to_owned().into(),
+            collateral_symbol: c.to_owned().into(),
+            full_name: full_name.to_owned().into(),
+            balance: dec!(0.0),
+        }))
+    }
+
+    pub fn make_mock_bridge(
+        from: &Arc<ComponentLock<MockCollateralDesignation>>,
+        to: &Arc<ComponentLock<MockCollateralDesignation>>,
+    ) -> Arc<ComponentLock<MockCollateralBridge>> {
+        Arc::new(ComponentLock::new(MockCollateralBridge::new(
+            from.clone(),
+            to.clone(),
+        )))
+    }
+
+    pub fn implement_mock_bridge(
+        tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
+        bridge: &Arc<ComponentLock<MockCollateralBridge>>,
+        router: &Arc<ComponentLock<CollateralRouter>>,
+        calculate_fee: &Arc<dyn Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync>,
+    ) {
+        // Send bridge events into router
+        let tx_clone = tx.clone();
+        let router_weak = Arc::downgrade(&router);
+        bridge
+            .write()
+            .unwrap()
+            .get_single_observer_mut()
+            .set_observer_fn(move |e| {
+                let router = router_weak.upgrade().unwrap();
+                tx_clone
+                    .send(Box::new(move || {
+                        router
+                            .write()
+                            .unwrap()
+                            .handle_collateral_router_event(e)
+                            .unwrap();
+                    }))
+                    .unwrap();
+            });
+
+        // Implement bridge
+        let tx_clone = tx.clone();
+        let bridge_weak = Arc::downgrade(bridge);
+        let calculate_fee = calculate_fee.clone();
+        bridge
+            .write()
+            .unwrap()
+            .implementor
+            .set_observer_fn(move |e| {
+                let bridge = bridge_weak.upgrade().unwrap();
+                let calculate_fee = calculate_fee.clone();
+                tx_clone
+                    .send(Box::new(move || match e {
+                        MockCollateralBridgeInternalEvent::TransferFunds {
+                            chain_id,
+                            address,
+                            client_order_id,
+                            route_from,
+                            route_to,
+                            amount,
+                            cumulative_fee,
+                        } => {
+                            let (amount, cumulative_fee) = calculate_fee(amount, cumulative_fee);
+                            bridge.write().unwrap().notify_collateral_router_event(
+                                chain_id,
+                                address,
+                                client_order_id,
+                                Utc::now(),
+                                route_from,
+                                route_to,
+                                amount,
+                                cumulative_fee,
+                            );
+                        }
+                    }))
+                    .unwrap();
+            });
+
+        // Add bridge to the router
+        router.write().unwrap().add_bridge(bridge.clone()).unwrap();
+    }
+
+    pub fn build_test_router(
+        tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
+        designations: &[&str],
+        bridges: &[(&str, &str)],
+        routes: &[&[&str]],
+        source_chain_map: &[(u32, &str)],
+        default_designation: &str,
+        calculate_fee: impl Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync + 'static,
+    ) -> Arc<ComponentLock<CollateralRouter>> {
+        let designations: HashMap<String, _> = HashMap::from_iter(
+            designations
+                .iter()
+                .map(|&n| (n.to_owned(), make_mock_designation(n))),
+        );
+
+        let bridges = bridges
+            .iter()
+            .map(|(a, b)| {
+                make_mock_bridge(designations.get(*a).unwrap(), designations.get(*b).unwrap())
+            })
+            .collect_vec();
+
+        let router = Arc::new(ComponentLock::new(CollateralRouter::new()));
+
+        let calculate_fee: Arc<dyn Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync + 'static> =
+            Arc::new(calculate_fee);
+
+        for bridge in bridges.iter() {
+            implement_mock_bridge(tx, bridge, &router, &calculate_fee);
+        }
+
+        for (chain_id, source) in source_chain_map {
+            router
+                .write()
+                .unwrap()
+                .add_chain_source(*chain_id, source.to_owned().into())
+                .unwrap();
+        }
+
+        router
+            .write()
+            .unwrap()
+            .set_default_destination(default_designation.to_owned().into())
+            .unwrap();
+
+        for &route in routes {
+            let route = route
+                .iter()
+                .map(|n| n.to_owned())
+                .map(Symbol::from)
+                .collect_vec();
+            router.write().unwrap().add_route(&route).unwrap();
+        }
+
+        router
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rust_decimal::dec;
+
+    use test_case::test_case;
+
+    use crate::{
+        assert_decimal_approx_eq,
+        collateral::collateral_router::test_util::build_test_router,
+        core::{
+            bits::Side,
+            functional::IntoObservableSingle,
+            test_util::{
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_atomic_bool_pair,
+                get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+            },
+        },
+    };
+
+    use super::CollateralTransferEvent;
+
+    #[test_case(1, "T1:N1:C1"; "Take first route")]
+    #[test_case(2, "T2:N2:C2"; "Take second route")]
+    fn test_collateral_router(expected_chain_id: u32, expected_from: &'static str) {
+        let (event_get, event_set) = get_mock_atomic_bool_pair();
+        let (tx, rx) = get_mock_defer_channel();
+
+        let router = build_test_router(
+            &tx,
+            &["T1:N1:C1", "T2:N2:C2", "T3:N3:C3", "T4:N4:C4"],
+            &[
+                ("T1:N1:C1", "T3:N3:C3"),
+                ("T2:N2:C2", "T3:N3:C3"),
+                ("T3:N3:C3", "T4:N4:C4"),
+            ],
+            &[
+                &["T1:N1:C1", "T3:N3:C3", "T4:N4:C4"],
+                &["T2:N2:C2", "T3:N3:C3", "T4:N4:C4"],
+            ],
+            &[(1, "T1:N1:C1"), (2, "T2:N2:C2")],
+            "T4:N4:C4",
+            |amount, cumulative_fee| {
+                let fee = dec!(0.5);
+                let cumulative_fee = cumulative_fee + fee;
+                (amount - fee, cumulative_fee)
+            },
+        );
+
+        router
+            .write()
+            .unwrap()
+            .get_single_observer_mut()
+            .set_observer_fn(move |e| match e {
+                CollateralTransferEvent::TransferComplete {
+                    chain_id,
+                    address,
+                    client_order_id,
+                    timestamp: _,
+                    transfer_from,
+                    transfer_to,
+                    amount,
+                    fee,
+                } => {
+                    let tolerance = dec!(0.01);
+
+                    assert_eq!(chain_id, expected_chain_id);
+                    assert_eq!(address, get_mock_address_1());
+                    assert_eq!(client_order_id, "C-1".into());
+
+                    assert_eq!(transfer_from, expected_from.to_owned());
+                    assert_eq!(transfer_to, "T4:N4:C4".to_owned());
+
+                    assert_decimal_approx_eq!(amount, dec!(999.0), tolerance);
+                    assert_decimal_approx_eq!(fee, dec!(1.0), tolerance);
+
+                    flag_mock_atomic_bool(&event_set);
+                }
+            });
+
+        // Make test transfer
+        // It will be coming from given Chain ID, and
+        // it will be routed to final designation.
+        router
+            .write()
+            .unwrap()
+            .transfer_collateral(
+                expected_chain_id,
+                get_mock_address_1(),
+                "C-1".into(),
+                Side::Buy,
+                dec!(1000.0),
+            )
+            .unwrap();
+
+        run_mock_deferred(&rx);
+
+        assert!(test_mock_atomic_bool(&event_get));
     }
 }

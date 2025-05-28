@@ -418,8 +418,6 @@ impl BatchOrderStatus {
                     match carry_overs.entry((symbol.clone(), *side)) {
                         Entry::Vacant(entry) => {
                             entry.insert(BatchCarryOver {
-                                symbol: position.symbol.clone(),
-                                side: position.side,
                                 carried_position,
                                 carried_lots,
                             });
@@ -462,12 +460,6 @@ impl BatchOrderStatus {
 }
 
 struct BatchCarryOver {
-    /// Symbol of an asset
-    symbol: Symbol,
-
-    /// Side of an order
-    side: Side,
-
     /// Total quantity carried over
     carried_position: Amount,
 
@@ -983,6 +975,8 @@ impl BatchManager {
 
                                 index_order_stored.collateral_carried = Amount::ZERO;
 
+                                index_order_stored.timestamp = timestamp;
+
                                 match index_order_stored.status {
                                     SolverOrderStatus::Ready => {
                                         host.set_order_status(
@@ -1056,6 +1050,7 @@ impl BatchManager {
         is_cancelled: bool,
         cancel_timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let _ = host;
         let batch = self
             .batches
             .get(&batch_order_id)
@@ -1128,5 +1123,528 @@ impl BatchManager {
 impl IntoObservableSingle<BatchEvent> for BatchManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<BatchEvent> {
         &mut self.observer
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{
+        collections::{HashMap, VecDeque},
+        sync::Arc,
+    };
+
+    use chrono::{TimeDelta, Utc};
+    use eyre::Result;
+    use itertools::Itertools;
+    use parking_lot::RwLock;
+    use rust_decimal::dec;
+    use test_case::test_case;
+
+    use crate::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::{
+                Address, Amount, AssetOrder, BatchOrder, ClientOrderId, OrderId, PaymentId, Side,
+                Symbol,
+            },
+            functional::IntoObservableSingle,
+            test_util::{
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
+                get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
+            },
+        },
+        index::basket::{AssetWeight, Basket, BasketDefinition},
+        solver::{
+            batch_manager::BatchEvent,
+            index_order_manager::EngagedIndexOrder,
+            solver::{
+                EngagedSolverOrders, SetSolverOrderStatus, SolverOrder, SolverOrderAssetLot,
+                SolverOrderEngagement, SolverOrderStatus,
+            },
+        },
+    };
+
+    use super::{BatchAssetLot, BatchAssetPosition, BatchManager, BatchManagerHost};
+
+    #[test_case(
+        "C-01".into(),
+        "P-01".into(),
+        "O-01".into(),
+        dec!(0.0),
+        dec!(2000.0),
+        dec!(1200.0),
+        dec!(120.0),
+        dec!(10.0),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        dec!(0.0); "no fills, no lots"
+    )]
+    #[test_case(
+        "C-01".into(),
+        "P-01".into(),
+        "O-01".into(),
+        dec!(5.0),
+        dec!(2000.0),
+        dec!(1200.0),
+        dec!(120.0),
+        dec!(10.0),
+        vec![("L-01", dec!(100.0), dec!(8.0), dec!(0.8))],
+        vec![("L-01", dec!(100.0), dec!(8.0), dec!(0.8), dec!(3.0))],
+        vec![],
+        vec![("L-01", dec!(100.0), dec!(5.0), dec!(0.5))],
+        dec!(500.5); "single lot, partly closed"
+    )]
+    #[test_case(
+        "C-01".into(),
+        "P-01".into(),
+        "O-01".into(),
+        dec!(5.0),
+        dec!(2000.0),
+        dec!(1200.0),
+        dec!(120.0),
+        dec!(10.0),
+        vec![("L-01", dec!(100.0), dec!(5.0), dec!(0.5))],
+        vec![],
+        vec![("L-01", dec!(100.0), dec!(5.0), dec!(0.5), dec!(0.0))],
+        vec![("L-01", dec!(100.0), dec!(5.0), dec!(0.5))],
+        dec!(500.5); "single lot, fully closed"
+    )]
+    #[test_case(
+        "C-01".into(),
+        "P-01".into(),
+        "O-01".into(),
+        dec!(8.0),
+        dec!(2000.0),
+        dec!(1200.0),
+        dec!(120.0),
+        dec!(10.0),
+        vec![
+            ("L-01", dec!(100.0), dec!(5.0), dec!(0.50)),
+            ("L-02", dec!(110.0), dec!(4.0), dec!(0.44)),
+        ],
+        vec![("L-02", dec!(110.0), dec!(4.0), dec!(0.44), dec!(1.0))],
+        vec![("L-01", dec!(100.0), dec!(5.0), dec!(0.50), dec!(0.0))],
+        vec![
+            ("L-01", dec!(100.0), dec!(5.0), dec!(0.50)),
+            ("L-02", dec!(110.0), dec!(3.0), dec!(0.33)),
+            ],
+        dec!(830.83); "two lots, one closed, one partly closed"
+    )]
+    fn run_test_batch_asset_position_fully_closed(
+        client_order_id: ClientOrderId,
+        payment_id: PaymentId,
+        order_id: OrderId,
+        quantity: Amount,
+        remaining_collateral: Amount,
+        engaged_collateral: Amount,
+        asset_order_price: Amount,
+        asset_order_quantity: Amount,
+        lots_event_open: Vec<(&str, Amount, Amount, Amount)>,
+        lots_expected_open: Vec<(&str, Amount, Amount, Amount, Amount)>,
+        lots_expected_closed: Vec<(&str, Amount, Amount, Amount, Amount)>,
+        lots_expected_order: Vec<(&str, Amount, Amount, Amount)>,
+        expected_collateral_spent: Amount,
+    ) {
+        let timestamp = Utc::now();
+
+        // this is solver view of what user sent to us (index order)
+        let index_order = SolverOrder {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            client_order_id: client_order_id.clone(),
+            payment_id: Some(payment_id.clone()),
+            symbol: get_mock_asset_name_1(),
+            side: Side::Buy,
+            remaining_collateral,
+            engaged_collateral,
+            collateral_carried: dec!(0.0),
+            collateral_spent: dec!(0.0),
+            filled_quantity: dec!(0.0),
+            timestamp,
+            status: SolverOrderStatus::Engaged,
+            lots: Vec::new(),
+        };
+
+        // this is what we sent to exchange (order)
+        let order = AssetOrder {
+            order_id: order_id.clone(),
+            price: asset_order_price,
+            quantity: asset_order_quantity,
+            side: Side::Buy,
+            symbol: get_mock_asset_name_1(),
+        };
+
+        // this is what exchange sent to us (fill)
+        let lots = lots_event_open
+            .iter()
+            .map(|(id, p, q, fee)| BatchAssetLot {
+                lot_id: id.to_owned().into(),
+                order_id: order_id.clone(),
+                price: *p,
+                original_quantity: *q,
+                remaining_quantity: *q,
+                fee: *fee,
+                closing_lot_id: None,
+                timestamp,
+            })
+            .collect_vec();
+
+        let expected_asset_position_open_lots = lots_expected_open
+            .iter()
+            .map(|(id, p, q, fee, rq)| BatchAssetLot {
+                lot_id: id.to_owned().into(),
+                order_id: order_id.clone(),
+                price: *p,
+                original_quantity: *q,
+                remaining_quantity: *rq,
+                fee: *fee,
+                closing_lot_id: None,
+                timestamp,
+            })
+            .collect_vec();
+
+        let expected_asset_position_closed_lots = lots_expected_closed
+            .iter()
+            .map(|(id, p, q, fee, rq)| BatchAssetLot {
+                lot_id: id.to_owned().into(),
+                order_id: order_id.clone(),
+                price: *p,
+                original_quantity: *q,
+                remaining_quantity: *rq,
+                fee: *fee,
+                closing_lot_id: None,
+                timestamp,
+            })
+            .collect_vec();
+
+        let expected_solver_lots = lots_expected_order
+            .iter()
+            .map(|(id, p, q, fee)| SolverOrderAssetLot {
+                lot_id: id.to_owned().into(),
+                symbol: get_mock_asset_name_1(),
+                quantity: *q,
+                price: *p,
+                fee: *fee,
+            })
+            .collect_vec();
+
+        run_test_batch_asset_position(
+            quantity,
+            order,
+            lots,
+            index_order,
+            expected_asset_position_open_lots,
+            expected_asset_position_closed_lots,
+            expected_solver_lots,
+            expected_collateral_spent,
+        );
+    }
+
+    fn run_test_batch_asset_position(
+        quantity: Amount,
+        order: AssetOrder,
+        lots: Vec<BatchAssetLot>,
+        mut index_order: SolverOrder,
+        expected_asset_position_open_lots: Vec<BatchAssetLot>,
+        expected_asset_position_closed_lots: Vec<BatchAssetLot>,
+        expected_solver_lots: Vec<SolverOrderAssetLot>,
+        expected_collateral_spent: Amount,
+    ) {
+        let timestamp = Utc::now();
+        let tolerance = dec!(0.001);
+
+        let mut asset_position = BatchAssetPosition::try_new(&order, timestamp).unwrap();
+        asset_position.realized_value = dec!(500.0);
+        asset_position.fee = dec!(0.5);
+        asset_position.open_lots = VecDeque::from_iter(lots);
+        asset_position.last_update_timestamp = timestamp;
+
+        let (quantity_left, collateral_spent) = asset_position
+            .try_allocate_lots(&mut index_order, quantity, tolerance)
+            .unwrap();
+
+        assert_decimal_approx_eq!(quantity_left, Amount::ZERO, tolerance);
+
+        let assert_lots_eq = |(a, b): (&BatchAssetLot, &BatchAssetLot)| {
+            assert_eq!(a.lot_id, b.lot_id);
+            assert_eq!(a.order_id, b.order_id);
+            assert_decimal_approx_eq!(a.price, b.price, tolerance);
+            assert_decimal_approx_eq!(a.fee, b.fee, tolerance);
+            assert_decimal_approx_eq!(a.original_quantity, b.original_quantity, tolerance);
+            assert_decimal_approx_eq!(a.remaining_quantity, b.remaining_quantity, tolerance);
+        };
+
+        let assert_solver_lots_eq = |(a, b): (&SolverOrderAssetLot, &SolverOrderAssetLot)| {
+            assert_eq!(a.lot_id, b.lot_id);
+            assert_eq!(a.symbol, b.symbol);
+            assert_decimal_approx_eq!(a.price, b.price, tolerance);
+            assert_decimal_approx_eq!(a.fee, b.fee, tolerance);
+            assert_decimal_approx_eq!(a.quantity, b.quantity, tolerance);
+        };
+
+        assert_eq!(
+            asset_position.open_lots.len(),
+            expected_asset_position_open_lots.len()
+        );
+
+        expected_asset_position_open_lots
+            .iter()
+            .zip(asset_position.open_lots.iter())
+            .for_each(assert_lots_eq);
+
+        assert_eq!(
+            asset_position.closed_lots.len(),
+            expected_asset_position_closed_lots.len()
+        );
+
+        expected_asset_position_closed_lots
+            .iter()
+            .zip(asset_position.closed_lots.iter())
+            .for_each(assert_lots_eq);
+
+        expected_solver_lots
+            .iter()
+            .zip(index_order.lots.iter())
+            .for_each(assert_solver_lots_eq);
+
+        assert_decimal_approx_eq!(collateral_spent, expected_collateral_spent, tolerance);
+    }
+
+    struct MockHost;
+
+    impl SetSolverOrderStatus for MockHost {
+        fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
+            println!("Set order status: {:?}", status);
+            order.status = status;
+        }
+    }
+
+    impl BatchManagerHost for MockHost {
+        fn get_next_order_id(&self) -> OrderId {
+            "O-1".into()
+        }
+
+        fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
+            let _ = batch_order;
+            println!("Send order batch");
+            Ok(())
+        }
+
+        fn fill_order_request(
+            &self,
+            chain_id: u32,
+            address: &Address,
+            client_order_id: &ClientOrderId,
+            symbol: &Symbol,
+            collateral_spent: Amount,
+            fill_amount: Amount,
+            timestamp: chrono::DateTime<Utc>,
+        ) -> Result<()> {
+            let _ = timestamp;
+            let _ = fill_amount;
+            let _ = collateral_spent;
+            let _ = symbol;
+            let _ = client_order_id;
+            let _ = address;
+            let _ = chain_id;
+            println!("Fill order request");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_batch_manager() {
+        let timestamp = Utc::now();
+        let max_batch_size = 4;
+        let zero_threshold = dec!(0.001);
+        let fill_threshold = dec!(0.999);
+        let mint_threshold = dec!(0.990);
+        let mint_wait_period = TimeDelta::seconds(10);
+
+        let host = MockHost;
+
+        let mut batch_manager = BatchManager::new(
+            max_batch_size,
+            zero_threshold,
+            fill_threshold,
+            mint_threshold,
+            mint_wait_period,
+        );
+
+        let (batch_complete_get, batch_complete_set) = get_mock_atomic_bool_pair();
+
+        batch_manager
+            .get_single_observer_mut()
+            .set_observer_fn(move |e| match e {
+                BatchEvent::BatchComplete {
+                    batch_order_id,
+                    continued_orders,
+                } => {
+                    assert_eq!(batch_order_id.0, "B-1".to_owned());
+                    assert_eq!(continued_orders.len(), 1);
+
+                    let first = continued_orders[0].read();
+                    assert_eq!(first.client_order_id.0, "C-1".to_owned());
+
+                    flag_mock_atomic_bool(&batch_complete_set);
+                }
+                _ => unreachable!(),
+            });
+
+        let index_order = Arc::new(RwLock::new(SolverOrder {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            client_order_id: "C-1".into(),
+            payment_id: Some("P-1".into()),
+            symbol: get_mock_asset_name_1(),
+            side: Side::Buy,
+            remaining_collateral: dec!(2000.0),
+            engaged_collateral: dec!(1200.0),
+            collateral_carried: dec!(0.0),
+            collateral_spent: dec!(0.0),
+            filled_quantity: dec!(0.0),
+            timestamp,
+            status: SolverOrderStatus::Engaged,
+            lots: Vec::new(),
+        }));
+
+        let index_order_clone = index_order.clone();
+
+        let weights = [AssetWeight::new(get_mock_asset_1_arc(), dec!(1.0))];
+        let asset_price_limits = HashMap::from([(get_mock_asset_name_1(), dec!(120.0))]);
+
+        let basket_definition = BasketDefinition::try_new(weights).unwrap();
+
+        let basket = Arc::new(
+            Basket::new_with_prices(basket_definition, &asset_price_limits, dec!(1200.0)).unwrap(),
+        );
+
+        // Engagement definition would be built be SolverStrategy (e.g. SimpleSolver)
+        let engagement_definition = Arc::new(RwLock::new(EngagedSolverOrders {
+            batch_order_id: "B-1".into(),
+            engaged_orders: vec![SolverOrderEngagement {
+                index_order,
+                asset_contribution_fractions: HashMap::from([(get_mock_asset_name_1(), dec!(1.0))]),
+                asset_quantities: HashMap::from([(get_mock_asset_name_1(), dec!(10.0))]),
+                asset_price_limits,
+                chain_id: 1,
+                address: get_mock_address_1(),
+                client_order_id: "C-1".into(),
+                symbol: get_mock_asset_name_1(),
+                basket,
+                engaged_side: Side::Buy,
+                engaged_collateral: dec!(1200.0),
+                new_engaged_collateral: dec!(1200.0),
+                engaged_quantity: dec!(1.0),
+                engaged_price: dec!(1200.0),
+                filled_quantity: dec!(0.0),
+            }],
+        }));
+
+        // Engagement confirmation would be built by Index Order Manager
+        let engagement_confirmation = HashMap::from([(
+            (get_mock_address_1(), "C-1".into()),
+            EngagedIndexOrder {
+                chain_id: 1,
+                address: get_mock_address_1(),
+                client_order_id: "C-1".into(),
+                collateral_engaged: dec!(1200.0),
+                collateral_remaining: dec!(2000.0),
+            },
+        )]);
+
+        // that will store engagement in cache - required initial step
+        batch_manager
+            .handle_new_engagement(engagement_definition)
+            .unwrap();
+
+        // confirms engagements with index order manager - updates cached index order
+        batch_manager
+            .handle_engage_index_order(&host, "B-1".into(), engagement_confirmation, timestamp)
+            .unwrap();
+
+        // sends more batches - todo: check grouping and coalescing by asset
+        batch_manager.process_batches(&host, timestamp).unwrap();
+
+        // each fill opens new or closes existing lot in the inventory -
+        // we should match against index order engagements following the
+        // contribution fractions
+        batch_manager
+            .handle_new_lot(
+                &host,
+                "O-1".into(),
+                "B-1".into(),
+                "L-1".into(),
+                None,
+                get_mock_asset_name_1(),
+                Side::Buy,
+                dec!(100.0),
+                dec!(5.0),
+                dec!(0.5),
+                timestamp,
+            )
+            .unwrap();
+
+        //
+        batch_manager
+            .handle_cancel_order(
+                &host,
+                "B-1".into(),
+                get_mock_asset_name_1(),
+                Side::Buy,
+                dec!(5.0),
+                true,
+                timestamp,
+            )
+            .unwrap();
+
+        let index_order_read = index_order_clone.read();
+
+        assert_decimal_approx_eq!(
+            index_order_read.remaining_collateral,
+            dec!(2000.0),
+            zero_threshold
+        );
+        assert_decimal_approx_eq!(
+            index_order_read.engaged_collateral,
+            dec!(0.0),
+            zero_threshold
+        );
+        assert_decimal_approx_eq!(
+            index_order_read.collateral_carried,
+            dec!(699.50),
+            zero_threshold
+        );
+        assert_decimal_approx_eq!(
+            index_order_read.collateral_spent,
+            dec!(500.50),
+            zero_threshold
+        );
+        assert_decimal_approx_eq!(index_order_read.filled_quantity, dec!(0.5), zero_threshold);
+
+        let assert_solver_lots_eq = |(a, b): (&SolverOrderAssetLot, &SolverOrderAssetLot)| {
+            assert_eq!(a.lot_id, b.lot_id);
+            assert_eq!(a.symbol, b.symbol);
+            assert_decimal_approx_eq!(a.price, b.price, zero_threshold);
+            assert_decimal_approx_eq!(a.fee, b.fee, zero_threshold);
+            assert_decimal_approx_eq!(a.quantity, b.quantity, zero_threshold);
+        };
+
+        let expected_solver_lots = [SolverOrderAssetLot {
+            lot_id: "L-1".into(),
+            symbol: get_mock_asset_name_1(),
+            quantity: dec!(5.0),
+            price: dec!(100.0),
+            fee: dec!(0.5),
+        }];
+
+        expected_solver_lots
+            .iter()
+            .zip(index_order_read.lots.iter())
+            .for_each(assert_solver_lots_eq);
+
+        assert!(test_mock_atomic_bool(&batch_complete_get));
     }
 }
