@@ -97,7 +97,7 @@ impl From<&str> for BatchOrderId {
     }
 }
 
-/// ClientOrderId is intended to be used for index orders and quote requests (<- FIX)
+/// ClientOrderId is intended to be used for index orders (<- FIX)
 ///
 /// User will put ID on their requests.
 #[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
@@ -110,6 +110,24 @@ impl Display for ClientOrderId {
 }
 
 impl From<&str> for ClientOrderId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
+/// ClientQuoteId is intended to be used for quote requests (<- FIX)
+///
+/// User will put ID on their requests.
+#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct ClientQuoteId(pub String);
+
+impl Display for ClientQuoteId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ClientQuoteId({})", self.0)
+    }
+}
+
+impl From<&str> for ClientQuoteId {
     fn from(value: &str) -> Self {
         Self(value.into())
     }

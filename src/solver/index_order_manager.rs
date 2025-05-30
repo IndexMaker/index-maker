@@ -3,8 +3,10 @@ use std::{
     sync::Arc,
 };
 
+use alloy::signers::k256::elliptic_curve::weierstrass::add;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use itertools::Either;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -14,7 +16,10 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
-    server::server::{Server, ServerEvent, ServerResponse},
+    server::server::{
+        CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
+        ServerResponse, ServerResponseReason,
+    },
     solver::index_order::IndexOrder,
 };
 
@@ -178,7 +183,7 @@ impl IndexOrderManager {
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
+    ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
         // Create index orders for user if not created yet
         let user_index_orders = self
             .index_orders
@@ -200,14 +205,33 @@ impl IndexOrderManager {
             })
             .clone();
 
+        if index_order
+            .read()
+            .find_order_update(&client_order_id)
+            .is_some()
+        {
+            Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::DuplicateClientOrderId {
+                    detail: format!("Duplicate client order ID {}", client_order_id),
+                },
+            ))?;
+        }
+
         // Add update to index order
-        let update_order_outcome = index_order.write().update_order(
-            client_order_id.clone(),
-            side,
-            collateral_amount,
-            timestamp,
-            self.tolerance,
-        )?;
+        let update_order_outcome = index_order
+            .write()
+            .update_order(
+                client_order_id.clone(),
+                side,
+                collateral_amount,
+                timestamp,
+                self.tolerance,
+            )
+            .map_err(|err| {
+                ServerResponseReason::Server(ServerError::OtherReason {
+                    detail: format!("Cannot update order: {}", err),
+                })
+            })?;
 
         match update_order_outcome {
             UpdateIndexOrderOutcome::Push {
@@ -261,16 +285,6 @@ impl IndexOrderManager {
                     });
             }
         };
-
-        self.server
-            .write()
-            .respond_with(ServerResponse::NewIndexOrderAck {
-                chain_id,
-                address,
-                client_order_id,
-                timestamp,
-            });
-
         Ok(())
     }
 
@@ -283,21 +297,27 @@ impl IndexOrderManager {
         symbol: Symbol,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
-        let user_orders = self
-            .index_orders
-            .get(&(chain_id, address))
-            .ok_or(eyre!("No orders found for user {}", address))?;
-        let index_order = user_orders.get(&symbol).ok_or(eyre!(
-            "No order found for user {} for {}",
-            address,
-            symbol
-        ))?;
+    ) -> Result<(), ServerResponseReason<CancelIndexOrderNakReason>> {
+        let user_orders = self.index_orders.get(&(chain_id, address)).ok_or_else(|| {
+            ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
+                detail: format!("No orders found for user {}", address),
+            })
+        })?;
+
+        let index_order = user_orders.get(&symbol).ok_or_else(|| {
+            ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
+                detail: format!("No order found for user {} for {}", address, symbol),
+            })
+        })?;
 
         match index_order
             .write()
-            .cancel_updates(collateral_amount, self.tolerance)?
-        {
+            .cancel_updates(collateral_amount, self.tolerance)
+            .map_err(|err| {
+                ServerResponseReason::Server(ServerError::OtherReason {
+                    detail: format!("Cannot update order: {}", err),
+                })
+            })? {
             CancelIndexOrderOutcome::Cancel {
                 removed_collateral: _,
             } => {
@@ -338,15 +358,42 @@ impl IndexOrderManager {
                 side,
                 collateral_amount,
                 timestamp,
-            } => self.new_index_order(
-                *chain_id,
-                address.clone(),
-                client_order_id.clone(),
-                symbol.clone(),
-                *side,
-                *collateral_amount,
-                timestamp.clone(),
-            ),
+            } => {
+                if let Err(reason) = self.new_index_order(
+                    *chain_id,
+                    address.clone(),
+                    client_order_id.clone(),
+                    symbol.clone(),
+                    *side,
+                    *collateral_amount,
+                    timestamp.clone(),
+                ) {
+                    let result = match &reason {
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
+                    };
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::NewIndexOrderNak {
+                            chain_id: *chain_id,
+                            address: *address,
+                            client_order_id: client_order_id.clone(),
+                            reason,
+                            timestamp: *timestamp,
+                        });
+                    result
+                } else {
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::NewIndexOrderAck {
+                            chain_id: *chain_id,
+                            address: *address,
+                            client_order_id: client_order_id.clone(),
+                            timestamp: *timestamp,
+                        });
+                    Ok(())
+                }
+            }
             ServerEvent::CancelIndexOrder {
                 chain_id,
                 address,
@@ -354,14 +401,41 @@ impl IndexOrderManager {
                 symbol,
                 collateral_amount,
                 timestamp,
-            } => self.cancel_index_order(
-                *chain_id,
-                address.clone(),
-                client_order_id.clone(),
-                symbol.clone(),
-                *collateral_amount,
-                timestamp.clone(),
-            ),
+            } => {
+                if let Err(reason) = self.cancel_index_order(
+                    *chain_id,
+                    address.clone(),
+                    client_order_id.clone(),
+                    symbol.clone(),
+                    *collateral_amount,
+                    timestamp.clone(),
+                ) {
+                    let result = match &reason {
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
+                    };
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::CancelIndexOrderNak {
+                            chain_id: *chain_id,
+                            address: *address,
+                            client_order_id: client_order_id.clone(),
+                            reason,
+                            timestamp: *timestamp,
+                        });
+                    result
+                } else {
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::CancelIndexOrderAck {
+                            chain_id: *chain_id,
+                            address: *address,
+                            client_order_id: client_order_id.clone(),
+                            timestamp: *timestamp,
+                        });
+                    Ok(())
+                }
+            }
             _ => Ok(()),
         }
     }
@@ -627,7 +701,12 @@ impl IndexOrderManager {
                 chain_id,
                 address: *address,
                 client_order_id: client_order_id.clone(),
-                reason: format!("Error handing order {:?}", status),
+                reason: ServerResponseReason::Server(ServerError::OtherReason {
+                    detail: format!(
+                        "Cannot handle order: Solver failed with status: {:?}",
+                        status
+                    ),
+                }),
                 timestamp,
             });
         Ok(())

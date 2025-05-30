@@ -129,7 +129,7 @@ pub struct Solver {
     batch_manager: Arc<ComponentLock<BatchManager>>,
     collateral_manager: Arc<ComponentLock<CollateralManager>>,
     index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
-    quote_request_manager: Arc<ComponentLock<dyn QuoteRequestManager + Send + Sync>>,
+    quote_request_manager: Arc<ComponentLock<QuoteRequestManager>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
     // orders
     client_orders: RwLock<SolverClientOrders>,
@@ -152,7 +152,7 @@ impl Solver {
         batch_manager: Arc<ComponentLock<BatchManager>>,
         collateral_manager: Arc<ComponentLock<CollateralManager>>,
         index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
-        quote_request_manager: Arc<ComponentLock<dyn QuoteRequestManager + Send + Sync>>,
+        quote_request_manager: Arc<ComponentLock<QuoteRequestManager>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
@@ -1096,10 +1096,7 @@ mod test {
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
-        solver::{
-            index_quote_manager::test_util::MockQuoteRequestManager, position::LotId,
-            solvers::simple_solver::SimpleSolver,
-        },
+        solver::{position::LotId, solvers::simple_solver::SimpleSolver},
     };
 
     use super::*;
@@ -1333,7 +1330,7 @@ mod test {
             fix_server.clone(),
             tolerance,
         )));
-        let quote_request_manager = Arc::new(ComponentLock::new(MockQuoteRequestManager::new(
+        let quote_request_manager = Arc::new(ComponentLock::new(QuoteRequestManager::new(
             fix_server.clone(),
         )));
 
@@ -1656,6 +1653,9 @@ mod test {
                             collateral_spent,
                             timestamp
                         );
+                    }
+                    response => {
+                        assert!(false, "Unexpected response type {:?}", response);
                     }
                 };
                 mock_fix_sender

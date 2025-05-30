@@ -2022,6 +2022,7 @@ dependencies = [
  "safe-math",
  "string_cache",
  "test-case",
+ "thiserror",
 ]
 
 [[package]]
