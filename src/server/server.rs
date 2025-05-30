@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
+use itertools::Either;
+use thiserror::Error;
 
-use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
+use crate::core::bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol};
 
 pub enum ServerEvent {
     NewIndexOrder {
@@ -23,7 +25,7 @@ pub enum ServerEvent {
     NewQuoteRequest {
         chain_id: u32,
         address: Address,
-        client_order_id: ClientOrderId,
+        client_quote_id: ClientQuoteId,
         symbol: Symbol,
         side: Side,
         collateral_amount: Amount,
@@ -32,27 +34,88 @@ pub enum ServerEvent {
     CancelQuoteRequest {
         chain_id: u32,
         address: Address,
-        client_order_id: ClientOrderId,
+        client_quote_id: ClientQuoteId,
         symbol: Symbol,
+        timestamp: DateTime<Utc>,
     },
     AccountToCustody,
     CustodyToAccount,
 }
 
+#[derive(Error, Debug)]
+pub enum NewIndexOrderNakReason {
+    #[error("Duplicate client order ID: {detail:?}")]
+    DuplicateClientOrderId { detail: String },
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum CancelIndexOrderNakReason {
+    #[error("Index order not found: {detail:?}")]
+    IndexOrderNotFound { detail: String },
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum NewIndexQuoteNakReason {
+    #[error("Duplicate client quote ID: {detail:?}")]
+    DuplicateIndexQuoteId { detail: String },
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum CancelIndexQuoteNakReason {
+    #[error("Quote not found: {detail:?}")]
+    IndexQuoteNotFound { detail: String },
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum ServerError {
+    // SequenceNumberOutOfOrder { detail: String }, < example of known server errors
+    #[error("Server Error: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
 pub enum ServerResponse {
+    #[error("NewIndexOrder: ACK [{chain_id}:{address}] {client_order_id} {timestamp}")]
     NewIndexOrderAck {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
+    #[error("NewIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}")]
     NewIndexOrderNak {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
-        reason: String,
+        reason: Either<NewIndexOrderNakReason, ServerError>,
         timestamp: DateTime<Utc>,
     },
+    #[error("CancelIndexOrder: ACK [{chain_id}:{address}] {client_order_id} {timestamp}")]
+    CancelIndexOrderAck {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        timestamp: DateTime<Utc>,
+    },
+    #[error(
+        "CancelIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}"
+    )]
+    CancelIndexOrderNak {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        reason: Either<CancelIndexOrderNakReason, ServerError>,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("IndexOrderFill: [{chain_id}:{address}] {client_order_id} {timestamp}: {filled_quantity} {collateral_spent} {collateral_remaining}")]
     IndexOrderFill {
         chain_id: u32,
         address: Address,
@@ -60,6 +123,46 @@ pub enum ServerResponse {
         filled_quantity: Amount,
         collateral_spent: Amount,
         collateral_remaining: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("NewIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
+    NewIndexQuoteAck {
+        chain_id: u32,
+        address: Address,
+        client_quote_id: ClientQuoteId,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("NewIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}")]
+    NewIndexQuoteNak {
+        chain_id: u32,
+        address: Address,
+        client_quote_id: ClientQuoteId,
+        reason: Either<NewIndexQuoteNakReason, ServerError>,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("IndexOrderResponse: [{chain_id}:{address}] {client_quote_id} {timestamp}: {quantity_possible}")]
+    IndexQuoteResponse {
+        chain_id: u32,
+        address: Address,
+        client_quote_id: ClientQuoteId,
+        quantity_possible: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("CancelIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
+    CancelIndexQuoteAck {
+        chain_id: u32,
+        address: Address,
+        client_quote_id: ClientQuoteId,
+        timestamp: DateTime<Utc>,
+    },
+    #[error(
+        "CancelIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}"
+    )]
+    CancelIndexQuoteNak {
+        chain_id: u32,
+        address: Address,
+        client_quote_id: ClientQuoteId,
+        reason: Either<CancelIndexQuoteNakReason, ServerError>,
         timestamp: DateTime<Utc>,
     },
 }

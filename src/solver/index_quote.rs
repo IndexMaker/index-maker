@@ -1,11 +1,21 @@
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
 
-use crate::core::bits::{Address, Amount, Side, Symbol};
+use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+
+pub struct IndexQuoteData {
+}
 
 /// a quote on index
 pub struct IndexQuote {
+    /// Chain ID
+    pub chain_id: u32,
+
     /// On-chain wallet address
     pub address: Address,
+
+    /// Cliend order ID
+    pub client_quote_id: ClientQuoteId,
 
     /// An index symbol
     pub symbol: Symbol,
@@ -15,12 +25,9 @@ pub struct IndexQuote {
 
     /// Collateral amount to quote for
     pub collateral_amount: Amount,
-
-    /// Quantity that collateral can buy
-    pub quantity: Amount,
-
-    /// Fees that will be paid if quantity was executed
-    pub fees: Amount,
+    
+    /// Quantity of an index possible to obtain
+    pub quantity_possible: Amount,
 
     /// Time quote was created
     pub created_timestamp: DateTime<Utc>,

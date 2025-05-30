@@ -102,6 +102,7 @@ Work included in Phase 1.:
 * [ ] Logging & Error handling
     - [ ] Find out best way to handle runtime errors
     - [ ] Explore logging mechanism, and craft log messages
+    - [x] Error handling for server events
 * [ ] Improve SBE Test Scenario
     - [ ] Convert SBE test scenario into a framework for scenario testing
     - [ ] Provide multiple test scenarios
