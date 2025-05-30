@@ -1360,6 +1360,8 @@ mod test {
     /// is to improve fairness, as otherwise bigger Index Orders would outweigh
     /// smaller ones.
     ///
+    fn _description() { }
+
     #[test_case(
         "Unlimited",
         (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
