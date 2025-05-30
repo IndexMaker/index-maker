@@ -12,7 +12,7 @@ use crate::{
     },
     server::server::{
         CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerError, ServerEvent,
-        ServerResponse,
+        ServerResponse, ServerResponseReason,
     },
     solver::index_quote::IndexQuote,
 };
@@ -50,7 +50,7 @@ impl QuoteRequestManager {
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
-    ) -> Result<(), Either<NewIndexQuoteNakReason, ServerError>> {
+    ) -> Result<(), ServerResponseReason<NewIndexQuoteNakReason>> {
         let _ = collateral_amount;
         // 1. store QR
         //self.quote_requests.entry(key)
@@ -66,7 +66,7 @@ impl QuoteRequestManager {
         client_quote_id: &ClientQuoteId,
         symbol: &Symbol,
         timestamp: DateTime<Utc>,
-    ) -> Result<(), Either<CancelIndexQuoteNakReason, ServerError>> {
+    ) -> Result<(), ServerResponseReason<CancelIndexQuoteNakReason>> {
         Ok(())
     }
 
@@ -92,8 +92,8 @@ impl QuoteRequestManager {
                     *timestamp,
                 ) {
                     let result = match &reason {
-                        Either::Left(..) => Ok(()),
-                        Either::Right(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
                     };
                     self.server
                         .write()
@@ -132,8 +132,8 @@ impl QuoteRequestManager {
                     *timestamp,
                 ) {
                     let result = match &reason {
-                        Either::Left(..) => Ok(()),
-                        Either::Right(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
                     };
                     self.server
                         .write()

@@ -18,7 +18,7 @@ use crate::{
     },
     server::server::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
-        ServerResponse,
+        ServerResponse, ServerResponseReason,
     },
     solver::index_order::IndexOrder,
 };
@@ -183,7 +183,7 @@ impl IndexOrderManager {
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
-    ) -> Result<(), Either<NewIndexOrderNakReason, ServerError>> {
+    ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
         // Create index orders for user if not created yet
         let user_index_orders = self
             .index_orders
@@ -210,7 +210,7 @@ impl IndexOrderManager {
             .find_order_update(&client_order_id)
             .is_some()
         {
-            Err(Either::Left(
+            Err(ServerResponseReason::User(
                 NewIndexOrderNakReason::DuplicateClientOrderId {
                     detail: format!("Duplicate client order ID {}", client_order_id),
                 },
@@ -228,7 +228,7 @@ impl IndexOrderManager {
                 self.tolerance,
             )
             .map_err(|err| {
-                Either::Right(ServerError::OtherReason {
+                ServerResponseReason::Server(ServerError::OtherReason {
                     detail: format!("Cannot update order: {}", err),
                 })
             })?;
@@ -297,15 +297,15 @@ impl IndexOrderManager {
         symbol: Symbol,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
-    ) -> Result<(), Either<CancelIndexOrderNakReason, ServerError>> {
+    ) -> Result<(), ServerResponseReason<CancelIndexOrderNakReason>> {
         let user_orders = self.index_orders.get(&(chain_id, address)).ok_or_else(|| {
-            Either::Left(CancelIndexOrderNakReason::IndexOrderNotFound {
+            ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
                 detail: format!("No orders found for user {}", address),
             })
         })?;
 
         let index_order = user_orders.get(&symbol).ok_or_else(|| {
-            Either::Left(CancelIndexOrderNakReason::IndexOrderNotFound {
+            ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
                 detail: format!("No order found for user {} for {}", address, symbol),
             })
         })?;
@@ -314,7 +314,7 @@ impl IndexOrderManager {
             .write()
             .cancel_updates(collateral_amount, self.tolerance)
             .map_err(|err| {
-                Either::Right(ServerError::OtherReason {
+                ServerResponseReason::Server(ServerError::OtherReason {
                     detail: format!("Cannot update order: {}", err),
                 })
             })? {
@@ -369,8 +369,8 @@ impl IndexOrderManager {
                     timestamp.clone(),
                 ) {
                     let result = match &reason {
-                        Either::Left(..) => Ok(()),
-                        Either::Right(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
                     };
                     self.server
                         .write()
@@ -411,8 +411,8 @@ impl IndexOrderManager {
                     timestamp.clone(),
                 ) {
                     let result = match &reason {
-                        Either::Left(..) => Ok(()),
-                        Either::Right(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
                     };
                     self.server
                         .write()
@@ -701,7 +701,7 @@ impl IndexOrderManager {
                 chain_id,
                 address: *address,
                 client_order_id: client_order_id.clone(),
-                reason: Either::Right(ServerError::OtherReason {
+                reason: ServerResponseReason::Server(ServerError::OtherReason {
                     detail: format!(
                         "Cannot handle order: Solver failed with status: {:?}",
                         status

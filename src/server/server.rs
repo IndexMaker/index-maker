@@ -62,6 +62,10 @@ pub enum CancelIndexOrderNakReason {
 pub enum NewIndexQuoteNakReason {
     #[error("Duplicate client quote ID: {detail:?}")]
     DuplicateIndexQuoteId { detail: String },
+    // #[error("Rate-limit error: {detail:?}")]
+    // TODO: RateLimitError { detail: String},
+    // ^^^ probably not an error that belongs to ServerError, and most likely this needs to
+    //     be handled internally by FIX server
     #[error("Other reason: {detail:?}")]
     OtherReason { detail: String },
 }
@@ -76,9 +80,20 @@ pub enum CancelIndexQuoteNakReason {
 
 #[derive(Error, Debug)]
 pub enum ServerError {
-    // SequenceNumberOutOfOrder { detail: String }, < example of known server errors
+    // #[error("Sequence number out of order: {detail:?}")]
+    // TODO: SequenceNumberOutOfOrder { detail: String }, //< example of known server errors
+    // ^^^ probably not an error that belongs to ServerError, and most likely this needs to
+    //     be handled internally by FIX server
     #[error("Server Error: {detail:?}")]
     OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum ServerResponseReason<T> {
+    #[error("{0:?}")]
+    User(T),
+    #[error("{0:?}")]
+    Server(ServerError)
 }
 
 #[derive(Error, Debug)]
@@ -95,7 +110,7 @@ pub enum ServerResponse {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
-        reason: Either<NewIndexOrderNakReason, ServerError>,
+        reason: ServerResponseReason<NewIndexOrderNakReason>,
         timestamp: DateTime<Utc>,
     },
     #[error("CancelIndexOrder: ACK [{chain_id}:{address}] {client_order_id} {timestamp}")]
@@ -112,7 +127,7 @@ pub enum ServerResponse {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
-        reason: Either<CancelIndexOrderNakReason, ServerError>,
+        reason: ServerResponseReason<CancelIndexOrderNakReason>,
         timestamp: DateTime<Utc>,
     },
     #[error("IndexOrderFill: [{chain_id}:{address}] {client_order_id} {timestamp}: {filled_quantity} {collateral_spent} {collateral_remaining}")]
@@ -137,7 +152,7 @@ pub enum ServerResponse {
         chain_id: u32,
         address: Address,
         client_quote_id: ClientQuoteId,
-        reason: Either<NewIndexQuoteNakReason, ServerError>,
+        reason: ServerResponseReason<NewIndexQuoteNakReason>,
         timestamp: DateTime<Utc>,
     },
     #[error("IndexOrderResponse: [{chain_id}:{address}] {client_quote_id} {timestamp}: {quantity_possible}")]
@@ -162,7 +177,7 @@ pub enum ServerResponse {
         chain_id: u32,
         address: Address,
         client_quote_id: ClientQuoteId,
-        reason: Either<CancelIndexQuoteNakReason, ServerError>,
+        reason: ServerResponseReason<CancelIndexQuoteNakReason>,
         timestamp: DateTime<Utc>,
     },
 }
