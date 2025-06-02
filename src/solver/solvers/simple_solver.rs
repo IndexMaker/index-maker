@@ -17,10 +17,11 @@ use crate::{
     index::basket::Basket,
     solver::{
         solver::{
-            CollateralManagement, EngagedSolverOrders, SolveEngagementsResult,
+            CollateralManagement, EngagedSolverOrders, SolveEngagementsResult, SolveQuotesResult,
             SolverOrderEngagement, SolverStrategy, SolverStrategyHost,
         },
         solver_order::{SolverOrder, SolverOrderStatus},
+        solver_quote::{SolverQuote, SolverQuoteStatus},
     },
 };
 
@@ -1137,6 +1138,19 @@ impl SolverStrategy for SimpleSolver {
             failed_orders: [failed_buys, failed_sells].concat(),
         })
     }
+
+    fn solve_quotes(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        quote_requests: Vec<Arc<RwLock<SolverQuote>>>,
+    ) -> Result<SolveQuotesResult> {
+        todo!();
+        let result = SolveQuotesResult {
+            solved_quotes: Vec::new(),
+            failed_quotes: Vec::new(),
+        };
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -1360,7 +1374,7 @@ mod test {
     /// is to improve fairness, as otherwise bigger Index Orders would outweigh
     /// smaller ones.
     ///
-    fn _description() { }
+    fn _description() {}
 
     #[test_case(
         "Unlimited",

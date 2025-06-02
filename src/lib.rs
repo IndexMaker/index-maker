@@ -59,6 +59,7 @@ pub mod solver {
     pub mod position;
     pub mod solver;
     pub mod solver_order;
+    pub mod solver_quote;
     pub mod solvers {
         pub mod simple_solver;
     }
