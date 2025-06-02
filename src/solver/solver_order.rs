@@ -66,7 +66,7 @@ pub struct SolverOrder {
     /// Quantity filled by subsequent batch order fills
     pub filled_quantity: Amount,
 
-    /// Time when requested
+    /// Time when last updated
     pub timestamp: DateTime<Utc>,
 
     /// Solver status

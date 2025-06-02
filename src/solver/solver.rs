@@ -38,6 +38,7 @@ use super::{
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
     solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
+    solver_quote::{SolverClientQuotes, SolverQuote, SolverQuoteStatus},
 };
 
 pub struct SolverOrderEngagement {
@@ -68,6 +69,11 @@ pub struct SolveEngagementsResult {
     pub failed_orders: Vec<Arc<RwLock<SolverOrder>>>,
 }
 
+pub struct SolveQuotesResult {
+    pub solved_quotes: Vec<Arc<RwLock<SolverQuote>>>,
+    pub failed_quotes: Vec<Arc<RwLock<SolverQuote>>>,
+}
+
 pub struct CollateralManagement {
     pub chain_id: u32,
     pub address: Address,
@@ -85,6 +91,7 @@ pub trait OrderIdProvider {
 
 pub trait SetSolverOrderStatus {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus);
+    fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus);
 }
 
 pub trait SolverStrategyHost: SetSolverOrderStatus {
@@ -110,6 +117,12 @@ pub trait SolverStrategy {
         strategy_host: &dyn SolverStrategyHost,
         order_batch: Vec<Arc<RwLock<SolverOrder>>>,
     ) -> Result<SolveEngagementsResult>;
+
+    fn solve_quotes(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        quote_requests: Vec<Arc<RwLock<SolverQuote>>>,
+    ) -> Result<SolveQuotesResult>;
 }
 
 /// magic solver, needs to take index orders, and based on prices (from price
@@ -131,6 +144,8 @@ pub struct Solver {
     index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
     quote_request_manager: Arc<ComponentLock<QuoteRequestManager>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
+    // quotes
+    client_quotes: RwLock<SolverClientQuotes>,
     // orders
     client_orders: RwLock<SolverClientOrders>,
     /// A queue with orders that are ready to be engaged, after collateral reached destination
@@ -156,7 +171,8 @@ impl Solver {
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
-        client_wait_period: TimeDelta,
+        client_order_wait_period: TimeDelta,
+        client_quote_wait_period: TimeDelta,
     ) -> Self {
         Self {
             strategy,
@@ -171,8 +187,10 @@ impl Solver {
             index_order_manager,
             quote_request_manager,
             inventory_manager,
+            // quotes
+            client_quotes: RwLock::new(SolverClientQuotes::new(client_quote_wait_period)),
             // orders
-            client_orders: RwLock::new(SolverClientOrders::new(client_wait_period)),
+            client_orders: RwLock::new(SolverClientOrders::new(client_order_wait_period)),
             ready_orders: Mutex::new(VecDeque::new()),
             ready_mints: Mutex::new(VecDeque::new()),
             // parameters
@@ -312,6 +330,37 @@ impl Solver {
         Ok(())
     }
 
+    fn process_more_quotes(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        let mut quote_requests = Vec::new();
+        while let Some(solver_quote) = self.client_quotes.write().get_next_client_quote(timestamp) {
+            let side = solver_quote.read().side;
+            match side {
+                Side::Buy => {
+                    quote_requests.push(solver_quote);
+                    Ok(())
+                }
+                Side::Sell => Err(eyre!("We don't support Sell yet!")),
+            }?;
+        }
+
+        let result = self.strategy.solve_quotes(self, quote_requests)?;
+
+        for quote in result.solved_quotes.iter() {
+            quote.write().timestamp = timestamp;
+        }
+
+        for quote in result.failed_quotes.iter() {
+            quote.write().timestamp = timestamp;
+        }
+
+        self.quote_request_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access quote request manager: {:?}", e))?
+            .quotes_solved(result)?;
+
+        Ok(())
+    }
+
     fn mint_index_order(
         &self,
         index_order: &mut SolverOrder,
@@ -334,7 +383,7 @@ impl Solver {
 
         self.collateral_manager
             .write()
-            .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
+            .map_err(|e| eyre!("Failed to access collateral manager: {:?}", e))?
             .confirm_payment(
                 index_order.chain_id,
                 &index_order.address,
@@ -397,36 +446,12 @@ impl Solver {
             eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
+        println!("(solver) * Process quotes");
+        if let Err(err) = self.process_more_quotes(timestamp) {
+            eprintln!("(solver) Error while processing more quotes: {:?}", err);
+        }
+
         println!("(solver) End solve\n");
-    }
-
-    /// Quoting function (fast)
-    pub fn quote(&self, _quote_request: ()) {
-        // Compute symbols and threshold
-        // ...
-
-        let symbols = [];
-
-        // receive current prices from Price Tracker
-        let prices = self
-            .price_tracker
-            .read()
-            .get_prices(PriceType::VolumeWeighted, &symbols);
-
-        // receive available liquidity from Order Book Manager
-        let _liquidity = self
-            .order_book_manager
-            .read()
-            .get_liquidity(Side::Sell, &prices.prices);
-
-        // Compute: Quote with cost
-        // ...
-
-        // send back quote
-        self.quote_request_manager
-            .write()
-            .map_err(|e| eyre!("Failed to access quote request manager {}", e))
-            .map(|mut x| x.respond_quote(()));
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
@@ -784,13 +809,36 @@ impl Solver {
     }
 
     // receive QR
-    pub fn handle_quote_request(&self, notification: QuoteRequestEvent) {
+    pub fn handle_quote_request(&self, notification: QuoteRequestEvent) -> Result<()> {
         println!("\n(solver) Handle Quote Request");
         match notification {
-            QuoteRequestEvent::NewQuoteRequest => {}
-            QuoteRequestEvent::CancelQuoteRequest => {}
+            QuoteRequestEvent::NewQuoteRequest {
+                chain_id,
+                address,
+                client_quote_id,
+                symbol,
+                side,
+                collateral_amount,
+                timestamp,
+            } => self.client_quotes.write().add_client_quote(
+                chain_id,
+                address,
+                client_quote_id,
+                symbol,
+                side,
+                collateral_amount,
+                timestamp,
+            ),
+            QuoteRequestEvent::CancelQuoteRequest {
+                chain_id,
+                address,
+                client_quote_id,
+                timestamp: _,
+            } => self
+                .client_quotes
+                .write()
+                .cancel_client_order(chain_id, address, client_quote_id),
         }
-        //self.quote(());
     }
 
     /// Receive fill notifications
@@ -976,6 +1024,14 @@ impl SetSolverOrderStatus for Solver {
         println!(
             "(solver) Set Index Order Status: {} {:?}",
             order.client_order_id, status
+        );
+        order.status = status;
+    }
+
+    fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
+        println!(
+            "(solver) Set Index Quote Status: {} {:?}",
+            order.client_quote_id, status
         );
         order.status = status;
     }
@@ -1179,7 +1235,8 @@ mod test {
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let mint_wait_period = TimeDelta::new(10, 0).unwrap();
-        let client_wait_period = TimeDelta::new(10, 0).unwrap();
+        let client_order_wait_period = TimeDelta::new(10, 0).unwrap();
+        let client_quote_wait_period = TimeDelta::new(1, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (collateral_sender, collateral_receiver) = unbounded::<CollateralEvent>();
@@ -1373,7 +1430,8 @@ mod test {
             inventory_manager.clone(),
             max_batch_size,
             tolerance,
-            client_wait_period,
+            client_order_wait_period,
+            client_quote_wait_period,
         ));
 
         solver
@@ -1618,20 +1676,8 @@ mod test {
                         timestamp,
                     } => {
                         println!(
-                            "(mock) FIX Response: ACK [{}:{}] {} {}",
+                            "(mock) FIX Order Response: ACK [{}:{}] {} {}",
                             chain_id, address, client_order_id, timestamp
-                        );
-                    }
-                    ServerResponse::NewIndexOrderNak {
-                        chain_id,
-                        address,
-                        client_order_id,
-                        reason,
-                        timestamp,
-                    } => {
-                        println!(
-                            "(mock) FIX Response: NAK [{}:{}] {} {} {}",
-                            chain_id, address, client_order_id, reason, timestamp
                         );
                     }
                     ServerResponse::IndexOrderFill {
@@ -1644,7 +1690,7 @@ mod test {
                         timestamp,
                     } => {
                         println!(
-                            "(mock) FIX Response: EXE [{}:{}] {} {:0.5} {:0.5} {:0.5} {}",
+                            "(mock) FIX Order Response: EXE [{}:{}] {} {:0.5} {:0.5} {:0.5} {}",
                             chain_id,
                             address,
                             client_order_id,
@@ -1652,6 +1698,29 @@ mod test {
                             collateral_remaining,
                             collateral_spent,
                             timestamp
+                        );
+                    }
+                    ServerResponse::NewIndexQuoteAck {
+                        chain_id,
+                        address,
+                        client_quote_id,
+                        timestamp,
+                    } => {
+                        println!(
+                            "(mock) FIX Quote Response: ACK [{}:{}] {} {}",
+                            chain_id, address, client_quote_id, timestamp
+                        );
+                    }
+                    ServerResponse::IndexQuoteResponse {
+                        chain_id,
+                        address,
+                        client_quote_id,
+                        quantity_possible,
+                        timestamp,
+                    } => {
+                        println!(
+                            "(mock) FIX Quote Response: EXE [{}:{}] {} {:0.5} {}",
+                            chain_id, address, client_quote_id, quantity_possible, timestamp
                         );
                     }
                     response => {
@@ -1743,7 +1812,6 @@ mod test {
             println!("\n>>> Begin events");
             loop {
                 select! {
-                    recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap()),
                     recv(price_receiver) -> res => solver.handle_price_event(res.unwrap()),
                     recv(book_receiver) -> res => solver.handle_book_event(res.unwrap()),
                     recv(basket_receiver) -> res => solver.handle_basket_event(res.unwrap())
@@ -1782,6 +1850,10 @@ mod test {
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle index order manager event"),
 
+                    recv(quote_request_receiver) -> res => solver.handle_quote_request(res.unwrap())
+                        .map_err(|e| eyre!("{:?}", e))
+                        .expect("Failed to handle index quote manager event"),
+
                     recv(market_receiver) -> res => {
                         let e = res.unwrap();
                         price_tracker
@@ -1798,23 +1870,28 @@ mod test {
                             .write()
                             .unwrap()
                             .handle_server_message(&e)
+                            .map_err(|e| eyre!("{:?}", e))
                             .expect("Failed to handle server event");
 
                         quote_request_manager
                             .write()
                             .unwrap()
-                            .handle_server_message(&e);
+                            .handle_server_message(&e)
+                            .map_err(|e| eyre!("{:?}", e))
+                            .expect("Failed to handle quote request event");
                     },
                     recv(order_tracker_receiver) -> res => {
                         inventory_manager
                             .write()
                             .handle_fill_report(res.unwrap())
+                            .map_err(|e| eyre!("{:?}", e))
                             .expect("Failed to handle order tracker event");
                     },
                     recv(order_connector_receiver) -> res => {
                         order_tracker
                             .write()
                             .handle_order_notification(res.unwrap())
+                            .map_err(|e| eyre!("{:?}", e))
                             .expect("Failed to handle order connector event");
                     },
                     recv(deferred) -> res => (res.unwrap())(),
@@ -1958,6 +2035,64 @@ mod test {
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
 
+        fix_server
+            .write()
+            .notify_server_event(Arc::new(ServerEvent::NewQuoteRequest {
+                chain_id,
+                address: get_mock_address_1(),
+                client_quote_id: "Q-01".into(),
+                symbol: get_mock_index_name_1(),
+                side: Side::Buy,
+                collateral_amount,
+                timestamp,
+            }));
+
+        solver_tick(timestamp);
+        flush_events();
+        heading("Sent FIX message: NewQuoteRequest");
+
+        timestamp += client_quote_wait_period;
+        solver_tick(timestamp);
+        flush_events();
+        heading(
+            format!(
+                "Clock moved forward {:0.1}s",
+                client_quote_wait_period.as_seconds_f32()
+            )
+            .as_str(),
+        );
+
+        let fix_response = mock_fix_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive ServerResponse");
+
+        assert!(matches!(
+            fix_response,
+            ServerResponse::NewIndexQuoteAck {
+                chain_id: _,
+                address: _,
+                client_quote_id: _,
+                timestamp: _
+            }
+        ));
+
+        flush_events();
+
+        let fix_response = mock_fix_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive ServerResponse");
+
+        assert!(matches!(
+            fix_response,
+            ServerResponse::IndexQuoteResponse {
+                chain_id: _,
+                address: _,
+                client_quote_id: _,
+                quantity_possible: _,
+                timestamp: _
+            }
+        ));
+
         chain_connector.write().unwrap().notify_deposit(
             chain_id,
             get_mock_address_1(),
@@ -1984,13 +2119,13 @@ mod test {
         flush_events();
         heading("Sent FIX message: NewIndexOrder");
 
-        timestamp += client_wait_period;
+        timestamp += client_order_wait_period;
         solver_tick(timestamp);
         flush_events();
         heading(
             format!(
                 "Clock moved forward {:0.1}s",
-                client_wait_period.as_seconds_f32()
+                client_order_wait_period.as_seconds_f32()
             )
             .as_str(),
         );

@@ -63,6 +63,10 @@ fn print_heading(
     println!("(report) Order: {}", update_read.client_order_id);
     println!("(report) Index: {}", index_order_read.symbol);
     println!("(report)");
+    println!("(report) Collateral Spent: {:0.5}", index_order_read.collateral_spent);
+    println!("(report) Filed Quantity: {:0.5}", index_order_read.filled_quantity);
+    println!("(report)");
+    println!("(report)");
 }
 
 pub fn print_fill_report(

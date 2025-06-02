@@ -75,17 +75,20 @@ Work included in Phase 1.:
     - [x] Write unit tests for Collateral Router
     - [x] Write unit tests for Collateral Position
     - [x] Write unit tests for Solver Client Orders
-* [ ] Quote Requests
-    - [ ] Manage Quote Requests
-    - [ ] Compute Quotes
-* [ ] Actix Integration Investigation
-    - [ ] Investigate FIX server REST
-    - [ ] Investigate WebSockets
-    - [ ] Investigate Auth (Web3)
-    - [ ] FIX message signed by private wallet key
+* [x] Quote Requests
+    - [x] Manage Quote Requests
+    - [x] Compute Quotes
+* [x] Axum Integration Investigation
+    - [x] Investigate FIX server REST
+    - [x] Investigate WebSockets
+    - [x] Investigate Auth (Web3)
+    - [x] FIX message signed by private wallet key
+* [ ] Alloy Integration Investigation
+    - [ ] Calling contract methods
+    - [ ] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
 * [ ] Binance Integration Investigation
-    - [ ] Reqwest vs ActiX
+    - [ ] Reqwest vs Axum
     - [ ] Investigate work required to support Market Data
     - [ ] Investigate work required to support Order Sending
 * [ ] Sell side implementation
@@ -110,6 +113,7 @@ Work included in Phase 1.:
 * [ ] Improve Solver Strategy
     - [ ] Investigate behaviour of SimpleSolver in various scenarios
     - [ ] Adjust SimpleSolver liquiditiy fitting algoithm
+    - [ ] Adjust SimpleSolver quoting algorithm
     - [ ] See if MatrixSolver would be beneficial
 * [ ] Improve Index Order Engage
     - [ ] Investigate if we want to carry engagement into next updates
