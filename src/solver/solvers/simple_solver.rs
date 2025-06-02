@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy::serde::quantity;
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -142,6 +143,54 @@ impl SimpleSolver {
                 Ok(()) => true,
                 Err(_) => {
                     bad.push(order_ptr.clone());
+                    false
+                }
+            }
+        });
+
+        Ok((baskets, bad))
+    }
+
+    /// Scan quotes for baskets
+    ///
+    /// Finds a basket for each Index Quote, and
+    /// creates a mapping Index Symbol => Basket.
+    fn get_baskets_from_quotes<QuotePtr, UpRead, SetQuoteStatusFn>(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        locked_quote_batch: &mut Vec<(QuotePtr, UpRead)>,
+        set_quote_status: SetQuoteStatusFn,
+    ) -> Result<(HashMap<Symbol, Arc<Basket>>, Vec<QuotePtr>)>
+    where
+        QuotePtr: Clone,
+        UpRead: Deref<Target = SolverQuote>,
+        SetQuoteStatusFn: Fn(&mut UpRead, SolverQuoteStatus),
+    {
+        let mut baskets = HashMap::new();
+        let mut bad = Vec::new();
+
+        locked_quote_batch.retain_mut(|(quote_ptr, quote_upread)| {
+            match (|| -> Result<()> {
+                let symbol = quote_upread.symbol.clone();
+                match strategy_host.get_basket(&symbol) {
+                    Some(basket) => {
+                        baskets.entry(symbol.clone()).or_insert(basket);
+                    }
+                    None => {
+                        set_quote_status(quote_upread, SolverQuoteStatus::InvalidSymbol);
+                        Err(eyre!(
+                            "Index Quote {} has invalid symbol {}",
+                            quote_upread.client_quote_id,
+                            symbol
+                        ))?;
+                    }
+                }
+
+                Ok(())
+            })() {
+                Ok(()) => true,
+                Err(_) => {
+                    bad.push(quote_ptr.clone());
                     false
                 }
             }
@@ -802,6 +851,69 @@ impl SimpleSolver {
         )
     }
 
+    fn solve_quotes_for<QuotePtr, UpRead, SetQuoteStatusFn, SetQuantityPossibleFn>(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        side: Side,
+        locked_quotes: &mut Vec<(QuotePtr, UpRead)>,
+        set_quote_status: SetQuoteStatusFn,
+        set_quantity_possible: SetQuantityPossibleFn,
+    ) -> Result<(Vec<QuotePtr>, Vec<QuotePtr>)>
+    where
+        QuotePtr: Clone,
+        UpRead: Deref<Target = SolverQuote>,
+        SetQuoteStatusFn: Fn(&mut UpRead, SolverQuoteStatus),
+        SetQuantityPossibleFn: Fn(&mut UpRead, Amount),
+    {
+        let (baskets, _) =
+            self.get_baskets_from_quotes(strategy_host, locked_quotes, &set_quote_status)?;
+
+        let symbols: HashSet<_> = baskets
+            .values()
+            .map(|basket| {
+                HashSet::from_iter(
+                    basket
+                        .basket_assets
+                        .iter()
+                        .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                )
+            })
+            .concat();
+
+        let symbols = symbols.into_iter().collect_vec();
+
+        // We'll use price limit at current top of the book ±(buy|sell) price threshold
+        let (asset_price_limits, _) = self.get_asset_price_limits(strategy_host, side, &symbols)?;
+
+        // We'll calculate highest index prices within price limits
+        let (index_price_limits, _) = self.get_index_price(&baskets, &asset_price_limits);
+
+        let mut solved_quotes = Vec::new();
+        let mut failed_quotes = Vec::new();
+
+        for (quote_ptr, quote_upread) in locked_quotes {
+            let collateral_amount = quote_upread.collateral_amount;
+
+            if let Some(&index_price) = index_price_limits.get(&quote_upread.symbol) {
+                let collateral_available = safe!(collateral_amount / self.fee_factor)
+                    .ok_or_eyre("Fee factor multiplication error")?;
+
+                let quantity_possible = safe!(collateral_available / index_price)
+                    .ok_or_eyre("Index price division error")?;
+
+                set_quantity_possible(quote_upread, quantity_possible);
+                set_quote_status(quote_upread, SolverQuoteStatus::Ready);
+
+                solved_quotes.push(quote_ptr.clone());
+            } else {
+                set_quote_status(quote_upread, SolverQuoteStatus::MissingPrices);
+                failed_quotes.push(quote_ptr.clone());
+            }
+        }
+
+        Ok((solved_quotes, failed_quotes))
+    }
+
     fn solve_engagements_for<OrderPtr, UpRead, SetOrderStatusFn>(
         &self,
         strategy_host: &dyn SolverStrategyHost,
@@ -1030,6 +1142,64 @@ impl SolverStrategy for SimpleSolver {
         Ok(collateral_management)
     }
 
+    fn solve_quotes(
+        &self,
+        strategy_host: &dyn SolverStrategyHost,
+        quote_requests: Vec<Arc<RwLock<SolverQuote>>>,
+    ) -> Result<SolveQuotesResult> {
+        let locked_quotes = quote_requests
+            .iter()
+            .map(|quote| (quote, quote.upgradable_read()));
+
+        let (mut buys, mut sells): (Vec<_>, Vec<_>) =
+            locked_quotes
+                .into_iter()
+                .partition_map(|(quote_ptr, quote_upread)| match quote_upread.side {
+                    Side::Buy => Either::Left((quote_ptr, quote_upread)),
+                    Side::Sell => Either::Right((quote_ptr, quote_upread)),
+                });
+
+        let set_quote_status = |upread: &mut RwLockUpgradableReadGuard<SolverQuote>, status| {
+            upread.with_upgraded(|write| strategy_host.set_quote_status(write, status))
+        };
+
+        let set_quantity_possible = |upread: &mut RwLockUpgradableReadGuard<SolverQuote>,
+                                     quantity_possible| {
+            upread.with_upgraded(|write| write.quantity_possible = quantity_possible)
+        };
+
+        let (solved_buys, failed_buys) = self.solve_quotes_for(
+            strategy_host,
+            Side::Buy,
+            &mut buys,
+            set_quote_status,
+            set_quantity_possible,
+        )?;
+
+        let (solved_sells, failed_sells) = self.solve_quotes_for(
+            strategy_host,
+            Side::Sell,
+            &mut sells,
+            set_quote_status,
+            set_quantity_possible,
+        )?;
+
+        let result = SolveQuotesResult {
+            solved_quotes: [solved_buys, solved_sells]
+                .concat()
+                .into_iter()
+                .cloned()
+                .collect_vec(),
+            failed_quotes: [failed_buys, failed_sells]
+                .concat()
+                .into_iter()
+                .cloned()
+                .collect_vec(),
+        };
+
+        Ok(result)
+    }
+
     fn solve_engagements(
         &self,
         strategy_host: &dyn SolverStrategyHost,
@@ -1138,19 +1308,6 @@ impl SolverStrategy for SimpleSolver {
             failed_orders: [failed_buys, failed_sells].concat(),
         })
     }
-
-    fn solve_quotes(
-        &self,
-        strategy_host: &dyn SolverStrategyHost,
-        quote_requests: Vec<Arc<RwLock<SolverQuote>>>,
-    ) -> Result<SolveQuotesResult> {
-        todo!();
-        let result = SolveQuotesResult {
-            solved_quotes: Vec::new(),
-            failed_quotes: Vec::new(),
-        };
-        Ok(result)
-    }
 }
 
 #[cfg(test)]
@@ -1180,6 +1337,7 @@ mod test {
         solver::{
             solver::*,
             solver_order::{SolverOrder, SolverOrderStatus},
+            solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 
@@ -1204,6 +1362,10 @@ mod test {
     impl SetSolverOrderStatus for MockSolverStrategyHost {
         fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
             order.status = status;
+        }
+
+        fn set_quote_status(&self, quote: &mut SolverQuote, status: SolverQuoteStatus) {
+            quote.status = status;
         }
     }
 
@@ -1299,13 +1461,17 @@ mod test {
         ClientOrderId(format!("C-{:02}", index))
     }
 
+    fn gen_client_quote_id(index: u32) -> ClientQuoteId {
+        ClientQuoteId(format!("Q-{:02}", index))
+    }
+
     fn make_solver_order(
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
         side: Side,
-        collatera_amount: Amount,
+        collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Arc<RwLock<SolverOrder>> {
         Arc::new(RwLock::new(SolverOrder {
@@ -1314,7 +1480,7 @@ mod test {
             client_order_id,
             symbol,
             side,
-            remaining_collateral: collatera_amount,
+            remaining_collateral: collateral_amount,
             payment_id: None,
             engaged_collateral: Amount::ZERO,
             collateral_carried: Amount::ZERO,
@@ -1323,6 +1489,28 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Open,
             lots: Vec::new(),
+        }))
+    }
+
+    fn make_solver_quote(
+        chain_id: u32,
+        address: Address,
+        client_quote_id: ClientQuoteId,
+        symbol: Symbol,
+        side: Side,
+        collateral_amount: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Arc<RwLock<SolverQuote>> {
+        Arc::new(RwLock::new(SolverQuote {
+            chain_id,
+            address,
+            client_quote_id,
+            symbol,
+            side,
+            collateral_amount,
+            quantity_possible: Amount::ZERO,
+            timestamp,
+            status: SolverQuoteStatus::Open,
         }))
     }
 
@@ -1379,6 +1567,8 @@ mod test {
     #[test_case(
         "Unlimited",
         (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
         vec![
             (dec!(1.0), dec!(1000.0), dec!(1000.0)),
             (dec!(5.0), dec!(1000.0), dec!(5000.0))
@@ -1387,6 +1577,8 @@ mod test {
     #[test_case(
         "Max Order Volley Set",
         (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
         vec![
             (dec!(1.0), dec!(1000.0), dec!(1000.0)),
             (dec!(1.0), dec!(1000.0), dec!(1000.0))
@@ -1395,6 +1587,8 @@ mod test {
     #[test_case(
         "Max Batch Volley Set",
         (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
         vec![
             (dec!(0.16666), dec!(1000.0), dec!(166.66666)),
             (dec!(0.83333), dec!(1000.0), dec!(833.33333))
@@ -1403,6 +1597,8 @@ mod test {
     #[test_case(
         "Max Volleys Set",
         (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
         vec![
             (dec!(0.75), dec!(1000.0), dec!(750.0)),
             (dec!(0.75), dec!(1000.0), dec!(750.0))
@@ -1411,6 +1607,8 @@ mod test {
     #[test_case(
         "Fee Factor 1%",
         (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(0.990099), dec!(4.950495)],
         vec![
             (dec!(0.99009), dec!(1000.0), dec!(1000.0)),
             (dec!(4.95049), dec!(1000.0), dec!(5000.0))
@@ -1419,6 +1617,8 @@ mod test {
     #[test_case(
         "Price Threshold 1%",
         (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(0.990099), dec!(4.950495)],
         vec![
             (dec!(0.99009), dec!(1010.0), dec!(1000.0)),
             (dec!(4.95049), dec!(1010.0), dec!(5000.0))
@@ -1427,6 +1627,8 @@ mod test {
     fn test_simple_solver(
         title: &str,
         params: (Amount, Amount, Amount, Amount),
+        collateral_amount: Vec<Amount>,
+        expected_quotes: Vec<Amount>,
         expected: Vec<(Amount, Amount, Amount)>,
     ) {
         println!("Test Case: {}", title);
@@ -1448,6 +1650,29 @@ mod test {
             .baskets
             .insert(get_mock_index_name_2(), make_basket_2());
 
+        assert_eq!(collateral_amount.len(), 2);
+
+        let quote_requests = vec![
+            make_solver_quote(
+                1,
+                get_mock_address_1(),
+                gen_client_quote_id(1),
+                get_mock_index_name_1(),
+                Side::Buy,
+                collateral_amount[0],
+                timestamp,
+            ),
+            make_solver_quote(
+                2,
+                get_mock_address_1(),
+                gen_client_quote_id(2),
+                get_mock_index_name_2(),
+                Side::Buy,
+                collateral_amount[1],
+                timestamp,
+            ),
+        ];
+
         let order_batch = vec![
             make_solver_order(
                 1,
@@ -1455,7 +1680,7 @@ mod test {
                 gen_client_order_id(1),
                 get_mock_index_name_1(),
                 Side::Buy,
-                dec!(1000.0),
+                collateral_amount[0],
                 timestamp,
             ),
             make_solver_order(
@@ -1464,12 +1689,29 @@ mod test {
                 gen_client_order_id(2),
                 get_mock_index_name_2(),
                 Side::Buy,
-                dec!(5000.0),
+                collateral_amount[1],
                 timestamp,
             ),
         ];
 
         let simple_solver = SimpleSolver::new(params.0, params.1, params.2, params.3);
+
+        let solved_quotes = simple_solver
+            .solve_quotes(&strategy_host, quote_requests)
+            .expect("Failed to solve quotes");
+
+        assert!(solved_quotes.failed_quotes.is_empty());
+
+        for n in 0..expected_quotes.len() {
+            let quote_read = solved_quotes.solved_quotes[n].read();
+            println!("for {} {} <> {}", n, quote_read.quantity_possible, expected_quotes[n]);
+            assert!(matches!(quote_read.status, SolverQuoteStatus::Ready));
+            assert_decimal_approx_eq!(
+                quote_read.quantity_possible,
+                expected_quotes[n],
+                dec!(0.00001)
+            );
+        }
 
         let batch = simple_solver
             .solve_engagements(&strategy_host, order_batch)

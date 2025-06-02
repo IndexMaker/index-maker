@@ -13,6 +13,10 @@ use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
 pub enum SolverQuoteStatus {
     Open,
     Ready,
+    MissingPrices,
+    InvalidSymbol,
+    MathOverflow,
+    InvalidOrder,
 }
 
 pub struct SolverQuote {

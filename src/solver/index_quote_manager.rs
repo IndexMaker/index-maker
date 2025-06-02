@@ -13,8 +13,8 @@ use crate::{
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     server::server::{
-        CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerEvent, ServerResponse,
-        ServerResponseReason,
+        CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerError, ServerEvent,
+        ServerResponse, ServerResponseReason,
     },
     solver::index_quote::IndexQuote,
 };
@@ -114,16 +114,16 @@ impl QuoteRequestManager {
         symbol: &Symbol,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<CancelIndexQuoteNakReason>> {
-        let user_quote_requests =
-            self.quote_requests
-                .get(&(chain_id, address))
-                .ok_or_else(|| {
-                    ServerResponseReason::User(CancelIndexQuoteNakReason::IndexQuoteNotFound {
-                        detail: format!("No quotes found for user {}", address),
-                    })
-                })?;
+        let user_quote_requests = self
+            .quote_requests
+            .get_mut(&(chain_id, address))
+            .ok_or_else(|| {
+                ServerResponseReason::User(CancelIndexQuoteNakReason::IndexQuoteNotFound {
+                    detail: format!("No quotes found for user {}", address),
+                })
+            })?;
 
-        let quote_request = user_quote_requests.get(&symbol).ok_or_else(|| {
+        let quote_request = user_quote_requests.remove(&symbol).ok_or_else(|| {
             ServerResponseReason::User(CancelIndexQuoteNakReason::IndexQuoteNotFound {
                 detail: format!("No quote found for user {} for {}", address, symbol),
             })
@@ -155,6 +155,51 @@ impl QuoteRequestManager {
 
     pub fn quotes_solved(&mut self, solved_quotes: SolveQuotesResult) -> Result<()> {
         println!("(index-order-manager) Quotes solved...");
+
+        // We need to remove solved (or failed) quotes first, before we send
+        // response to FIX, because once user receives FIX response, they
+        // can send new quotes.
+        for quote in solved_quotes
+            .solved_quotes
+            .iter()
+            .chain(solved_quotes.failed_quotes.iter())
+        {
+            let quote_read = quote.read();
+            self.quote_requests
+                .get_mut(&(quote_read.chain_id, quote_read.address))
+                .and_then(|quotes| quotes.remove(&quote_read.symbol));
+        }
+
+        // First send FIX responses for all solved quotes...
+        for quote in solved_quotes.solved_quotes {
+            let quote_read = quote.read();
+            self.server
+                .write()
+                .respond_with(ServerResponse::IndexQuoteResponse {
+                    chain_id: quote_read.chain_id,
+                    address: quote_read.address,
+                    client_quote_id: quote_read.client_quote_id.clone(),
+                    quantity_possible: quote_read.quantity_possible,
+                    timestamp: quote_read.timestamp,
+                });
+        }
+
+        // Then send FIX responses for any failed quotes...
+        for quote in solved_quotes.failed_quotes {
+            let quote_read = quote.read();
+            self.server
+                .write()
+                .respond_with(ServerResponse::NewIndexQuoteNak {
+                    chain_id: quote_read.chain_id,
+                    address: quote_read.address,
+                    client_quote_id: quote_read.client_quote_id.clone(),
+                    reason: ServerResponseReason::Server(ServerError::OtherReason {
+                        detail: format!("Failed to compute quote: {:?}", quote_read.status),
+                    }),
+                    timestamp: quote_read.timestamp,
+                });
+        }
+
         Ok(())
     }
 

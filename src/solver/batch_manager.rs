@@ -1156,7 +1156,7 @@ mod test {
             batch_manager::BatchEvent,
             index_order_manager::EngagedIndexOrder,
             solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
-            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
+            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus}, solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 
@@ -1414,6 +1414,10 @@ mod test {
         fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
             println!("Set order status: {:?}", status);
             order.status = status;
+        }
+
+        fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
+            todo!()
         }
     }
 

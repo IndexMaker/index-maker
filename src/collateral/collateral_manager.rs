@@ -424,7 +424,7 @@ mod test {
         },
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
-            solver_order::{SolverOrder, SolverOrderStatus},
+            solver_order::{SolverOrder, SolverOrderStatus}, solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 
@@ -445,6 +445,10 @@ mod test {
     impl SetSolverOrderStatus for MockCollateralManagerHost {
         fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
             order.status = status;
+        }
+
+        fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
+            todo!()
         }
     }
     impl CollateralManagerHost for MockCollateralManagerHost {

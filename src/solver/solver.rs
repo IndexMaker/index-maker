@@ -38,7 +38,7 @@ use super::{
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     inventory_manager::{InventoryEvent, InventoryManager},
     solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
-    solver_quote::{SolverClientQuotes, SolverQuote},
+    solver_quote::{SolverClientQuotes, SolverQuote, SolverQuoteStatus},
 };
 
 pub struct SolverOrderEngagement {
@@ -91,6 +91,7 @@ pub trait OrderIdProvider {
 
 pub trait SetSolverOrderStatus {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus);
+    fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus);
 }
 
 pub trait SolverStrategyHost: SetSolverOrderStatus {
@@ -170,7 +171,8 @@ impl Solver {
         inventory_manager: Arc<RwLock<InventoryManager>>,
         max_batch_size: usize,
         zero_threshold: Amount,
-        client_wait_period: TimeDelta,
+        client_order_wait_period: TimeDelta,
+        client_quote_wait_period: TimeDelta,
     ) -> Self {
         Self {
             strategy,
@@ -186,9 +188,9 @@ impl Solver {
             quote_request_manager,
             inventory_manager,
             // quotes
-            client_quotes: RwLock::new(SolverClientQuotes::new(client_wait_period)),
+            client_quotes: RwLock::new(SolverClientQuotes::new(client_quote_wait_period)),
             // orders
-            client_orders: RwLock::new(SolverClientOrders::new(client_wait_period)),
+            client_orders: RwLock::new(SolverClientOrders::new(client_order_wait_period)),
             ready_orders: Mutex::new(VecDeque::new()),
             ready_mints: Mutex::new(VecDeque::new()),
             // parameters
@@ -342,6 +344,14 @@ impl Solver {
         }
 
         let result = self.strategy.solve_quotes(self, quote_requests)?;
+
+        for quote in result.solved_quotes.iter() {
+            quote.write().timestamp = timestamp;
+        }
+
+        for quote in result.failed_quotes.iter() {
+            quote.write().timestamp = timestamp;
+        }
 
         self.quote_request_manager
             .write()
@@ -1017,6 +1027,14 @@ impl SetSolverOrderStatus for Solver {
         );
         order.status = status;
     }
+
+    fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
+        println!(
+            "(solver) Set Index Quote Status: {} {:?}",
+            order.client_quote_id, status
+        );
+        order.status = status;
+    }
 }
 
 impl SolverStrategyHost for Solver {
@@ -1217,7 +1235,8 @@ mod test {
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let mint_wait_period = TimeDelta::new(10, 0).unwrap();
-        let client_wait_period = TimeDelta::new(10, 0).unwrap();
+        let client_order_wait_period = TimeDelta::new(10, 0).unwrap();
+        let client_quote_wait_period = TimeDelta::new(1, 0).unwrap();
 
         let (chain_sender, chain_receiver) = unbounded::<ChainNotification>();
         let (collateral_sender, collateral_receiver) = unbounded::<CollateralEvent>();
@@ -1411,7 +1430,8 @@ mod test {
             inventory_manager.clone(),
             max_batch_size,
             tolerance,
-            client_wait_period,
+            client_order_wait_period,
+            client_quote_wait_period,
         ));
 
         solver
@@ -1656,20 +1676,8 @@ mod test {
                         timestamp,
                     } => {
                         println!(
-                            "(mock) FIX Response: ACK [{}:{}] {} {}",
+                            "(mock) FIX Order Response: ACK [{}:{}] {} {}",
                             chain_id, address, client_order_id, timestamp
-                        );
-                    }
-                    ServerResponse::NewIndexOrderNak {
-                        chain_id,
-                        address,
-                        client_order_id,
-                        reason,
-                        timestamp,
-                    } => {
-                        println!(
-                            "(mock) FIX Response: NAK [{}:{}] {} {} {}",
-                            chain_id, address, client_order_id, reason, timestamp
                         );
                     }
                     ServerResponse::IndexOrderFill {
@@ -1682,7 +1690,7 @@ mod test {
                         timestamp,
                     } => {
                         println!(
-                            "(mock) FIX Response: EXE [{}:{}] {} {:0.5} {:0.5} {:0.5} {}",
+                            "(mock) FIX Order Response: EXE [{}:{}] {} {:0.5} {:0.5} {:0.5} {}",
                             chain_id,
                             address,
                             client_order_id,
@@ -1690,6 +1698,29 @@ mod test {
                             collateral_remaining,
                             collateral_spent,
                             timestamp
+                        );
+                    }
+                    ServerResponse::NewIndexQuoteAck {
+                        chain_id,
+                        address,
+                        client_quote_id,
+                        timestamp,
+                    } => {
+                        println!(
+                            "(mock) FIX Quote Response: ACK [{}:{}] {} {}",
+                            chain_id, address, client_quote_id, timestamp
+                        );
+                    }
+                    ServerResponse::IndexQuoteResponse {
+                        chain_id,
+                        address,
+                        client_quote_id,
+                        quantity_possible,
+                        timestamp,
+                    } => {
+                        println!(
+                            "(mock) FIX Quote Response: EXE [{}:{}] {} {:0.5} {}",
+                            chain_id, address, client_quote_id, quantity_possible, timestamp
                         );
                     }
                     response => {
@@ -2004,6 +2035,64 @@ mod test {
             MockChainInternalNotification::SolverWeightsSet(_, _)
         ));
 
+        fix_server
+            .write()
+            .notify_server_event(Arc::new(ServerEvent::NewQuoteRequest {
+                chain_id,
+                address: get_mock_address_1(),
+                client_quote_id: "Q-01".into(),
+                symbol: get_mock_index_name_1(),
+                side: Side::Buy,
+                collateral_amount,
+                timestamp,
+            }));
+
+        solver_tick(timestamp);
+        flush_events();
+        heading("Sent FIX message: NewQuoteRequest");
+
+        timestamp += client_quote_wait_period;
+        solver_tick(timestamp);
+        flush_events();
+        heading(
+            format!(
+                "Clock moved forward {:0.1}s",
+                client_quote_wait_period.as_seconds_f32()
+            )
+            .as_str(),
+        );
+
+        let fix_response = mock_fix_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive ServerResponse");
+
+        assert!(matches!(
+            fix_response,
+            ServerResponse::NewIndexQuoteAck {
+                chain_id: _,
+                address: _,
+                client_quote_id: _,
+                timestamp: _
+            }
+        ));
+
+        flush_events();
+
+        let fix_response = mock_fix_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Failed to receive ServerResponse");
+
+        assert!(matches!(
+            fix_response,
+            ServerResponse::IndexQuoteResponse {
+                chain_id: _,
+                address: _,
+                client_quote_id: _,
+                quantity_possible: _,
+                timestamp: _
+            }
+        ));
+
         chain_connector.write().unwrap().notify_deposit(
             chain_id,
             get_mock_address_1(),
@@ -2030,13 +2119,13 @@ mod test {
         flush_events();
         heading("Sent FIX message: NewIndexOrder");
 
-        timestamp += client_wait_period;
+        timestamp += client_order_wait_period;
         solver_tick(timestamp);
         flush_events();
         heading(
             format!(
                 "Clock moved forward {:0.1}s",
-                client_wait_period.as_seconds_f32()
+                client_order_wait_period.as_seconds_f32()
             )
             .as_str(),
         );
