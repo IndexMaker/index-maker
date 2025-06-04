@@ -1,6 +1,7 @@
 [workspace]
 members = [
     ".",
+    "examples",
     "proc-macros/safe-math",
 ]
 
@@ -8,6 +9,7 @@ members = [
 name = "index-maker"
 version = "0.1.0"
 edition = "2021"
+autoexamples = false
 
 [dependencies]
 alloy = "0.14.0"
