@@ -18,7 +18,7 @@ crossbeam = "0.8.4"
 eyre = { workspace = true }
 intrusive-collections = "0.9.7"
 itertools = { workspace = true }
-parking_lot = "0.12.3"
+parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 string_cache = "0.8.9"
 safe-math = { path = "./proc-macros/safe-math" }
@@ -31,4 +31,5 @@ test-case = "*"
 [workspace.dependencies]
 eyre = "0.6.12"
 itertools = "0.14.0"
+parking_lot = "0.12.3"
 rust_decimal = { version = "1.37.1", features = ["macros"] }

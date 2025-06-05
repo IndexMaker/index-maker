@@ -1512,11 +1512,13 @@ dependencies = [
  "futures-util",
  "index-maker",
  "itertools 0.14.0",
+ "parking_lot",
  "rand 0.9.1",
  "rust_decimal",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

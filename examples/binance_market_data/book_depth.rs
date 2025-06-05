@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::Duration,
 };
@@ -285,4 +285,3 @@ async fn main() {
 
     println!("Application finished.");
 }
-

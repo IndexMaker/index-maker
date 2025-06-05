@@ -1,31 +1,17 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    future::Future,
-    marker::PhantomData,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::Arc,
     usize,
 };
 
-use eyre::{eyre, OptionExt, Report, Result};
-use futures_util::FutureExt;
-use index_maker::{
-    core::{
-        bits::Symbol,
-        functional::{MultiObserver, PublishMany},
-    },
-    market_data::market_data_connector::MarketDataConnector,
-};
-use itertools::{Either, Itertools};
+use eyre::{eyre, Report, Result};
+use index_maker::core::functional::{MultiObserver, PublishMany};
+use itertools::Itertools;
 use tokio::{
-    select, spawn,
+    select,
     sync::{
-        mpsc::{channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender},
-        Mutex, RwLock,
+        mpsc::{channel, Receiver, Sender}, RwLock,
     },
-    task::{spawn_blocking, JoinError, JoinHandle},
 };
 
 pub enum MyServerRequest {
@@ -114,7 +100,7 @@ where
     R: ServerRequest,
     Q: ServerResponse,
 {
-    observer: Option<Box<dyn Fn(&R)>>,
+    observer: MultiObserver<R>,
     sessions: HashMap<SessionId, Arc<RwLock<Session<Q>>>>,
 }
 
@@ -127,7 +113,7 @@ where
 {
     pub fn new() -> Self {
         Self {
-            observer: None,
+            observer: MultiObserver::new(),
             sessions: HashMap::new(),
         }
     }
@@ -141,9 +127,7 @@ where
     }
 
     pub fn handle_server_message(&self, request: R) {
-        if let Some(f) = self.observer.as_ref() {
-            (*f)(&request);
-        }
+        self.observer.publish_many(&request);
     }
 
     pub fn create_session(&mut self) -> Result<(Arc<RwLock<Session<Q>>>, Receiver<Q>)> {
