@@ -1,7 +1,11 @@
 use std::{collections::HashSet, future::Future, sync::Arc, time::Duration, usize};
 
+use binance_spot_connector_rust::{
+    market_stream::{book_ticker::BookTickerStream, diff_depth::DiffDepthStream},
+    tokio_tungstenite::BinanceWebSocketClient,
+};
 use eyre::{eyre, OptionExt, Report, Result};
-use futures_util::FutureExt;
+use futures_util::{FutureExt, StreamExt};
 use index_maker::{core::bits::Symbol, market_data::market_data_connector::MarketDataConnector};
 use itertools::{Either, Itertools};
 use parking_lot::RwLock as AtomicLock;
@@ -59,53 +63,6 @@ where
     }
 
     pub async fn stop(&mut self) -> Result<T, Either<JoinError, Report>> {
-        if let Some(task) = self.async_task.take() {
-            task.stop().await.map_err(|err| Either::Left(err))
-        } else {
-            Err(Either::Right(eyre!("AsyncLoop is not running")))
-        }
-    }
-}
-
-struct AsyncLoop2<T> {
-    async_task: Option<AsyncTask<UnboundedReceiver<T>>>,
-}
-
-impl<T> AsyncLoop2<T>
-where
-    T: Send + 'static,
-{
-    pub fn new() -> Self {
-        Self { async_task: None }
-    }
-
-    pub fn start<F, Fut>(&mut self, mut receiver: UnboundedReceiver<T>, mut f: F)
-    where
-        F: FnMut(T) -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        let cancel_token = CancellationToken::new();
-        let cancel_token_cloned = cancel_token.clone();
-
-        self.async_task.replace(AsyncTask::new(
-            spawn(async move {
-                loop {
-                    select! {
-                        _ = cancel_token_cloned.cancelled() => {
-                            break;
-                        },
-                        Some(val) = receiver.recv() => {
-                            f(val).await;
-                        }
-                    }
-                }
-                receiver
-            }),
-            cancel_token,
-        ));
-    }
-
-    pub async fn stop(&mut self) -> Result<UnboundedReceiver<T>, Either<JoinError, Report>> {
         if let Some(task) = self.async_task.take() {
             task.stop().await.map_err(|err| Either::Left(err))
         } else {
@@ -177,44 +134,45 @@ impl Subscriptions {
 
 struct Subscriber {
     subscriptions: Arc<AtomicLock<Subscriptions>>,
-    subscriber_task: Option<AsyncTask<UnboundedReceiver<Symbol>>>,
+    subscriber_loop: AsyncLoop<UnboundedReceiver<Symbol>>,
 }
 
 impl Subscriber {
     pub fn new(subscription_sender: UnboundedSender<Symbol>) -> Self {
         Self {
             subscriptions: Arc::new(AtomicLock::new(Subscriptions::new(subscription_sender))),
-            subscriber_task: None,
+            subscriber_loop: AsyncLoop::new(),
         }
     }
-    pub fn start(&mut self, mut subscription_rx: UnboundedReceiver<Symbol>) {
-        let cancel_token = CancellationToken::new();
-        let cancel_token_cloned = cancel_token.clone();
 
-        let subscriber_task = spawn(async move {
+    pub async fn stop(&mut self) -> Result<UnboundedReceiver<Symbol>, Either<JoinError, Report>> {
+        self.subscriber_loop.stop().await
+    }
+
+    pub fn start(&mut self, mut subscription_rx: UnboundedReceiver<Symbol>) {
+        self.subscriber_loop.start(async move |cancel_token| {
+            let (mut conn, _) = BinanceWebSocketClient::connect_async_default()
+                .await
+                .expect("failed to connect to Binance");
             loop {
                 select! {
-                    _ = cancel_token_cloned.cancelled() => {
+                    _ = cancel_token.cancelled() => {
                         break;
                     },
                     Some(symbol) = subscription_rx.recv() => {
-                        ;
+                        conn.subscribe(vec![
+                            &BookTickerStream::from_symbol(&symbol).into(),
+                            &DiffDepthStream::from_1000ms(&symbol).into(),
+                        ])
+                        .await;
+                    },
+                    Some(event) = conn.as_mut().next() => {
+                        println!("Market Data Event: {:?}", event);
                     }
                 }
             }
             subscription_rx
         });
-
-        self.subscriber_task
-            .replace(AsyncTask::new(subscriber_task, cancel_token));
-    }
-
-    pub async fn stop(&mut self) -> Result<UnboundedReceiver<Symbol>, Either<JoinError, Report>> {
-        if let Some(task) = self.subscriber_task.take() {
-            task.stop().await.map_err(|err| Either::Left(err))
-        } else {
-            Err(Either::Right(eyre!("Subscriber task is not running")))
-        }
     }
 }
 
@@ -257,53 +215,6 @@ impl Subscribers {
 
         let symbol_clone = symbol.clone();
         sub.subscriptions.write().subscribe(&[symbol_clone])
-    }
-}
-
-struct Arbiter2 {
-    arbiter_loop: AsyncLoop2<Symbol>,
-}
-
-impl Arbiter2 {
-    pub fn new() -> Self {
-        Self {
-            arbiter_loop: AsyncLoop2::new(),
-        }
-    }
-
-    pub async fn stop(&mut self) -> Result<UnboundedReceiver<Symbol>, Either<JoinError, Report>> {
-        self.arbiter_loop.stop().await
-    }
-
-    pub fn start(
-        &mut self,
-        subscriptions: Arc<AtomicLock<Subscriptions>>,
-        subscription_rx: UnboundedReceiver<Symbol>,
-        max_subscriber_symbols: usize,
-    ) {
-        let subscribers = Arc::new(RwLock::new(Subscribers::new(max_subscriber_symbols)));
-        self.arbiter_loop.start(subscription_rx, move |symbol| {
-            let subscriptions = subscriptions.clone();
-            let subscribers = subscribers.clone();
-            async move {
-                match subscribers
-                    .write()
-                    .await
-                    .add_subscription(symbol.clone())
-                    .await
-                {
-                    Ok(_) => {
-                        let mut subs = subscriptions.write();
-                        if let Err(err) = subs.add_subscription_taken(symbol) {
-                            eprintln!("Error storing taken subscription {}", err);
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("Error while subscribing {}", err);
-                    }
-                }
-            }
-        });
     }
 }
 
