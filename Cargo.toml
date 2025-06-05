@@ -1,6 +1,7 @@
 [workspace]
 members = [
     ".",
+    "libs/binance-market-data",
     "examples",
     "proc-macros/safe-math",
 ]

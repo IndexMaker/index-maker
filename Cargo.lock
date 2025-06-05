@@ -855,6 +855,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
+name = "binance-market-data"
+version = "0.1.0"
+dependencies = [
+ "binance_spot_connector_rust",
+ "eyre",
+ "futures-util",
+ "index-maker",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.9.1",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "binance_spot_connector_rust"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1507,6 +1525,7 @@ dependencies = [
 name = "examples"
 version = "0.1.0"
 dependencies = [
+ "binance-market-data",
  "binance_spot_connector_rust",
  "eyre",
  "futures-util",
