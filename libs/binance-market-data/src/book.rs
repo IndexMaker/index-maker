@@ -1,8 +1,8 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, VecDeque};
 
 use eyre::{eyre, Result};
 use index_maker::core::bits::{Amount, Symbol};
-use rand::Rng;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
@@ -48,83 +48,102 @@ struct BookTickerUpdate {
     update_id: u64,
 }
 
-pub struct Book {
+struct Book {
     symbol: Symbol,
     snapshot_tx: UnboundedSender<Symbol>,
+    pending_updates: VecDeque<DiffDepthUpdate>,
     last_update_id: Option<u64>,
-    needs_snapshot: bool,
+    snapshot_requested: bool,
 }
 
 impl Book {
-    pub fn new(symbol: Symbol, snapshot_tx: UnboundedSender<Symbol>) -> Self {
+    fn new(symbol: Symbol, snapshot_tx: UnboundedSender<Symbol>) -> Self {
         Book {
             snapshot_tx,
             symbol,
+            pending_updates: VecDeque::new(),
             last_update_id: None,
-            needs_snapshot: false,
+            snapshot_requested: false,
         }
     }
 
-    pub fn apply_snapshot(&mut self, data: &str) {
-        match serde_json::from_str::<DepthSnapshot>(data) {
-            Ok(snapshot) => {
-                println!(
-                    "Snapshot received (symbol: {}, lastUpdateId: {}). Overwriting book.",
-                    self.symbol, snapshot.last_update_id
-                );
-                self.last_update_id = Some(snapshot.last_update_id);
-                self.needs_snapshot = false;
-            }
-            Err(e) => {
-                eprintln!("Failed to parse snapshot data: {:?} - Data: {}", e, data);
-                self.needs_snapshot = true;
-                self.snapshot_tx.send(self.symbol.clone());
-            }
-        }
+    fn request_snapshot(&mut self) -> Result<()> {
+        println!("Requesting snapshot for {}", self.symbol);
+        self.pending_updates.clear();
+        self.snapshot_requested = true;
+        self.snapshot_tx
+            .send(self.symbol.clone())
+            .map_err(|err| eyre!("Failed to request snapshot for {}: {:?}", self.symbol, err))
     }
 
-    pub fn apply_update(&mut self, data: Value) {
-        if rand::rng().random_range(0.0..1.0) < 0.2 {
-            println!("Simulating drop of a DiffDepthUpdate message.");
-            return;
+    fn apply_snapshot(&mut self, snapshot: DepthSnapshot) -> Result<()> {
+        if !self.snapshot_requested {
+            Err(eyre!(
+                "Received snapshot that was not requested for {}",
+                self.symbol
+            ))?;
         }
-        if let Ok(diff_depth) = serde_json::from_value::<DiffDepthUpdate>(data) {
-            match self.last_update_id {
-                Some(last_id) => {
-                    if diff_depth.first_update_id_in_event <= last_id + 1
-                        && diff_depth.final_update_id_in_event >= last_id
-                    {
-                        println!(
-                            "DiffDepthUpdate received (U: {}, u: {}). Applying update to {}.",
-                            diff_depth.first_update_id_in_event,
-                            diff_depth.final_update_id_in_event,
-                            self.symbol
-                        );
-                        self.last_update_id = Some(diff_depth.final_update_id_in_event);
-                    } else {
-                        println!(
-                            "DiffDepthUpdate out of sync (U: {}, u: {} vs last_id: {}). Requesting new snapshot for {}.",
+        println!(
+            "Snapshot received for {} and will overwrite book (lastUpdateId: {})",
+            self.symbol, snapshot.last_update_id
+        );
+        self.last_update_id = Some(snapshot.last_update_id);
+        self.snapshot_requested = false;
+        let pending_updates = self.pending_updates.drain(..).collect_vec();
+        for diff_depth in pending_updates {
+            print!("Applying pending update: ");
+            self.apply_update(diff_depth)?;
+        }
+        Ok(())
+    }
+
+    fn apply_update(&mut self, diff_depth: DiffDepthUpdate) -> Result<()> {
+        match self.last_update_id {
+            Some(last_id) => {
+                if diff_depth.first_update_id_in_event > last_id + 1 {
+                    println!(
+                            "DiffDepthUpdate for {} is ahead and snapshot is needed (U: {}, u: {} vs last_id: {})",
+                            self.symbol,
                             diff_depth.first_update_id_in_event,
                             diff_depth.final_update_id_in_event,
                             last_id,
-                            self.symbol
                         );
-                        self.needs_snapshot = true;
-                        self.snapshot_tx.send(self.symbol.clone());
+                    if !self.snapshot_requested {
+                        self.request_snapshot()?;
                     }
-                }
-                None => {
+                    self.pending_updates.push_back(diff_depth);
+                } else if diff_depth.final_update_id_in_event < last_id {
                     println!(
-                        "No snapshot received yet. Cannot apply DiffDepthUpdate (U: {}, u: {}). Requesting snapshot for {}.",
-                        diff_depth.first_update_id_in_event, diff_depth.final_update_id_in_event, self.symbol
+                            "DiffDepthUpdate for {} is old and will be ignored (U: {}, u: {} vs last_id: {})",
+                            self.symbol,
+                            diff_depth.first_update_id_in_event,
+                            diff_depth.final_update_id_in_event,
+                            last_id,
+                        );
+                } else {
+                    println!(
+                        "DiffDepthUpdate for {} is new and will be applied (U: {}, u: {})",
+                        self.symbol,
+                        diff_depth.first_update_id_in_event,
+                        diff_depth.final_update_id_in_event,
                     );
-                    self.needs_snapshot = true;
-                    self.snapshot_tx.send(self.symbol.clone());
+                    self.last_update_id = Some(diff_depth.final_update_id_in_event);
                 }
             }
-        } else {
-            eprintln!("Cannot parse DiffDepthUpdate");
+            None => {
+                println!(
+                    "DiffDepthUpdate for {} empty book and snapshot is needed (U: {}, u: {} vs last_id: None)",
+                    self.symbol,
+                    diff_depth.first_update_id_in_event,
+                    diff_depth.final_update_id_in_event,
+                );
+                if !self.snapshot_requested {
+                    self.request_snapshot()?;
+                }
+                self.pending_updates.push_back(diff_depth);
+            }
         }
+        Ok(())
     }
 }
 
@@ -154,22 +173,27 @@ impl Books {
     }
 
     pub fn apply_snapshot(&mut self, symbol: &Symbol, data: &str) -> Result<()> {
-        match self.books.entry(symbol.clone()) {
-            Entry::Occupied(mut entry) => {
-                entry.get_mut().apply_snapshot(data);
-                Ok(())
-            }
-            Entry::Vacant(_) => Err(eyre!("Book does not exist {}", symbol)),
+        match serde_json::from_str::<DepthSnapshot>(data) {
+            Ok(snapshot) => match self.books.entry(symbol.clone()) {
+                Entry::Occupied(mut entry) => entry.get_mut().apply_snapshot(snapshot),
+                Entry::Vacant(_) => Err(eyre!("Book does not exist {}", symbol)),
+            },
+            Err(e) => Err(eyre!(
+                "Failed to parse snapshot data: {:?} - Data: {}",
+                e,
+                data
+            )),
         }
     }
 
     pub fn apply_book_update(&mut self, symbol: &Symbol, data: Value) -> Result<()> {
-        match self.books.entry(symbol.clone()) {
-            Entry::Occupied(mut entry) => {
-                entry.get_mut().apply_update(data);
-                Ok(())
+        if let Ok(diff_depth) = serde_json::from_value::<DiffDepthUpdate>(data) {
+            match self.books.entry(symbol.clone()) {
+                Entry::Occupied(mut entry) => entry.get_mut().apply_update(diff_depth),
+                Entry::Vacant(_) => Err(eyre!("Book does not exist {}", symbol)),
             }
-            Entry::Vacant(_) => Err(eyre!("Book does not exist {}", symbol)),
+        } else {
+            Err(eyre!("Cannot parse DiffDepthUpdate"))
         }
     }
 

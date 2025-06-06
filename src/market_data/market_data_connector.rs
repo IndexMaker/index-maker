@@ -15,7 +15,12 @@ pub enum MarketDataEvent {
         price: Amount,
         quantity: Amount,
     },
-    FullOrderBook {
+    OrderBookSnapshot {
+        symbol: Symbol,
+        bid_updates: Vec<PricePointEntry>,
+        ask_updates: Vec<PricePointEntry>,
+    },
+    OrderBookDelta {
         symbol: Symbol,
         bid_updates: Vec<PricePointEntry>,
         ask_updates: Vec<PricePointEntry>,
@@ -100,7 +105,7 @@ pub mod test_util {
             ask_updates: Vec<PricePointEntry>,
         ) {
             self.observer
-                .publish_many(&Arc::new(MarketDataEvent::FullOrderBook {
+                .publish_many(&Arc::new(MarketDataEvent::OrderBookDelta {
                     symbol,
                     bid_updates,
                     ask_updates,
@@ -217,7 +222,14 @@ mod test {
                         assert_eq!(price, &dec!(5));
                         assert_eq!(quantity, &dec!(2));
                     }
-                    MarketDataEvent::FullOrderBook {
+                    MarketDataEvent::OrderBookSnapshot {
+                        symbol: _,
+                        bid_updates: _,
+                        ask_updates: _,
+                    } => {
+                        todo!()
+                    }
+                    MarketDataEvent::OrderBookDelta {
                         symbol,
                         bid_updates,
                         ask_updates,

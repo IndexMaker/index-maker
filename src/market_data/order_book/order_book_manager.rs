@@ -63,6 +63,7 @@ impl PricePointBookManager {
     fn update_order_book(
         &mut self,
         symbol: &Symbol,
+        is_snapshot: bool,
         bid_updates: &Vec<PricePointEntry>,
         ask_updates: &Vec<PricePointEntry>,
     ) {
@@ -72,7 +73,12 @@ impl PricePointBookManager {
             .entry(symbol.clone())
             .or_insert_with(|| PricePointBook::new(self.tolerance));
 
-        // 2. update order book
+        // 2. if it is as snapshot, clear the book completely
+        if is_snapshot {
+            book.clear();
+        }
+
+        // 3. update order book
         if let Err(error) = book.update_entries(bid_updates, ask_updates) {
             // 3. fire event, notifying about error
             self.notify_order_book_error(symbol, error);
@@ -85,12 +91,19 @@ impl PricePointBookManager {
     /// Receive market data
     pub fn handle_market_data(&mut self, event: &MarketDataEvent) {
         match event {
-            MarketDataEvent::FullOrderBook {
+            MarketDataEvent::OrderBookSnapshot {
                 symbol,
                 bid_updates,
                 ask_updates,
             } => {
-                self.update_order_book(symbol, bid_updates, ask_updates);
+                self.update_order_book(symbol, true, bid_updates, ask_updates);
+            }
+            MarketDataEvent::OrderBookDelta {
+                symbol,
+                bid_updates,
+                ask_updates,
+            } => {
+                self.update_order_book(symbol, false, bid_updates, ask_updates);
             }
             _ => (),
         }

@@ -140,6 +140,10 @@ impl PricePointEntries {
             self.remove_entry(entry)
         }
     }
+    
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 
     pub fn get_liquidity(&self, price: &Amount) -> Result<Amount> {
         let ops = PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone())
@@ -171,6 +175,11 @@ impl PricePointBook {
             bid_entries: PricePointEntries::new(Side::Buy, tolerance),
             ask_entries: PricePointEntries::new(Side::Sell, tolerance),
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.bid_entries.clear();
+        self.ask_entries.clear();
     }
 
     pub fn update_entries(

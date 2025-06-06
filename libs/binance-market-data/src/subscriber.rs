@@ -1,8 +1,4 @@
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use binance_spot_connector_rust::{
     hyper::BinanceHttpClient,
@@ -15,18 +11,14 @@ use futures_util::{future::join_all, StreamExt};
 use index_maker::core::bits::Symbol;
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
+use rand::Rng;
 use serde_json::Value;
 use tokio::{
     select,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    time::sleep,
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender}, time::sleep,
 };
 
-use crate::{
-    async_loop::AsyncLoop,
-    book::{Book, Books},
-    subscriptions::Subscriptions,
-};
+use crate::{async_loop::AsyncLoop, book::Books, subscriptions::Subscriptions};
 
 pub struct Subscriber {
     subscriptions: Arc<AtomicLock<Subscriptions>>,
@@ -93,17 +85,25 @@ impl Subscriber {
                         .await;
                     },
                     Some(event) = conn.as_mut().next() => {
+                        if rand::rng().random_range(0.0..1.0) < 0.02 {
+                            continue;
+                        }
                         match event {
                             Ok(message) => {
                                 let binary_data = message.into_data();
                                 match std::str::from_utf8(&binary_data) {
                                     Ok(data) => {
-                                        if let Ok(value) = serde_json::from_str::<Value>(data) {
+                                        if data == "{\"result\":null,\"id\":0}" {
+                                            println!("Subscription response");
+                                        }
+                                        else if let Ok(value) = serde_json::from_str::<Value>(data) {
                                             if let Some(_) = value["stream"].as_str() {
                                                 if let Err(err) = books.write().apply_update(value) {
                                                     eprintln!("Failed to apply book update: {:?}", err);
                                                 }
-                                                // else it's a response to subscribe
+                                            }
+                                            else {
+                                                eprintln!("Failed to ingest message: {:?}", data);
                                             }
                                         } else {
                                             eprintln!("Failed to parse message: {:?}", data);
@@ -136,6 +136,8 @@ impl Subscriber {
                             Ok(res) => {
                                 match res.into_body_str().await {
                                     Ok(snapshot_data) => {
+                                        println!("Sleeping to simulate delay and delta accumulation");
+                                        sleep(Duration::from_secs(1)).await;
                                         if let Err(err) = books_clone.write().apply_snapshot(&symbol, &snapshot_data) {
                                             eprintln!("Failed to apply depth snapshot: {:?}", err);
                                         }
