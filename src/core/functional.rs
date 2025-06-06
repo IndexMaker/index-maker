@@ -142,6 +142,35 @@ pub trait IntoObservableManyArc<T>: Send + Sync {
     fn get_multi_observer_arc(&mut self) -> &Arc<RwLock<MultiObserver<T>>>;
 }
 
+
+pub mod crossbeam {
+    use std::any::type_name;
+
+    use crossbeam::channel::Sender;
+
+    use crate::core::functional::{IntoNotificationHandlerOnceBox, NotificationHandlerOnce};
+
+    impl<T> NotificationHandlerOnce<T> for Sender<T>
+    where
+        T: Send + Sync,
+    {
+        fn handle_notification(&self, notification: T) {
+            self.send(notification)
+                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
+        }
+    }
+
+    impl<T> IntoNotificationHandlerOnceBox<T> for Sender<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
+            Box::new(self)
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc::channel;

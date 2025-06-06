@@ -33,8 +33,8 @@ pub trait OrderBookManager {
 
 pub struct PricePointBookManager {
     observer: SingleObserver<OrderBookEvent>,
-    pub order_books: HashMap<Symbol, PricePointBook>,
-    pub tolerance: Amount,
+    order_books: HashMap<Symbol, PricePointBook>,
+    tolerance: Amount,
 }
 
 impl PricePointBookManager {
@@ -44,6 +44,10 @@ impl PricePointBookManager {
             order_books: HashMap::new(),
             tolerance,
         }
+    }
+
+    pub fn get_order_book(&self, symbol: &Symbol) -> Option<&PricePointBook> {
+        self.order_books.get(symbol)
     }
 
     fn notify_order_book(&self, symbol: &Symbol) {

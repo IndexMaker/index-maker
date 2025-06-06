@@ -1504,6 +1504,7 @@ version = "0.1.0"
 dependencies = [
  "binance-market-data",
  "binance_spot_connector_rust",
+ "crossbeam",
  "eyre",
  "futures-util",
  "index-maker",

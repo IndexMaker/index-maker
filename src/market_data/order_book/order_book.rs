@@ -6,6 +6,7 @@ use intrusive_collections::{
     rbtree::{Cursor, CursorMut},
     Bound, KeyAdapter, RBTree, RBTreeAtomicLink,
 };
+use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
 
@@ -140,7 +141,7 @@ impl PricePointEntries {
             self.remove_entry(entry)
         }
     }
-    
+
     pub fn clear(&mut self) {
         self.entries.clear();
     }
@@ -205,6 +206,35 @@ impl PricePointBook {
         match side {
             Side::Buy => self.bid_entries.get_liquidity(price),
             Side::Sell => self.ask_entries.get_liquidity(price),
+        }
+    }
+
+    pub fn get_sequence_number(&self) -> Option<u64> {
+        self.sequence_number
+    }
+
+    pub fn get_entries(&self, side: Side, max_levels: usize) -> Vec<PricePointEntry> {
+        match side {
+            Side::Buy => self
+                .bid_entries
+                .entries
+                .iter()
+                .map(|e| PricePointEntry {
+                    price: e.price,
+                    quantity: e.quantity.load(),
+                })
+                .take(max_levels)
+                .collect_vec(),
+            Side::Sell => self
+                .ask_entries
+                .entries
+                .iter()
+                .map(|e| PricePointEntry {
+                    price: e.price,
+                    quantity: e.quantity.load(),
+                })
+                .take(max_levels)
+                .collect_vec(),
         }
     }
 }

@@ -1102,7 +1102,6 @@ impl CollateralManagerHost for Solver {
 #[cfg(test)]
 mod test {
     use std::{
-        any::type_name,
         sync::{Arc, RwLock as ComponentLock},
         time::Duration,
     };
@@ -1129,8 +1128,7 @@ mod test {
         core::{
             bits::{PricePointEntry, SingleOrder},
             functional::{
-                IntoNotificationHandlerOnceBox, IntoObservableMany, IntoObservableSingle,
-                NotificationHandlerOnce,
+                IntoObservableMany, IntoObservableSingle
             },
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
@@ -1156,25 +1154,6 @@ mod test {
     };
 
     use super::*;
-
-    impl<T> NotificationHandlerOnce<T> for Sender<T>
-    where
-        T: Send + Sync,
-    {
-        fn handle_notification(&self, notification: T) {
-            self.send(notification)
-                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
-        }
-    }
-
-    impl<T> IntoNotificationHandlerOnceBox<T> for Sender<T>
-    where
-        T: Send + Sync + 'static,
-    {
-        fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
-            Box::new(self)
-        }
-    }
 
     struct MockOrderIdProvider {
         order_ids: VecDeque<OrderId>,

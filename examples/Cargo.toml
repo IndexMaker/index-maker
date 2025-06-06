@@ -8,6 +8,7 @@ publish = false
 index-maker = { path = ".." }
 binance-market-data = { path = "../libs/binance-market-data" }
 binance_spot_connector_rust = { version = "1.3.0", features = ["full"] }
+crossbeam = { workspace = true }
 eyre = { workspace = true }
 futures-util = "0.3.31"
 itertools = { workspace = true }
@@ -20,8 +21,12 @@ tokio = { version = "1.45.1", features = ["full"] }
 tokio-util = "0.7.15"
 
 [[example]]
-name="binance_market_data"
-path="binance_market_data/main.rs"
+name="binance_market_data_market_data"
+path="binance_market_data/market_data.rs"
+
+[[example]]
+name="binance_market_data_book_building"
+path="binance_market_data/book_building.rs"
 
 [[example]]
 name="binance_market_data_market_data_connector"
