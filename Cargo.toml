@@ -32,5 +32,5 @@ test-case = "*"
 [workspace.dependencies]
 eyre = "0.6.12"
 itertools = "0.14.0"
-parking_lot = "0.12.3"
+parking_lot = "0.12.4"
 rust_decimal = { version = "1.37.1", features = ["macros"] }

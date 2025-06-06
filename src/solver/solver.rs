@@ -1931,6 +1931,7 @@ mod test {
         // top of the book
         market_data_connector.write().notify_top_of_book(
             get_mock_asset_name_1(),
+            1,
             dec!(90.0),
             dec!(100.0),
             dec!(10.0),
@@ -1939,6 +1940,7 @@ mod test {
 
         market_data_connector.write().notify_top_of_book(
             get_mock_asset_name_2(),
+            2,
             dec!(295.0),
             dec!(300.0),
             dec!(80.0),
@@ -1948,10 +1950,11 @@ mod test {
         // last trade
         market_data_connector
             .write()
-            .notify_trade(get_mock_asset_name_1(), dec!(90.0), dec!(5.0));
+            .notify_trade(get_mock_asset_name_1(), 3, dec!(90.0), dec!(5.0));
 
         market_data_connector.write().notify_trade(
             get_mock_asset_name_2(),
+            4,
             dec!(300.0),
             dec!(15.0),
         );
@@ -1959,6 +1962,7 @@ mod test {
         // book depth
         market_data_connector.write().notify_full_order_book(
             get_mock_asset_name_1(),
+            5,
             vec![
                 PricePointEntry {
                     price: dec!(90.0),
@@ -1983,6 +1987,7 @@ mod test {
 
         market_data_connector.write().notify_full_order_book(
             get_mock_asset_name_2(),
+            6,
             vec![
                 PricePointEntry {
                     price: dec!(295.0),

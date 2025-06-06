@@ -78,19 +78,30 @@ Work included in Phase 1.:
 * [x] Quote Requests
     - [x] Manage Quote Requests
     - [x] Compute Quotes
-* [x] Axum Integration Investigation
+* [ ] FIX Server Investigation
+    - [x] Investigate Actix vs Axum web frameworks
     - [x] Investigate FIX server REST
     - [x] Investigate WebSockets
-    - [x] Investigate Auth (Web3)
-    - [x] FIX message signed by private wallet key
+    - [x] Design FIX server architecture
+    - [ ] Create FIX server implementation
+    - [ ] Create FIX server integration example
+    - [ ] FIX message signed by private wallet key
+* [ ] Binance Market Data Connector
+    - [x] Investigate work required to support Market Data
+    - [x] Receive book deltas and snapshots
+    - [x] Design Market Data Connector architecture
+    - [x] Create Market Data Connector implementation
+    - [x] Create Market Data Connector integration example
+    - [ ] Build order book from market data events
+    - [ ] Test performance of many subscriptions
+    - [ ] Investigate asset delisting
+    - [ ] Investigate system to maintain the list of assets
+* [ ] Binance Order Sending Connector
+    - [ ] Investigate work required to support sending orders to Binance
 * [ ] Alloy Integration Investigation
     - [ ] Calling contract methods
     - [ ] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
-* [ ] Binance Integration Investigation
-    - [ ] Reqwest vs Axum
-    - [ ] Investigate work required to support Market Data
-    - [ ] Investigate work required to support Order Sending
 * [ ] Sell side implementation
     - [ ] Wait for index token collateral before selling assets
     - [ ] Obtain USD cash management details after filling index order
