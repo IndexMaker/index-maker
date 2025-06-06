@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use parking_lot::RwLock;
+
 /// Every notification is handled only once, and so then can be moved!
 pub trait NotificationHandlerOnce<T>: Send + Sync {
     fn handle_notification(&self, notification: T);
@@ -132,6 +136,10 @@ impl<T> PublishMany<T> for MultiObserver<T> {
 
 pub trait IntoObservableMany<T>: Send + Sync {
     fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<T>;
+}
+
+pub trait IntoObservableManyArc<T>: Send + Sync {
+    fn get_multi_observer_arc(&mut self) -> &Arc<RwLock<MultiObserver<T>>>;
 }
 
 #[cfg(test)]

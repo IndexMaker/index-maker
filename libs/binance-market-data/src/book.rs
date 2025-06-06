@@ -1,14 +1,24 @@
-use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::{
+    collections::{hash_map::Entry, HashMap, VecDeque},
+    sync::Arc,
+};
 
 use eyre::{eyre, Result};
-use index_maker::core::bits::{Amount, Symbol};
+use index_maker::{
+    core::{
+        bits::{Amount, PricePointEntry, Symbol},
+        functional::{MultiObserver, PublishMany},
+    },
+    market_data::market_data_connector::MarketDataEvent,
+};
 use itertools::Itertools;
+use parking_lot::RwLock as AtomicLock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PriceLevel(String, String);
+pub struct PriceLevel(Amount, Amount);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +59,7 @@ struct BookTickerUpdate {
 }
 
 struct Book {
+    observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     symbol: Symbol,
     snapshot_tx: UnboundedSender<Symbol>,
     pending_updates: VecDeque<DiffDepthUpdate>,
@@ -57,8 +68,13 @@ struct Book {
 }
 
 impl Book {
-    fn new(symbol: Symbol, snapshot_tx: UnboundedSender<Symbol>) -> Self {
+    fn new_with_observer(
+        symbol: Symbol,
+        snapshot_tx: UnboundedSender<Symbol>,
+        observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
+    ) -> Self {
         Book {
+            observer,
             snapshot_tx,
             symbol,
             pending_updates: VecDeque::new(),
@@ -68,7 +84,7 @@ impl Book {
     }
 
     fn request_snapshot(&mut self) -> Result<()> {
-        println!("Requesting snapshot for {}", self.symbol);
+        println!("(binance-book) Requesting snapshot for {}", self.symbol);
         self.pending_updates.clear();
         self.snapshot_requested = true;
         self.snapshot_tx
@@ -84,14 +100,29 @@ impl Book {
             ))?;
         }
         println!(
-            "Snapshot received for {} and will overwrite book (lastUpdateId: {})",
+            "(binance-book) Snapshot received for {} and will overwrite book (lastUpdateId: {})",
             self.symbol, snapshot.last_update_id
         );
         self.last_update_id = Some(snapshot.last_update_id);
         self.snapshot_requested = false;
+        self.observer
+            .read()
+            .publish_many(&Arc::new(MarketDataEvent::OrderBookSnapshot {
+                symbol: self.symbol.clone(),
+                sequence_number: snapshot.last_update_id,
+                bid_updates: snapshot
+                    .bids
+                    .into_iter()
+                    .map(|PriceLevel(price, quantity)| PricePointEntry { price, quantity })
+                    .collect_vec(),
+                ask_updates: snapshot
+                    .asks
+                    .into_iter()
+                    .map(|PriceLevel(price, quantity)| PricePointEntry { price, quantity })
+                    .collect_vec(),
+            }));
         let pending_updates = self.pending_updates.drain(..).collect_vec();
         for diff_depth in pending_updates {
-            print!("Applying pending update: ");
             self.apply_update(diff_depth)?;
         }
         Ok(())
@@ -102,7 +133,7 @@ impl Book {
             Some(last_id) => {
                 if diff_depth.first_update_id_in_event > last_id + 1 {
                     println!(
-                            "DiffDepthUpdate for {} is ahead and snapshot is needed (U: {}, u: {} vs last_id: {})",
+                            "(binance-book) DiffDepthUpdate for {} is ahead and snapshot is needed (U: {}, u: {} vs last_id: {})",
                             self.symbol,
                             diff_depth.first_update_id_in_event,
                             diff_depth.final_update_id_in_event,
@@ -114,7 +145,7 @@ impl Book {
                     self.pending_updates.push_back(diff_depth);
                 } else if diff_depth.final_update_id_in_event < last_id {
                     println!(
-                            "DiffDepthUpdate for {} is old and will be ignored (U: {}, u: {} vs last_id: {})",
+                            "(binance-book) DiffDepthUpdate for {} is old and will be ignored (U: {}, u: {} vs last_id: {})",
                             self.symbol,
                             diff_depth.first_update_id_in_event,
                             diff_depth.final_update_id_in_event,
@@ -122,17 +153,39 @@ impl Book {
                         );
                 } else {
                     println!(
-                        "DiffDepthUpdate for {} is new and will be applied (U: {}, u: {})",
+                        "(binance-book) DiffDepthUpdate for {} is new and will be applied (U: {}, u: {})",
                         self.symbol,
                         diff_depth.first_update_id_in_event,
                         diff_depth.final_update_id_in_event,
                     );
                     self.last_update_id = Some(diff_depth.final_update_id_in_event);
+                    self.observer
+                        .read()
+                        .publish_many(&Arc::new(MarketDataEvent::OrderBookDelta {
+                            symbol: self.symbol.clone(),
+                            sequence_number: diff_depth.final_update_id_in_event,
+                            bid_updates: diff_depth
+                                .bids
+                                .into_iter()
+                                .map(|PriceLevel(price, quantity)| PricePointEntry {
+                                    price,
+                                    quantity,
+                                })
+                                .collect_vec(),
+                            ask_updates: diff_depth
+                                .asks
+                                .into_iter()
+                                .map(|PriceLevel(price, quantity)| PricePointEntry {
+                                    price,
+                                    quantity,
+                                })
+                                .collect_vec(),
+                        }));
                 }
             }
             None => {
                 println!(
-                    "DiffDepthUpdate for {} empty book and snapshot is needed (U: {}, u: {} vs last_id: None)",
+                    "(binance-book) DiffDepthUpdate for {} empty book and snapshot is needed (U: {}, u: {} vs last_id: None)",
                     self.symbol,
                     diff_depth.first_update_id_in_event,
                     diff_depth.final_update_id_in_event,
@@ -148,12 +201,16 @@ impl Book {
 }
 
 pub struct Books {
+    observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     books: HashMap<Symbol, Book>,
 }
 
 impl Books {
-    pub fn new() -> Self {
+    pub fn new_with_observer(
+        observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
+    ) -> Self {
         Self {
+            observer,
             books: HashMap::new(),
         }
     }
@@ -165,7 +222,11 @@ impl Books {
     ) -> Result<()> {
         match self.books.entry(symbol.clone()) {
             Entry::Vacant(entry) => {
-                entry.insert(Book::new(symbol.clone(), snapshot_tx.clone()));
+                entry.insert(Book::new_with_observer(
+                    symbol.clone(),
+                    snapshot_tx.clone(),
+                    self.observer.clone(),
+                ));
                 Ok(())
             }
             Entry::Occupied(_) => Err(eyre!("Book already exists {}", symbol)),
@@ -198,8 +259,17 @@ impl Books {
     }
 
     pub fn apply_tob_update(&mut self, symbol: &str, data: Value) -> Result<()> {
-        if let Ok(_) = serde_json::from_value::<BookTickerUpdate>(data) {
-            // do nothing, too many ticks to print
+        if let Ok(tob) = serde_json::from_value::<BookTickerUpdate>(data) {
+            self.observer
+                .read()
+                .publish_many(&Arc::new(MarketDataEvent::TopOfBook {
+                    symbol: symbol.to_uppercase().into(),
+                    sequence_number: tob.update_id,
+                    best_bid_price: tob.best_bid_price,
+                    best_ask_price: tob.best_ask_price,
+                    best_bid_quantity: tob.best_bid_quantity,
+                    best_ask_quantity: tob.best_ask_quantity,
+                }));
             Ok(())
         } else {
             Err(eyre!("Cannot parse BookTickerUpdate for {}", symbol))

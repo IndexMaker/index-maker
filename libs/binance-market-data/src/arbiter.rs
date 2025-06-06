@@ -1,6 +1,8 @@
 use std::{sync::Arc, usize};
 
 use eyre::{Report, Result};
+use index_maker::core::functional::MultiObserver;
+use index_maker::market_data::market_data_connector::MarketDataEvent;
 use index_maker::{core::bits::Symbol};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
@@ -33,6 +35,7 @@ impl Arbiter {
         &mut self,
         subscriptions: Arc<AtomicLock<Subscriptions>>,
         mut subscription_rx: UnboundedReceiver<Symbol>,
+        observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
         max_subscriber_symbols: usize,
     ) {
         let mut subscribers = Subscribers::new(max_subscriber_symbols);
@@ -43,7 +46,7 @@ impl Arbiter {
                         break
                     },
                     Some(symbol) = subscription_rx.recv() => {
-                        match subscribers.add_subscription(symbol.clone()).await {
+                        match subscribers.add_subscription(symbol.clone(), observer.clone()).await {
                             Ok(_) => {
                                 let mut subs = subscriptions.write();
                                 if let Err(err) = subs.add_subscription_taken(symbol) {

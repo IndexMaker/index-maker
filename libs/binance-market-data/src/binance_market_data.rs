@@ -1,7 +1,7 @@
 use std::{sync::Arc, usize};
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::core::functional::{IntoObservableMany, MultiObserver};
+use index_maker::core::functional::{IntoObservableMany, IntoObservableManyArc, MultiObserver};
 use index_maker::{core::bits::Symbol};
 use index_maker::market_data::market_data_connector::{MarketDataConnector, MarketDataEvent};
 use parking_lot::RwLock as AtomicLock;
@@ -10,7 +10,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use crate::arbiter::Arbiter;
 use crate::subscriptions::Subscriptions;
 pub struct BinanceMarketData {
-    observer: MultiObserver<Arc<MarketDataEvent>>,
+    observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     subscriptions: Arc<AtomicLock<Subscriptions>>,
     subscription_rx: Option<UnboundedReceiver<Symbol>>,
     arbiter: Arbiter,
@@ -21,7 +21,7 @@ impl BinanceMarketData {
     pub fn new(max_subscriber_symbols: usize) -> Self {
         let (subscription_sender, subscription_rx) = unbounded_channel();
         Self {
-            observer: MultiObserver::new(),
+            observer: Arc::new(AtomicLock::new(MultiObserver::new())),
             subscriptions: Arc::new(AtomicLock::new(Subscriptions::new(subscription_sender))),
             subscription_rx: Some(subscription_rx),
             arbiter: Arbiter::new(),
@@ -38,6 +38,7 @@ impl BinanceMarketData {
         self.arbiter.start(
             self.subscriptions.clone(),
             subscription_rx,
+            self.observer.clone(),
             self.max_subscriber_symbols,
         );
 
@@ -67,9 +68,9 @@ impl MarketDataConnector for BinanceMarketData {
     }
 }
 
-impl IntoObservableMany<Arc<MarketDataEvent>> for BinanceMarketData {
-    fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<Arc<MarketDataEvent>> {
-        &mut self.observer
+impl IntoObservableManyArc<Arc<MarketDataEvent>> for BinanceMarketData {
+    fn get_multi_observer_arc(&mut self) -> &Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>> {
+        &self.observer
     }
 }
 

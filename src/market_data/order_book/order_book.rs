@@ -165,6 +165,7 @@ impl PricePointEntries {
 }
 
 pub struct PricePointBook {
+    sequence_number: Option<u64>,
     bid_entries: PricePointEntries,
     ask_entries: PricePointEntries,
 }
@@ -172,21 +173,25 @@ pub struct PricePointBook {
 impl PricePointBook {
     pub fn new(tolerance: Amount) -> Self {
         Self {
+            sequence_number: None,
             bid_entries: PricePointEntries::new(Side::Buy, tolerance),
             ask_entries: PricePointEntries::new(Side::Sell, tolerance),
         }
     }
 
     pub fn clear(&mut self) {
+        self.sequence_number = None;
         self.bid_entries.clear();
         self.ask_entries.clear();
     }
 
     pub fn update_entries(
         &mut self,
+        sequence_number: u64,
         bid_updates: &Vec<PricePointEntry>,
         ask_updates: &Vec<PricePointEntry>,
     ) -> Result<()> {
+        self.sequence_number = Some(sequence_number);
         for entry in bid_updates {
             self.bid_entries.update(entry)?
         }
@@ -229,6 +234,7 @@ pub mod test {
 
         // Test that book with single Sell side, has liquidity on the Sell side
         let update_result = book.update_entries(
+            1,
             &vec![],
             &vec![
                 PricePointEntry {
@@ -256,6 +262,7 @@ pub mod test {
 
         // Test that book with Buy and Sell side, has liquidity on the Buy side
         let update_result = book.update_entries(
+            2,
             &vec![
                 PricePointEntry {
                     price: dec!(90.0),
@@ -283,6 +290,7 @@ pub mod test {
 
         // Test that price point entry can be removed and updated
         let update_result = book.update_entries(
+            3,
             &vec![],
             &vec![
                 PricePointEntry {

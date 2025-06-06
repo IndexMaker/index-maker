@@ -63,6 +63,7 @@ impl PricePointBookManager {
     fn update_order_book(
         &mut self,
         symbol: &Symbol,
+        sequence_number: u64,
         is_snapshot: bool,
         bid_updates: &Vec<PricePointEntry>,
         ask_updates: &Vec<PricePointEntry>,
@@ -79,7 +80,7 @@ impl PricePointBookManager {
         }
 
         // 3. update order book
-        if let Err(error) = book.update_entries(bid_updates, ask_updates) {
+        if let Err(error) = book.update_entries(sequence_number, bid_updates, ask_updates) {
             // 3. fire event, notifying about error
             self.notify_order_book_error(symbol, error);
         } else {
@@ -93,17 +94,19 @@ impl PricePointBookManager {
         match event {
             MarketDataEvent::OrderBookSnapshot {
                 symbol,
+                sequence_number,
                 bid_updates,
                 ask_updates,
             } => {
-                self.update_order_book(symbol, true, bid_updates, ask_updates);
+                self.update_order_book(symbol, *sequence_number, true, bid_updates, ask_updates);
             }
             MarketDataEvent::OrderBookDelta {
                 symbol,
+                sequence_number,
                 bid_updates,
                 ask_updates,
             } => {
-                self.update_order_book(symbol, false, bid_updates, ask_updates);
+                self.update_order_book(symbol, *sequence_number, false, bid_updates, ask_updates);
             }
             _ => (),
         }

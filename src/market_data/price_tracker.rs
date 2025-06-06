@@ -1,5 +1,5 @@
 use itertools::partition;
-use std::collections::HashMap;
+use std::{cmp::max, collections::HashMap};
 
 use crate::{
     core::{
@@ -42,6 +42,7 @@ impl PriceTracker {
     pub fn update_top(
         &mut self,
         symbol: &Symbol,
+        sequence_number: u64,
         best_bid_price: &Amount,
         best_ask_price: &Amount,
         best_bid_quantity: &Amount,
@@ -50,12 +51,14 @@ impl PriceTracker {
         self.prices
             .entry(symbol.clone())
             .and_modify(|value| {
+                value.sequence_number = max(sequence_number, value.sequence_number);
                 value.best_bid_price = Some(*best_bid_price);
                 value.best_ask_price = Some(*best_ask_price);
                 value.best_bid_quantity = *best_bid_quantity;
                 value.best_ask_quantity = *best_ask_quantity;
             })
             .or_insert_with(|| LastPriceEntry {
+                sequence_number,
                 best_bid_price: Some(*best_bid_price),
                 best_ask_price: Some(*best_ask_price),
                 best_bid_quantity: *best_bid_quantity,
@@ -68,14 +71,22 @@ impl PriceTracker {
         self.notify_price_changed(symbol);
     }
 
-    pub fn update_last_trade(&mut self, symbol: &Symbol, price: &Amount, quantity: &Amount) {
+    pub fn update_last_trade(
+        &mut self,
+        symbol: &Symbol,
+        sequence_number: u64,
+        price: &Amount,
+        quantity: &Amount,
+    ) {
         self.prices
             .entry(symbol.clone())
             .and_modify(|value| {
+                value.sequence_number = max(sequence_number, value.sequence_number);
                 value.last_trade_price = Some(*price);
                 value.last_trade_quantity = *quantity;
             })
             .or_insert_with(|| LastPriceEntry {
+                sequence_number,
                 best_bid_price: None,
                 best_ask_price: None,
                 best_bid_quantity: Amount::ZERO,
@@ -93,6 +104,7 @@ impl PriceTracker {
         match event {
             MarketDataEvent::TopOfBook {
                 symbol,
+                sequence_number,
                 best_bid_price,
                 best_ask_price,
                 best_bid_quantity,
@@ -100,6 +112,7 @@ impl PriceTracker {
             } => {
                 self.update_top(
                     symbol,
+                    *sequence_number,
                     best_bid_price,
                     best_ask_price,
                     best_bid_quantity,
@@ -108,10 +121,11 @@ impl PriceTracker {
             }
             MarketDataEvent::Trade {
                 symbol,
+                sequence_number,
                 price,
                 quantity,
             } => {
-                self.update_last_trade(symbol, price, quantity);
+                self.update_last_trade(symbol, *sequence_number, price, quantity);
             }
             _ => (),
         }
@@ -205,6 +219,7 @@ mod test {
 
         price_tracker.handle_market_data(&MarketDataEvent::TopOfBook {
             symbol: get_mock_asset_name_1(),
+            sequence_number: 1,
             best_bid_price: dec!(12500.00),
             best_ask_price: dec!(12500.50),
             best_bid_quantity: dec!(1500.00),
@@ -267,6 +282,7 @@ mod test {
 
         price_tracker.handle_market_data(&MarketDataEvent::Trade {
             symbol: get_mock_asset_name_2(),
+            sequence_number: 2,
             price: dec!(700.50),
             quantity: dec!(400.00),
         });

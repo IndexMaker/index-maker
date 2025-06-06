@@ -1,9 +1,10 @@
-use std::usize;
+use std::{sync::Arc, usize};
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
-use index_maker::core::bits::Symbol;
+use index_maker::{core::{bits::Symbol, functional::MultiObserver}, market_data::market_data_connector::MarketDataEvent};
 use itertools::Itertools;
+use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::subscriber::Subscriber;
@@ -31,18 +32,24 @@ impl Subscribers {
         None
     }
 
-    pub fn start_new_subscriber_mut(&mut self) -> &mut Subscriber {
+    pub fn start_new_subscriber_mut(&mut self,
+        observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
+    ) -> &mut Subscriber {
         let (tx, rx) = unbounded_channel();
         self.subscribers.push(Subscriber::new(tx));
         let sub = self.subscribers.last_mut().unwrap();
-        sub.start(rx);
+        sub.start(rx, observer);
         sub
     }
 
-    pub async fn add_subscription(&mut self, symbol: Symbol) -> Result<()> {
+    pub async fn add_subscription(
+        &mut self,
+        symbol: Symbol,
+        observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
+    ) -> Result<()> {
         let sub = match self.find_available_subscriber_mut().await {
             Some(sub) => sub,
-            None => self.start_new_subscriber_mut(),
+            None => self.start_new_subscriber_mut(observer),
         };
 
         let symbol_clone = symbol.clone();
