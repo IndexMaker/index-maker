@@ -10,7 +10,14 @@ use crate::{
 };
 
 pub enum PriceEvent {
-    PriceChange { symbol: Symbol },
+    PriceChange {
+        symbol: Symbol,
+        sequence_number: u64,
+    },
+    Trade {
+        symbol: Symbol,
+        sequence_number: u64,
+    },
 }
 
 pub struct GetPricesResponse {
@@ -32,9 +39,17 @@ impl PriceTracker {
         }
     }
 
-    fn notify_price_changed(&self, symbol: &Symbol) {
+    fn notify_price_changed(&self, symbol: &Symbol, sequence_number: u64) {
         self.observer.publish_single(PriceEvent::PriceChange {
             symbol: symbol.clone(),
+            sequence_number,
+        });
+    }
+
+    fn notify_trade(&self, symbol: &Symbol, sequence_number: u64) {
+        self.observer.publish_single(PriceEvent::Trade {
+            symbol: symbol.clone(),
+            sequence_number,
         });
     }
 
@@ -68,7 +83,7 @@ impl PriceTracker {
             });
 
         // Notify observer that price for symbol changed. Observer will then decide which type of prices to ask for.
-        self.notify_price_changed(symbol);
+        self.notify_price_changed(symbol, sequence_number);
     }
 
     pub fn update_last_trade(
@@ -96,7 +111,7 @@ impl PriceTracker {
             });
 
         // Notify observer that price for symbol changed. Observer will then decide which type of prices to ask for.
-        self.notify_price_changed(symbol);
+        self.notify_trade(symbol, sequence_number);
     }
 
     /// Receive market data
@@ -210,9 +225,16 @@ mod test {
 
         price_tracker.observer.set_observer_fn(move |e| {
             match e {
-                PriceEvent::PriceChange { symbol } => {
+                PriceEvent::PriceChange {
+                    symbol,
+                    sequence_number,
+                } => {
                     flag_mock_atomic_bool(&called_notify_inner);
                     assert_eq!(symbol, get_mock_asset_name_1());
+                    assert_eq!(sequence_number, 1);
+                },
+                PriceEvent::Trade { symbol, sequence_number } => {
+                    assert!(false);
                 }
             };
         });
@@ -270,9 +292,16 @@ mod test {
 
         price_tracker.observer.set_observer_fn(move |e| {
             match e {
-                PriceEvent::PriceChange { symbol } => {
+                PriceEvent::PriceChange {
+                    symbol,
+                    sequence_number,
+                } => {
                     flag_mock_atomic_bool(&called_notify_inner);
                     assert_eq!(symbol, get_mock_asset_name_2());
+                    assert_eq!(sequence_number, 2);
+                },
+                PriceEvent::Trade { symbol, sequence_number } => {
+                    assert!(false);
                 }
             };
         });

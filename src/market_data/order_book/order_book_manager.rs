@@ -11,8 +11,8 @@ use crate::{
 
 /// manage order books across markets
 pub enum OrderBookEvent {
-    BookUpdate { symbol: Symbol },
-    UpdateError { symbol: Symbol, error: Report },
+    BookUpdate { symbol: Symbol, sequence_number: u64 },
+    UpdateError { symbol: Symbol, sequence_number: u64, error: Report },
 }
 
 pub trait OrderBookManager {
@@ -50,15 +50,17 @@ impl PricePointBookManager {
         self.order_books.get(symbol)
     }
 
-    fn notify_order_book(&self, symbol: &Symbol) {
+    fn notify_order_book(&self, symbol: &Symbol, sequence_number: u64) {
         self.observer.publish_single(OrderBookEvent::BookUpdate {
             symbol: symbol.clone(),
+            sequence_number,
         });
     }
 
-    fn notify_order_book_error(&self, symbol: &Symbol, error: Report) {
+    fn notify_order_book_error(&self, symbol: &Symbol, sequence_number: u64, error: Report) {
         self.observer.publish_single(OrderBookEvent::UpdateError {
             symbol: symbol.clone(),
+            sequence_number,
             error,
         });
     }
@@ -86,10 +88,10 @@ impl PricePointBookManager {
         // 3. update order book
         if let Err(error) = book.update_entries(sequence_number, bid_updates, ask_updates) {
             // 3. fire event, notifying about error
-            self.notify_order_book_error(symbol, error);
+            self.notify_order_book_error(symbol, sequence_number, error);
         } else {
             // 3. fire an event that book is updated
-            self.notify_order_book(symbol);
+            self.notify_order_book(symbol, sequence_number);
         }
     }
 

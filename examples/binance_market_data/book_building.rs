@@ -17,6 +17,7 @@ use index_maker::{
     },
 };
 use parking_lot::RwLock;
+use rand::seq;
 use rust_decimal::dec;
 use tokio::time::sleep;
 
@@ -34,6 +35,8 @@ async fn main() {
     let price_tracker_weak = Arc::downgrade(&price_tracker);
     let book_manager_weak = Arc::downgrade(&book_manager);
 
+    let price_tracker_clone = price_tracker.clone();
+
     price_tracker
         .write()
         .get_single_observer_mut()
@@ -43,20 +46,49 @@ async fn main() {
         .get_single_observer_mut()
         .set_observer_from(book_tx);
 
+    let handle_price_event = move |e| match e {
+        PriceEvent::PriceChange {
+            symbol,
+            sequence_number,
+        } => {
+            println!("(price-tracker) Price event {} {}", symbol, sequence_number);
+        }
+        PriceEvent::Trade {
+            symbol,
+            sequence_number,
+        } => {
+            println!("(price-tracker) Trade event {} {}", symbol, sequence_number);
+        }
+    };
+
     let handle_order_book_event = move |e| match e {
-        OrderBookEvent::UpdateError { symbol, error } => {
+        OrderBookEvent::UpdateError {
+            symbol,
+            sequence_number,
+            error,
+        } => {
             eprintln!(
-                "(order-book-manager) Failed to apply update for {} reason: {}",
-                symbol, error
+                "(order-book-manager) Failed to apply update {} for {} reason: {}",
+                sequence_number, symbol, error
             );
         }
-        OrderBookEvent::BookUpdate { symbol } => {
+        OrderBookEvent::BookUpdate {
+            symbol,
+            sequence_number,
+        } => {
+            println!(
+                "(order-book-manager) Book event {} {}",
+                symbol, sequence_number
+            );
             let mut prices = price_tracker
                 .read()
                 .get_prices(PriceType::BestAsk, &[symbol.clone()]);
 
             if !prices.missing_symbols.is_empty() {
-                eprint!("(order-book-manager) No prices for {}", symbol);
+                eprint!(
+                    "(order-book-manager) No prices for {} (seq={})",
+                    symbol, sequence_number
+                );
                 return;
             }
 
@@ -89,8 +121,9 @@ async fn main() {
         let mut price_event_count = 0;
         loop {
             select! {
-                recv(price_rx) -> _ => {
+                recv(price_rx) -> res => {
                     price_event_count += 1;
+                    handle_price_event(res.unwrap());
                 },
                 recv(book_rx) -> res => {
                     println!("(order-book-manager) Order Book event (price_event_count = {})", price_event_count);

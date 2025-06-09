@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use binance_spot_connector_rust::{
     hyper::BinanceHttpClient,
     market::depth::Depth,
-    market_stream::{book_ticker::BookTickerStream, diff_depth::DiffDepthStream},
+    market_stream::{agg_trade::AggTradeStream, book_ticker::BookTickerStream, diff_depth::DiffDepthStream},
     tokio_tungstenite::BinanceWebSocketClient,
 };
 use eyre::{eyre, Result};
@@ -88,6 +88,7 @@ impl Subscriber {
                         }
                         conn.subscribe(vec![
                             &BookTickerStream::from_symbol(&symbol).into(),
+                            &AggTradeStream::new(&symbol).into(),
                             &DiffDepthStream::from_1000ms(&symbol).into(),
                         ])
                         .await;

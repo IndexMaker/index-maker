@@ -53,9 +53,34 @@ struct BookTickerUpdate {
     #[serde(rename = "A")]
     best_ask_quantity: Amount,
     #[serde(rename = "s")]
-    symbol: String,
+    symbol: Symbol,
     #[serde(rename = "u")]
     update_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AggregateTrade {
+  #[serde(rename="e")]
+  event_type: String,
+  #[serde(rename="E")]
+  event_time: u64,
+  #[serde(rename="s")]
+  symbol: Symbol,
+  #[serde(rename="a")]
+  aggregate_trade_id: u64,
+  #[serde(rename="p")]
+  price: Amount,
+  #[serde(rename="q")]
+  quantity: Amount,
+  #[serde(rename="f")]
+  first_trade_id: u64,
+  #[serde(rename="l")]
+  last_trade_id: u64,
+  #[serde(rename="T")]
+  trade_time: u64,
+  #[serde(rename="m")]
+  is_buyer_market_maker: bool,
 }
 
 struct Book {
@@ -275,6 +300,22 @@ impl Books {
             Err(eyre!("Cannot parse BookTickerUpdate for {}", symbol))
         }
     }
+    
+    pub fn apply_aggregate_trade(&mut self, symbol: &str, data: Value) -> Result<()> {
+        if let Ok(agg_trade) = serde_json::from_value::<AggregateTrade>(data) {
+            self.observer
+                .read()
+                .publish_many(&Arc::new(MarketDataEvent::Trade {
+                    symbol: symbol.to_uppercase().into(),
+                    sequence_number: agg_trade.trade_time,
+                    price: agg_trade.price,
+                    quantity: agg_trade.quantity,
+                }));
+            Ok(())
+        } else {
+            Err(eyre!("Cannot parse AggregateTrade for {}", symbol))
+        }
+    }
 
     pub fn apply_update(&mut self, value: Value) -> Result<()> {
         if let Some(s) = value["stream"].as_str() {
@@ -283,6 +324,7 @@ impl Books {
                 match stream_kind {
                     "depth" => self.apply_book_update(symbol, value["data"].clone()),
                     "bookTicker" => self.apply_tob_update(symbol, value["data"].clone()),
+                    "aggTrade" => self.apply_aggregate_trade(symbol, value["data"].clone()),
                     _ => Err(eyre!("Unknown stream type {}", stream_kind)),
                 }
             } else {

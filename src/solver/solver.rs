@@ -967,8 +967,11 @@ impl Solver {
     /// receive current prices from Price Tracker
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
-            PriceEvent::PriceChange { symbol } => {
-                println!("(solver) Handle Price Event {:5}", symbol)
+            PriceEvent::PriceChange { symbol, sequence_number } => {
+                println!("(solver) Handle Price Event {} {}", symbol, sequence_number)
+            },
+            PriceEvent::Trade { symbol, sequence_number } => {
+                println!("(solver) Handle Trade Event {} {}", symbol, sequence_number)
             }
         };
     }
@@ -976,11 +979,11 @@ impl Solver {
     /// receive available liquidity from Order Book Manager
     pub fn handle_book_event(&self, notification: OrderBookEvent) {
         match notification {
-            OrderBookEvent::BookUpdate { symbol } => {
-                println!("(solver) Handle Book Event {:5}", symbol);
+            OrderBookEvent::BookUpdate { symbol, sequence_number } => {
+                println!("(solver) Handle Book Event {} {}", symbol, sequence_number);
             }
-            OrderBookEvent::UpdateError { symbol, error } => {
-                println!("(solver) Handle Book Event {:5}, Error: {}", symbol, error);
+            OrderBookEvent::UpdateError { symbol, sequence_number, error } => {
+                println!("(solver) Handle Book Event {} {}, Error: {}", symbol, sequence_number, error);
             }
         }
     }
