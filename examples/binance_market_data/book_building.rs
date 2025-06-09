@@ -47,17 +47,11 @@ async fn main() {
         .set_observer_from(book_tx);
 
     let handle_price_event = move |e| match e {
-        PriceEvent::PriceChange {
-            symbol,
-            sequence_number,
-        } => {
-            println!("(price-tracker) Price event {} {}", symbol, sequence_number);
+        PriceEvent::PriceChange { symbol } => {
+            println!("(price-tracker) Price event {}", symbol);
         }
-        PriceEvent::Trade {
-            symbol,
-            sequence_number,
-        } => {
-            println!("(price-tracker) Trade event {} {}", symbol, sequence_number);
+        PriceEvent::Trade { symbol } => {
+            println!("(price-tracker) Trade event {}", symbol);
         }
     };
 
@@ -76,10 +70,6 @@ async fn main() {
             symbol,
             sequence_number,
         } => {
-            println!(
-                "(order-book-manager) Book event {} {}",
-                symbol, sequence_number
-            );
             let mut prices = price_tracker
                 .read()
                 .get_prices(PriceType::BestAsk, &[symbol.clone()]);

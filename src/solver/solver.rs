@@ -967,11 +967,11 @@ impl Solver {
     /// receive current prices from Price Tracker
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
-            PriceEvent::PriceChange { symbol, sequence_number } => {
-                println!("(solver) Handle Price Event {} {}", symbol, sequence_number)
+            PriceEvent::PriceChange { symbol } => {
+                println!("(solver) Handle Price Event {}", symbol)
             },
-            PriceEvent::Trade { symbol, sequence_number } => {
-                println!("(solver) Handle Trade Event {} {}", symbol, sequence_number)
+            PriceEvent::Trade { symbol } => {
+                println!("(solver) Handle Trade Event {}", symbol)
             }
         };
     }
