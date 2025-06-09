@@ -21,6 +21,7 @@ pub enum PriceType {
 
 #[derive(Clone)]
 pub struct LastPriceEntry {
+    pub sequence_number: u64,
     pub best_bid_price: Option<Amount>,
     pub best_ask_price: Option<Amount>,
     pub best_bid_quantity: Amount,

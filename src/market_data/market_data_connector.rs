@@ -5,6 +5,7 @@ use eyre::Result;
 pub enum MarketDataEvent {
     TopOfBook {
         symbol: Symbol,
+        sequence_number: u64,
         best_bid_price: Amount,
         best_ask_price: Amount,
         best_bid_quantity: Amount,
@@ -12,11 +13,19 @@ pub enum MarketDataEvent {
     },
     Trade {
         symbol: Symbol,
+        sequence_number: u64,
         price: Amount,
         quantity: Amount,
     },
-    FullOrderBook {
+    OrderBookSnapshot {
         symbol: Symbol,
+        sequence_number: u64,
+        bid_updates: Vec<PricePointEntry>,
+        ask_updates: Vec<PricePointEntry>,
+    },
+    OrderBookDelta {
+        symbol: Symbol,
+        sequence_number: u64,
         bid_updates: Vec<PricePointEntry>,
         ask_updates: Vec<PricePointEntry>,
     },
@@ -67,6 +76,7 @@ pub mod test_util {
         pub fn notify_top_of_book(
             &self,
             symbol: Symbol,
+            sequence_number: u64,
             best_bid_price: Amount,
             best_ask_price: Amount,
             best_bid_quantity: Amount,
@@ -75,6 +85,7 @@ pub mod test_util {
             self.observer
                 .publish_many(&Arc::new(MarketDataEvent::TopOfBook {
                     symbol,
+                    sequence_number,
                     best_bid_price,
                     best_ask_price,
                     best_bid_quantity,
@@ -83,10 +94,17 @@ pub mod test_util {
         }
 
         /// receive market data from exchange (-> PriceTracker)
-        pub fn notify_trade(&self, symbol: Symbol, price: Amount, quantity: Amount) {
+        pub fn notify_trade(
+            &self,
+            symbol: Symbol,
+            sequence_number: u64,
+            price: Amount,
+            quantity: Amount,
+        ) {
             self.observer
                 .publish_many(&Arc::new(MarketDataEvent::Trade {
                     symbol,
+                    sequence_number,
                     price,
                     quantity,
                 }));
@@ -96,12 +114,14 @@ pub mod test_util {
         pub fn notify_full_order_book(
             &self,
             symbol: Symbol,
+            sequence_number: u64,
             bid_updates: Vec<PricePointEntry>,
             ask_updates: Vec<PricePointEntry>,
         ) {
             self.observer
-                .publish_many(&Arc::new(MarketDataEvent::FullOrderBook {
+                .publish_many(&Arc::new(MarketDataEvent::OrderBookDelta {
                     symbol,
+                    sequence_number,
                     bid_updates,
                     ask_updates,
                 }));
@@ -195,6 +215,7 @@ mod test {
                 match &**e {
                     MarketDataEvent::TopOfBook {
                         symbol,
+                        sequence_number,
                         best_bid_price,
                         best_ask_price,
                         best_bid_quantity,
@@ -209,6 +230,7 @@ mod test {
                     }
                     MarketDataEvent::Trade {
                         symbol,
+                        sequence_number,
                         price,
                         quantity,
                     } => {
@@ -217,8 +239,17 @@ mod test {
                         assert_eq!(price, &dec!(5));
                         assert_eq!(quantity, &dec!(2));
                     }
-                    MarketDataEvent::FullOrderBook {
+                    MarketDataEvent::OrderBookSnapshot {
+                        symbol: _,
+                        sequence_number,
+                        bid_updates: _,
+                        ask_updates: _,
+                    } => {
+                        todo!()
+                    }
+                    MarketDataEvent::OrderBookDelta {
                         symbol,
+                        sequence_number,
                         bid_updates,
                         ask_updates,
                     } => {
@@ -236,6 +267,7 @@ mod test {
 
         connector.notify_top_of_book(
             get_mock_asset_name_1(),
+            1,
             dec!(1),
             dec!(2),
             dec!(10),
@@ -244,12 +276,13 @@ mod test {
 
         assert!(test_mock_atomic_bool(&called_for_tob));
 
-        connector.notify_trade(get_mock_asset_name_2(), dec!(5), dec!(2));
+        connector.notify_trade(get_mock_asset_name_2(), 2, dec!(5), dec!(2));
 
         assert!(test_mock_atomic_bool(&called_for_trade));
 
         connector.notify_full_order_book(
             get_mock_asset_name_1(),
+            3,
             vec![],
             vec![
                 PricePointEntry {

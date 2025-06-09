@@ -6,6 +6,7 @@ use intrusive_collections::{
     rbtree::{Cursor, CursorMut},
     Bound, KeyAdapter, RBTree, RBTreeAtomicLink,
 };
+use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
 
@@ -141,6 +142,10 @@ impl PricePointEntries {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     pub fn get_liquidity(&self, price: &Amount) -> Result<Amount> {
         let ops = PricePointEntriesOps::try_new(self.side, self.tolerance, price.clone())
             .ok_or(eyre!("Math overflow"))?;
@@ -161,6 +166,7 @@ impl PricePointEntries {
 }
 
 pub struct PricePointBook {
+    sequence_number: Option<u64>,
     bid_entries: PricePointEntries,
     ask_entries: PricePointEntries,
 }
@@ -168,16 +174,25 @@ pub struct PricePointBook {
 impl PricePointBook {
     pub fn new(tolerance: Amount) -> Self {
         Self {
+            sequence_number: None,
             bid_entries: PricePointEntries::new(Side::Buy, tolerance),
             ask_entries: PricePointEntries::new(Side::Sell, tolerance),
         }
     }
 
+    pub fn clear(&mut self) {
+        self.sequence_number = None;
+        self.bid_entries.clear();
+        self.ask_entries.clear();
+    }
+
     pub fn update_entries(
         &mut self,
+        sequence_number: u64,
         bid_updates: &Vec<PricePointEntry>,
         ask_updates: &Vec<PricePointEntry>,
     ) -> Result<()> {
+        self.sequence_number = Some(sequence_number);
         for entry in bid_updates {
             self.bid_entries.update(entry)?
         }
@@ -191,6 +206,35 @@ impl PricePointBook {
         match side {
             Side::Buy => self.bid_entries.get_liquidity(price),
             Side::Sell => self.ask_entries.get_liquidity(price),
+        }
+    }
+
+    pub fn get_sequence_number(&self) -> Option<u64> {
+        self.sequence_number
+    }
+
+    pub fn get_entries(&self, side: Side, max_levels: usize) -> Vec<PricePointEntry> {
+        match side {
+            Side::Buy => self
+                .bid_entries
+                .entries
+                .iter()
+                .map(|e| PricePointEntry {
+                    price: e.price,
+                    quantity: e.quantity.load(),
+                })
+                .take(max_levels)
+                .collect_vec(),
+            Side::Sell => self
+                .ask_entries
+                .entries
+                .iter()
+                .map(|e| PricePointEntry {
+                    price: e.price,
+                    quantity: e.quantity.load(),
+                })
+                .take(max_levels)
+                .collect_vec(),
         }
     }
 }
@@ -220,6 +264,7 @@ pub mod test {
 
         // Test that book with single Sell side, has liquidity on the Sell side
         let update_result = book.update_entries(
+            1,
             &vec![],
             &vec![
                 PricePointEntry {
@@ -247,6 +292,7 @@ pub mod test {
 
         // Test that book with Buy and Sell side, has liquidity on the Buy side
         let update_result = book.update_entries(
+            2,
             &vec![
                 PricePointEntry {
                     price: dec!(90.0),
@@ -274,6 +320,7 @@ pub mod test {
 
         // Test that price point entry can be removed and updated
         let update_result = book.update_entries(
+            3,
             &vec![],
             &vec![
                 PricePointEntry {

@@ -1102,7 +1102,6 @@ impl CollateralManagerHost for Solver {
 #[cfg(test)]
 mod test {
     use std::{
-        any::type_name,
         sync::{Arc, RwLock as ComponentLock},
         time::Duration,
     };
@@ -1129,8 +1128,7 @@ mod test {
         core::{
             bits::{PricePointEntry, SingleOrder},
             functional::{
-                IntoNotificationHandlerOnceBox, IntoObservableMany, IntoObservableSingle,
-                NotificationHandlerOnce,
+                IntoObservableMany, IntoObservableSingle
             },
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
@@ -1156,25 +1154,6 @@ mod test {
     };
 
     use super::*;
-
-    impl<T> NotificationHandlerOnce<T> for Sender<T>
-    where
-        T: Send + Sync,
-    {
-        fn handle_notification(&self, notification: T) {
-            self.send(notification)
-                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
-        }
-    }
-
-    impl<T> IntoNotificationHandlerOnceBox<T> for Sender<T>
-    where
-        T: Send + Sync + 'static,
-    {
-        fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
-            Box::new(self)
-        }
-    }
 
     struct MockOrderIdProvider {
         order_ids: VecDeque<OrderId>,
@@ -1931,6 +1910,7 @@ mod test {
         // top of the book
         market_data_connector.write().notify_top_of_book(
             get_mock_asset_name_1(),
+            1,
             dec!(90.0),
             dec!(100.0),
             dec!(10.0),
@@ -1939,6 +1919,7 @@ mod test {
 
         market_data_connector.write().notify_top_of_book(
             get_mock_asset_name_2(),
+            2,
             dec!(295.0),
             dec!(300.0),
             dec!(80.0),
@@ -1948,10 +1929,11 @@ mod test {
         // last trade
         market_data_connector
             .write()
-            .notify_trade(get_mock_asset_name_1(), dec!(90.0), dec!(5.0));
+            .notify_trade(get_mock_asset_name_1(), 3, dec!(90.0), dec!(5.0));
 
         market_data_connector.write().notify_trade(
             get_mock_asset_name_2(),
+            4,
             dec!(300.0),
             dec!(15.0),
         );
@@ -1959,6 +1941,7 @@ mod test {
         // book depth
         market_data_connector.write().notify_full_order_book(
             get_mock_asset_name_1(),
+            5,
             vec![
                 PricePointEntry {
                     price: dec!(90.0),
@@ -1983,6 +1966,7 @@ mod test {
 
         market_data_connector.write().notify_full_order_book(
             get_mock_asset_name_2(),
+            6,
             vec![
                 PricePointEntry {
                     price: dec!(295.0),

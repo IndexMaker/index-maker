@@ -1,27 +1,8 @@
 # Developent Plan
 
-## Phase 1. Mocked I/O (FIX / Chain/ Market Data)
-
-### Goal
-
-The goal of this phase is to:
-- Understand the business requirements of the project
-- Prepare initial technical design
-- Create proof-of-concept (PoC) implementation demonstrating how will the system work
-
-The resulting PoC should be able to demonstrate following activity:
-- User sends Collateral
-- User sends Index Order
-- Solver receives Collateral
-- Solver sends asset orders to exchange
-- Solver recieves individual Fills
-- Solver fills Index Order
-- User receives confirmations of each individual Index Order fill
-- User receives newly minted Index Token
+## Backlog
 
 ### Work Items
-
-Work included in Phase 1.:
 
 * [x] Receiving new Index Orders 
     - Mock FIX server publishes New Order message
@@ -78,19 +59,50 @@ Work included in Phase 1.:
 * [x] Quote Requests
     - [x] Manage Quote Requests
     - [x] Compute Quotes
-* [x] Axum Integration Investigation
+* [ ] FIX Server Investigation
+    - [x] Investigate Actix vs Axum web frameworks
     - [x] Investigate FIX server REST
     - [x] Investigate WebSockets
-    - [x] Investigate Auth (Web3)
-    - [x] FIX message signed by private wallet key
+    - [x] Design FIX server architecture
+    - [ ] Create FIX server implementation
+    - [ ] Create FIX server integration example
+    - [ ] FIX message signed by private wallet key
+* [x] Binance Market Data Connector
+    - [x] Investigate work required to support Binance Market Data
+    - [x] Receive book deltas and snapshots from Binance
+    - [x] Design Binance Market Data Connector architecture
+    - [x] Create Binance Market Data Connector implementation
+    - [x] Create Binance Market Data Connector integration example
+    - [x] Build order book from Binance market data events
+* [ ] Bitget Market Data Connector
+    - [ ] Investigate work required to support Bitget Market Data
+    - [ ] Receive book deltas and snapshots from Bitget
+    - [ ] Design Bitget Market Data Connector architecture
+    - [ ] Create Bitget Market Data Connector implementation
+    - [ ] Create Bitget Market Data Connector integration example
+    - [ ] Build order book from Bitget market data events
+* [ ] Binance Order Sending Connector
+    - [ ] Investigate work required to support sending orders to Binance
+    - [ ] Design Binance Order Connector architecture
+    - [ ] Create Binance Order Connector implementation
+    - [ ] Create Binance Order Connector integration example
+    - [ ] Send small order to Binance using limit price X% away from TOB
+* [ ] Bitget Order Sending Connector
+    - [ ] Investigate work required to support sending orders to Bitget
+    - [ ] Design Bitget Order Connector architecture
+    - [ ] Create Bitget Order Connector implementation
+    - [ ] Create Bitget Order Connector integration example
+    - [ ] Send small order to Bitget using limit price X% away from TOB
 * [ ] Alloy Integration Investigation
     - [ ] Calling contract methods
     - [ ] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
-* [ ] Binance Integration Investigation
-    - [ ] Reqwest vs Axum
-    - [ ] Investigate work required to support Market Data
-    - [ ] Investigate work required to support Order Sending
+* [ ] Collateral Router Bridges Investigation
+    - [ ] Investigate how do we transfer collateral from EVM to EVM
+    - [ ] Investigate how do we transfer collateral from EVM to Ceffu
+    - [ ] Investigate how do we transfer collateral from Ceffu to Binance
+    - [ ] Investigate how do we transfer collateral from Binance to Binance
+    - [ ] Send small amount of collateral from EVM to Binance via Ceffu
 * [ ] Sell side implementation
     - [ ] Wait for index token collateral before selling assets
     - [ ] Obtain USD cash management details after filling index order
@@ -102,10 +114,20 @@ Work included in Phase 1.:
     - [ ] Ensure individual orders in a batch have size at least minimum
     - [ ] Ensure order rate is within limits
     - [ ] Ensure total volley size across batches is not exceeded
+* [ ] Additional Work for Binance Market Data Connector 
+    - [ ] Test performance of many subscriptions
+    - [ ] Investigate asset delisting
+    - [ ] Investigate system to maintain the list of assets
+    - [ ] Create Solver example with live market data
 * [ ] Logging & Error handling
+    - [ ] Use Rust `log` package for logging
+    - [ ] Use `env_logger` package for log level configuration
     - [ ] Find out best way to handle runtime errors
     - [ ] Explore logging mechanism, and craft log messages
     - [x] Error handling for server events
+* [ ] Reporting & On-Chain History Recording
+    - [ ] Invastigate reportable events to store on-chain as proof of transaction
+    - [ ] Design on-chain reporting mechanism
 * [ ] Improve SBE Test Scenario
     - [ ] Convert SBE test scenario into a framework for scenario testing
     - [ ] Provide multiple test scenarios
@@ -127,13 +149,13 @@ Work included in Phase 1.:
 
 #### Design & Performance
 
-* Logging
+* [ ] Logging
     - We need to review our logging, as at present messages and errors are logged to standard output.
     - We need to review log messages, and ensure they contain just right amount of information for us to understand what happened in the system, and not too much to avoid logs bloating and poor overall performance.
     - We need to find logging mechanism that we want to use, and test it so that we know how it performs.
-* Error handling
+* [ ] Error handling
     - We need to review our error handling, as we are currently bailing out in case of an error, and we might be leaving some state inconsistent (especially if arithmetic error happens in the middle of calculations).
-* Multi-Threaded Performance
+* [ ] Multi-Threaded Performance
     - We need to review design of queues and events in context of performance and
     maintainability, i.e. we use Mutex and RwLock from parking-lot, and then
     standard VecDeque and HashMap. The VecDeque gives us ability to efficiently
@@ -144,15 +166,29 @@ Work included in Phase 1.:
     i.e. only one thread can read or write from them. We were thinking of using
     channels, or concurrent queue (cross-beam SegQueue). There are also
     implementations of concurrent hash-maps that we could explore.
-* Possible ActiX Framework Integration
-    - The ActiX framework is renowned for its high performance. Yet, within this
-    framework all action happens on a single thread, and communication between
-    Actors is done via messaging. It shouldn't be hard to transform current
-    event-driven design of the PoC to be integrated with ActiX framework. However
-    we're interested in multi-threaded option, for which ActiX also has some
-    support.
-* Disaster recovery plan
+* [x] Web Framework Integration
+    - [x] Decision to use Axum for web server (REST and WSS)
+* [ ] Disaster recovery plan
     - We need to understand our system well, make sure logging is 
+
+## Phase 1. Mocked I/O (FIX / Chain/ Market Data)
+
+### Goal
+
+The goal of this phase is to:
+- Understand the business requirements of the project
+- Prepare initial technical design
+- Create proof-of-concept (PoC) implementation demonstrating how will the system work
+
+The resulting PoC should be able to demonstrate following activity:
+- User sends Collateral
+- User sends Index Order
+- Solver receives Collateral
+- Solver sends asset orders to exchange
+- Solver recieves individual Fills
+- Solver fills Index Order
+- User receives confirmations of each individual Index Order fill
+- User receives newly minted Index Token
 
 ## Phase 2. FIX integration
 
