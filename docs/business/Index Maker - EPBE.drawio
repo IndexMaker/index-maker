@@ -1,0 +1,536 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
+  <diagram name="Page-1" id="Gur3EGKidvZaFRVsMQF7">
+    <mxGraphModel dx="1854" dy="4411" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-2" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Buy Index&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="-2640" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-3" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Sell Index&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="-2480" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-4" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Rebalance&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="-3200" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-5" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Create Index&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="-3360" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-6" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Request Quote&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="-2920" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-7" value="Index Management" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="-3440" width="440" height="360" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-8" value="Index Orders" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="-2720" width="440" height="360" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-9" value="Index Pricing" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="-3000" width="440" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-19" value="" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-37" target="_S85EtpJ_mDBhJI4Y0lZ-24">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1336.37" y="-3045" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-24" target="_S85EtpJ_mDBhJI4Y0lZ-25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-22" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-24" target="_S85EtpJ_mDBhJI4Y0lZ-36">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1979.96" y="-3045" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-23" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-24" target="_S85EtpJ_mDBhJI4Y0lZ-30">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1945.5769230769229" y="-3195" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-24" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Create Index&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1537.5" y="-3095" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-25" value="Depends on:&lt;div&gt;&lt;ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Address&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Name&lt;/span&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Symbol&lt;/span&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Weights&lt;/span&gt;&lt;/li&gt;&lt;li&gt;Fees: Minting, Burning, Management&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1528.75" y="-3395" width="337.5" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-27" value="&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Blockchain&lt;/span&gt;&lt;/div&gt;" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="2240" y="-3102.5" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-30" value="&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;Create an Index using the weights for from Curator, so that we can accept orders for that Index from our users.&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&lt;br&gt;&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;&lt;/p&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="-3320" width="220.58" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-32" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-31" target="_S85EtpJ_mDBhJI4Y0lZ-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-31" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1490" y="-2835" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-33" value="Index Data" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1510" y="-2955" width="120" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-38" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-36" target="_S85EtpJ_mDBhJI4Y0lZ-27">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-36" value="Solver Weights Set&lt;div&gt;&amp;lt;&amp;lt;on-chain event&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="-3093.75" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-37" value="&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Curator Weights Set&lt;/span&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;First Time Event&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;div&gt;&amp;lt;&amp;lt;on-chain event&amp;gt;&amp;gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="-2955" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-216" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-39" target="_S85EtpJ_mDBhJI4Y0lZ-191">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-217" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-39" target="_S85EtpJ_mDBhJI4Y0lZ-192">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-218" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-39" target="_S85EtpJ_mDBhJI4Y0lZ-37">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-39" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1021.25" y="-3102.5" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-41" value="Create Index" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="960" y="-3440" width="1440" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-43" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-46" target="_S85EtpJ_mDBhJI4Y0lZ-47">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-44" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-46" target="_S85EtpJ_mDBhJI4Y0lZ-54">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3579.96" y="-3045" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-45" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-46" target="_S85EtpJ_mDBhJI4Y0lZ-49">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3545.576923076923" y="-3195" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-64" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-46" target="_S85EtpJ_mDBhJI4Y0lZ-63">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-46" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Rebalance&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="3137.5" y="-3095" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-47" value="Depends on:&lt;div&gt;&lt;ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Symbol&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Weights&lt;/span&gt;&lt;/li&gt;&lt;li&gt;Fees: Management&lt;/li&gt;&lt;li&gt;Current Inventory State&lt;/li&gt;&lt;li&gt;Binance Market Data&lt;/li&gt;&lt;li&gt;Binance Order Sending&lt;/li&gt;&lt;li&gt;Collateral Routing&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="3128.75" y="-3395" width="337.5" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-48" value="&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Blockchain&lt;/span&gt;&lt;/div&gt;" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3840" y="-3102.5" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-49" value="&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal; text-align: start;&quot; class=&quot;p1&quot;&gt;To accept new weights for an Index from Curator, rebalance the inventory, and inform Users about the change in their index value and cost of change.&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&lt;br&gt;&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;&lt;/p&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3560" y="-3320" width="220.58" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-53" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-54" target="_S85EtpJ_mDBhJI4Y0lZ-48">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-54" value="Solver Weights Set&lt;div&gt;&amp;lt;&amp;lt;on-chain event&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="3560" y="-3093.75" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-74" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-55" target="_S85EtpJ_mDBhJI4Y0lZ-46">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3150" y="-3020" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-55" value="&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Curator Weights Set&lt;/span&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Subsequent Event&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;div&gt;&amp;lt;&amp;lt;on-chain event&amp;gt;&amp;gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="2840" y="-3092.5" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-56" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-57" target="_S85EtpJ_mDBhJI4Y0lZ-55">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-57" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="2623.75" y="-3101.25" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-58" value="Rebalance" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="2560" y="-3440" width="1440" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-60" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-59" target="_S85EtpJ_mDBhJI4Y0lZ-46">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-59" value="pSymm&lt;div&gt;Data Store&lt;/div&gt;" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3243.75" y="-2850" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-61" value="Inventory&lt;div&gt;&lt;ul&gt;&lt;li&gt;Read Current&lt;/li&gt;&lt;li style=&quot;&quot;&gt;Update New&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="3232.5" y="-2955" width="130" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-63" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="3530" y="-2810" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-66" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-65" target="_S85EtpJ_mDBhJI4Y0lZ-46">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-65" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2938.75" y="-2820" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-67" value="Market Data for&lt;div&gt;Underlying Asset Prices&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3060" y="-2980" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-68" value="New Orders for&lt;div&gt;Rebalance&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3410" y="-2970" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-80" value="Sub-Accounts Status" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3060" y="-2900" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-81" value="&lt;div&gt;Sub-Accounts Transfer&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3480" y="-2885" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-82" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-86" target="_S85EtpJ_mDBhJI4Y0lZ-87">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-83" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-86" target="_S85EtpJ_mDBhJI4Y0lZ-91">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1979.96" y="-1845" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-84" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-86" target="_S85EtpJ_mDBhJI4Y0lZ-89">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1945.5769230769229" y="-1995" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-86" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Request Quote&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1537.5" y="-1895" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-87" value="Depends on:&lt;div&gt;&lt;ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Symbol&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Weights&lt;/span&gt;&lt;/li&gt;&lt;li&gt;Fees: Minting, Burning, Management&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Binance Market Data&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1528.75" y="-2195" width="337.5" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-89" value="&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;Provide pricing of the Index, to keep user informed about amount of Index token their cash collateral can buy, or in case of sell the amount of cash they will receive in return for Index token as collateral.&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&lt;br&gt;&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;&lt;/p&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="-2120" width="220.58" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-90" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-91" target="_S85EtpJ_mDBhJI4Y0lZ-108">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="2240" y="-1845" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-91" value="Quote Response&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;FIX message&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="-1893.75" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-92" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-93" target="_S85EtpJ_mDBhJI4Y0lZ-86">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-93" value="&lt;div&gt;Quote Request&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;FIX message&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="-1893.75" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-94" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-107" target="_S85EtpJ_mDBhJI4Y0lZ-93">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1157.5" y="-1843.1360946745563" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-96" value="Request Quote" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="960" y="-2240" width="1440" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-101" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-102" target="_S85EtpJ_mDBhJI4Y0lZ-86">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-102" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="-1640" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-103" value="Market Data for&lt;div&gt;Underlying Asset Prices&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1500" y="-1755" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-107" value="FIX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="980" y="-1902.5" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-108" value="FIX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2200" y="-1905" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-109" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-113" target="_S85EtpJ_mDBhJI4Y0lZ-114">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-110" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-113" target="_S85EtpJ_mDBhJI4Y0lZ-118">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1979.96" y="-655" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-111" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-113" target="_S85EtpJ_mDBhJI4Y0lZ-116">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1945.5769230769229" y="-805" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-112" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-113" target="_S85EtpJ_mDBhJI4Y0lZ-127">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-138" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-113" target="_S85EtpJ_mDBhJI4Y0lZ-137">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-186" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-113" target="_S85EtpJ_mDBhJI4Y0lZ-185">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-113" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Buy Index&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1527.5" y="-751.25" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-114" value="Depends on:&lt;div&gt;&lt;ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Symbol&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Weights&lt;/span&gt;&lt;/li&gt;&lt;li&gt;Fees: Minting, Management&lt;/li&gt;&lt;li&gt;Current Inventory State&lt;/li&gt;&lt;li&gt;Binance Market Data&lt;/li&gt;&lt;li&gt;Binance Order Sending&lt;/li&gt;&lt;li&gt;Collateral Routing&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1518.75" y="-1000" width="337.5" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-116" value="&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;To provide a method of minting Index tokens in return for cash from the users charging them fees for that.&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&lt;br&gt;&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;&lt;/p&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="-950" width="220.58" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-117" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-118" target="_S85EtpJ_mDBhJI4Y0lZ-135">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="2240" y="-655" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-118" value="&lt;div&gt;Execution Report&lt;/div&gt;&lt;div&gt;w/ FILLs and CANCEL,&lt;/div&gt;&lt;div&gt;and possibly MINT info&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&amp;lt;&amp;lt;FIX message&amp;gt;&amp;gt;" style="html=1;shadow=0;dashed=0;align=left;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1920" y="-750" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-119" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-120" target="_S85EtpJ_mDBhJI4Y0lZ-113">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1424.6052285353117" y="-649.4931259050554" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-120" value="&lt;div&gt;New Order Single (BUY)&lt;/div&gt;&lt;div&gt;w/ Index Symbol&lt;/div&gt;&lt;div&gt;and Collateral Amount&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;FIX message&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=right;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;spacingRight=20;" vertex="1" parent="1">
+          <mxGeometry x="1212.5" y="-690.5" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-121" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-134" target="_S85EtpJ_mDBhJI4Y0lZ-120">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1157.5" y="-653.1360946745563" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-123" value="Buy Index" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="960" y="-1050" width="1440" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-124" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-125" target="_S85EtpJ_mDBhJI4Y0lZ-113">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-125" value="pSymm&lt;div&gt;Data Store&lt;/div&gt;" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1502.5" y="-417.5" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-126" value="Inventory&lt;div&gt;&lt;ul&gt;&lt;li&gt;Read Current&lt;/li&gt;&lt;li style=&quot;&quot;&gt;Update New&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1562.5" y="-515" width="130" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-127" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1930" y="-420" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-128" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-129" target="_S85EtpJ_mDBhJI4Y0lZ-113">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-129" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1192.5" y="-445" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-130" value="Market Data for&lt;div&gt;Underlying Asset Prices&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="-590" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-131" value="New Orders for&lt;div&gt;Index Order&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1872.5" y="-505" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-132" value="Sub-Accounts Status" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1352.5" y="-510" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-133" value="&lt;div&gt;Sub-Accounts Transfer&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1732.5" y="-630" width="97.5" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-134" value="FIX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="972.5" y="-596.25" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-135" value="FIX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2182.5" y="-761.25" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-137" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1732.5" y="-420" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-139" value="&lt;div&gt;&lt;div&gt;Collateral&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Query Status&lt;/li&gt;&lt;li&gt;Collateral Transfer&lt;/li&gt;&lt;li&gt;&lt;b&gt;Mint&lt;/b&gt;&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=left;spacingLeft=5;spacingTop=5;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1707.5" y="-540" width="150" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-146" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-143" target="_S85EtpJ_mDBhJI4Y0lZ-144">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-143" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="982.5" y="-890" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-145" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-144" target="_S85EtpJ_mDBhJI4Y0lZ-113">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1424.9350361210031" y="-661.4411809451053" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-144" value="&lt;div&gt;Deposit&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;On-Chain event&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=right;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;spacingRight=20;" vertex="1" parent="1">
+          <mxGeometry x="1212.5" y="-820" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-150" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-155" target="_S85EtpJ_mDBhJI4Y0lZ-156">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-151" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-155" target="_S85EtpJ_mDBhJI4Y0lZ-159">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3579.96" y="-655" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-152" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-155" target="_S85EtpJ_mDBhJI4Y0lZ-157">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3545.576923076923" y="-805" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-153" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-155" target="_S85EtpJ_mDBhJI4Y0lZ-167">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-154" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-155" target="_S85EtpJ_mDBhJI4Y0lZ-176">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-155" value="&lt;div&gt;&lt;span style=&quot;font-size: 18px;&quot;&gt;Sell Index&lt;/span&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="3127.5" y="-751.25" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-156" value="Depends on:&lt;div&gt;&lt;ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Symbol&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;Index Weights&lt;/span&gt;&lt;/li&gt;&lt;li&gt;Fees: Burning, Management&lt;/li&gt;&lt;li&gt;Current Inventory State&lt;/li&gt;&lt;li&gt;Binance Market Data&lt;/li&gt;&lt;li&gt;Binance Order Sending&lt;/li&gt;&lt;li&gt;Collateral Routing&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="3118.75" y="-1000" width="337.5" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-157" value="&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;To provide a method to the users of exchanging Index tokens for cash while charging them fees.&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&lt;br&gt;&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;&lt;/p&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3560" y="-950" width="220.58" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-158" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-159" target="_S85EtpJ_mDBhJI4Y0lZ-175">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3840" y="-655" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-159" value="&lt;div&gt;Execution Report&lt;/div&gt;&lt;div&gt;w/ FILLs and CANCEL,&lt;/div&gt;&lt;div&gt;and possibly BURN info&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&amp;lt;&amp;lt;FIX message&amp;gt;&amp;gt;" style="html=1;shadow=0;dashed=0;align=left;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="3520" y="-750" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-160" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-161" target="_S85EtpJ_mDBhJI4Y0lZ-155">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3024.6052285353117" y="-649.4931259050554" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-161" value="&lt;div&gt;New Order Single (SELL)&lt;/div&gt;&lt;div&gt;w/ Index Symbol&lt;/div&gt;&lt;div&gt;and Index Token Amount&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;FIX message&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=right;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;spacingRight=20;" vertex="1" parent="1">
+          <mxGeometry x="2812.5" y="-690.5" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-162" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-174" target="_S85EtpJ_mDBhJI4Y0lZ-161">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="2757.5" y="-653.1360946745563" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-163" value="Sell Index" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="2560" y="-1050" width="1440" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-164" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-165" target="_S85EtpJ_mDBhJI4Y0lZ-155">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-165" value="pSymm&lt;div&gt;Data Store&lt;/div&gt;" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3102.5" y="-417.5" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-166" value="Inventory&lt;div&gt;&lt;ul&gt;&lt;li&gt;Read Current&lt;/li&gt;&lt;li style=&quot;&quot;&gt;Update New&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="3128.75" y="-515" width="130" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-167" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="3530" y="-420" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-168" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-169" target="_S85EtpJ_mDBhJI4Y0lZ-155">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-169" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2792.5" y="-445" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-170" value="Market Data for&lt;div&gt;Underlying Asset Prices&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3060" y="-590" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-171" value="New Orders for&lt;div&gt;Index Order&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3472.5" y="-505" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-172" value="Sub-Accounts Status" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="2952.5" y="-510" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-173" value="&lt;div&gt;Sub-Accounts Transfer&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3345" y="-630" width="97.5" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-174" value="FIX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2572.5" y="-596.25" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-175" value="FIX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="3782.5" y="-761.25" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-176" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3332.5" y="-420" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-177" value="&lt;div&gt;&lt;div&gt;Collateral&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Query Status&lt;/li&gt;&lt;li&gt;Collateral Transfer&lt;/li&gt;&lt;li&gt;&lt;b&gt;Burn&lt;/b&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;Withdraw&lt;/b&gt;&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=left;spacingLeft=5;spacingTop=5;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="3292.5" y="-545" width="150" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-178" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-179" target="_S85EtpJ_mDBhJI4Y0lZ-181">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-179" value="Blockchain" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="2582.5" y="-890" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-180" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-181" target="_S85EtpJ_mDBhJI4Y0lZ-155">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3024.935036121003" y="-661.4411809451053" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-181" value="&lt;div&gt;Withdrawal Request&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;On-Chain event&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=right;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;spacingRight=20;" vertex="1" parent="1">
+          <mxGeometry x="2812.5" y="-820" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-185" value="Guardian" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2050" y="-540" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-187" value="&lt;div&gt;Ask to verify that amount of deposited collateral and amount of Index mined make sense&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1910" y="-630" width="140" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-188" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" edge="1" parent="1" target="_S85EtpJ_mDBhJI4Y0lZ-189" source="_S85EtpJ_mDBhJI4Y0lZ-155">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3570" y="-596.25" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-189" value="Guardian" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="3690" y="-525" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-190" value="&lt;div&gt;Ask to verify that amount of withdrawn collateral and amount of Index burned make sense&lt;/div&gt;" style="whiteSpace=wrap;html=1;shape=mxgraph.basic.document;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3570" y="-620" width="140" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-194" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-191" target="_S85EtpJ_mDBhJI4Y0lZ-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-191" value="&lt;div&gt;Index Deployed&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;div&gt;&amp;lt;&amp;lt;on-chain event&amp;gt;&amp;gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="-3235" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-193" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-192" target="_S85EtpJ_mDBhJI4Y0lZ-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-192" value="&lt;div&gt;Index Data Set&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;div&gt;&amp;lt;&amp;lt;on-chain event&amp;gt;&amp;gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="-3092.5" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-199" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-198" target="_S85EtpJ_mDBhJI4Y0lZ-202">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-198" value="&lt;div&gt;Assets Delisted&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;div&gt;&amp;lt;&amp;lt;RSS Feed or&amp;nbsp;&lt;/div&gt;&lt;div&gt;Manual Event&amp;gt;&amp;gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=0;notch=25.33;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="2830" y="-1911.25" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-201" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-200" target="_S85EtpJ_mDBhJI4Y0lZ-198">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-200" value="CEX" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="2582.5" y="-1922.5" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-204" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-202" target="_S85EtpJ_mDBhJI4Y0lZ-203">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-202" value="Handle Delisted Assets" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="3080" y="-1911.25" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-210" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-203" target="_S85EtpJ_mDBhJI4Y0lZ-208">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-203" value="Curator Weights Set&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;lt;&amp;lt;On-Chain event&amp;gt;&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;align=center;verticalAlign=middle;shape=mxgraph.arrows2.arrow;dy=0;dx=30;notch=0;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="3500" y="-1910" width="190" height="97.5" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-205" value="Handle Delisted Assets" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=160;height=40;dashed=1;dashPattern=12 12;" vertex="1" parent="1">
+          <mxGeometry x="2560" y="-2240" width="1440" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-206" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" target="_S85EtpJ_mDBhJI4Y0lZ-207" source="_S85EtpJ_mDBhJI4Y0lZ-202">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3616.826923076923" y="-1930" as="targetPoint" />
+            <mxPoint x="3456.25" y="-1830" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-207" value="&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal; text-align: start;&quot; class=&quot;p1&quot;&gt;To ensure we hold underlying assets for released Index.&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&lt;br&gt;&lt;/p&gt;&lt;p style=&quot;margin: 0px; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-size-adjust: none; font-kerning: auto; font-optical-sizing: auto; font-feature-settings: normal; font-variation-settings: normal; font-variant-position: normal; font-stretch: normal; line-height: normal;&quot; class=&quot;p1&quot;&gt;&amp;lt;&amp;lt;goal&amp;gt;&amp;gt;&lt;/p&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;spacingLeft=10;spacingBottom=10;spacingTop=10;spacingRight=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3489.42" y="-2145" width="220.58" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-208" value="&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Blockchain&lt;/span&gt;&lt;/div&gt;" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;" vertex="1" parent="1">
+          <mxGeometry x="3782.5" y="-1922.5" width="107.5" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-211" value="Depends on:&lt;div&gt;&lt;ul&gt;&lt;li&gt;Curator Decision&lt;/li&gt;&lt;li&gt;Choice of new Underlying assets&lt;/li&gt;&lt;li&gt;Choice of new weights&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="3071.25" y="-2180" width="337.5" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-212" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="_S85EtpJ_mDBhJI4Y0lZ-202" target="_S85EtpJ_mDBhJI4Y0lZ-211">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="3436" y="-1985" as="targetPoint" />
+            <mxPoint x="3319" y="-1901" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_S85EtpJ_mDBhJI4Y0lZ-214" value="&lt;div style=&quot;text-align: justify;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;This process is on the side of Curator.&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;When assets are delisted there needs to be decision made as to whether there are other assets that we will use, and their weights. Once this decision is made curator sets new weights for the new assets, and we follow Rebalance process.&lt;/span&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;align=left;spacingLeft=10;spacingRight=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="3080" y="-1755" width="310" height="200" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
