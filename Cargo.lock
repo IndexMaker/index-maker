@@ -211,6 +211,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-evm-connector"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "chrono",
+ "eyre",
+ "futures-util",
+ "index-maker",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.9.1",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "alloy-genesis"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1502,6 +1521,7 @@ dependencies = [
 name = "examples"
 version = "0.1.0"
 dependencies = [
+ "alloy-evm-connector",
  "binance-market-data",
  "binance_spot_connector_rust",
  "crossbeam",

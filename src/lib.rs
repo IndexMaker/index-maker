@@ -4,9 +4,6 @@ pub mod assets {
 
 pub mod blockchain {
     pub mod chain_connector;
-    pub mod evm {
-        pub mod evm_connector;
-    }
 }
 
 pub mod collateral {

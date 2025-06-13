@@ -1,8 +1,8 @@
 use std::{thread::sleep, time::Duration};
 
+use alloy_evm_connector::evm_connector::EvmConnector;
 use index_maker::{
-    blockchain::{chain_connector::ChainNotification, evm::{evm_connector::EvmConnector}},
-    core::functional::IntoObservableSingle,
+    blockchain::chain_connector::ChainNotification, core::functional::IntoObservableSingle,
 };
 use itertools::Itertools;
 
