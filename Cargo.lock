@@ -811,6 +811,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "axum-fix-server"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "futures-util",
+ "index-maker",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.9.1",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1502,6 +1519,7 @@ dependencies = [
 name = "examples"
 version = "0.1.0"
 dependencies = [
+ "axum-fix-server",
  "binance-market-data",
  "binance_spot_connector_rust",
  "crossbeam",

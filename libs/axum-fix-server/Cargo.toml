@@ -1,0 +1,19 @@
+[package]
+name = "axum-fix-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+index-maker = { path = "../.." }
+eyre = { workspace = true }
+futures-util = "0.3.31"
+itertools = { workspace = true }
+parking_lot = { workspace = true }
+rand = "0.9.1"
+rust_decimal = "1.37.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.45.1", features = ["full"] }
+tokio-util = "0.7.15"
+
