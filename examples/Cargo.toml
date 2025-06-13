@@ -35,3 +35,7 @@ path="binance_market_data/market_data_connector.rs"
 [[example]]
 name="fix_server_fix_server"
 path="fix_server/fix_server.rs"
+
+[[example]]
+name="evm_connector"
+path="evm_connector/main.rs"
