@@ -12,7 +12,8 @@ use tokio::{
     task::JoinError,
 };
 
-use crate::async_loop::AsyncLoop;
+use async_core::async_loop::AsyncLoop;
+
 use crate::subscribers::Subscribers;
 use crate::subscriptions::Subscriptions;
 

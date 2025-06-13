@@ -1,7 +1,9 @@
 [workspace]
 members = [
     ".",
+    "libs/async-core",
     "libs/binance-market-data",
+    "libs/binance-order-sending",
     "examples",
     "proc-macros/safe-math",
 ]
@@ -14,7 +16,7 @@ autoexamples = false
 
 [dependencies]
 alloy = "0.14.0"
-chrono = "0.4.40"
+chrono = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
 intrusive-collections = "0.9.7"
@@ -30,6 +32,7 @@ paste = "1.0.15"
 test-case = "*"
 
 [workspace.dependencies]
+chrono = "0.4.40"
 crossbeam = "0.8.4"
 eyre = "0.6.12"
 itertools = "0.14.0"

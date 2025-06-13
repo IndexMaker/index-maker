@@ -22,7 +22,8 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{async_loop::AsyncLoop, book::Books, subscriptions::Subscriptions};
+use async_core::async_loop::AsyncLoop;
+use crate::{book::Books, subscriptions::Subscriptions};
 
 pub struct Subscriber {
     subscriptions: Arc<AtomicLock<Subscriptions>>,

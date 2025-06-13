@@ -70,6 +70,11 @@ pub trait IntoObservableSingle<T>: Send + Sync {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<T>;
 }
 
+pub trait IntoObservableSingleArc<T>: Send + Sync {
+    fn get_single_observer_arc(&mut self) -> &Arc<RwLock<SingleObserver<T>>>;
+}
+
+
 /// Notifications can be handled by multiple handler, and so they must be passed
 /// by reference
 pub trait NotificationHandler<T>: Send + Sync {

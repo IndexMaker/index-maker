@@ -761,6 +761,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-core"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "futures-util",
+ "itertools 0.14.0",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -847,7 +858,28 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 name = "binance-market-data"
 version = "0.1.0"
 dependencies = [
+ "async-core",
  "binance_spot_connector_rust",
+ "eyre",
+ "futures-util",
+ "index-maker",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.9.1",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "binance-order-sending"
+version = "0.1.0"
+dependencies = [
+ "async-core",
+ "binance_spot_connector_rust",
+ "chrono",
  "eyre",
  "futures-util",
  "index-maker",
@@ -1503,7 +1535,9 @@ name = "examples"
 version = "0.1.0"
 dependencies = [
  "binance-market-data",
+ "binance-order-sending",
  "binance_spot_connector_rust",
+ "chrono",
  "crossbeam",
  "eyre",
  "futures-util",
