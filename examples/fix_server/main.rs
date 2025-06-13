@@ -181,11 +181,13 @@ pub async fn main() {
     };
 
     spawn(move || {
-        select!(
-            recv(event_rx) -> res => {
-                handle_server_event_internal(res.unwrap())
-            },
-        )
+        loop {
+            select!(
+                recv(event_rx) -> res => {
+                    handle_server_event_internal(res.unwrap())
+                },
+            )
+        }
     });
 
     fix_server.write().start_server(); //< should launch async task, and return immediatelly
