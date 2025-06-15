@@ -223,6 +223,7 @@ dependencies = [
  "parking_lot",
  "rand 0.9.1",
  "rust_decimal",
+ "safe-math",
  "serde",
  "serde_json",
  "tokio",
@@ -1521,6 +1522,7 @@ dependencies = [
 name = "examples"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "alloy-evm-connector",
  "binance-market-data",
  "binance_spot_connector_rust",

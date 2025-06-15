@@ -8,6 +8,7 @@ publish = false
 index-maker = { path = ".." }
 alloy-evm-connector = { path = "../libs/alloy-evm-connector" }
 binance-market-data = { path = "../libs/binance-market-data" }
+alloy = { workspace = true }
 binance_spot_connector_rust = { version = "1.3.0", features = ["full"] }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
@@ -40,3 +41,7 @@ path="fix_server/fix_server.rs"
 [[example]]
 name="evm_connector"
 path="evm_connector/main.rs"
+
+[[example]]
+name="evm_bridge"
+path="evm_connector/main_bridge.rs"

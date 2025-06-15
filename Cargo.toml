@@ -23,7 +23,7 @@ itertools = { workspace = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 string_cache = { workspace = true }
-safe-math = { path = "./proc-macros/safe-math" }
+safe-math = { workspace = true }
 thiserror = "2.0.12"
 
 [dev-dependencies]
@@ -38,4 +38,5 @@ eyre = "0.6.12"
 itertools = "0.14.0"
 parking_lot = "0.12.4"
 rust_decimal = { version = "1.37.1", features = ["macros"] }
+safe-math = { path = "./proc-macros/safe-math" }
 string_cache = "0.8.9"
