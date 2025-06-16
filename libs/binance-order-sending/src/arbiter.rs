@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_core::async_loop::AsyncLoop;
-use binance_spot_connector_rust::http::Credentials;
 use eyre::Report;
 use index_maker::{
     core::functional::SingleObserver, order_sender::order_connector::OrderConnectorNotification,
@@ -10,7 +9,7 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
-use crate::{command::SessionCommand, sessions::Sessions, subaccounts::SubAccounts};
+use crate::{session::Credentials, sessions::Sessions, subaccounts::SubAccounts};
 
 /// Arbiter manages open sessions
 ///

@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use binance_spot_connector_rust::http::Credentials;
 use eyre::{eyre, OptionExt, Result};
 use index_maker::{
     core::functional::SingleObserver, order_sender::order_connector::OrderConnectorNotification,
@@ -11,7 +10,10 @@ use index_maker::{
 use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{command::SessionCommand, session::Session};
+use crate::{
+    command::SessionCommand,
+    session::{Credentials, Session},
+};
 
 pub struct Sessions {
     sessions: HashMap<String, Session>,
@@ -33,15 +35,19 @@ impl Sessions {
             Entry::Vacant(entry) => {
                 let (tx, rx) = unbounded_channel();
                 let session = entry.insert(Session::new(tx));
-                session.start(rx, observer, credentials);
-                Ok(())
+                session.start(rx, observer, credentials)
             }
             Entry::Occupied(_) => Err(eyre!("Session already started")),
         }
     }
 
+    pub fn remove_session(&mut self, api_key: &String) -> Option<Session> {
+        self.sessions.remove(api_key)
+    }
+
     pub fn send_command(&self, command: SessionCommand) -> Result<()> {
-        let session = self.sessions
+        let session = self
+            .sessions
             .get(&command.api_key)
             .ok_or_eyre("Failed to find session")?;
 

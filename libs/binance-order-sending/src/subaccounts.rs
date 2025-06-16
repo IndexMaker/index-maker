@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
-use binance_spot_connector_rust::http::Credentials;
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use tokio::sync::mpsc::UnboundedSender;
+
+use crate::session::Credentials;
 
 pub struct SubAccounts {
     subaccount_sender: UnboundedSender<Credentials>,

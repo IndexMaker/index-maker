@@ -1127,9 +1127,7 @@ mod test {
         },
         core::{
             bits::{PricePointEntry, SingleOrder},
-            functional::{
-                IntoObservableMany, IntoObservableSingle
-            },
+            functional::{IntoObservableMany, IntoObservableSingle},
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_name_1, get_mock_asset_name_2, get_mock_index_name_1,
@@ -1146,7 +1144,9 @@ mod test {
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
-            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification, SessionId},
+            order_connector::{
+                test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
+            },
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
@@ -1518,10 +1518,8 @@ mod test {
             (dec!(0.3), dec!(0.1)),
             (dec!(0.1), dec!(0.3)),
         ])));
-        order_connector
-            .write()
-            .implementor
-            .set_observer_fn(move |(sid, e): (SessionId, Arc<SingleOrder>)| {
+        order_connector.write().implementor.set_observer_fn(
+            move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                 let order_connector = order_connector_weak.upgrade().unwrap();
                 let lot_id_1 = lot_ids.write().pop_front().unwrap();
                 let lot_id_2 = lot_ids.write().pop_front().unwrap();
@@ -1590,7 +1588,8 @@ mod test {
                             .unwrap();
                     }))
                     .unwrap();
-            });
+            },
+        );
 
         let (mock_chain_sender, mock_chain_receiver) = unbounded::<MockChainInternalNotification>();
         let (mock_bridge_sender, mock_bridge_receiver) =
@@ -1928,9 +1927,12 @@ mod test {
         );
 
         // last trade
-        market_data_connector
-            .write()
-            .notify_trade(get_mock_asset_name_1(), 3, dec!(90.0), dec!(5.0));
+        market_data_connector.write().notify_trade(
+            get_mock_asset_name_1(),
+            3,
+            dec!(90.0),
+            dec!(5.0),
+        );
 
         market_data_connector.write().notify_trade(
             get_mock_asset_name_2(),
@@ -2265,7 +2267,9 @@ mod test {
 
         println!(" -> Chain response received");
 
-        order_connector.write().notify_logout("Session-01".into());
+        order_connector
+            .write()
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
         heading("Scenario completed");
     }
 }

@@ -5,8 +5,7 @@ use std::{
     time::Duration,
 };
 
-use binance_order_sending::binance_order_sending::BinanceOrderSending;
-use binance_spot_connector_rust::http::Credentials;
+use binance_order_sending::{binance_order_sending::BinanceOrderSending, session::Credentials};
 use chrono::Utc;
 use crossbeam::{channel::unbounded, select};
 use index_maker::{
@@ -24,7 +23,10 @@ use tokio::{sync::watch::channel, time::sleep};
 pub async fn main() {
     let api_key = env::var("MY_BINANCE_API_KEY").expect("No API key in env");
     let api_secret = env::var("MY_BINANCE_API_SECRET").expect("No API secret in env");
-    let credentials = Credentials::from_hmac(api_key, api_secret);
+    let credentials = Credentials {
+        api_key,
+        get_secret_fn: Box::new(move || api_secret.clone()),
+    };
 
     let (event_tx, event_rx) = unbounded::<OrderConnectorNotification>();
 
@@ -45,7 +47,7 @@ pub async fn main() {
                 .send(Some(session_id))
                 .expect("Failed to notify session logon");
         }
-        OrderConnectorNotification::SessionLogout { session_id } => {
+        OrderConnectorNotification::SessionLogout { session_id, reason } => {
             println!("(binance-order-sender-main) Session Logout {}", session_id);
             sess_tx.send(None).expect("Failed to notify session logout");
         }
@@ -98,12 +100,12 @@ pub async fn main() {
 
     // wait for logon
     let session_id = sess_rx
-        .wait_for(|v| v.is_some())
+        .wait_for(|v| true)
         .await
         .expect("Failed to await logon")
         .as_ref()
         .cloned()
-        .unwrap();
+        .expect("Session not logged on");
 
     order_sender
         .write()

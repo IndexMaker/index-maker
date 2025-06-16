@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use binance_spot_connector_rust::http::Credentials;
 use eyre::{eyre, OptionExt, Result};
 use index_maker::{
     core::{
@@ -15,6 +14,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use crate::{
     arbiter::Arbiter,
     command::{Command, SessionCommand},
+    session::Credentials,
     sessions::Sessions,
     subaccounts::SubAccounts,
 };
@@ -78,13 +78,10 @@ impl BinanceOrderSending {
 
 impl OrderConnector for BinanceOrderSending {
     fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()> {
-        self.sessions
-            .read()
-            .send_command(SessionCommand {
-                api_key: session_id.0.clone(),
-                command: Command::NewOrder(order.clone()),
-            })
-            .map_err(|err| eyre!("Failed to send new order: {}", err))
+        self.sessions.read().send_command(SessionCommand {
+            api_key: session_id.0.clone(),
+            command: Command::NewOrder(order.clone()),
+        })
     }
 }
 

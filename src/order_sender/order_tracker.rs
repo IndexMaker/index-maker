@@ -164,8 +164,11 @@ impl OrderTracker {
                 }
                 Ok(())
             }
-            OrderConnectorNotification::SessionLogout { session_id } => {
-                println!("(order-tracker) Session diconnected: {}", session_id);
+            OrderConnectorNotification::SessionLogout { session_id, reason } => {
+                println!(
+                    "(order-tracker) Session diconnected: {}, Reason: {}",
+                    session_id, reason
+                );
                 self.session = None;
                 Ok(())
             }
@@ -478,7 +481,9 @@ mod test {
             .expect("Failed to send order");
         run_mock_deferred(&deferred_actions);
 
-        order_connector.write().notify_logout("Session-01".into());
+        order_connector
+            .write()
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
         run_mock_deferred(&deferred_actions);
 
         test_mock_atomic_bool(&flag_fill_1);

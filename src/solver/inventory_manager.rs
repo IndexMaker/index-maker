@@ -978,7 +978,9 @@ mod test {
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
         }
 
-        order_connector.write().notify_logout("Session-01".into());
+        order_connector
+            .write()
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
         run_mock_deferred(&deferred);
     }
 }

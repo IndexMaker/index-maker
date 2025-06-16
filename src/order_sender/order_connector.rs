@@ -29,6 +29,7 @@ pub enum OrderConnectorNotification {
     },
     SessionLogout {
         session_id: SessionId,
+        reason: String,
     },
     Fill {
         order_id: OrderId,
@@ -95,9 +96,9 @@ pub mod test_util {
                 .publish_single(OrderConnectorNotification::SessionLogon { session_id });
         }
 
-        pub fn notify_logout(&self, session_id: SessionId) {
+        pub fn notify_logout(&self, session_id: SessionId, reason: String) {
             self.observer
-                .publish_single(OrderConnectorNotification::SessionLogout { session_id });
+                .publish_single(OrderConnectorNotification::SessionLogout { session_id, reason });
         }
 
         /// Receive fills from exchange, and publish an event to subscrber (-> Order Tracker)
@@ -254,7 +255,7 @@ pub mod test {
                         OrderConnectorNotification::SessionLogon { session_id } => {
                             assert_eq!(session_id, SessionId("Session-01".to_owned()));
                         }
-                        OrderConnectorNotification::SessionLogout { session_id } => {
+                        OrderConnectorNotification::SessionLogout { session_id, reason } => {
                             assert_eq!(session_id, SessionId("Session-01".to_owned()));
                         }
                         OrderConnectorNotification::Fill {
@@ -319,7 +320,7 @@ pub mod test {
             )
             .unwrap();
 
-        order_connector_1.write().notify_logout("Session-01".into());
+        order_connector_1.write().notify_logout("Session-01".into(), "Session disconnected".to_owned());
 
         run_mock_deferred(&rx);
         test_mock_atomic_bool(&flag_1);
