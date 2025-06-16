@@ -31,10 +31,6 @@ name="binance_market_data_book_building"
 path="binance_market_data/book_building.rs"
 
 [[example]]
-name="binance_market_data_market_data_connector"
-path="binance_market_data/market_data_connector.rs"
-
-[[example]]
 name="binance_order_sending_all_orders"
 path="binance_order_sending/all_orders.rs"
 

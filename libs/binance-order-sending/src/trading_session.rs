@@ -7,11 +7,10 @@ use binance_sdk::spot::websocket_api::{
 };
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use eyre::{eyre, Result};
-use index_maker::core::functional::{PublishSingle, SingleObserver};
+use index_maker::core::functional::SingleObserver;
 use index_maker::order_sender::order_connector::{OrderConnectorNotification, SessionId};
 use parking_lot::RwLock as AtomicLock;
 use serde_json::Value;
-use tokio::select;
 
 use crate::command::Command;
 use crate::session::Credentials;

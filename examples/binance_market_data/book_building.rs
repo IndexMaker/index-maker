@@ -13,7 +13,7 @@ use index_maker::{
     market_data::{
         market_data_connector::{MarketDataConnector, MarketDataEvent},
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager, PricePointBookManager},
-        price_tracker::{self, PriceEvent, PriceTracker},
+        price_tracker::{PriceEvent, PriceTracker},
     },
 };
 use parking_lot::RwLock;

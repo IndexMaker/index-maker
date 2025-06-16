@@ -1,9 +1,4 @@
-use std::{
-    env,
-    sync::{atomic::AtomicPtr, Arc},
-    thread::spawn,
-    time::Duration,
-};
+use std::{env, sync::Arc, thread::spawn, time::Duration};
 
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, session::Credentials};
 use chrono::Utc;
@@ -13,7 +8,7 @@ use index_maker::{
         bits::{Side, SingleOrder},
         functional::IntoObservableSingleArc,
     },
-    order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
+    order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;

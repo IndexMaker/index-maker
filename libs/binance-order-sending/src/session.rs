@@ -1,21 +1,14 @@
 use std::sync::Arc;
-use std::thread::{self, spawn};
 
 use async_core::async_loop::AsyncLoop;
-use chrono::Utc;
 use eyre::{eyre, Report, Result};
-use futures_util::StreamExt;
 use index_maker::order_sender::order_connector::SessionId;
 use index_maker::{
-    core::{
-        bits::Side,
-        functional::{PublishSingle, SingleObserver},
-    },
+    core::functional::{PublishSingle, SingleObserver},
     order_sender::order_connector::OrderConnectorNotification,
 };
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
-use rust_decimal::dec;
 use tokio::task::JoinError;
 use tokio::{
     select,
@@ -23,7 +16,7 @@ use tokio::{
 };
 
 use crate::command::Command;
-use crate::trading_session::{self, TradingSession, TradingSessionBuilder};
+use crate::trading_session::TradingSessionBuilder;
 
 pub struct Credentials {
     pub api_key: String,
