@@ -90,6 +90,16 @@ pub mod test_util {
             }
         }
 
+        pub fn notify_logon(&self, session_id: SessionId) {
+            self.observer
+                .publish_single(OrderConnectorNotification::SessionLogon { session_id });
+        }
+
+        pub fn notify_logout(&self, session_id: SessionId) {
+            self.observer
+                .publish_single(OrderConnectorNotification::SessionLogout { session_id });
+        }
+
         /// Receive fills from exchange, and publish an event to subscrber (-> Order Tracker)
         pub fn notify_fill(
             &self,
@@ -241,11 +251,11 @@ pub mod test {
                 tx_2.send(Box::new(move || {
                     let tolerance = dec!(0.01);
                     match e {
-                        OrderConnectorNotification::SessionLogon { session_id: _ } => {
-                            assert!(false)
+                        OrderConnectorNotification::SessionLogon { session_id } => {
+                            assert_eq!(session_id, SessionId("Session-01".to_owned()));
                         }
-                        OrderConnectorNotification::SessionLogout { session_id: _ } => {
-                            assert!(false)
+                        OrderConnectorNotification::SessionLogout { session_id } => {
+                            assert_eq!(session_id, SessionId("Session-01".to_owned()));
                         }
                         OrderConnectorNotification::Fill {
                             symbol,
@@ -286,6 +296,7 @@ pub mod test {
             });
 
         order_connector_1.write().connect();
+        order_connector_1.write().notify_logon("Session-01".into());
 
         assert!(order_connector_1
             .read()
@@ -307,6 +318,8 @@ pub mod test {
                 }),
             )
             .unwrap();
+
+        order_connector_1.write().notify_logout("Session-01".into());
 
         run_mock_deferred(&rx);
         test_mock_atomic_bool(&flag_1);

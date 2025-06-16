@@ -371,7 +371,9 @@ mod test {
             test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
         },
         order_sender::{
-            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification, SessionId},
+            order_connector::{
+                test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
+            },
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
     };
@@ -461,24 +463,28 @@ mod test {
         let mut closed_lot = None;
         assert!(matches!(closed_lot, None));
 
+        // Make sure Order Connector sends events to Order Tracker
+        let order_tracker_1 = Arc::downgrade(&order_tracker);
+        order_connector
+            .write()
+            .get_single_observer_mut()
+            .set_observer_fn(move |e: OrderConnectorNotification| {
+                let order_tracker = order_tracker_1.upgrade().unwrap();
+                defer_1
+                    .send(Box::new(move || {
+                        order_tracker.write().handle_order_notification(e).unwrap();
+                    }))
+                    .expect("Failed to defer");
+            });
+
+        order_connector.write().connect();
+        order_connector.write().notify_logon("Session-01".into());
+        run_mock_deferred(&deferred);
+
         //
         // Part I. Let's open some lots!
         //
         {
-            // Make sure Order Connector sends events to Order Tracker
-            let order_tracker_1 = Arc::downgrade(&order_tracker);
-            order_connector
-                .write()
-                .get_single_observer_mut()
-                .set_observer_fn(move |e: OrderConnectorNotification| {
-                    let order_tracker = order_tracker_1.upgrade().unwrap();
-                    defer_1
-                        .send(Box::new(move || {
-                            order_tracker.write().handle_order_notification(e);
-                        }))
-                        .expect("Failed to defer");
-                });
-
             // Make sure Order Tracker sends events to Inventory Manager
             let inventory_manager_1 = Arc::downgrade(&inventory_manager);
             order_tracker
@@ -501,10 +507,8 @@ mod test {
             let lot1_id_1 = buy_lot1_id.clone();
             let lot2_id_1 = buy_lot2_id.clone();
             let timestamp_1 = buy_timestamp.clone();
-            order_connector
-                .write()
-                .implementor
-                .set_observer_fn(move |(sid, e): (SessionId, Arc<SingleOrder>)| {
+            order_connector.write().implementor.set_observer_fn(
+                move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                     let lot1_id = lot1_id_1.clone();
                     let lot2_id = lot2_id_1.clone();
                     let timestamp = timestamp_1.clone();
@@ -533,7 +537,8 @@ mod test {
                             );
                         }))
                         .expect("Failed to defer")
-                });
+                },
+            );
 
             let order_id_2 = buy_order_id.clone();
             let batch_order_id_2 = buy_batch_order_id.clone();
@@ -700,10 +705,8 @@ mod test {
             let order_connector_1 = Arc::downgrade(&order_connector);
             let lot1_id_1 = sell_lot1_id.clone();
             let timestamp_1 = sell_timestamp.clone();
-            order_connector
-                .write()
-                .implementor
-                .set_observer_fn(move |(sid, e): (SessionId, Arc<SingleOrder>)| {
+            order_connector.write().implementor.set_observer_fn(
+                move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                     let lot1_id = lot1_id_1.clone();
                     let timestamp = timestamp_1.clone();
                     let order_connector = order_connector_1.upgrade().unwrap();
@@ -721,7 +724,8 @@ mod test {
                             );
                         }))
                         .expect("Failed to defer")
-                });
+                },
+            );
 
             let buy_order_id_1 = buy_order_id.clone();
             let buy_batch_order_id_1 = buy_batch_order_id.clone();
@@ -973,5 +977,8 @@ mod test {
             let lot_tx = lot.lot_transactions.first().unwrap();
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
         }
+
+        order_connector.write().notify_logout("Session-01".into());
+        run_mock_deferred(&deferred);
     }
 }

@@ -1896,6 +1896,7 @@ mod test {
 
         // connect to exchange
         order_connector.write().connect();
+        order_connector.write().notify_logon("Session-01".into());
 
         // connect to exchange
         market_data_connector.write().connect();
@@ -2264,6 +2265,7 @@ mod test {
 
         println!(" -> Chain response received");
 
+        order_connector.write().notify_logout("Session-01".into());
         heading("Scenario completed");
     }
 }

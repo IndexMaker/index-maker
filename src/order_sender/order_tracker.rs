@@ -349,6 +349,7 @@ mod test {
             move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                 let lot_id_1 = lot_id_1.clone();
                 let order_connector = order_connector_weak.upgrade().unwrap();
+                assert_eq!(sid, SessionId("Session-01".to_owned()));
                 defer_1
                     .send(Box::new(move || {
                         order_connector.read().notify_fill(
@@ -388,7 +389,7 @@ mod test {
                 let order_tracker = order_tracker_weak.upgrade().unwrap();
                 defer_2
                     .send(Box::new(move || {
-                        order_tracker.write().handle_order_notification(e);
+                        order_tracker.write().handle_order_notification(e).unwrap();
                     }))
                     .unwrap();
             });
@@ -468,11 +469,16 @@ mod test {
                     .unwrap();
             });
 
+        order_connector.write().notify_logon("Session-01".into());
+        run_mock_deferred(&deferred_actions);
+
         order_tracker
             .write()
             .new_order(order_1.clone())
             .expect("Failed to send order");
+        run_mock_deferred(&deferred_actions);
 
+        order_connector.write().notify_logout("Session-01".into());
         run_mock_deferred(&deferred_actions);
 
         test_mock_atomic_bool(&flag_fill_1);
