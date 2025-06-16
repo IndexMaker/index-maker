@@ -24,7 +24,7 @@ impl Sessions {
         }
     }
 
-    pub async fn add_session(
+    pub fn add_session(
         &mut self,
         credentials: Credentials,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
@@ -40,9 +40,8 @@ impl Sessions {
         }
     }
 
-    pub async fn send_command(&mut self, command: SessionCommand) -> Result<()> {
-        let session = self
-            .sessions
+    pub fn send_command(&self, command: SessionCommand) -> Result<()> {
+        let session = self.sessions
             .get(&command.api_key)
             .ok_or_eyre("Failed to find session")?;
 

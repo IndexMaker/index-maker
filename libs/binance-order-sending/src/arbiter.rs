@@ -13,16 +13,13 @@ use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 use crate::{command::SessionCommand, sessions::Sessions, subaccounts::SubAccounts};
 
 /// Arbiter manages open sessions
-/// 
+///
 /// When started it receives session credentials, and then
 /// opens connection and passes credentials for logon. After
 /// that session is running, and arbiter is forwarding session
 /// commands to target sessions.
 pub struct Arbiter {
-    arbiter_loop: AsyncLoop<(
-        UnboundedReceiver<Credentials>,
-        UnboundedReceiver<SessionCommand>,
-    )>,
+    arbiter_loop: AsyncLoop<UnboundedReceiver<Credentials>>,
 }
 
 impl Arbiter {
@@ -34,13 +31,7 @@ impl Arbiter {
 
     pub async fn stop(
         &mut self,
-    ) -> Result<
-        (
-            UnboundedReceiver<Credentials>,
-            UnboundedReceiver<SessionCommand>,
-        ),
-        Either<JoinError, Report>,
-    > {
+    ) -> Result<UnboundedReceiver<Credentials>, Either<JoinError, Report>> {
         self.arbiter_loop.stop().await
     }
 
@@ -48,10 +39,9 @@ impl Arbiter {
         &mut self,
         subaccounts: Arc<AtomicLock<SubAccounts>>,
         mut subaccount_rx: UnboundedReceiver<Credentials>,
-        mut command_rx: UnboundedReceiver<SessionCommand>,
+        sessions: Arc<AtomicLock<Sessions>>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
-        let mut sessions = Sessions::new();
         self.arbiter_loop.start(async move |cancel_token| {
             loop {
                 select! {
@@ -60,7 +50,7 @@ impl Arbiter {
                     },
                     Some(credentials) = subaccount_rx.recv() => {
                         let api_key = credentials.api_key.clone();
-                        match sessions.add_session(credentials, observer.clone()).await {
+                        match sessions.write().add_session(credentials, observer.clone()) {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
                                 if let Err(err) = suba.add_subaccount_taken(api_key) {
@@ -71,18 +61,10 @@ impl Arbiter {
                                 eprintln!("Error while creating session {:?}", err);
                             }
                         }
-                    },
-                    Some(command) = command_rx.recv() => {
-                        match sessions.send_command(command).await {
-                            Ok(_) => {},
-                            Err(err) => {
-                                eprintln!("Error while sending session command {:?}", err);
-                            }
-                        }
                     }
                 }
             }
-            (subaccount_rx, command_rx)
+            subaccount_rx
         });
     }
 }

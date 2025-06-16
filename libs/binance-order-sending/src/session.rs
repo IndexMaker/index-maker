@@ -52,6 +52,11 @@ impl Session {
                     .await
                     .expect("failed to connect to Binance");
             // conn.send(LOGON, credentials)
+            observer
+                .write()
+                .publish_single(OrderConnectorNotification::SessionLogon {
+                    session_id: credentials.api_key.as_str().into(),
+                });
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {

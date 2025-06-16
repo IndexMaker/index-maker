@@ -1146,7 +1146,7 @@ mod test {
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
-            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
+            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification, SessionId},
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
@@ -1521,7 +1521,7 @@ mod test {
         order_connector
             .write()
             .implementor
-            .set_observer_fn(move |e: Arc<SingleOrder>| {
+            .set_observer_fn(move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                 let order_connector = order_connector_weak.upgrade().unwrap();
                 let lot_id_1 = lot_ids.write().pop_front().unwrap();
                 let lot_id_2 = lot_ids.write().pop_front().unwrap();

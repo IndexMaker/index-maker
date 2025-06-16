@@ -7,14 +7,15 @@ use index_maker::{
         bits::SingleOrder,
         functional::{IntoObservableSingleArc, SingleObserver},
     },
-    order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
+    order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };
 use parking_lot::RwLock as AtomicLock;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{
     arbiter::Arbiter,
     command::{Command, SessionCommand},
+    sessions::Sessions,
     subaccounts::SubAccounts,
 };
 
@@ -22,23 +23,18 @@ pub struct BinanceOrderSending {
     observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     subaccounts: Arc<AtomicLock<SubAccounts>>,
     subaccount_rx: Option<UnboundedReceiver<Credentials>>,
-    command_tx: UnboundedSender<SessionCommand>,
-    command_rx: Option<UnboundedReceiver<SessionCommand>>,
-    api_key: Option<String>,
+    sessions: Arc<AtomicLock<Sessions>>,
     arbiter: Arbiter,
 }
 
 impl BinanceOrderSending {
     pub fn new() -> Self {
         let (subaccount_tx, subaccount_rx) = unbounded_channel();
-        let (command_tx, command_rx) = unbounded_channel();
         Self {
             observer: Arc::new(AtomicLock::new(SingleObserver::new())),
             subaccounts: Arc::new(AtomicLock::new(SubAccounts::new(subaccount_tx))),
             subaccount_rx: Some(subaccount_rx),
-            command_tx,
-            command_rx: Some(command_rx),
-            api_key: None,
+            sessions: Arc::new(AtomicLock::new(Sessions::new())),
             arbiter: Arbiter::new(),
         }
     }
@@ -49,15 +45,10 @@ impl BinanceOrderSending {
             .take()
             .ok_or_eyre("Subaccount receiver unavailable")?;
 
-        let command_rx = self
-            .command_rx
-            .take()
-            .ok_or_eyre("Session command receiver unavailable")?;
-
         self.arbiter.start(
             self.subaccounts.clone(),
             subaccount_rx,
-            command_rx,
+            self.sessions.clone(),
             self.observer.clone(),
         );
 
@@ -65,7 +56,7 @@ impl BinanceOrderSending {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        let (subaccount_rx, command_rx) = self
+        let subaccount_rx = self
             .arbiter
             .stop()
             .await
@@ -77,12 +68,6 @@ impl BinanceOrderSending {
             .then_some(())
             .ok_or_eyre("Invalid state of subaccount receiver")?;
 
-        self.command_rx
-            .replace(command_rx)
-            .is_none()
-            .then_some(())
-            .ok_or_eyre("Invalid state of command receiver")?;
-
         Ok(())
     }
 
@@ -92,19 +77,14 @@ impl BinanceOrderSending {
 }
 
 impl OrderConnector for BinanceOrderSending {
-    fn send_order(&mut self, order: &Arc<SingleOrder>) -> Result<()> {
-        // TODO: we could have multiple sub-accounts, and each would be
-        // identified by its API Key. However for simplicity we use single atm.
-        match &self.api_key {
-            Some(api_key) => self
-                .command_tx
-                .send(SessionCommand {
-                    api_key: api_key.clone(),
-                    command: Command::NewOrder(order.clone()),
-                })
-                .map_err(|err| eyre!("Failed to send new order: {}", err)),
-            None => Err(eyre!("Session not connected")),
-        }
+    fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()> {
+        self.sessions
+            .read()
+            .send_command(SessionCommand {
+                api_key: session_id.0.clone(),
+                command: Command::NewOrder(order.clone()),
+            })
+            .map_err(|err| eyre!("Failed to send new order: {}", err))
     }
 }
 

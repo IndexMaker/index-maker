@@ -371,7 +371,7 @@ mod test {
             test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
         },
         order_sender::{
-            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification},
+            order_connector::{test_util::MockOrderConnector, OrderConnectorNotification, SessionId},
             order_tracker::{OrderTracker, OrderTrackerNotification},
         },
     };
@@ -504,7 +504,7 @@ mod test {
             order_connector
                 .write()
                 .implementor
-                .set_observer_fn(move |e: Arc<SingleOrder>| {
+                .set_observer_fn(move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                     let lot1_id = lot1_id_1.clone();
                     let lot2_id = lot2_id_1.clone();
                     let timestamp = timestamp_1.clone();
@@ -703,7 +703,7 @@ mod test {
             order_connector
                 .write()
                 .implementor
-                .set_observer_fn(move |e: Arc<SingleOrder>| {
+                .set_observer_fn(move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                     let lot1_id = lot1_id_1.clone();
                     let timestamp = timestamp_1.clone();
                     let order_connector = order_connector_1.upgrade().unwrap();
