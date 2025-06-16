@@ -878,10 +878,13 @@ name = "binance-order-sending"
 version = "0.1.0"
 dependencies = [
  "async-core",
+ "base64",
  "binance_spot_connector_rust",
  "chrono",
+ "ed25519-dalek",
  "eyre",
  "futures-util",
+ "hmac",
  "index-maker",
  "itertools 0.14.0",
  "parking_lot",
@@ -889,8 +892,12 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha2",
+ "signature",
  "tokio",
+ "tokio-tungstenite",
  "tokio-util",
+ "uuid",
 ]
 
 [[package]]
@@ -4174,6 +4181,7 @@ version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
 dependencies = [
+ "getrandom 0.3.3",
  "js-sys",
  "wasm-bindgen",
 ]

@@ -51,6 +51,7 @@ impl Session {
                 BinanceWebSocketClient::connect_async("wss://ws-api.binance.com:443/ws-api/v3")
                     .await
                     .expect("failed to connect to Binance");
+            println!("(binance-session) Logon");
             // conn.send(LOGON, credentials)
             observer
                 .write()
@@ -65,11 +66,13 @@ impl Session {
                     Some(command) = command_rx.recv() => {
                         match command {
                             Command::NewOrder(order) => {
+                                println!("(binance-session) Command::NewOrder");
                                 // conn.send(ORDER, ...)
                             },
                         }
                     },
                     Some(result) = conn.as_mut().next() => {
+                        println!("(binance-session) OrderConnectorNotification::Fill");
                         // TODO parse message and publish
                         observer.read().publish_single(OrderConnectorNotification::Fill {
                             order_id: "1".into(),
@@ -83,6 +86,12 @@ impl Session {
                     }
                 }
             }
+            println!("(binance-session) Logout");
+            observer
+                .write()
+                .publish_single(OrderConnectorNotification::SessionLogout {
+                    session_id: credentials.api_key.as_str().into(),
+                });
             credentials
         });
     }

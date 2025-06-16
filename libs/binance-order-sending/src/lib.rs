@@ -4,3 +4,5 @@ pub mod command;
 pub mod session;
 pub mod sessions;
 pub mod subaccounts;
+pub mod util;
+pub mod wssutil;

@@ -40,11 +40,13 @@ pub async fn main() {
 
     let handle_event_internal = move |e: OrderConnectorNotification| match e {
         OrderConnectorNotification::SessionLogon { session_id } => {
+            println!("(binance-order-sender-main) Session Logon {}", session_id);
             sess_tx
                 .send(Some(session_id))
                 .expect("Failed to notify session logon");
         }
-        OrderConnectorNotification::SessionLogout { session_id: _ } => {
+        OrderConnectorNotification::SessionLogout { session_id } => {
+            println!("(binance-order-sender-main) Session Logout {}", session_id);
             sess_tx.send(None).expect("Failed to notify session logout");
         }
         OrderConnectorNotification::Fill {
