@@ -19,8 +19,32 @@ use crate::command::Command;
 use crate::trading_session::TradingSessionBuilder;
 
 pub struct Credentials {
-    pub api_key: String,
-    pub get_secret_fn: Box<dyn Fn() -> String + Send + Sync>,
+    api_key: String,
+    get_secret_fn: Box<dyn Fn() -> String + Send + Sync>,
+}
+
+impl Credentials {
+    pub fn new(
+        api_key: String,
+        get_secret_fn: impl Fn() -> String + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            api_key,
+            get_secret_fn: Box::new(get_secret_fn),
+        }
+    }
+
+    pub fn get_api_key(&self) -> String {
+        self.api_key.clone()
+    }
+
+    pub(crate) fn get_api_secret(&self) -> String {
+        (*self.get_secret_fn)()
+    }
+
+    pub(crate) fn into_session_id(&self) -> SessionId {
+        SessionId(self.get_api_key())
+    }
 }
 
 pub struct Session {
@@ -54,7 +78,7 @@ impl Session {
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
             println!("(binance-session) Logon");
-            let session_id = SessionId(credentials.api_key.clone());
+            let session_id = credentials.into_session_id();
 
             let trading_session = match TradingSessionBuilder::build(&credentials).await {
                 Err(err) => {

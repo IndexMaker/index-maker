@@ -17,11 +17,9 @@ use tokio::{sync::watch::channel, time::sleep};
 #[tokio::main]
 pub async fn main() {
     let api_key = env::var("MY_BINANCE_API_KEY").expect("No API key in env");
-    let api_secret = env::var("MY_BINANCE_API_SECRET").expect("No API secret in env");
-    let credentials = Credentials {
-        api_key,
-        get_secret_fn: Box::new(move || api_secret.clone()),
-    };
+    let credentials = Credentials::new(api_key, move || {
+        env::var("MY_BINANCE_API_SECRET").expect("No API secret in env")
+    });
 
     let (event_tx, event_rx) = unbounded::<OrderConnectorNotification>();
 
@@ -43,7 +41,10 @@ pub async fn main() {
                 .expect("Failed to notify session logon");
         }
         OrderConnectorNotification::SessionLogout { session_id, reason } => {
-            println!("(binance-order-sender-main) Session Logout {}", session_id);
+            println!(
+                "(binance-order-sender-main) Session Logout {} - {}",
+                session_id, reason
+            );
             sess_tx.send(None).expect("Failed to notify session logout");
         }
         OrderConnectorNotification::Fill {
@@ -95,7 +96,7 @@ pub async fn main() {
 
     // wait for logon
     let session_id = sess_rx
-        .wait_for(|v| true)
+        .wait_for(|v| v.is_some())
         .await
         .expect("Failed to await logon")
         .as_ref()

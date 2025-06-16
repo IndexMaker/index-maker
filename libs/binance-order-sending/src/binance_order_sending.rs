@@ -79,7 +79,7 @@ impl BinanceOrderSending {
 impl OrderConnector for BinanceOrderSending {
     fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()> {
         self.sessions.read().send_command(SessionCommand {
-            api_key: session_id.0.clone(),
+            session_id,
             command: Command::NewOrder(order.clone()),
         })
     }

@@ -8,6 +8,7 @@ publish = false
 index-maker = { path = ".." }
 binance-market-data = { path = "../libs/binance-market-data" }
 binance-order-sending = { path = "../libs/binance-order-sending" }
+binance-sdk = { version = "1.0.0", features = ["spot"] }
 binance_spot_connector_rust = { version = "1.3.0", features = ["full"] }
 chrono = { workspace = true }
 crossbeam = { workspace = true }
@@ -33,6 +34,10 @@ path="binance_market_data/book_building.rs"
 [[example]]
 name="binance_order_sending_all_orders"
 path="binance_order_sending/all_orders.rs"
+
+[[example]]
+name="binance_order_sending_wss_sample"
+path="binance_order_sending/wss_sample.rs"
 
 [[example]]
 name="binance_order_sending"

@@ -48,7 +48,7 @@ impl Arbiter {
                         break
                     },
                     Some(credentials) = subaccount_rx.recv() => {
-                        let api_key = credentials.api_key.clone();
+                        let api_key = credentials.get_api_key();
                         match sessions.write().add_session(credentials, observer.clone()) {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();

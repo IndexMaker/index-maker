@@ -1671,6 +1671,7 @@ version = "0.1.0"
 dependencies = [
  "binance-market-data",
  "binance-order-sending",
+ "binance-sdk",
  "binance_spot_connector_rust",
  "chrono",
  "crossbeam",

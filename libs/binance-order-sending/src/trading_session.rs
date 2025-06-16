@@ -3,7 +3,7 @@ use std::sync::Arc;
 use binance_sdk::common::websocket::WebsocketStream;
 use binance_sdk::spot;
 use binance_sdk::spot::websocket_api::{
-    OrderPlaceParams, UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi,
+    OrderPlaceParams, UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi, WebsocketApiHandle,
 };
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use eyre::{eyre, Result};
@@ -20,19 +20,20 @@ pub struct TradingSessionBuilder;
 impl TradingSessionBuilder {
     pub async fn build(credentials: &Credentials) -> Result<TradingSession> {
         let configuration = ConfigurationWebsocketApi::builder()
-            .api_key(credentials.api_key.clone())
-            .api_secret((*credentials.get_secret_fn)())
+            .api_key(credentials.get_api_key())
+            .api_secret(credentials.get_api_secret())
             .build()
             .map_err(move |err| eyre!("Failed to build configuration {}", err))?;
 
-        let client = spot::SpotWsApi::production(configuration);
+        let client = spot::SpotWsApi::testnet(configuration);
         let wsapi = client
             .connect()
             .await
             .map_err(move |err| eyre!("Failed to connect to Binance: {}", err))?;
 
         Ok(TradingSession {
-            session_id: SessionId(credentials.api_key.clone()),
+            session_id: credentials.into_session_id(),
+            _client: client,
             wsapi,
         })
     }
@@ -40,6 +41,7 @@ impl TradingSessionBuilder {
 
 pub struct TradingSession {
     session_id: SessionId,
+    _client: WebsocketApiHandle,
     wsapi: WebsocketApi,
 }
 
@@ -84,7 +86,7 @@ impl TradingSession {
                     recv_window: todo!(),
                 };
 
-                self.wsapi.order_place(params);
+                let _ = self.wsapi.order_place(params).await;
                 Ok(())
             }
         }

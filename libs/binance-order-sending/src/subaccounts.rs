@@ -49,7 +49,7 @@ impl SubAccounts {
         let (successes, failures): (Vec<_>, Vec<_>) = symbols
             .into_iter()
             .map(|credentials| {
-                let api_key = credentials.api_key.clone();
+                let api_key = credentials.get_api_key();
                 self.subaccount_sender.send(credentials).map(|_| api_key)
             })
             .partition_result();
