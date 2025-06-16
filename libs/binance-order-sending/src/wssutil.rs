@@ -1,3 +1,4 @@
+use binance_spot_connector_rust::http::Credentials;
 use futures_util::SinkExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -13,6 +14,8 @@ pub struct BinanceWebSocketClient;
 impl BinanceWebSocketClient {
     pub async fn connect_async(
         url: &str,
+        recv_window: Option<u32>,
+        credentials: Option<Credentials>,
     ) -> Result<(WebSocketState<MaybeTlsStream<TcpStream>>, Response), Error> {
         let (socket, response) = connect_async(url).await?;
 
@@ -23,17 +26,27 @@ impl BinanceWebSocketClient {
             println!("* {}", header);
         }
 
-        Ok((WebSocketState::new(socket), response))
+        Ok((WebSocketState::new(socket, recv_window, credentials), response))
     }
 }
 
 pub struct WebSocketState<T> {
     socket: WebSocketStream<T>,
+    recv_window: Option<u32>,
+    credentials: Option<Credentials>,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> WebSocketState<T> {
-    pub fn new(socket: WebSocketStream<T>) -> Self {
-        Self { socket }
+    pub fn new(
+        socket: WebSocketStream<T>,
+        recv_window: Option<u32>,
+        credentials: Option<Credentials>,
+    ) -> Self {
+        Self {
+            socket,
+            recv_window,
+            credentials,
+        }
     }
 
     pub async fn send(&mut self, method: &str, params: impl IntoIterator<Item = &str>) -> String {

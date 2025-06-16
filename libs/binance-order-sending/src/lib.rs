@@ -1,8 +1,10 @@
 pub mod arbiter;
 pub mod binance_order_sending;
 pub mod command;
+pub mod credentials;
 pub mod session;
 pub mod sessions;
+pub mod signing;
 pub mod subaccounts;
 pub mod util;
 pub mod wssutil;
