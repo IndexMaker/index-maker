@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 use crate::{
     core::bits::{Amount, OrderId, Side, SingleOrder, Symbol},
@@ -7,8 +7,30 @@ use crate::{
 use chrono::{DateTime, Utc};
 use eyre::Result;
 
+#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct SessionId(pub String);
+
+impl Display for SessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SessionId({})", self.0)
+    }
+}
+
+impl From<&str> for SessionId {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
 pub enum OrderConnectorNotification {
+    SessionLogon {
+        session_id: SessionId,
+    },
+    SessionLogout {
+        session_id: SessionId,
+        reason: String,
+    },
     Fill {
         order_id: OrderId,
         lot_id: LotId,
@@ -30,7 +52,7 @@ pub enum OrderConnectorNotification {
 
 pub trait OrderConnector: Send + Sync {
     // Send order to exchange (-> Binance)
-    fn send_order(&mut self, order: &Arc<SingleOrder>) -> Result<()>;
+    fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -46,6 +68,7 @@ pub mod test_util {
             bits::{Amount, OrderId, Side, SingleOrder, Symbol},
             functional::{IntoObservableSingle, PublishSingle, SingleObserver},
         },
+        order_sender::order_connector::SessionId,
         solver::position::LotId,
     };
     use chrono::{DateTime, Utc};
@@ -55,7 +78,7 @@ pub mod test_util {
 
     pub struct MockOrderConnector {
         observer: SingleObserver<OrderConnectorNotification>,
-        pub implementor: SingleObserver<Arc<SingleOrder>>,
+        pub implementor: SingleObserver<(SessionId, Arc<SingleOrder>)>,
         pub is_connected: AtomicBool,
     }
 
@@ -66,6 +89,16 @@ pub mod test_util {
                 implementor: SingleObserver::new(),
                 is_connected: AtomicBool::new(false),
             }
+        }
+
+        pub fn notify_logon(&self, session_id: SessionId) {
+            self.observer
+                .publish_single(OrderConnectorNotification::SessionLogon { session_id });
+        }
+
+        pub fn notify_logout(&self, session_id: SessionId, reason: String) {
+            self.observer
+                .publish_single(OrderConnectorNotification::SessionLogout { session_id, reason });
         }
 
         /// Receive fills from exchange, and publish an event to subscrber (-> Order Tracker)
@@ -121,8 +154,8 @@ pub mod test_util {
 
     impl OrderConnector for MockOrderConnector {
         /// Send orders
-        fn send_order(&mut self, order: &Arc<SingleOrder>) -> Result<()> {
-            self.implementor.publish_single(order.clone());
+        fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()> {
+            self.implementor.publish_single((session_id, order.clone()));
             Ok(())
         }
     }
@@ -152,6 +185,7 @@ pub mod test {
                 get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
+        order_sender::order_connector::SessionId,
         solver::position::LotId,
     };
 
@@ -176,10 +210,8 @@ pub mod test {
         let timestamp = Utc::now();
         let fee = dec!(0.10);
 
-        order_connector_1
-            .write()
-            .implementor
-            .set_observer_fn(move |e: Arc<SingleOrder>| {
+        order_connector_1.write().implementor.set_observer_fn(
+            move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                 let lot_id = lot_id_1.clone();
                 let order_connector = order_connector_2.upgrade().unwrap();
                 tx_1.send(Box::new(move || {
@@ -202,7 +234,8 @@ pub mod test {
                     );
                 }))
                 .unwrap();
-            });
+            },
+        );
 
         let order_id_1: OrderId = "Mock01".into();
         let order_id_2 = order_id_1.clone();
@@ -219,6 +252,12 @@ pub mod test {
                 tx_2.send(Box::new(move || {
                     let tolerance = dec!(0.01);
                     match e {
+                        OrderConnectorNotification::SessionLogon { session_id } => {
+                            assert_eq!(session_id, SessionId("Session-01".to_owned()));
+                        }
+                        OrderConnectorNotification::SessionLogout { session_id, reason } => {
+                            assert_eq!(session_id, SessionId("Session-01".to_owned()));
+                        }
                         OrderConnectorNotification::Fill {
                             symbol,
                             order_id,
@@ -258,6 +297,7 @@ pub mod test {
             });
 
         order_connector_1.write().connect();
+        order_connector_1.write().notify_logon("Session-01".into());
 
         assert!(order_connector_1
             .read()
@@ -266,16 +306,21 @@ pub mod test {
 
         order_connector_1
             .write()
-            .send_order(&Arc::new(SingleOrder {
-                order_id: order_id_1.clone(),
-                batch_order_id: "MockOrder".into(),
-                symbol: get_mock_asset_name_1(),
-                side: Side::Buy,
-                price: order_price,
-                quantity: order_quantity,
-                created_timestamp: timestamp,
-            }))
+            .send_order(
+                "Session-01".into(),
+                &Arc::new(SingleOrder {
+                    order_id: order_id_1.clone(),
+                    batch_order_id: "MockOrder".into(),
+                    symbol: get_mock_asset_name_1(),
+                    side: Side::Buy,
+                    price: order_price,
+                    quantity: order_quantity,
+                    created_timestamp: timestamp,
+                }),
+            )
             .unwrap();
+
+        order_connector_1.write().notify_logout("Session-01".into(), "Session disconnected".to_owned());
 
         run_mock_deferred(&rx);
         test_mock_atomic_bool(&flag_1);

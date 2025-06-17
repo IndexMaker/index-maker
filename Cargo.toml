@@ -1,8 +1,9 @@
 [workspace]
 members = [
     ".",
+    "libs/async-core",
     "libs/binance-market-data",
-    "libs/alloy-evm-connector",
+    "libs/binance-order-sending",
     "examples",
     "proc-macros/safe-math",
 ]
