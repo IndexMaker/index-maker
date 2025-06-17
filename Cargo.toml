@@ -4,6 +4,7 @@ members = [
     "libs/axum-fix-server",
     "libs/binance-market-data",
     "examples",
+    "examples/fix_server",
     "proc-macros/safe-math",
 ]
 

@@ -4,12 +4,16 @@ use std::{
     time::Duration,
 };
 
-use axum_fix_server::fix_server::FixServer;
+use axum_fix_server::{
+    server::Server,
+    plugins::server_plugin::{DummyPlugin, ServerPlugin},
+    messages::{MyServerRequest, MyServerResponse},
+};
 use crossbeam::{channel::unbounded, select};
 use index_maker::{
     core::functional::IntoObservableMany,
     server::server::{
-        NewIndexOrderNakReason, Server, ServerEvent, ServerResponse, ServerResponseReason,
+        NewIndexOrderNakReason, ServerEvent, ServerResponse, ServerResponseReason,
     },
 };
 use parking_lot::RwLock;
@@ -74,9 +78,31 @@ fn handle_server_event(event: &Arc<ServerEvent>) {
     }
 }
 
+// Placeholder for plugin; replace with your actual plugin implementation
+struct MyPlugin;
+// Implement ServerPlugin for MyPlugin (minimal example)
+impl ServerPlugin<ServerEvent, ServerResponse> for MyPlugin {
+    fn process_incoming(&self, message: String, session_id: SessionId) -> Result<ServerEvent, Report> {
+        let fix_message = FixMessage(message);
+        MyServerRequest::deserialize_from_fix(fix_message, session_id)
+    }
+
+    fn process_outgoing(&self, response: &dyn ServerResponse) -> Result<String, Report> {
+        let builder = FixMessageBuilder::new();
+        response.serialize_into_fix(builder).map(|msg| msg.0)
+    }
+}
+
+
+
 #[tokio::main]
 pub async fn main() {
-    let fix_server = Arc::new(RwLock::new(FixServer::new()));
+    let plugin = MyPlugin;
+    let fix_server = Arc::new(RwLock::new(
+        Server::<ServerEvent, ServerResponse, MyPlugin>::new(plugin)
+    ));
+    //let plugin = DummyPlugin;
+    //let fix_server = Arc::new(RwLock::new(Server::<MyServerRequest, MyServerResponse, DummyPlugin>::new(plugin)));
 
     let (event_tx, event_rx) = unbounded::<Arc<ServerEvent>>();
 
