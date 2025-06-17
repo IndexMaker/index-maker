@@ -4,8 +4,6 @@ use thiserror::Error;
 
 use crate::core::bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol};
 
-use axum_fix_server::server::ServerRequest;
-use axum_fix_server::server::SessionId;
 pub enum ServerEvent {
     NewIndexOrder {
         chain_id: u32,
@@ -42,29 +40,6 @@ pub enum ServerEvent {
     },
     AccountToCustody,
     CustodyToAccount,
-}
-
-impl ServerRequest for ServerEvent {
-    fn get_session_id(&self) -> SessionId {
-        // Derive a session ID based on the event data; this is a placeholder
-        // You may need to adjust this logic based on your session identification needs
-        match self {
-            ServerEvent::NewIndexOrder { chain_id, address, .. } => {
-                SessionId(format!("session_{}_{}", chain_id, address))
-            }
-            ServerEvent::CancelIndexOrder { chain_id, address, .. } => {
-                SessionId(format!("session_{}_{}", chain_id, address))
-            }
-            ServerEvent::NewQuoteRequest { chain_id, address, .. } => {
-                SessionId(format!("session_{}_{}", chain_id, address))
-            }
-            ServerEvent::CancelQuoteRequest { chain_id, address, .. } => {
-                SessionId(format!("session_{}_{}", chain_id, address))
-            }
-            ServerEvent::AccountToCustody => SessionId("default_session".to_string()),
-            ServerEvent::CustodyToAccount => SessionId("default_session".to_string()),
-        }
-    }
 }
 
 #[derive(Error, Debug)]

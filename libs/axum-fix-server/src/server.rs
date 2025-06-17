@@ -4,60 +4,61 @@ use std::{
     marker::PhantomData,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Weak,
     },
     usize,
 };
 
-use eyre::{eyre, OptionExt, Report, Result};
-use futures_util::FutureExt;
-use index_maker::{
-    core::{
-        bits::Symbol,
-        functional::{MultiObserver, NotificationHandler, PublishMany, PublishSingle, SingleObserver},
-    },
-    market_data::market_data_connector::MarketDataConnector,
-};
-use itertools::{Either, Itertools};
-use tokio::{
-    select, spawn,
-    sync::{
-        mpsc::{channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender},
-        Mutex, RwLock,
-    },
-    task::{spawn_blocking, JoinError, JoinHandle},
-};
 use axum::{
-    extract::{State, WebSocketUpgrade, ws::{WebSocket, Message}}, response::IntoResponse, routing::get, Router,
+    extract::{
+        ws::{Message, WebSocket},
+        State, WebSocketUpgrade,
+    },
+    response::IntoResponse,
+    routing::get,
+    Router,
 };
-use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt};
+use eyre::{eyre, Report, Result};
+use index_maker::core::functional::{MultiObserver, PublishMany, PublishSingle, SingleObserver};
+use itertools::Itertools;
 use std::net::SocketAddr;
-use futures_util::{StreamExt, SinkExt};
+use tokio::{
+    select,
+    sync::{
+        mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender},
+        RwLock,
+    },
+};
 
-use crate::{messages::{FixMessage, FixMessageBuilder, ServerRequest, ServerResponse, SessionId}, plugins::server_plugin::ServerPlugin};
-
+use crate::{
+    messages::{FixMessage, FixMessageBuilder, ServerRequest, ServerResponse, SessionId},
+    plugins::server_plugin::ServerPlugin,
+};
 
 /// Session
 ///
 /// Manages a single client session for sending responses. Holds a sender channel for
 /// responses and a unique session identifier.
-struct Session<Q>
+pub(crate) struct Session<Q>
 where
     Q: ServerResponse,
 {
-    response_tx: Sender<Q>,
+    response_tx: UnboundedSender<Q>,
     session_id: SessionId,
 }
 
-impl <Q> Session<Q>
+impl<Q> Session<Q>
 where
     Q: ServerResponse,
 {
     /// new
     ///
     /// Creates a new Session.
-    pub fn new(tx: Sender<Q>, session_id: SessionId) -> Self {
-        Self { response_tx: tx, session_id }
+    pub fn new(tx: UnboundedSender<Q>, session_id: SessionId) -> Self {
+        Self {
+            response_tx: tx,
+            session_id,
+        }
     }
 
     /// send_response
@@ -65,14 +66,12 @@ where
     /// Sends a response to the client by enqueueing a message
     /// to the receivieng channel held by 'ws_handler'.
     /// Returns a `Result` indicating success or failure.
-    pub async fn send_response(&self, response: Q) -> Result<()> {
+    pub fn send_response(&self, response: Q) -> Result<()> {
         self.response_tx
             .send(response)
-            .await
             .map_err(|err| eyre!("Error {:?}", err))
     }
 }
-
 
 /// Server
 ///
@@ -84,11 +83,11 @@ pub struct Server<R, Q, P>
 where
     R: ServerRequest,
     Q: ServerResponse,
-    P: ServerPlugin <R, Q>,
+    P: ServerPlugin<R, Q>,
 {
-    observer: MultiObserver<Arc<R>>,//Option<Box<dyn Fn(&R)>>,
-    pub implementor: SingleObserver<Q>,
-    sessions: HashMap<SessionId, Arc<RwLock<Session<Q>>>>,
+    me: Weak<RwLock<Self>>,
+    observer: SingleObserver<R>, //Option<Box<dyn Fn(&R)>>,
+    sessions: HashMap<SessionId, Arc<Session<Q>>>,
     session_id_counter: AtomicUsize,
     plugin: P,
 }
@@ -105,45 +104,42 @@ where
     ///
     /// Creates a new instance of `Server`, an empty map of sessions, and a new observer.
     /// Initializes the session ID counter to start from 1.
-    pub fn new(plugin: P) -> Self {
-        Self {
-            observer: MultiObserver::new(),
-            implementor: SingleObserver::new(),
-            sessions: HashMap::new(),
-            session_id_counter: AtomicUsize::new(1),
-            plugin,
-        }
+    pub fn new_arc(plugin: P) -> Arc<RwLock<Self>> {
+        Arc::new_cyclic(|me| {
+            RwLock::new(Self {
+                me: me.clone(),
+                observer: SingleObserver::new(),
+                sessions: HashMap::new(),
+                session_id_counter: AtomicUsize::new(1),
+                plugin,
+            })
+        })
     }
 
-    
-    pub fn start_server(self) {
-        let server_clone = Arc::new(RwLock::new(self)); // Clone the server to move into the thread
+    pub fn start_server(&self) {
+        let my_clone = self.me.upgrade().unwrap();
         tokio::spawn(async move {
             let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
             tracing::debug!("Listening on {}", addr);
 
             let app = Router::new()
                 .route("/ws", get(ws_handler))
-                .with_state(server_clone);
+                .with_state(my_clone);
 
-            if let Err(e) = axum_server::bind(addr)
-                .serve(app.into_make_service())
-                .await
-            {
+            if let Err(e) = axum_server::bind(addr).serve(app.into_make_service()).await {
                 tracing::error!("Server failed to start: {}", e);
             }
         });
     }
 
-
     /// send_response
     ///
     /// Sends a response to the appropriate client session based on the session ID in the response.
     /// Returns a `Result` indicating success or failure if the session is not found.
-    pub async fn send_response(&self, response: Q) -> Result<()> {
+    pub fn send_response(&self, response: Q) -> Result<()> {
         let session_id = response.get_session_id().clone();
         match self.sessions.get(&session_id) {
-            Some(session) => session.write().await.send_response(response).await,
+            Some(session) => session.send_response(response),
             None => Err(eyre!("Oh, no!")),
         }
     }
@@ -152,21 +148,26 @@ where
     ///
     /// Processes an incoming server request by publishing it to all registered observers for processing.
     pub fn handle_server_message(&self, request: R) {
-        self.observer.publish_many(&Arc::new(request));
+        self.observer.publish_single(request);
     }
 
-    
     /// create_session
     ///
     /// Creates a new client session with a unique session ID. Returns a tuple containing
     /// the session handle, a receiver for responses, and the session ID.
-    pub fn create_session(&mut self) -> Result<(Arc<RwLock<Session<Q>>>, Receiver<Q>, SessionId)> {
-        let session_id = SessionId(format!("session_{}", self.session_id_counter.fetch_add(1, Ordering::SeqCst)));
+    pub(crate) fn create_session(
+        &mut self,
+    ) -> Result<(Arc<Session<Q>>, UnboundedReceiver<Q>, SessionId)> {
+        let session_id = SessionId(format!(
+            "session_{}",
+            self.session_id_counter.fetch_add(1, Ordering::SeqCst)
+        ));
         match self.sessions.entry(session_id.clone()) {
             Entry::Occupied(_) => Err(eyre!("Oh, no!")),
             Entry::Vacant(vacant_entry) => {
-                let (tx, rx) = channel(BUFFER_SIZE);
-                let session = vacant_entry.insert(Arc::new(RwLock::new(Session::<Q>::new(tx, session_id.clone()))));
+                let (tx, rx) = unbounded_channel();
+                let session =
+                    vacant_entry.insert(Arc::new(Session::<Q>::new(tx, session_id.clone())));
                 Ok((session.clone(), rx, session_id))
             }
         }
@@ -178,8 +179,11 @@ where
         message
     }
 
-
-    pub async fn process_incoming_message(&self, message: String, session_id: SessionId) -> Result<(), Report> {
+    pub async fn process_incoming_message(
+        &self,
+        message: String,
+        session_id: SessionId,
+    ) -> Result<(), Report> {
         let request = self.plugin.process_incoming(message, session_id)?;
         self.handle_server_message(request);
         Ok(())
@@ -189,11 +193,7 @@ where
         self.plugin.process_outgoing(&response)
     }
 
-    fn respond_with(&mut self, response: Q) {
-        self.implementor.publish_single(response);
-    }
-
-    pub fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<Arc<R>> {
+    pub fn get_multi_observer_mut(&mut self) -> &mut SingleObserver<R> {
         &mut self.observer
     }
 
@@ -206,11 +206,9 @@ where
     // }
 }
 
-
-
 async fn ws_handler<R, Q, P>(
     ws: WebSocketUpgrade,
-    State(server): State<Arc<RwLock<Server<R, Q, P>>>>
+    State(server): State<Arc<RwLock<Server<R, Q, P>>>>,
 ) -> impl IntoResponse
 where
     R: ServerRequest + Send + 'static,

@@ -5,218 +5,97 @@ use std::{
 };
 
 use axum_fix_server::{
+    messages::{
+        FixMessage, FixMessageBuilder, ServerRequest as AxumServerRequest,
+        ServerResponse as AxumServerResponse, SessionId,
+    },
+    plugins::server_plugin::{SerdePlugin, ServerPlugin, Signer},
     server::Server,
-    plugins::server_plugin::{DummyPlugin, ServerPlugin},
-    messages::{MyServerRequest, MyServerResponse},
 };
 use crossbeam::{channel::unbounded, select};
-use index_maker::{
-    core::functional::IntoObservableMany,
-    server::server::{
-        NewIndexOrderNakReason, ServerEvent, ServerResponse, ServerResponseReason,
-    },
-};
+use eyre::Result;
+use index_maker::core::bits::Address;
 use parking_lot::RwLock;
 
-fn handle_server_event(event: &Arc<ServerEvent>) {
-    match event.as_ref() {
-        ServerEvent::NewIndexOrder {
-            chain_id,
-            address,
-            client_order_id,
-            symbol,
-            side,
-            collateral_amount,
-            timestamp,
-        } => {
-            println!(
-                "(fix-server-main) NewIndexOrder {} {} {} {} {:?} {} {}",
-                chain_id, address, client_order_id, symbol, side, collateral_amount, timestamp
-            );
-        }
-        ServerEvent::CancelIndexOrder {
-            chain_id,
-            address,
-            client_order_id,
-            symbol,
-            collateral_amount,
-            timestamp,
-        } => {
-            println!(
-                "(fix-server-main) CancelIndexOrder {} {} {} {} {} {}",
-                chain_id, address, client_order_id, symbol, collateral_amount, timestamp
-            );
-        }
-        ServerEvent::NewQuoteRequest {
-            chain_id,
-            address,
-            client_quote_id,
-            symbol,
-            side,
-            collateral_amount,
-            timestamp,
-        } => {
-            println!(
-                "(fix-server-main) NewQuoteRequest {} {} {} {} {:?} {} {}",
-                chain_id, address, client_quote_id, symbol, side, collateral_amount, timestamp
-            );
-        }
-        ServerEvent::CancelQuoteRequest {
-            chain_id,
-            address,
-            client_quote_id,
-            symbol,
-            timestamp,
-        } => {
-            println!(
-                "(fix-server-main) CancelQuoteRequest {} {} {} {} {}",
-                chain_id, address, client_quote_id, symbol, timestamp
-            );
-        }
-        ServerEvent::AccountToCustody => todo!(),
-        ServerEvent::CustodyToAccount => todo!(),
+fn handle_server_event(event: &ExampleRequest) {
+    println!("{} {} {}", event.session_id, event.address, event.quantity);
+}
+
+struct ExampleRequest {
+    session_id: SessionId,
+    address: Address,
+    quantity: i32,
+}
+
+impl Signer for ExampleRequest {
+    fn get_address(&self) -> &Address {
+        &self.address
     }
 }
 
-// Placeholder for plugin; replace with your actual plugin implementation
-struct MyPlugin;
-// Implement ServerPlugin for MyPlugin (minimal example)
-impl ServerPlugin<ServerEvent, ServerResponse> for MyPlugin {
-    fn process_incoming(&self, message: String, session_id: SessionId) -> Result<ServerEvent, Report> {
-        let fix_message = FixMessage(message);
-        MyServerRequest::deserialize_from_fix(fix_message, session_id)
-    }
+struct ExampleResponse {
+    session_id: SessionId,
+    ack: bool,
+    side: String,
+}
 
-    fn process_outgoing(&self, response: &dyn ServerResponse) -> Result<String, Report> {
-        let builder = FixMessageBuilder::new();
-        response.serialize_into_fix(builder).map(|msg| msg.0)
+impl AxumServerRequest for ExampleRequest {
+    fn deserialize_from_fix(
+        message: FixMessage,
+        session_id: SessionId,
+    ) -> Result<Self, eyre::Error> {
+        todo!()
     }
 }
 
+impl AxumServerResponse for ExampleResponse {
+    fn get_session_id(&self) -> &SessionId {
+        todo!()
+    }
 
+    fn serialize_into_fix(&self, builder: FixMessageBuilder) -> Result<FixMessage, eyre::Error> {
+        todo!()
+    }
+}
 
 #[tokio::main]
 pub async fn main() {
-    let plugin = MyPlugin;
-    let fix_server = Arc::new(RwLock::new(
-        Server::<ServerEvent, ServerResponse, MyPlugin>::new(plugin)
-    ));
+    let plugin = SerdePlugin::<ExampleRequest, ExampleResponse>::new();
+    let fix_server = Server::new_arc(plugin);
     //let plugin = DummyPlugin;
     //let fix_server = Arc::new(RwLock::new(Server::<MyServerRequest, MyServerResponse, DummyPlugin>::new(plugin)));
 
-    let (event_tx, event_rx) = unbounded::<Arc<ServerEvent>>();
+    let (event_tx, event_rx) = unbounded::<ExampleRequest>();
 
     fix_server
         .write()
+        .await
         .get_multi_observer_mut()
-        .add_observer_fn(move |e: &Arc<ServerEvent>| {
-            handle_server_event(e);
-            event_tx.send(e.clone()).unwrap();
+        .set_observer_fn(move |e: ExampleRequest| {
+            handle_server_event(&e);
+            event_tx.send(e).unwrap();
         });
 
     let fix_server_weak = Arc::downgrade(&fix_server);
 
-    let handle_server_event_internal = move |e: Arc<ServerEvent>| {
+    let handle_server_event_internal = move |e: ExampleRequest| {
         let fix_server = fix_server_weak.upgrade().unwrap();
-
-        match e.as_ref() {
-            ServerEvent::NewIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                symbol,
-                side: _,
-                collateral_amount: _,
-                timestamp,
-            } => {
-                if symbol != "I1" {
-                    fix_server
-                        .write()
-                        .respond_with(ServerResponse::NewIndexOrderNak {
-                            chain_id: *chain_id,
-                            address: *address,
-                            client_order_id: client_order_id.clone(),
-                            reason: ServerResponseReason::User(
-                                NewIndexOrderNakReason::OtherReason {
-                                    detail: "Bad symbol".to_owned(),
-                                },
-                            ),
-                            timestamp: *timestamp,
-                        });
-                } else {
-                    fix_server
-                        .write()
-                        .respond_with(ServerResponse::NewIndexOrderAck {
-                            chain_id: *chain_id,
-                            address: *address,
-                            client_order_id: client_order_id.clone(),
-                            timestamp: *timestamp,
-                        });
-                }
-            }
-            ServerEvent::CancelIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                symbol: _,
-                collateral_amount: _,
-                timestamp,
-            } => fix_server
-                .write()
-                .respond_with(ServerResponse::CancelIndexOrderAck { // add NAK case
-                    chain_id: *chain_id,
-                    address: *address,
-                    client_order_id: client_order_id.clone(),
-                    timestamp: *timestamp,
-                }),
-            ServerEvent::NewQuoteRequest {
-                chain_id,
-                address,
-                client_quote_id,
-                symbol: _,
-                side: _,
-                collateral_amount: _,
-                timestamp,
-            } => {
-                fix_server
-                    .write()
-                    .respond_with(ServerResponse::NewIndexQuoteAck { // add NAK case
-                        chain_id: *chain_id,
-                        address: *address,
-                        client_quote_id: client_quote_id.clone(),
-                        timestamp: *timestamp,
-                    });
-            }
-            ServerEvent::CancelQuoteRequest {
-                chain_id,
-                address,
-                client_quote_id,
-                symbol: _,
-                timestamp,
-            } => fix_server
-                .write()
-                .respond_with(ServerResponse::CancelIndexQuoteAck { // add NAK case
-                    chain_id: *chain_id,
-                    address: *address,
-                    client_quote_id: client_quote_id.clone(),
-                    timestamp: *timestamp,
-                }),
-            ServerEvent::AccountToCustody => {}
-            ServerEvent::CustodyToAccount => {}
-        };
+        fix_server.blocking_read().send_response(ExampleResponse {
+            session_id: e.session_id,
+            ack: true,
+            side: "BUY".to_owned(),
+        });
     };
 
-    spawn(move || {
-        loop {
-            select!(
-                recv(event_rx) -> res => {
-                    handle_server_event_internal(res.unwrap())
-                },
-            )
-        }
+    spawn(move || loop {
+        select!(
+            recv(event_rx) -> res => {
+                handle_server_event_internal(res.unwrap())
+            },
+        )
     });
 
-    fix_server.write().start_server(); //< should launch async task, and return immediatelly
+    fix_server.read().await.start_server(); //< should launch async task, and return immediatelly
 
     sleep(Duration::from_secs(600));
 }

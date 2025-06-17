@@ -23,7 +23,10 @@ async fn main() {
                     price,
                     quantity,
                 } => {
-                    println!("(main-observer) Got trade for {} seq {}", symbol, sequence_number);
+                    println!(
+                        "(main-observer) Got trade for {} seq {}",
+                        symbol, sequence_number
+                    );
                 }
                 MarketDataEvent::TopOfBook {
                     symbol,
@@ -41,7 +44,10 @@ async fn main() {
                     bid_updates,
                     ask_updates,
                 } => {
-                    println!("(main-observer) Got snapshot for {} seq {}", symbol, sequence_number);
+                    println!(
+                        "(main-observer) Got snapshot for {} seq {}",
+                        symbol, sequence_number
+                    );
                 }
                 MarketDataEvent::OrderBookDelta {
                     symbol,
@@ -49,7 +55,10 @@ async fn main() {
                     bid_updates,
                     ask_updates,
                 } => {
-                    println!("(main-observer) Got delta for {} seq {}", symbol, sequence_number);
+                    println!(
+                        "(main-observer) Got delta for {} seq {}",
+                        symbol, sequence_number
+                    );
                 }
             };
         });

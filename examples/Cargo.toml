@@ -30,13 +30,5 @@ name="binance_market_data_book_building"
 path="binance_market_data/book_building.rs"
 
 [[example]]
-name="binance_market_data_market_data_connector"
-path="binance_market_data/market_data_connector.rs"
-
-[[example]]
-name="fix_server_fix_server_design"
-path="fix_server/fix_server.rs"
-
-[[example]]
 name="fix_server"
 path="fix_server/main.rs"
