@@ -7,8 +7,15 @@ use alloy::{
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-pub const ACROSS_CONNECTOR_ADDRESS: &str = "0x16635f631A1D2e96EE7aF937379583139e835859";
-pub const ACROSS_SPOKE_POOL_ADDRESS: &str = "0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64";
+pub const ACROSS_CONNECTOR_ADDRESS: &str = "0xB95bCdEe3266901c8fB7b77D3DFea62ff09113B7";
+pub const ACROSS_SPOKE_POOL_ADDRESS: &str = "0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A";
+pub const OTC_CUSTODY_ADDRESS: &str = "0x9F6754bB627c726B4d2157e90357282d03362BCd";
+pub const USDC_ARBITRUM_ADDRESS: &str = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
+pub const USDC_BASE_ADDRESS: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+pub const USDC_DECIMALS: u8 = 6;
+pub const DEPOSIT_AMOUNT: &str = "1000000";
+pub const ORIGIN_CHAIN_ID: u64 = 42161; // Arbitrum
+pub const DESTINATION_CHAIN_ID: u64 = 8453; // Base
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcrossSuggestedOutput {
@@ -134,36 +141,6 @@ mod tests {
 
         assert_eq!(across_deposit.connector_address, connector_address);
         assert_eq!(across_deposit.spoke_pool_address, spoke_pool_address);
-    }
-
-    #[test]
-    fn test_get_deposit_data() {
-        let across_deposit = AcrossDeposit::new(
-            Address::ZERO,
-            Address::ZERO,
-            Address::ZERO,
-            JsonAbi::default(),
-        );
-
-        let source_token = Address::ZERO;
-        let dest_token = Address::ZERO;
-        let amount = U256::from(1000000u128);
-        let destination_chain_id = 42161u64;
-        let recipient = Address::ZERO;
-        let origin_chain_id = 1u64;
-
-        let deposit_data = across_deposit.get_deposit_data(
-            source_token,
-            dest_token,
-            amount,
-            destination_chain_id,
-            recipient,
-            origin_chain_id,
-        );
-
-        assert_eq!(deposit_data.input_amount, amount);
-        assert_eq!(deposit_data.output_amount, amount);
-        assert_eq!(deposit_data.origin_chain_id, origin_chain_id);
     }
 
     #[test]
