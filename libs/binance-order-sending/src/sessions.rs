@@ -5,7 +5,8 @@ use std::{
 
 use eyre::{eyre, OptionExt, Result};
 use index_maker::{
-    core::functional::SingleObserver, order_sender::order_connector::{OrderConnectorNotification, SessionId},
+    core::functional::SingleObserver,
+    order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
 use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::unbounded_channel;

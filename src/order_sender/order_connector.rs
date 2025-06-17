@@ -320,7 +320,9 @@ pub mod test {
             )
             .unwrap();
 
-        order_connector_1.write().notify_logout("Session-01".into(), "Session disconnected".to_owned());
+        order_connector_1
+            .write()
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
 
         run_mock_deferred(&rx);
         test_mock_atomic_bool(&flag_1);

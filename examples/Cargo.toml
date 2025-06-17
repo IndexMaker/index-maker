@@ -5,30 +5,29 @@ edition = "2021"
 publish = false
 
 [dependencies]
-index-maker = { path = ".." }
-binance-market-data = { path = "../libs/binance-market-data" }
-binance-order-sending = { path = "../libs/binance-order-sending" }
-binance-sdk = { version = "1.0.0", features = ["spot"] }
-binance_spot_connector_rust = { version = "1.3.0", features = ["full"] }
+index-maker = { workspace = true }
+binance-market-data = { workspace = true }
+binance-order-sending = { workspace = true }
+binance-sdk = { workspace = true, features = ["spot"] }
 chrono = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
-futures-util = "0.3.31"
+futures-util = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
-rand = "0.9.1"
-rust_decimal = "1.37.1"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = "0.7.15"
+rand = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
 
 [[example]]
-name="binance_market_data_market_data"
+name="binance_market_data"
 path="binance_market_data/market_data.rs"
 
 [[example]]
-name="binance_market_data_book_building"
+name="binance_market_data_book"
 path="binance_market_data/book_building.rs"
 
 [[example]]

@@ -10,7 +10,8 @@ async fn main() {
     let configuration = ConfigurationWebsocketApi::builder()
         .api_key(api_key)
         .api_secret(api_secret)
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let client = spot::SpotWsApi::testnet(configuration);
     let connection = client.connect().await.unwrap();

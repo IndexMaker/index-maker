@@ -4,8 +4,8 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use parking_lot::RwLock;
 use eyre::{eyre, OptionExt, Result};
+use parking_lot::RwLock;
 
 use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
 
@@ -157,7 +157,7 @@ impl SolverClientQuotes {
 
         Ok(())
     }
-    
+
     pub fn cancel_client_order(
         &mut self,
         chain_id: u32,
@@ -205,7 +205,5 @@ impl SolverClientQuotes {
 mod test {
 
     #[test]
-    fn test_solver_quotes() {
-
-    }
+    fn test_solver_quotes() {}
 }

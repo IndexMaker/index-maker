@@ -3,7 +3,8 @@ use std::sync::Arc;
 use binance_sdk::common::websocket::WebsocketStream;
 use binance_sdk::spot;
 use binance_sdk::spot::websocket_api::{
-    OrderPlaceParams, UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi, WebsocketApiHandle,
+    OrderPlaceParams, UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi,
+    WebsocketApiHandle,
 };
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use eyre::{eyre, Result};

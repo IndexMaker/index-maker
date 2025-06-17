@@ -74,7 +74,6 @@ pub trait IntoObservableSingleArc<T>: Send + Sync {
     fn get_single_observer_arc(&mut self) -> &Arc<RwLock<SingleObserver<T>>>;
 }
 
-
 /// Notifications can be handled by multiple handler, and so they must be passed
 /// by reference
 pub trait NotificationHandler<T>: Send + Sync {
@@ -147,7 +146,6 @@ pub trait IntoObservableManyArc<T>: Send + Sync {
     fn get_multi_observer_arc(&mut self) -> &Arc<RwLock<MultiObserver<T>>>;
 }
 
-
 pub mod crossbeam {
     use std::any::type_name;
 
@@ -174,7 +172,6 @@ pub mod crossbeam {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

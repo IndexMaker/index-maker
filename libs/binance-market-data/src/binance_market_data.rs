@@ -1,8 +1,8 @@
 use std::{sync::Arc, usize};
 
 use eyre::{eyre, OptionExt, Result};
+use index_maker::core::bits::Symbol;
 use index_maker::core::functional::{IntoObservableMany, IntoObservableManyArc, MultiObserver};
-use index_maker::{core::bits::Symbol};
 use index_maker::market_data::market_data_connector::{MarketDataConnector, MarketDataEvent};
 use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
@@ -73,4 +73,3 @@ impl IntoObservableManyArc<Arc<MarketDataEvent>> for BinanceMarketData {
         &self.observer
     }
 }
-

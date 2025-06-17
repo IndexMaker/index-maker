@@ -1,16 +1,12 @@
 use std::{sync::Arc, usize};
 
 use eyre::{Report, Result};
+use index_maker::core::bits::Symbol;
 use index_maker::core::functional::MultiObserver;
 use index_maker::market_data::market_data_connector::MarketDataEvent;
-use index_maker::{core::bits::Symbol};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
-use tokio::{
-    select,
-    sync::mpsc::UnboundedReceiver,
-    task::JoinError,
-};
+use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
 use async_core::async_loop::AsyncLoop;
 
@@ -61,11 +57,10 @@ impl Arbiter {
                     }
                 }
             }
-            if let Err(err) = subscribers.stop_all().await { 
+            if let Err(err) = subscribers.stop_all().await {
                 eprintln!("Error stopping subscribers {:?}", err);
             }
             subscription_rx
         });
     }
 }
-

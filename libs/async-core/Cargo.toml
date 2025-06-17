@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 eyre = { workspace = true }
 itertools = { workspace = true }
-futures-util = "0.3.31"
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = "0.7.15"
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
 
