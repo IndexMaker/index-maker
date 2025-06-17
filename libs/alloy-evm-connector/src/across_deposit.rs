@@ -7,6 +7,8 @@ use alloy::{
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+use crate::abis::{ACROSS_CONNECTOR_ABI, ERC20_ABI, OTC_CUSTODY_ABI};
+
 pub const ACROSS_CONNECTOR_ADDRESS: &str = "0xB95bCdEe3266901c8fB7b77D3DFea62ff09113B7";
 pub const ACROSS_SPOKE_POOL_ADDRESS: &str = "0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A";
 pub const OTC_CUSTODY_ADDRESS: &str = "0x9F6754bB627c726B4d2157e90357282d03362BCd";
@@ -26,6 +28,17 @@ pub struct AcrossSuggestedOutput {
 }
 
 pub struct AcrossDeposit {
+    input_token: Address,
+    output_token: Address,
+    deposit_amount: U256,
+    output_amount: U256,
+    destination_chain_id: u64,
+    exclusive_relayer: Address,
+    fill_deadline: u64,
+    exclusivity_deadline: u64,
+}
+
+pub struct AcrossDepositBuilder {
     pub connector_address: Address,
     pub spoke_pool_address: Address,
     pub otc_custody_address: Address,
@@ -33,6 +46,30 @@ pub struct AcrossDeposit {
 }
 
 impl AcrossDeposit {
+    pub fn new(
+        input_token: Address,
+        output_token: Address,
+        deposit_amount: U256,
+        output_amount: U256,
+        destination_chain_id: u64,
+        exclusive_relayer: Address,
+        fill_deadline: u64,
+        exclusivity_deadline: u64,
+    ) -> Self {
+        Self {
+            input_token,
+            output_token,
+            deposit_amount,
+            output_amount,
+            destination_chain_id,
+            exclusive_relayer,
+            fill_deadline,
+            exclusivity_deadline,
+        }
+    }
+}
+
+impl AcrossDepositBuilder {
     pub fn new(
         connector_address: Address,
         spoke_pool_address: Address,
@@ -45,6 +82,24 @@ impl AcrossDeposit {
             otc_custody_address,
             otc_custody_abi,
         }
+    }
+
+    pub fn new_with_default_abis(
+        connector_address: Address,
+        spoke_pool_address: Address,
+        otc_custody_address: Address,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let otc_custody_abi = serde_json::from_str(OTC_CUSTODY_ABI)?;
+        Ok(Self::new(
+            connector_address,
+            spoke_pool_address,
+            otc_custody_address,
+            otc_custody_abi,
+        ))
+    }
+
+    pub fn get_across_connector_abi() -> Result<JsonAbi, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_str(ACROSS_CONNECTOR_ABI)?)
     }
 
     pub async fn across_suggested_output(
@@ -85,34 +140,36 @@ impl AcrossDeposit {
         })
     }
 
-    pub fn encode_deposit_calldata(
-        &self,
-        input_token: Address,
-        output_token: Address,
-        deposit_amount: U256,
-        output_amount: U256,
-        destination_chain_id: u64,
-        exclusive_relayer: Address,
-        fill_deadline: u64,
-        exclusivity_deadline: u64,
-    ) -> Vec<u8> {
+    pub fn encode_deposit_calldata(across_deposit: AcrossDeposit) -> Vec<u8> {
         // Function signature: deposit(address,address,uint256,uint256,uint256,address,uint32,uint32,bytes)
         let function_signature =
             "deposit(address,address,uint256,uint256,uint256,address,uint32,uint32,bytes)";
         let selector = alloy::primitives::keccak256(function_signature.as_bytes())[..4].to_vec();
 
-        // Encode parameters
-        let encoded_params = SolValue::abi_encode_params(&[
-            &input_token,
-            &output_token,
-            &deposit_amount,
-            &output_amount,
-            &destination_chain_id,
-            &exclusive_relayer,
-            &fill_deadline,
-            &exclusivity_deadline,
-            &"0x".to_string(),
-        ]);
+        // Encode parameters as a tuple matching the Solidity signature:
+        // (
+        //  address inputToken,
+        //  address outputToken,
+        //  uint256 depositAmount,
+        //  uint256 outputAmount,
+        //  uint256 destinationChainId,
+        //  address exclusiveRelayer,
+        //  uint32 fillDeadline,
+        //  uint32 exclusivityDeadline,
+        //  bytes  message
+        // )
+
+        let encoded_params = SolValue::abi_encode(&(
+            across_deposit.input_token,
+            across_deposit.output_token,
+            across_deposit.deposit_amount,
+            across_deposit.output_amount,
+            U256::from(across_deposit.destination_chain_id),
+            across_deposit.exclusive_relayer,
+            across_deposit.fill_deadline as u32,
+            across_deposit.exclusivity_deadline as u32,
+            "0x".to_string(),
+        ));
 
         // Concatenate selector and encoded parameters
         let mut calldata = selector;
@@ -132,7 +189,7 @@ mod tests {
         let otc_custody_address = Address::ZERO;
         let otc_custody_abi = JsonAbi::default();
 
-        let across_deposit = AcrossDeposit::new(
+        let across_deposit = AcrossDepositBuilder::new(
             connector_address,
             spoke_pool_address,
             otc_custody_address,
@@ -145,14 +202,7 @@ mod tests {
 
     #[test]
     fn test_encode_deposit_calldata() {
-        let across_deposit = AcrossDeposit::new(
-            Address::ZERO,
-            Address::ZERO,
-            Address::ZERO,
-            JsonAbi::default(),
-        );
-
-        let calldata = across_deposit.encode_deposit_calldata(
+        let deposit_data = AcrossDeposit::new(
             Address::ZERO,
             Address::ZERO,
             U256::from(1000000u128),
@@ -162,6 +212,8 @@ mod tests {
             0u64,
             0u64,
         );
+
+        let calldata = AcrossDepositBuilder::encode_deposit_calldata(deposit_data);
 
         assert!(!calldata.is_empty());
         assert_eq!(calldata.len(), 4 + 32 * 9); // selector + 9 parameters * 32 bytes each
