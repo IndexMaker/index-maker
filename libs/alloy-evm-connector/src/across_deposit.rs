@@ -186,8 +186,8 @@ mod tests {
     fn test_across_deposit_creation() {
         let connector_address = Address::from_str(ACROSS_CONNECTOR_ADDRESS).unwrap();
         let spoke_pool_address = Address::from_str(ACROSS_SPOKE_POOL_ADDRESS).unwrap();
-        let otc_custody_address = Address::ZERO;
-        let otc_custody_abi = JsonAbi::default();
+        let otc_custody_address = Address::from_str(OTC_CUSTODY_ADDRESS).unwrap();
+        let otc_custody_abi = serde_json::from_str(OTC_CUSTODY_ABI).unwrap();
 
         let across_deposit = AcrossDepositBuilder::new(
             connector_address,
@@ -216,6 +216,6 @@ mod tests {
         let calldata = AcrossDepositBuilder::encode_deposit_calldata(deposit_data);
 
         assert!(!calldata.is_empty());
-        assert_eq!(calldata.len(), 4 + 32 * 9); // selector + 9 parameters * 32 bytes each
+        assert_eq!(calldata.len(), 4 + 32 * 8); // selector + 8 parameters * 32 bytes each
     }
 }
