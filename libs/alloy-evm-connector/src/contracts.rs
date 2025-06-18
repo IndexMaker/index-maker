@@ -1,6 +1,7 @@
 use alloy::sol;
 
 sol! {
+    #[sol(rpc)]
     contract AcrossConnector {
         function deposit(
             address inputToken,
@@ -18,6 +19,7 @@ sol! {
         function setTargetChainMulticallHandler(uint256 chainId, address handler) external;
     }
 
+    #[sol(rpc)]
     contract ERC20 {
         function approve(address spender, uint256 amount) external returns (bool);
         function balanceOf(address account) external view returns (uint256);
@@ -25,6 +27,7 @@ sol! {
         function transferFrom(address from, address to, uint256 amount) external returns (bool);
     }
 
+    #[sol(rpc)]
     contract OTCCustody {
         function addressToCustody(bytes32 id, address token, uint256 amount) external;
         function custodyToAddress(address token, address destination, uint256 amount, VerificationData calldata v) external;
