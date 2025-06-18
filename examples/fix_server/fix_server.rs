@@ -10,7 +10,8 @@ use itertools::Itertools;
 use tokio::{
     select,
     sync::{
-        mpsc::{channel, Receiver, Sender}, RwLock,
+        mpsc::{channel, Receiver, Sender},
+        RwLock,
     },
 };
 

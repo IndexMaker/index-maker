@@ -2,7 +2,10 @@ use std::{sync::Arc, usize};
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
-use index_maker::{core::{bits::Symbol, functional::MultiObserver}, market_data::market_data_connector::MarketDataEvent};
+use index_maker::{
+    core::{bits::Symbol, functional::MultiObserver},
+    market_data::market_data_connector::MarketDataEvent,
+};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::unbounded_channel;
@@ -32,7 +35,8 @@ impl Subscribers {
         None
     }
 
-    pub fn start_new_subscriber_mut(&mut self,
+    pub fn start_new_subscriber_mut(
+        &mut self,
         observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     ) -> &mut Subscriber {
         let (tx, rx) = unbounded_channel();

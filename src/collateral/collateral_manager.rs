@@ -424,7 +424,8 @@ mod test {
         },
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
-            solver_order::{SolverOrder, SolverOrderStatus}, solver_quote::{SolverQuote, SolverQuoteStatus},
+            solver_order::{SolverOrder, SolverOrderStatus},
+            solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 

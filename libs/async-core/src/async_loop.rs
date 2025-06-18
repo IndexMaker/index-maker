@@ -8,7 +8,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-
 pub struct AsyncTask<T> {
     join_handle: JoinHandle<T>,
     cancel_token: CancellationToken,

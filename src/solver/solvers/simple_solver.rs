@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use alloy::serde::quantity;
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -1704,7 +1703,10 @@ mod test {
 
         for n in 0..expected_quotes.len() {
             let quote_read = solved_quotes.solved_quotes[n].read();
-            println!("for {} {} <> {}", n, quote_read.quantity_possible, expected_quotes[n]);
+            println!(
+                "for {} {} <> {}",
+                n, quote_read.quantity_possible, expected_quotes[n]
+            );
             assert!(matches!(quote_read.status, SolverQuoteStatus::Ready));
             assert_decimal_approx_eq!(
                 quote_read.quantity_possible,

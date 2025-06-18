@@ -8,7 +8,7 @@ proc-macro = true
 
 [dependencies]
 # Add dependencies needed for your macro (e.g., syn, quote)
-quote = "1.0.40"
-syn = "2.0.101"
+quote = { workspace = true }
+syn = { workspace = true }
 eyre = { workspace = true }
 rust_decimal = { workspace = true }

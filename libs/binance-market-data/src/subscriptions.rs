@@ -5,7 +5,6 @@ use index_maker::core::bits::Symbol;
 use itertools::Itertools;
 use tokio::sync::mpsc::UnboundedSender;
 
-
 pub struct Subscriptions {
     subscription_sender: UnboundedSender<Symbol>,
     subscriptions: HashSet<Symbol>,
@@ -66,4 +65,3 @@ impl Subscriptions {
         Ok(())
     }
 }
-
