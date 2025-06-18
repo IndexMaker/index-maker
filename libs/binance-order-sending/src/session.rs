@@ -77,7 +77,7 @@ impl Session {
         credentials: Credentials,
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
-            println!("(binance-session) Logon");
+            tracing::info!("Session loop started");
             let session_id = credentials.into_session_id();
 
             let trading_session = match TradingSessionBuilder::build(&credentials).await {
@@ -123,7 +123,7 @@ impl Session {
                     },
                     Some(command) = command_rx.recv() => {
                         if let Err(res) = trading_session.send_command(command).await {
-                            eprintln!("(binance-order-sending-session) Failed to send command: {:?}", res);
+                            tracing::warn!("Failed to send command: {:?}", res);
                         }
                     },
                 }
@@ -131,7 +131,6 @@ impl Session {
 
             user_data.unsubscribe().await;
 
-            println!("(binance-session) Logout");
             observer
                 .read()
                 .publish_single(OrderConnectorNotification::SessionLogout {
@@ -139,6 +138,7 @@ impl Session {
                     reason: "Session disconnected".to_owned(),
                 });
 
+            tracing::info!("Session loop exited");
             credentials
         });
 

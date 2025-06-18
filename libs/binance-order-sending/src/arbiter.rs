@@ -43,6 +43,7 @@ impl Arbiter {
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
             loop {
+                tracing::info!("Loop started");
                 select! {
                     _ = cancel_token.cancelled() => {
                         break
@@ -53,16 +54,17 @@ impl Arbiter {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
                                 if let Err(err) = suba.add_subaccount_taken(api_key) {
-                                    eprintln!("Error storing taken session {:?}", err);
+                                    tracing::warn!("Error storing taken session {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("Error while creating session {:?}", err);
+                                tracing::warn!("Error while creating session {:?}", err);
                             }
                         }
                     }
                 }
             }
+            tracing::info!("Loop exited");
             subaccount_rx
         });
     }

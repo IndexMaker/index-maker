@@ -90,8 +90,8 @@ impl Subscriber {
                 }
             };
 
+            tracing::info!("Market-Data loop started");
             loop {
-                tracing::info!("Loop started");
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
@@ -159,9 +159,11 @@ impl Subscriber {
             if let Err(err) = connection.disconnect().await {
                 tracing::warn!("Failed to disconnect websocket client: {}", err);
             }
+            tracing::info!("Market-Data loop exited");
         });
 
         self.snapshot_loop.start(async move |cancel_token| {
+            tracing::info!("Snapshot loop started");
             let rest_conf = match ConfigurationRestApi::builder().build() {
                 Ok(x) => x,
                 Err(err) => {
@@ -206,6 +208,7 @@ impl Subscriber {
                     }
                 }
             }
+            tracing::info!("Snapshot loop exited");
         });
     }
 }

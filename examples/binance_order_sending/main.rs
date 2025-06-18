@@ -7,15 +7,19 @@ use index_maker::{
     core::{
         bits::{Side, SingleOrder},
         functional::IntoObservableSingleArc,
+        logging::log_init,
     },
+    init_log,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use tokio::{sync::watch::channel, time::sleep};
+use tokio::{sync::mpsc::unbounded_channel, time::sleep};
 
 #[tokio::main]
 pub async fn main() {
+    init_log!();
+
     let api_key = env::var("MY_BINANCE_API_KEY").expect("No API key in env");
     let credentials = Credentials::new(api_key, move || {
         env::var("MY_BINANCE_API_SECRET").expect("No API secret in env")
@@ -31,20 +35,17 @@ pub async fn main() {
         .write()
         .set_observer_from(event_tx);
 
-    let (sess_tx, mut sess_rx) = channel(None);
+    let (sess_tx, mut sess_rx) = unbounded_channel();
 
     let handle_event_internal = move |e: OrderConnectorNotification| match e {
         OrderConnectorNotification::SessionLogon { session_id } => {
-            println!("(binance-order-sender-main) Session Logon {}", session_id);
+            tracing::info!("Session Logon {}", session_id);
             sess_tx
                 .send(Some(session_id))
                 .expect("Failed to notify session logon");
         }
         OrderConnectorNotification::SessionLogout { session_id, reason } => {
-            println!(
-                "(binance-order-sender-main) Session Logout {} - {}",
-                session_id, reason
-            );
+            tracing::info!("Session Logout {} - {}", session_id, reason);
             sess_tx.send(None).expect("Failed to notify session logout");
         }
         OrderConnectorNotification::Fill {
@@ -57,9 +58,16 @@ pub async fn main() {
             fee,
             timestamp,
         } => {
-            println!(
-                "(binance-order-sender-main) Fill {} {} {} {:?} {} {} {} {}",
-                order_id, lot_id, symbol, side, price, quantity, fee, timestamp
+            tracing::info!(
+                "Fill {} {} {} {:?} {} {} {} {}",
+                order_id,
+                lot_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                fee,
+                timestamp
             );
         }
         OrderConnectorNotification::Cancel {
@@ -69,9 +77,13 @@ pub async fn main() {
             quantity,
             timestamp,
         } => {
-            println!(
-                "(binance-order-sender-main) Cancel {} {} {:?} {} {}",
-                order_id, symbol, side, quantity, timestamp
+            tracing::info!(
+                "Cancel {} {} {:?} {} {}",
+                order_id,
+                symbol,
+                side,
+                quantity,
+                timestamp
             );
         }
     };
@@ -96,7 +108,7 @@ pub async fn main() {
 
     // wait for logon
     let session_id = sess_rx
-        .wait_for(|v| v.is_some())
+        .recv()
         .await
         .expect("Failed to await logon")
         .as_ref()
