@@ -32,44 +32,10 @@ pub struct AcrossSuggestedOutput {
     pub exclusivity_deadline: u64,
 }
 
-pub struct AcrossDeposit {
-    input_token: Address,
-    output_token: Address,
-    deposit_amount: U256,
-    output_amount: U256,
-    destination_chain_id: u64,
-    exclusive_relayer: Address,
-    fill_deadline: u64,
-    exclusivity_deadline: u64,
-}
-
 pub struct AcrossDepositBuilder<P: Provider + Clone> {
     pub across_connector: AcrossConnector::AcrossConnectorInstance<P>,
     pub otc_custody: OTCCustody::OTCCustodyInstance<P>,
     pub usdc: ERC20::ERC20Instance<P>,
-}
-impl AcrossDeposit {
-    pub fn new(
-        input_token: Address,
-        output_token: Address,
-        deposit_amount: U256,
-        output_amount: U256,
-        destination_chain_id: u64,
-        exclusive_relayer: Address,
-        fill_deadline: u64,
-        exclusivity_deadline: u64,
-    ) -> Self {
-        Self {
-            input_token,
-            output_token,
-            deposit_amount,
-            output_amount,
-            destination_chain_id,
-            exclusive_relayer,
-            fill_deadline,
-            exclusivity_deadline,
-        }
-    }
 }
 
 impl<P: Provider + Clone> AcrossDepositBuilder<P> {
@@ -123,21 +89,6 @@ impl<P: Provider + Clone> AcrossDepositBuilder<P> {
     }
 }
 
-pub fn encode_deposit_calldata(deposit: AcrossDeposit) -> Vec<u8> {
-    // Use the strongly typed call from sol! macro
-    let call = AcrossConnector::depositCall {
-        inputToken: deposit.input_token,
-        outputToken: deposit.output_token,
-        amount: deposit.deposit_amount,
-        destinationChainId: U256::from(deposit.destination_chain_id),
-        recipient: deposit.exclusive_relayer,
-        fillDeadline: deposit.fill_deadline as u32,
-        exclusivityDeadline: deposit.exclusivity_deadline as u32,
-        message: Vec::new().into(),
-    };
-    call.abi_encode()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,26 +99,6 @@ mod tests {
         // In a real scenario, you would use ProviderBuilder::new().connect_http("http://localhost:8545")
         // or similar to get a concrete provider
         assert!(true); // Placeholder assertion
-    }
-
-    #[test]
-    fn test_encode_deposit_calldata() {
-        let deposit_data = AcrossDeposit::new(
-            Address::ZERO,
-            Address::ZERO,
-            U256::from(1000000u128),
-            U256::from(1000000u128),
-            42161u64,
-            Address::ZERO,
-            0u64,
-            0u64,
-        );
-
-        let calldata = encode_deposit_calldata(deposit_data);
-
-        println!("calldata: {:?}", hex::encode(&calldata));
-
-        assert!(!calldata.is_empty());
     }
 
     #[test]
