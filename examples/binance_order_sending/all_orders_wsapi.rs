@@ -1,0 +1,28 @@
+use std::env;
+
+use binance_order_sending::config::ConfigureBinanceAccess;
+use binance_sdk::config::ConfigurationWebsocketApi;
+use binance_sdk::spot;
+
+#[tokio::main]
+async fn main() {
+    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let api_secret = env::var("BINANCE_API_SECRET").ok();
+    let private_key_file = env::var("BINANCE_PRIVATE_KEY_FILE").ok();
+
+    let configuration = ConfigurationWebsocketApi::builder()
+        .configure(api_key, api_secret, private_key_file, None)
+        .expect("Failed to configure Binance access")
+        .build()
+        .unwrap();
+
+    let client = spot::SpotWsApi::production(configuration);
+    let connection = client.connect().await.unwrap();
+    let params = spot::websocket_api::AllOrdersParams::builder("BNBUSDT".to_string())
+        .build()
+        .unwrap();
+    let response = connection.all_orders(params).await.unwrap();
+
+    let data = response.data().unwrap();
+    println!("{:#?}", data);
+}

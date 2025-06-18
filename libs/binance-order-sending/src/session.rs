@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use async_core::async_loop::AsyncLoop;
 use eyre::{eyre, Report, Result};
-use index_maker::order_sender::order_connector::SessionId;
 use index_maker::{
     core::functional::{PublishSingle, SingleObserver},
     order_sender::order_connector::OrderConnectorNotification,
@@ -16,36 +15,8 @@ use tokio::{
 };
 
 use crate::command::Command;
+use crate::credentials::Credentials;
 use crate::trading_session::TradingSessionBuilder;
-
-pub struct Credentials {
-    api_key: String,
-    get_secret_fn: Box<dyn Fn() -> String + Send + Sync>,
-}
-
-impl Credentials {
-    pub fn new(
-        api_key: String,
-        get_secret_fn: impl Fn() -> String + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            api_key,
-            get_secret_fn: Box::new(get_secret_fn),
-        }
-    }
-
-    pub fn get_api_key(&self) -> String {
-        self.api_key.clone()
-    }
-
-    pub(crate) fn get_api_secret(&self) -> String {
-        (*self.get_secret_fn)()
-    }
-
-    pub(crate) fn into_session_id(&self) -> SessionId {
-        SessionId(self.get_api_key())
-    }
-}
 
 pub struct Session {
     command_tx: UnboundedSender<Command>,
@@ -115,6 +86,12 @@ impl Session {
                 }
                 Ok(s) => s,
             };
+
+            observer
+                .read()
+                .publish_single(OrderConnectorNotification::SessionLogon {
+                    session_id: session_id.clone(),
+                });
 
             loop {
                 select! {

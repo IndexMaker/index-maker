@@ -1,11 +1,11 @@
 use std::{env, sync::Arc, thread::spawn, time::Duration};
 
-use binance_order_sending::{binance_order_sending::BinanceOrderSending, session::Credentials};
+use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use chrono::Utc;
 use crossbeam::{channel::unbounded, select};
 use index_maker::{
     core::{
-        bits::{Side, SingleOrder},
+        bits::{BatchOrderId, OrderId, Side, SingleOrder, Symbol},
         functional::IntoObservableSingleArc,
         logging::log_init,
     },
@@ -20,10 +20,13 @@ use tokio::{sync::mpsc::unbounded_channel, time::sleep};
 pub async fn main() {
     init_log!();
 
-    let api_key = env::var("MY_BINANCE_API_KEY").expect("No API key in env");
-    let credentials = Credentials::new(api_key, move || {
-        env::var("MY_BINANCE_API_SECRET").expect("No API secret in env")
-    });
+    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let credentials = Credentials::new(
+        api_key,
+        move || env::var("BINANCE_API_SECRET").ok(),
+        move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
+        move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
+    );
 
     let (event_tx, event_rx) = unbounded::<OrderConnectorNotification>();
 
@@ -120,11 +123,11 @@ pub async fn main() {
         .send_order(
             session_id,
             &Arc::new(SingleOrder {
-                order_id: "O1".into(),
-                batch_order_id: "B1".into(),
-                symbol: "A1".into(),
+                order_id: OrderId(format!("O-{}", Utc::now().timestamp_millis())),
+                batch_order_id: BatchOrderId::from("B-1"),
+                symbol: Symbol::from("LTC/BNB"),
                 side: Side::Buy,
-                price: dec!(1.0),
+                price: dec!(0.1308),
                 quantity: dec!(1.0),
                 created_timestamp: Utc::now(),
             }),

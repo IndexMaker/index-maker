@@ -14,23 +14,23 @@ use parking_lot::RwLock as AtomicLock;
 use serde_json::Value;
 
 use crate::command::Command;
-use crate::session::Credentials;
+use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
 
 pub struct TradingSessionBuilder;
 
 impl TradingSessionBuilder {
     pub async fn build(credentials: &Credentials) -> Result<TradingSession> {
         let configuration = ConfigurationWebsocketApi::builder()
-            .api_key(credentials.get_api_key())
-            .api_secret(credentials.get_api_secret())
+            .configure(credentials)
+            .map_err(move |err| eyre!("Failed to configure with credentials: {:?}", err))?
             .build()
-            .map_err(move |err| eyre!("Failed to build configuration {}", err))?;
+            .map_err(move |err| eyre!("Failed to build configuration: {:?}", err))?;
 
-        let client = spot::SpotWsApi::testnet(configuration);
+        let client = spot::SpotWsApi::production(configuration);
         let wsapi = client
             .connect()
             .await
-            .map_err(move |err| eyre!("Failed to connect to Binance: {}", err))?;
+            .map_err(move |err| eyre!("Failed to connect to Binance: {:?}", err))?;
 
         Ok(TradingSession {
             session_id: credentials.into_session_id(),
@@ -59,7 +59,7 @@ impl TradingSession {
         self.wsapi
             .session_logon(logon_params)
             .await
-            .map_err(|err| eyre!("Failed to logon {}", err))?;
+            .map_err(|err| eyre!("Failed to logon: {}", err))?;
 
         Ok(())
     }
@@ -99,13 +99,13 @@ impl TradingSession {
     ) -> Result<TradingUserData> {
         let user_data_stream_start_params = UserDataStreamStartParams::builder()
             .build()
-            .map_err(|err| eyre!("Failed to configure user data stream {}", err))?;
+            .map_err(|err| eyre!("Failed to configure user data stream: {}", err))?;
 
         let resp = self
             .wsapi
             .user_data_stream_start(user_data_stream_start_params)
             .await
-            .map_err(|err| eyre!("Failed to start user data stream {}", err))?;
+            .map_err(|err| eyre!("Failed to start user data stream: {}", err))?;
 
         println!("{:#?}", resp.data());
 
@@ -120,13 +120,13 @@ impl TradingSession {
 
         let user_data_stream_subscribe_params = UserDataStreamSubscribeParams::builder()
             .build()
-            .map_err(|err| eyre!("Failed to configure user data subscription {}", err))?;
+            .map_err(|err| eyre!("Failed to configure user data subscription: {}", err))?;
 
         let (resp, strm) = self
             .wsapi
             .user_data_stream_subscribe(user_data_stream_subscribe_params)
             .await
-            .map_err(|err| eyre!("Failed to subscribe to user data stream {}", err))?;
+            .map_err(|err| eyre!("Failed to subscribe to user data stream: {}", err))?;
 
         println!("{:#?}", resp.data());
 

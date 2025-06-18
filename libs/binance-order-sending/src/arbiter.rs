@@ -9,7 +9,7 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
-use crate::{session::Credentials, sessions::Sessions, subaccounts::SubAccounts};
+use crate::{credentials::Credentials, sessions::Sessions, subaccounts::SubAccounts};
 
 /// Arbiter manages open sessions
 ///
