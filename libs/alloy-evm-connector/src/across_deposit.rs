@@ -121,4 +121,24 @@ mod tests {
         // Just ensure it's not empty and has a reasonable size
         assert!(encoded.len() >= 4); // At least the function selector
     }
+
+    #[tokio::test]
+    async fn test_contract_instance() -> Result<(), Box<dyn std::error::Error>> {
+        let provider = ProviderBuilder::new()
+            .connect("http://localhost:8545")
+            .await?;
+
+        let builder = AcrossDepositBuilder::new(provider);
+
+        println!("across_connector: {:?}", builder.across_connector.address());
+
+        assert_eq!(
+            *builder.across_connector.address(),
+            ACROSS_CONNECTOR_ADDRESS
+        );
+        assert_eq!(*builder.otc_custody.address(), OTC_CUSTODY_ADDRESS);
+        assert_eq!(*builder.usdc.address(), USDC_ARBITRUM_ADDRESS);
+
+        Ok(())
+    }
 }
