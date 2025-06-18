@@ -75,7 +75,7 @@ impl Subscriber {
             let ws_streams_conf = match ConfigurationWebsocketStreams::builder().build() {
                 Ok(x) => x,
                 Err(err) => {
-                    eprintln!("(binance-subscriber) Failed to build websocket configuration {:?}", err);
+                    tracing::warn!("Failed to build websocket configuration {:?}", err);
                     return;
                 }
             };
@@ -85,26 +85,27 @@ impl Subscriber {
             let connection = match ws_streams_client.connect().await {
                 Ok(x) => x,
                 Err(err) => {
-                    eprintln!("(binance-subscriber) Failed to connect websocket client {:?}", err);
+                    tracing::warn!("Failed to connect websocket client {:?}", err);
                     return;
                 }
             };
 
             loop {
+                tracing::info!("Loop started");
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
                     Some(symbol) = subscription_rx.recv() => {
                         if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone()) {
-                            eprintln!("(binance-subscriber) Error adding book {:?}", err);
+                            tracing::warn!("Error adding book {:?}", err);
                             continue;
                         }
 
                         let depth_params = match DiffBookDepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to build diff-depth params: {}", err);
+                                tracing::warn!("Failed to build diff-depth params: {}", err);
                                 continue;
                             }
                         };
@@ -112,7 +113,7 @@ impl Subscriber {
                         let depth_stream = match connection.diff_book_depth(depth_params).await {
                             Ok(x) => x,
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to subscribe to diff-depth stream: {}", err);
+                                tracing::warn!("Failed to subscribe to diff-depth stream: {}", err);
                                 continue;
                             }
                         };
@@ -120,7 +121,7 @@ impl Subscriber {
                         let ticker_params = match BookTickerParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to build book-ticker params: {}", err);
+                                tracing::warn!("Failed to build book-ticker params: {}", err);
                                 continue;
                             }
                         };
@@ -128,7 +129,7 @@ impl Subscriber {
                         let ticker_stream = match connection.book_ticker(ticker_params).await {
                             Ok(x) => x,
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to subscribe to book-ticker stream: {}", err);
+                                tracing::warn!("Failed to subscribe to book-ticker stream: {}", err);
                                 continue;
                             }
                         };
@@ -138,7 +139,7 @@ impl Subscriber {
 
                         depth_stream.on_message(move |data| {
                             if let Err(err) = books_clone.write().apply_book_update(&symbol_clone, data) {
-                                eprintln!("(binance-subscriber) Failed to apply book update: {:?}", err);
+                                tracing::warn!("Failed to apply book update: {:?}", err);
                             }
                         });
 
@@ -147,7 +148,7 @@ impl Subscriber {
 
                         ticker_stream.on_message(move |data| {
                             if let Err(err) = books_clone.write().apply_tob_update(&symbol_clone, data) {
-                                eprintln!("(binance-subscriber) Failed to apply tob update: {:?}", err);
+                                tracing::warn!("Failed to apply tob update: {:?}", err);
                             }
                         });
 
@@ -156,7 +157,7 @@ impl Subscriber {
             }
             
             if let Err(err) = connection.disconnect().await {
-                eprintln!("(binance-subscriber) Failed to disconnect websocket client: {}", err);
+                tracing::warn!("Failed to disconnect websocket client: {}", err);
             }
         });
 
@@ -164,7 +165,7 @@ impl Subscriber {
             let rest_conf = match ConfigurationRestApi::builder().build() {
                 Ok(x) => x,
                 Err(err) => {
-                    eprintln!("(binance-subscriber) Failed configure snapshotting client: {:?}", err);
+                    tracing::warn!("Failed configure snapshotting client: {:?}", err);
                     return;
                 }
             };
@@ -179,7 +180,7 @@ impl Subscriber {
                         let params = match DepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
                             Err(err) =>  {
-                                eprintln!("(binance-subscriber) Failed to request depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to request depth snapshot: {:?}", err);
                                 continue;
                             }
                         };
@@ -187,7 +188,7 @@ impl Subscriber {
                         let response = match rest_client.depth(params).await {
                             Ok(x) => x,
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
                                 continue;
                             }
                         };
@@ -195,11 +196,11 @@ impl Subscriber {
                         match response.data().await {
                             Ok(res) => {
                                 if let Err(err) = books_clone.write().apply_snapshot(&symbol, res) {
-                                    eprintln!("(binance-subscriber) Failed to apply depth snapshot: {:?}", err);
+                                    tracing::warn!("Failed to apply depth snapshot: {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
                             }
                         }
                     }

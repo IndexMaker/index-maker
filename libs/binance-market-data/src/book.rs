@@ -163,7 +163,7 @@ impl Book {
     }
 
     fn request_snapshot(&mut self) -> Result<()> {
-        println!("(binance-book) Requesting snapshot for {}", self.symbol);
+        tracing::info!("(binance-book) Requesting snapshot for {}", self.symbol);
         self.pending_updates.clear();
         self.snapshot_requested = true;
         self.snapshot_tx
@@ -178,7 +178,7 @@ impl Book {
                 self.symbol
             ))?;
         }
-        println!(
+        tracing::info!(
             "(binance-book) Snapshot received for {} and will overwrite book (lastUpdateId: {})",
             self.symbol, snapshot.last_update_id
         );
@@ -211,8 +211,8 @@ impl Book {
         match self.last_update_id {
             Some(last_id) => {
                 if diff_depth.first_update_id_in_event > last_id + 1 {
-                    println!(
-                            "(binance-book) DiffDepthUpdate for {} is ahead and snapshot is needed (U: {}, u: {} vs last_id: {})",
+                    tracing::debug!(
+                            "DiffDepthUpdate for {} is ahead and snapshot is needed (U: {}, u: {} vs last_id: {})",
                             self.symbol,
                             diff_depth.first_update_id_in_event,
                             diff_depth.final_update_id_in_event,
@@ -223,16 +223,16 @@ impl Book {
                     }
                     self.pending_updates.push_back(diff_depth);
                 } else if diff_depth.final_update_id_in_event < last_id {
-                    println!(
-                            "(binance-book) DiffDepthUpdate for {} is old and will be ignored (U: {}, u: {} vs last_id: {})",
+                    tracing::debug!(
+                            "DiffDepthUpdate for {} is old and will be ignored (U: {}, u: {} vs last_id: {})",
                             self.symbol,
                             diff_depth.first_update_id_in_event,
                             diff_depth.final_update_id_in_event,
                             last_id,
                         );
                 } else {
-                    println!(
-                        "(binance-book) DiffDepthUpdate for {} is new and will be applied (U: {}, u: {})",
+                    tracing::debug!(
+                        "DiffDepthUpdate for {} is new and will be applied (U: {}, u: {})",
                         self.symbol,
                         diff_depth.first_update_id_in_event,
                         diff_depth.final_update_id_in_event,
@@ -263,8 +263,8 @@ impl Book {
                 }
             }
             None => {
-                println!(
-                    "(binance-book) DiffDepthUpdate for {} empty book and snapshot is needed (U: {}, u: {} vs last_id: None)",
+                tracing::debug!(
+                    "DiffDepthUpdate for {} empty book and snapshot is needed (U: {}, u: {} vs last_id: None)",
                     self.symbol,
                     diff_depth.first_update_id_in_event,
                     diff_depth.final_update_id_in_event,

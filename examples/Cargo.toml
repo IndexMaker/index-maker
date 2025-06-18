@@ -21,27 +21,29 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
+tracing = { workspace = true }
+
 
 [[example]]
-name="binance_market_data"
+name="binance-market-data"
 path="binance_market_data/market_data.rs"
 
 [[example]]
-name="binance_market_data_book"
+name="binance-order-book"
 path="binance_market_data/book_building.rs"
 
 [[example]]
-name="binance_order_sending_all_orders"
+name="binance-get-all-orders"
 path="binance_order_sending/all_orders.rs"
 
 [[example]]
-name="binance_order_sending_wss_sample"
+name="binance-wss-sample"
 path="binance_order_sending/wss_sample.rs"
 
 [[example]]
-name="binance_order_sending"
+name="binance-order-sending"
 path="binance_order_sending/main.rs"
 
 [[example]]
-name="fix_server_fix_server"
+name="fix-server"
 path="fix_server/fix_server.rs"

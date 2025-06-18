@@ -892,6 +892,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -1659,6 +1660,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -2305,6 +2307,8 @@ dependencies = [
  "string_cache",
  "test-case",
  "thiserror 2.0.12",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

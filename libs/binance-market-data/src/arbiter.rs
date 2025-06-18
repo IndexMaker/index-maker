@@ -38,6 +38,7 @@ impl Arbiter {
         let mut subscribers = Subscribers::new(max_subscriber_symbols);
         self.arbiter_loop.start(async move |cancel_token| {
             loop {
+                tracing::info!("Loop started");
                 select! {
                     _ = cancel_token.cancelled() => {
                         break
@@ -47,18 +48,18 @@ impl Arbiter {
                             Ok(_) => {
                                 let mut subs = subscriptions.write();
                                 if let Err(err) = subs.add_subscription_taken(symbol) {
-                                    eprintln!("Error storing taken subscription {:?}", err);
+                                    tracing::warn!("Error storing taken subscription {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("Error while subscribing {:?}", err);
+                                tracing::warn!("Error while subscribing {:?}", err);
                             }
                         }
                     }
                 }
             }
             if let Err(err) = subscribers.stop_all().await {
-                eprintln!("Error stopping subscribers {:?}", err);
+                tracing::warn!("Error stopping subscribers {:?}", err);
             }
             subscription_rx
         });
