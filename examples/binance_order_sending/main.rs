@@ -136,10 +136,10 @@ pub async fn main() {
             &Arc::new(SingleOrder {
                 order_id: OrderId::from(format!("O-{}", Utc::now().timestamp_millis())),
                 batch_order_id: BatchOrderId::from("B-1"),
-                symbol: Symbol::from("LTC-BNB"),
-                side: Side::Buy,
-                price: dec!(0.1308),
-                quantity: dec!(1.0),
+                symbol: Symbol::from("BNBEUR"),
+                side: Side::Sell,
+                price: dec!(559.60),
+                quantity: dec!(0.02),
                 created_timestamp: Utc::now(),
             }),
         )

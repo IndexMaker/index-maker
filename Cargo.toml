@@ -37,7 +37,8 @@ test-case = { workspace = true }
 alloy = "0.14.0"
 async-core = { path = "./libs/async-core" }
 base64 = "0.22.1"
-binance-sdk = { version = "2.0.1", features = ["spot"] }
+#binance-sdk = { version = "2.0.1", features = ["spot"] }
+binance-sdk = { path = "/Users/sadhbh/src/symm_related/binance-connector-rust", features = ["spot"] }
 chrono = "0.4.40"
 crossbeam = "0.8.4"
 eyre = "0.6.12"

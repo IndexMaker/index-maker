@@ -42,8 +42,8 @@ impl Arbiter {
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
+            tracing::info!("Loop started");
             loop {
-                tracing::info!("Loop started");
                 select! {
                     _ = cancel_token.cancelled() => {
                         break
