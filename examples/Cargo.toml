@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+alloy = { workspace = true }
 index-maker = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }

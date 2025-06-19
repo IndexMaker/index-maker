@@ -240,6 +240,7 @@ where
                 Some(res) = receiver.recv() => {
                     match server.write().await.build_fix_message(res) {
                         Ok(fix_message) => {
+                            println!("SENDING: {}", fix_message.0.to_owned());
                             if let Err(e) = ws.send(Message::Text(fix_message.0.into())).await {
                                 tracing::error!("Failed to send WebSocket message: {}", e);
                                 break;

@@ -1742,6 +1742,7 @@ dependencies = [
 name = "examples"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "axum-fix-server",
  "binance-market-data",
  "binance-order-sending",

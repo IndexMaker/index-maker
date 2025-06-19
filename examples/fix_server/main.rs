@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use alloy::primitives::address;
 use axum_fix_server::{
     messages::{
         FixMessage, FixMessageBuilder, ServerRequest as AxumServerRequest,
@@ -46,17 +47,22 @@ impl AxumServerRequest for ExampleRequest {
         message: FixMessage,
         session_id: SessionId,
     ) -> Result<Self, eyre::Error> {
-        todo!()
+        println!("{}: {}", session_id, message);
+        Ok(ExampleRequest {
+            session_id,
+            address: address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045"),
+            quantity: 42,
+        })
     }
 }
 
 impl AxumServerResponse for ExampleResponse {
     fn get_session_id(&self) -> &SessionId {
-        todo!()
+        &self.session_id
     }
 
     fn serialize_into_fix(&self, builder: FixMessageBuilder) -> Result<FixMessage, eyre::Error> {
-        todo!()
+        Ok(FixMessage("this is a response, not a good one, but it's something".to_owned()))
     }
 }
 

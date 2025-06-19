@@ -92,6 +92,18 @@ use eyre::{eyre, Report, Result};
 /// outgoing messages in the server communication.
 pub struct FixMessage(pub String);
 
+impl Display for FixMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for FixMessage {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
 /// FixMessageBuilder
 ///
 /// A utility struct for building FIX messages.
