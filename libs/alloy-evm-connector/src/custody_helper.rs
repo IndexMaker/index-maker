@@ -54,7 +54,7 @@ pub struct CAHelper {
     ca_items: Vec<CAItem>,
     merkle_tree: Option<StandardMerkleTree>,
     args_to_types: HashMap<CAItemType, String>,
-    custody_id: Option<String>,
+    custody_id: Option<[u8; 32]>,
     chain_id: u64,
     otc_custody_address: Address,
 }
@@ -306,19 +306,28 @@ impl CAHelper {
         self.merkle_tree.as_ref().unwrap()
     }
 
-    pub fn get_custody_id(&mut self) -> String {
+    pub fn get_custody_id(&mut self) -> [u8; 32] {
         if self.custody_id.is_none() {
             self.custody_id = Some(self.get_ca_root());
         }
         self.custody_id.clone().unwrap()
     }
 
-    pub fn get_ca_root(&mut self) -> String {
+    pub fn get_ca_root(&mut self) -> [u8; 32] {
         let tree = self.get_merkle_tree();
-        tree.root().clone().to_string()
+        let root = tree.root();
+
+        // The root is returned as a hex string, so we need to decode it
+        let root_str = root.as_str();
+        let root_bytes = hex::decode(root_str.strip_prefix("0x").unwrap_or(root_str))
+            .expect("Failed to decode merkle root");
+
+        let mut custody_id = [0u8; 32];
+        custody_id.copy_from_slice(&root_bytes);
+        custody_id
     }
 
-    pub fn get_merkle_proof(&mut self, index: usize) -> Vec<String> {
+    pub fn get_merkle_proof(&mut self, index: usize) -> Vec<[u8; 32]> {
         if self.ca_items.len() == 1 {
             return vec![];
         }
@@ -331,7 +340,18 @@ impl CAHelper {
         }
 
         let tree = self.get_merkle_tree();
-        tree.get_proof(LeafType::Number(index))
+        let proof = tree.get_proof(LeafType::Number(index));
+        proof
+            .iter()
+            .map(|p| {
+                let proof_str = p.as_str();
+                let proof_bytes = hex::decode(proof_str.strip_prefix("0x").unwrap_or(proof_str))
+                    .expect("Failed to decode merkle proof");
+                let mut proof_array = [0u8; 32];
+                proof_array.copy_from_slice(&proof_bytes);
+                proof_array
+            })
+            .collect()
     }
 
     pub fn clear(&mut self) {

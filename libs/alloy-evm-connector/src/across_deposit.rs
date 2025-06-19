@@ -66,27 +66,27 @@ impl AcrossDeposit {
             exclusivity_deadline,
         }
     }
+
+    /// Task 2: Encode deposit calldata (standalone function)
+    pub fn encode_deposit_calldata(&self) -> Vec<u8> {
+        let call = AcrossConnector::depositCall {
+            inputToken: self.input_token,
+            outputToken: self.output_token,
+            amount: self.deposit_amount,
+            destinationChainId: U256::from(self.destination_chain_id),
+            recipient: self.exclusive_relayer,
+            fillDeadline: self.fill_deadline as u32,
+            exclusivityDeadline: self.exclusivity_deadline as u32,
+            message: Vec::new().into(),
+        };
+        call.abi_encode()
+    }
 }
 
 pub struct AcrossDepositBuilder<P: Provider + Clone> {
     pub across_connector: AcrossConnector::AcrossConnectorInstance<P>,
     pub otc_custody: OTCCustody::OTCCustodyInstance<P>,
     pub usdc: ERC20::ERC20Instance<P>,
-}
-
-/// Task 2: Encode deposit calldata (standalone function)
-pub fn encode_deposit_calldata(deposit: AcrossDeposit) -> Vec<u8> {
-    let call = AcrossConnector::depositCall {
-        inputToken: deposit.input_token,
-        outputToken: deposit.output_token,
-        amount: deposit.deposit_amount,
-        destinationChainId: U256::from(deposit.destination_chain_id),
-        recipient: deposit.exclusive_relayer,
-        fillDeadline: deposit.fill_deadline as u32,
-        exclusivityDeadline: deposit.exclusivity_deadline as u32,
-        message: Vec::new().into(),
-    };
-    call.abi_encode()
 }
 
 impl<P: Provider + Clone> AcrossDepositBuilder<P> {
@@ -276,14 +276,19 @@ impl<P: Provider + Clone> AcrossDepositBuilder<P> {
             suggested_output.fill_deadline,
             suggested_output.exclusivity_deadline,
         );
-        let calldata = encode_deposit_calldata(deposit);
+        let calldata = deposit.encode_deposit_calldata();
 
         // Step 8: Call callConnector of custody_helper
         println!("Step 8: Adding callConnector action to CAHelper");
         let connector_action_index = ca_helper.call_connector(
-            "AcrossConnector".to_string(),
+            "AcrossConnector",
             ACROSS_CONNECTOR_ADDRESS,
-            calldata.clone(),
+            &calldata,
+            0u8,
+            crate::custody_helper::Party {
+                parity: 0,
+                x: FixedBytes([0u8; 32]),
+            },
         );
 
         // Step 9: Fetch custodyId from custody_helper.get_custody_id()
@@ -302,9 +307,12 @@ impl<P: Provider + Clone> AcrossDepositBuilder<P> {
             .as_secs();
         let custody_verification = create_verification_data(
             custody_id,
-            ca_helper.custody_state,
+            0,
             custody_timestamp,
-            ca_helper.public_key.clone(),
+            crate::contracts::CAKey {
+                parity: 0,
+                x: FixedBytes([0u8; 32]),
+            },
             crate::contracts::Signature {
                 e: FixedBytes([0u8; 32]), // Mock signature
                 s: FixedBytes([0u8; 32]), // Mock signature
@@ -321,9 +329,12 @@ impl<P: Provider + Clone> AcrossDepositBuilder<P> {
         println!("Step 13: Creating verification data for callConnector");
         let connector_verification = create_verification_data(
             custody_id,
-            ca_helper.custody_state,
+            0,
             custody_timestamp,
-            ca_helper.public_key,
+            crate::contracts::CAKey {
+                parity: 0,
+                x: FixedBytes([0u8; 32]),
+            },
             crate::contracts::Signature {
                 e: FixedBytes([0u8; 32]), // Mock signature
                 s: FixedBytes([0u8; 32]), // Mock signature
@@ -395,14 +406,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_across_deposit_creation() {
-        // Skip this test for now since we need a real provider
-        // In a real scenario, you would use ProviderBuilder::new().connect_http("http://localhost:8545")
-        // or similar to get a concrete provider
-        assert!(true); // Placeholder assertion
-    }
-
-    #[test]
     fn test_sol_macro_types() {
         // Test that the sol! macro generated types work correctly
         let call = AcrossConnector::depositCall {
@@ -436,7 +439,7 @@ mod tests {
             0u64,
         );
 
-        let calldata = encode_deposit_calldata(deposit_data);
+        let calldata = deposit_data.encode_deposit_calldata();
 
         println!("calldata: {:?}", hex::encode_prefixed(&calldata));
 
