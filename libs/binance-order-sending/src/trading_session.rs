@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use binance_sdk::common::websocket::WebsocketStream;
-use binance_sdk::spot;
 use binance_sdk::spot::websocket_api::{
-    OrderPlaceParams, UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi,
-    WebsocketApiHandle,
+    OrderPlaceNewOrderRespTypeEnum, OrderPlaceParams, OrderPlaceSideEnum,
+    OrderPlaceTimeInForceEnum, UserDataStreamStartParams, UserDataStreamSubscribeParams,
+    WebsocketApi,
 };
+use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use eyre::{eyre, Result};
+use index_maker::core::bits::Side;
 use index_maker::core::functional::SingleObserver;
 use index_maker::order_sender::order_connector::{OrderConnectorNotification, SessionId};
 use parking_lot::RwLock as AtomicLock;
@@ -34,7 +36,6 @@ impl TradingSessionBuilder {
 
         Ok(TradingSession {
             session_id: credentials.into_session_id(),
-            _client: client,
             wsapi,
         })
     }
@@ -42,7 +43,6 @@ impl TradingSessionBuilder {
 
 pub struct TradingSession {
     session_id: SessionId,
-    _client: WebsocketApiHandle,
     wsapi: WebsocketApi,
 }
 
@@ -68,26 +68,37 @@ impl TradingSession {
         match command {
             Command::NewOrder(single_order) => {
                 let params = OrderPlaceParams {
-                    symbol: todo!(),
-                    side: todo!(),
-                    r#type: todo!(),
-                    id: todo!(),
-                    time_in_force: todo!(),
-                    price: todo!(),
-                    quantity: todo!(),
-                    quote_order_qty: todo!(),
-                    new_client_order_id: todo!(),
-                    new_order_resp_type: todo!(),
-                    stop_price: todo!(),
-                    trailing_delta: todo!(),
-                    iceberg_qty: todo!(),
-                    strategy_id: todo!(),
-                    strategy_type: todo!(),
-                    self_trade_prevention_mode: todo!(),
-                    recv_window: todo!(),
+                    symbol: single_order.symbol.to_string(),
+                    side: match single_order.side {
+                        Side::Buy => OrderPlaceSideEnum::BUY,
+                        Side::Sell => OrderPlaceSideEnum::SELL,
+                    },
+                    r#type: websocket_api::OrderPlaceTypeEnum::LIMIT,
+                    id: Some(single_order.order_id.cloned()),
+                    time_in_force: Some(OrderPlaceTimeInForceEnum::IOC),
+                    price: Some(single_order.price.try_into()?),
+                    quantity: Some(single_order.quantity.try_into()?),
+                    quote_order_qty: None,
+                    new_client_order_id: None,
+                    new_order_resp_type: Some(OrderPlaceNewOrderRespTypeEnum::ACK),
+                    stop_price: None,
+                    trailing_delta: None,
+                    iceberg_qty: None,
+                    strategy_id: None,
+                    strategy_type: None,
+                    self_trade_prevention_mode: None,
+                    recv_window: None,
                 };
 
-                let _ = self.wsapi.order_place(params).await;
+                tracing::debug!("PlaceOrder send: {:#?}", params);
+
+                let res = self
+                    .wsapi
+                    .order_place(params)
+                    .await
+                    .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
+
+                tracing::debug!("PlaceOrder returned: {:#?}", res);
                 Ok(())
             }
         }
@@ -107,16 +118,7 @@ impl TradingSession {
             .await
             .map_err(|err| eyre!("Failed to start user data stream: {}", err))?;
 
-        println!("{:#?}", resp.data());
-
-        //wsapi.subscribe_on_ws_events(|e| match e {
-        //    binance_sdk::models::WebsocketEvent::Open => todo!(),
-        //    binance_sdk::models::WebsocketEvent::Message(_) => todo!(),
-        //    binance_sdk::models::WebsocketEvent::Error(_) => todo!(),
-        //    binance_sdk::models::WebsocketEvent::Close(_, _) => todo!(),
-        //    binance_sdk::models::WebsocketEvent::Ping => todo!(),
-        //    binance_sdk::models::WebsocketEvent::Pong => todo!(),
-        //});
+        tracing::debug!("Start user data: {:#?}", resp.data());
 
         let user_data_stream_subscribe_params = UserDataStreamSubscribeParams::builder()
             .build()
@@ -128,10 +130,10 @@ impl TradingSession {
             .await
             .map_err(|err| eyre!("Failed to subscribe to user data stream: {}", err))?;
 
-        println!("{:#?}", resp.data());
+        tracing::debug!("Subscribe user data: {:#?}", resp.data());
 
         strm.on_message(|data| {
-            println!("{:#?}", data);
+            tracing::debug!("User data: {:#?}", data);
 
             //    // TODO parse message and publish
             //    observer.read().publish_single(OrderConnectorNotification::Fill {

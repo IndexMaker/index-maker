@@ -351,7 +351,7 @@ mod test {
             move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                 let lot_id_1 = lot_id_1.clone();
                 let order_connector = order_connector_weak.upgrade().unwrap();
-                assert_eq!(sid, SessionId("Session-01".to_owned()));
+                assert_eq!(sid, SessionId::from("Session-01"));
                 defer_1
                     .send(Box::new(move || {
                         order_connector.read().notify_fill(

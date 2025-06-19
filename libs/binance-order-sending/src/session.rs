@@ -50,38 +50,32 @@ impl Session {
         self.session_loop.start(async move |cancel_token| {
             tracing::info!("Session loop started");
             let session_id = credentials.into_session_id();
+            let on_error = |reason| {
+                tracing::warn!("{:?}", reason);
+                observer
+                    .read()
+                    .publish_single(OrderConnectorNotification::SessionLogout {
+                        session_id: session_id.clone(),
+                        reason,
+                    })
+            };
 
             let trading_session = match TradingSessionBuilder::build(&credentials).await {
                 Err(err) => {
-                    observer
-                        .read()
-                        .publish_single(OrderConnectorNotification::SessionLogout {
-                            session_id,
-                            reason: format!("Failed create session: {:?}", err),
-                        });
+                    on_error(format!("Failed create session: {:?}", err));
                     return credentials;
                 }
                 Ok(s) => s,
             };
 
             if let Err(err) = trading_session.logon().await {
-                observer
-                    .read()
-                    .publish_single(OrderConnectorNotification::SessionLogout {
-                        session_id,
-                        reason: format!("Failed to login: {:?}", err),
-                    });
+                on_error(format!("Failed to login: {:?}", err));
                 return credentials;
             }
 
             let user_data = match trading_session.subscribe(observer.clone()).await {
                 Err(err) => {
-                    observer
-                        .read()
-                        .publish_single(OrderConnectorNotification::SessionLogout {
-                            session_id: session_id.clone(),
-                            reason: format!("Failed to obtain user-data: {:?}", err),
-                        });
+                    on_error(format!("Failed to obtain user-data: {:?}", err));
                     return credentials;
                 }
                 Ok(s) => s,

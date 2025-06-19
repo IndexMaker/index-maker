@@ -5,37 +5,12 @@ use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use crate::core::{
+use crate::{core::{
     bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
     decimal_ext::DecimalExt,
-};
+}, string_id};
 
-/// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
-///
-/// From exchange perspective execution Id is the Id of the *action*, which is to execute an order.
-/// However from our perspective, when our order is executed what we receive is a *lot* of an asset,
-/// for us it is not execution that matters, but the actual quantity of asset we received in one
-/// transaction, and that we call *lot*. We manage lots and not executions. We handle executions by managing lots.
-/// When we get an execution of the Buy order, then we open a lot, and when we get an execution of the Sell order
-/// we match that new lot against the one we opened for Buy order. Lots form a stack (LIFO) or queue (FIFO).
-/// We always match incoming lot from Sell transation against current stack/queue. Note that we said Buy opens a lot
-/// and Sell closes one or more lots. When short-selling is supported these can be inverted, but we don't support
-/// short-selling.
-///
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct LotId(pub String);
-
-impl Display for LotId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "LotId({})", self.0)
-    }
-}
-
-impl From<&str> for LotId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
+string_id!(LotId);
 
 pub struct LotTransaction {
     /// ID of the closing order that was executed
@@ -61,6 +36,19 @@ pub struct LotTransaction {
     /// Time of the closing transaction
     pub closing_timestamp: DateTime<Utc>,
 }
+
+/// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
+///
+/// From exchange perspective execution Id is the Id of the *action*, which is to execute an order.
+/// However from our perspective, when our order is executed what we receive is a *lot* of an asset,
+/// for us it is not execution that matters, but the actual quantity of asset we received in one
+/// transaction, and that we call *lot*. We manage lots and not executions. We handle executions by managing lots.
+/// When we get an execution of the Buy order, then we open a lot, and when we get an execution of the Sell order
+/// we match that new lot against the one we opened for Buy order. Lots form a stack (LIFO) or queue (FIFO).
+/// We always match incoming lot from Sell transation against current stack/queue. Note that we said Buy opens a lot
+/// and Sell closes one or more lots. When short-selling is supported these can be inverted, but we don't support
+/// short-selling.
+///
 
 pub struct Lot {
     /// ID of the order that was executed, and caused to open this lot

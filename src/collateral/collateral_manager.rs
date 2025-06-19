@@ -455,7 +455,7 @@ mod test {
     impl CollateralManagerHost for MockCollateralManagerHost {
         fn get_next_payment_id(&self) -> PaymentId {
             let last_id = self.last_id.fetch_add(1, Ordering::SeqCst);
-            PaymentId(format!("P-{}", last_id))
+            PaymentId::from(format!("P-{}", last_id))
         }
     }
 

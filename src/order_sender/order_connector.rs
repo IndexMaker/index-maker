@@ -2,25 +2,12 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::{
     core::bits::{Amount, OrderId, Side, SingleOrder, Symbol},
-    solver::position::LotId,
+    solver::position::LotId, string_id,
 };
 use chrono::{DateTime, Utc};
 use eyre::Result;
 
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct SessionId(pub String);
-
-impl Display for SessionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SessionId({})", self.0)
-    }
-}
-
-impl From<&str> for SessionId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
+string_id!(SessionId);
 
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
 pub enum OrderConnectorNotification {

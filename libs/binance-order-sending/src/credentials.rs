@@ -41,7 +41,7 @@ impl Credentials {
     }
 
     pub(crate) fn into_session_id(&self) -> SessionId {
-        SessionId(self.get_api_key())
+        SessionId::from(self.get_api_key())
     }
 }
 

@@ -2,7 +2,10 @@ use std::{env, sync::Arc, thread::spawn, time::Duration};
 
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use chrono::Utc;
-use crossbeam::{channel::unbounded, select};
+use crossbeam::{
+    channel::{self, bounded, unbounded},
+    select,
+};
 use index_maker::{
     core::{
         bits::{BatchOrderId, OrderId, Side, SingleOrder, Symbol},
@@ -29,6 +32,7 @@ pub async fn main() {
     );
 
     let (event_tx, event_rx) = unbounded::<OrderConnectorNotification>();
+    let (end_tx, end_rx) = bounded::<()>(1);
 
     let order_sender = Arc::new(RwLock::new(BinanceOrderSending::new()));
 
@@ -91,12 +95,19 @@ pub async fn main() {
         }
     };
 
-    spawn(move || loop {
-        select! {
-            recv(event_rx) -> res => {
-                handle_event_internal(res.unwrap());
+    let task = spawn(move || {
+        tracing::info!("Loop started");
+        loop {
+            select! {
+                recv(event_rx) -> res => {
+                    handle_event_internal(res.unwrap());
+                },
+                recv(end_rx) -> _ => {
+                    break;
+                }
             }
         }
+        tracing::info!("Loop exited");
     });
 
     order_sender
@@ -123,9 +134,9 @@ pub async fn main() {
         .send_order(
             session_id,
             &Arc::new(SingleOrder {
-                order_id: OrderId(format!("O-{}", Utc::now().timestamp_millis())),
+                order_id: OrderId::from(format!("O-{}", Utc::now().timestamp_millis())),
                 batch_order_id: BatchOrderId::from("B-1"),
-                symbol: Symbol::from("LTC/BNB"),
+                symbol: Symbol::from("LTC-BNB"),
                 side: Side::Buy,
                 price: dec!(0.1308),
                 quantity: dec!(1.0),
@@ -141,4 +152,7 @@ pub async fn main() {
         .expect("Failed to stop order sender");
 
     sleep(Duration::from_secs(10)).await;
+
+    end_tx.send(()).expect("Failed to send stop");
+    task.join().expect("Failed to await task");
 }
