@@ -14,8 +14,10 @@ use axum_fix_server::{
 };
 use crossbeam::{channel::unbounded, select};
 use eyre::Result;
-use index_maker::core::bits::Address;
-use parking_lot::RwLock;
+use index_maker::{
+    core::{bits::Address, logging::log_init},
+    init_log,
+};
 
 fn handle_server_event(event: &ExampleRequest) {
     println!("{} {} {}", event.session_id, event.address, event.quantity);
@@ -60,6 +62,7 @@ impl AxumServerResponse for ExampleResponse {
 
 #[tokio::main]
 pub async fn main() {
+    init_log!();
     let plugin = SerdePlugin::<ExampleRequest, ExampleResponse>::new();
     let fix_server = Server::new_arc(plugin);
     //let plugin = DummyPlugin;

@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use itertools::Either;
 use thiserror::Error;
 
 use crate::core::bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol};
@@ -93,7 +92,7 @@ pub enum ServerResponseReason<T> {
     #[error("{0:?}")]
     User(T),
     #[error("{0:?}")]
-    Server(ServerError)
+    Server(ServerError),
 }
 
 #[derive(Error, Debug)]

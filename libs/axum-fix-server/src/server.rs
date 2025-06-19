@@ -120,7 +120,8 @@ where
         let my_clone = self.me.upgrade().unwrap();
         tokio::spawn(async move {
             let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-            tracing::debug!("Listening on {}", addr);
+            tracing::info!("Listening on {}", addr);
+            println!("Listening on {}", addr);
 
             let app = Router::new()
                 .route("/ws", get(ws_handler))

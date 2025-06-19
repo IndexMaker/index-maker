@@ -3,10 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use alloy::signers::k256::elliptic_curve::weierstrass::add;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use itertools::Either;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -370,7 +368,9 @@ impl IndexOrderManager {
                 ) {
                     let result = match &reason {
                         ServerResponseReason::User(..) => Ok(()),
-                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::Server(err) => {
+                            Err(eyre!("Internal server error: {:?}", err))
+                        }
                     };
                     self.server
                         .write()
@@ -412,7 +412,9 @@ impl IndexOrderManager {
                 ) {
                     let result = match &reason {
                         ServerResponseReason::User(..) => Ok(()),
-                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::Server(err) => {
+                            Err(eyre!("Internal server error: {:?}", err))
+                        }
                     };
                     self.server
                         .write()

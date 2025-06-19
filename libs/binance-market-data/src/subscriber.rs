@@ -1,28 +1,26 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use binance_spot_connector_rust::{
-    hyper::BinanceHttpClient,
-    market::depth::Depth,
-    market_stream::{book_ticker::BookTickerStream, diff_depth::DiffDepthStream},
-    tokio_tungstenite::BinanceWebSocketClient,
-};
+use binance_sdk::config::{ConfigurationRestApi, ConfigurationWebsocketStreams};
+use binance_sdk::spot::rest_api::DepthParams;
+use binance_sdk::spot::websocket_streams::BookTickerParams;
+use binance_sdk::spot::SpotRestApi;
+use binance_sdk::spot::{websocket_streams::DiffBookDepthParams, SpotWsStreams};
+
 use eyre::{eyre, Result};
-use futures_util::{future::join_all, StreamExt};
+use futures_util::future::join_all;
 use index_maker::{
     core::{bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
-use rand::Rng;
-use serde_json::Value;
 use tokio::{
     select,
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    time::sleep,
 };
 
-use crate::{async_loop::AsyncLoop, book::Books, subscriptions::Subscriptions};
+use crate::{book::Books, subscriptions::Subscriptions};
+use async_core::async_loop::AsyncLoop;
 
 pub struct Subscriber {
     subscriptions: Arc<AtomicLock<Subscriptions>>,
@@ -74,89 +72,135 @@ impl Subscriber {
         let books_clone = books.clone();
 
         self.subscriber_loop.start(async move |cancel_token| {
-            let (mut conn, _) = BinanceWebSocketClient::connect_async_default()
-                .await
-                .expect("failed to connect to Binance");
+            let ws_streams_conf = match ConfigurationWebsocketStreams::builder().build() {
+                Ok(x) => x,
+                Err(err) => {
+                    tracing::warn!("Failed to build websocket configuration {:?}", err);
+                    return;
+                }
+            };
+
+            let ws_streams_client = SpotWsStreams::production(ws_streams_conf);
+
+            let connection = match ws_streams_client.connect().await {
+                Ok(x) => x,
+                Err(err) => {
+                    tracing::warn!("Failed to connect websocket client {:?}", err);
+                    return;
+                }
+            };
+
             loop {
+                tracing::info!("Loop started");
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
                     Some(symbol) = subscription_rx.recv() => {
                         if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone()) {
-                            eprintln!("(binance-subscriber) Error adding book {:?}", err);
-                        }
-                        conn.subscribe(vec![
-                            &BookTickerStream::from_symbol(&symbol).into(),
-                            &DiffDepthStream::from_1000ms(&symbol).into(),
-                        ])
-                        .await;
-                    },
-                    Some(event) = conn.as_mut().next() => {
-                        if rand::rng().random_range(0.0..1.0) < 0.02 {
+                            tracing::warn!("Error adding book {:?}", err);
                             continue;
                         }
-                        match event {
-                            Ok(message) => {
-                                let binary_data = message.into_data();
-                                match std::str::from_utf8(&binary_data) {
-                                    Ok(data) => {
-                                        if data == "{\"result\":null,\"id\":0}" {
-                                            println!("(binance-subscriber) Subscription response");
-                                        }
-                                        else if let Ok(value) = serde_json::from_str::<Value>(data) {
-                                            if let Some(_) = value["stream"].as_str() {
-                                                if let Err(err) = books.write().apply_update(value) {
-                                                    eprintln!("(binance-subscriber) Failed to apply book update: {:?}", err);
-                                                }
-                                            }
-                                            else {
-                                                eprintln!("(binance-subscriber) Failed to ingest message: {:?}", data);
-                                            }
-                                        } else {
-                                            eprintln!("(binance-subscriber) Failed to parse message: {:?}", data);
-                                        }
-                                    },
-                                    Err(err) => {
-                                        eprintln!("(binance-subscriber) Failed to parse book update as UTF8: {:?}", err);
-                                    }
-                                }
-                            }
-                            Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to receive book update: {:?}", err);
 
+                        let depth_params = match DiffBookDepthParams::builder(symbol.to_string()).build() {
+                            Ok(x) => x,
+                            Err(err) => {
+                                tracing::warn!("Failed to build diff-depth params: {}", err);
+                                continue;
                             }
-                        }
-                    }
+                        };
+
+                        let depth_stream = match connection.diff_book_depth(depth_params).await {
+                            Ok(x) => x,
+                            Err(err) => {
+                                tracing::warn!("Failed to subscribe to diff-depth stream: {}", err);
+                                continue;
+                            }
+                        };
+
+                        let ticker_params = match BookTickerParams::builder(symbol.to_string()).build() {
+                            Ok(x) => x,
+                            Err(err) => {
+                                tracing::warn!("Failed to build book-ticker params: {}", err);
+                                continue;
+                            }
+                        };
+                    
+                        let ticker_stream = match connection.book_ticker(ticker_params).await {
+                            Ok(x) => x,
+                            Err(err) => {
+                                tracing::warn!("Failed to subscribe to book-ticker stream: {}", err);
+                                continue;
+                            }
+                        };
+
+                        let symbol_clone = symbol.clone();
+                        let books_clone = books.clone();
+
+                        depth_stream.on_message(move |data| {
+                            if let Err(err) = books_clone.write().apply_book_update(&symbol_clone, data) {
+                                tracing::warn!("Failed to apply book update: {:?}", err);
+                            }
+                        });
+
+                        let symbol_clone = symbol.clone();
+                        let books_clone = books.clone();
+
+                        ticker_stream.on_message(move |data| {
+                            if let Err(err) = books_clone.write().apply_tob_update(&symbol_clone, data) {
+                                tracing::warn!("Failed to apply tob update: {:?}", err);
+                            }
+                        });
+
+                    },
                 }
+            }
+            
+            if let Err(err) = connection.disconnect().await {
+                tracing::warn!("Failed to disconnect websocket client: {}", err);
             }
         });
 
         self.snapshot_loop.start(async move |cancel_token| {
-            let http_client = BinanceHttpClient::default();
+            let rest_conf = match ConfigurationRestApi::builder().build() {
+                Ok(x) => x,
+                Err(err) => {
+                    tracing::warn!("Failed configure snapshotting client: {:?}", err);
+                    return;
+                }
+            };
+
+            let rest_client = SpotRestApi::production(rest_conf);
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
                     Some(symbol) = snapshot_rx.recv() => {
-                        match http_client.send(Depth::new(&symbol)).await {
+                        let params = match DepthParams::builder(symbol.to_string()).build() {
+                            Ok(x) => x,
+                            Err(err) =>  {
+                                tracing::warn!("Failed to request depth snapshot: {:?}", err);
+                                continue;
+                            }
+                        };
+
+                        let response = match rest_client.depth(params).await {
+                            Ok(x) => x,
+                            Err(err) => {
+                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
+                                continue;
+                            }
+                        };
+
+                        match response.data().await {
                             Ok(res) => {
-                                match res.into_body_str().await {
-                                    Ok(snapshot_data) => {
-                                        println!("(binance-subscriber) Sleeping to simulate delay and delta accumulation");
-                                        sleep(Duration::from_secs(1)).await;
-                                        if let Err(err) = books_clone.write().apply_snapshot(&symbol, &snapshot_data) {
-                                            eprintln!("(binance-subscriber) Failed to apply depth snapshot: {:?}", err);
-                                        }
-                                    }
-                                    Err(err) => {
-                                        eprintln!("(binance-subscriber) Failed to obtain or parse depth snapshot: {:?}", err);
-                                    }
+                                if let Err(err) = books_clone.write().apply_snapshot(&symbol, res) {
+                                    tracing::warn!("Failed to apply depth snapshot: {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("(binance-subscriber) Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
                             }
                         }
                     }

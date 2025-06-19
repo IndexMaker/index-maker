@@ -19,6 +19,7 @@ pub mod core {
     pub mod deque_macros;
     pub mod functional;
     pub mod hashmap_macros;
+    pub mod logging;
 
     #[cfg(test)]
     pub mod test_util;

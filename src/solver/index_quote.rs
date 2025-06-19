@@ -51,7 +51,7 @@ impl IndexQuote {
             collateral_amount,
             quantity_possible: Amount::ZERO,
             created_timestamp: timestamp,
-            last_update_timestamp: timestamp
+            last_update_timestamp: timestamp,
         }
     }
 }

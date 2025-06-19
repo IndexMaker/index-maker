@@ -1156,7 +1156,8 @@ mod test {
             batch_manager::BatchEvent,
             index_order_manager::EngagedIndexOrder,
             solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
-            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus}, solver_quote::{SolverQuote, SolverQuoteStatus},
+            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
+            solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 
