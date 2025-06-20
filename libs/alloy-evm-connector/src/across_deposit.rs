@@ -1,9 +1,7 @@
 use alloy::{
-    contract::ContractInstance,
     hex,
     primitives::{address, Address, FixedBytes, U256},
-    providers::{Provider, ProviderBuilder},
-    signers::local::LocalWallet,
+    providers::{Provider, ProviderBuilder, ProviderLayer},
     sol_types::SolCall,
 };
 use serde::{Deserialize, Serialize};
@@ -14,7 +12,7 @@ use crate::contracts::{AcrossConnector, OTCCustody, ERC20};
 use crate::custody_helper::CAHelper;
 
 pub const ACROSS_CONNECTOR_ADDRESS: Address =
-    address!("0xB95bCdEe3266901c8fB7b77D3DFea62ff09113B7");
+    address!("0x8350a9Ab669808BE1DDF24FAF9c14475321D0504");
 pub const ACROSS_SPOKE_POOL_ADDRESS: Address =
     address!("0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A");
 pub const OTC_CUSTODY_ADDRESS: Address = address!("0x9F6754bB627c726B4d2157e90357282d03362BCd");
@@ -83,53 +81,35 @@ impl AcrossDeposit {
     }
 }
 
-pub struct AcrossDepositBuilder<P: Provider + Clone> {
+pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
     pub across_connector: AcrossConnector::AcrossConnectorInstance<P>,
     pub otc_custody: OTCCustody::OTCCustodyInstance<P>,
     pub usdc: ERC20::ERC20Instance<P>,
 }
 
-impl<P: Provider + Clone> AcrossDepositBuilder<P> {
-    pub fn new(provider: P) -> Self {
-        Self {
+impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
+    pub async fn new(provider: P) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self {
             across_connector: AcrossConnector::AcrossConnectorInstance::new(
                 ACROSS_CONNECTOR_ADDRESS,
                 provider.clone(),
             ),
             otc_custody: OTCCustody::OTCCustodyInstance::new(OTC_CUSTODY_ADDRESS, provider.clone()),
-            usdc: ERC20::ERC20Instance::new(USDC_ARBITRUM_ADDRESS, provider),
-        }
+            usdc: ERC20::ERC20Instance::new(USDC_ARBITRUM_ADDRESS, provider.clone()),
+        })
     }
 
-    /// Step 2: Set target chain multicall handler
-    pub async fn set_target_chain_multicall_handler(
-        &self,
-        chain_id: u64,
-        handler_address: Address,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let call = self
-            .across_connector
-            .setTargetChainMulticallHandler(U256::from(chain_id), handler_address);
-        call.send().await?.get_receipt().await?;
-        Ok(())
-    }
-
-    /// Step 3: Approve input token for OTCCustody
+    /// Step 2: Approve input token for OTCCustody
     pub async fn approve_input_token_for_custody(
         &self,
-        input_token_address: Address,
         amount: U256,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let token = ERC20::ERC20Instance::new(
-            input_token_address,
-            self.across_connector.provider().clone(),
-        );
-        let call = token.approve(OTC_CUSTODY_ADDRESS, amount);
+        let call = self.usdc.approve(OTC_CUSTODY_ADDRESS, amount);
         call.send().await?.get_receipt().await?;
         Ok(())
     }
 
-    /// Step 1: Get suggested output from Across API
+    /// Step 3: Get suggested output from Across API
     pub async fn get_across_suggested_output(
         input_token: Address,
         output_token: Address,
@@ -223,18 +203,12 @@ impl<P: Provider + Clone> AcrossDepositBuilder<P> {
         output_token: Address,
         deposit_amount: U256,
         destination_chain_id: u64,
-        handler_address: Address,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let origin_chain_id = ORIGIN_CHAIN_ID;
 
-        // Step 2: Set target chain multicall handler
-        println!("Step 2: Setting target chain multicall handler");
-        self.set_target_chain_multicall_handler(destination_chain_id, handler_address)
-            .await?;
-
         // Step 3: Approve input token for OTCCustody
         println!("Step 3: Approving input token for custody");
-        self.approve_input_token_for_custody(input_token, deposit_amount)
+        self.approve_input_token_for_custody(deposit_amount)
             .await?;
 
         // Step 4: Setup custody helper (CAHelper)
@@ -373,18 +347,15 @@ pub fn create_verification_data(
 
 /// Example usage function with all steps
 pub async fn example_complete_across_deposit_flow() -> Result<(), Box<dyn std::error::Error>> {
-    // Setup provider (in real usage, this would be a connected provider)
-    let provider = ProviderBuilder::new()
-        .connect("http://localhost:8545")
-        .await?;
-    let builder = AcrossDepositBuilder::new(provider);
+    // Setup provider and builder
+    let provider = alloy::providers::ProviderBuilder::new().connect("http://localhost:8545").await?;
+    let builder = AcrossDepositBuilder::new(provider).await?;
 
     // Example parameters
     let input_token = USDC_ARBITRUM_ADDRESS;
     let output_token = USDC_BASE_ADDRESS;
     let deposit_amount = U256::from(1_000_000u128); // 1 USDC (6 decimals)
     let destination_chain_id = DESTINATION_CHAIN_ID;
-    let handler_address = Address::ZERO; // This would be the actual handler address
 
     // Execute the complete flow with all steps
     builder
@@ -393,7 +364,6 @@ pub async fn example_complete_across_deposit_flow() -> Result<(), Box<dyn std::e
             output_token,
             deposit_amount,
             destination_chain_id,
-            handler_address,
         )
         .await?;
 

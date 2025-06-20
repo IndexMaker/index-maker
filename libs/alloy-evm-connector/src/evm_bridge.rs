@@ -4,6 +4,7 @@ use rust_decimal::dec;
 use safe_math::safe;
 use std::sync::{Arc, RwLock as ComponentLock, Weak};
 
+use crate::across_deposit::AcrossDepositBuilder;
 use chrono::{DateTime, Utc};
 use index_maker::{
     collateral::collateral_router::{
@@ -141,6 +142,11 @@ impl CollateralBridge for EvmCollateralBridge {
             // when transfer is actually complete. Collateral router responds to
             // those events by producing next hop, which invokes next bridge (a
             // different one than this)
+            //
+            let provider = alloy::providers::ProviderBuilder::new()
+                .connect("http://localhost:8545")
+                .await?;
+            let deposit_builder = AcrossDepositBuilder::new(provider).await.unwrap();
             //
             let timestamp = Utc::now();
             let fee = safe!(cumulative_fee + dec!(0.1)).ok_or_eyre("Math Problem")?;
