@@ -14,17 +14,23 @@ use axum_fix_server::{
     server::Server,
 };
 use crossbeam::{channel::unbounded, select};
-use eyre::Result;
+use eyre::{eyre, Report, Result};
 use index_maker::{
     core::{bits::Address, logging::log_init},
     init_log,
 };
+use serde::{Deserialize, Serialize};
 
 fn handle_server_event(event: &ExampleRequest) {
-    println!("{} {} {}", event.session_id, event.address, event.quantity);
+    println!(
+        "handle_server_event >> {} {} {}",
+        event.session_id, event.address, event.quantity
+    );
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 struct ExampleRequest {
+    #[serde(skip)]
     session_id: SessionId,
     address: Address,
     quantity: i32,
@@ -36,7 +42,9 @@ impl Signer for ExampleRequest {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 struct ExampleResponse {
+    #[serde(skip)]
     session_id: SessionId,
     ack: bool,
     side: String,
@@ -48,11 +56,11 @@ impl AxumServerRequest for ExampleRequest {
         session_id: SessionId,
     ) -> Result<Self, eyre::Error> {
         println!("{}: {}", session_id, message);
-        Ok(ExampleRequest {
-            session_id,
-            address: address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045"),
-            quantity: 42,
-        })
+        let mut request: ExampleRequest = serde_json::from_str(&message.to_string())
+            .map_err(|e| eyre!("Failed to deserialize FixMessage: {}", e))?;
+        request.session_id = session_id.clone();
+        println!("deserialize_from_fix: {} {} {}", request.session_id, request.address, request.quantity);
+        Ok(request)
     }
 }
 
@@ -62,7 +70,15 @@ impl AxumServerResponse for ExampleResponse {
     }
 
     fn serialize_into_fix(&self, builder: FixMessageBuilder) -> Result<FixMessage, eyre::Error> {
-        Ok(FixMessage("this is a response, not a good one, but it's something".to_owned()))
+        // Serialize the response to JSON
+        let json_str = serde_json::to_string(self)
+            .map_err(|e| eyre!("Failed to serialize ExampleResponse: {}", e))?;
+        // Construct a FixMessage with the serialized data in the body
+        println!("serialize_into_fix: {}",json_str);
+        Ok(FixMessage (json_str.to_owned()))
+        // Ok(FixMessage(
+        //     "this is a response, not a good one, but it's something".to_owned(),
+        // ))
     }
 }
 

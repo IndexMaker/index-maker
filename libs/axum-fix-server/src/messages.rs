@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use eyre::{eyre, Report, Result};
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
 // // MyServerRequest
 // ///
@@ -90,6 +91,7 @@ use eyre::{eyre, Report, Result};
 ///
 /// Represents a FIX message as a simple string wrapper. Used for both incoming and
 /// outgoing messages in the server communication.
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FixMessage(pub String);
 
 impl Display for FixMessage {
@@ -129,6 +131,23 @@ impl Display for SessionId {
 impl From<&str> for SessionId {
     fn from(value: &str) -> Self {
         Self(value.into())
+    }
+}
+
+impl Serialize for SessionId {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        serializer.serialize_str(&format!("{:?}", self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        let s = String::deserialize(deserializer)?;
+        Ok(SessionId(s))
     }
 }
 

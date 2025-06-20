@@ -1,7 +1,5 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    future::Future,
-    marker::PhantomData,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Weak,
@@ -19,13 +17,12 @@ use axum::{
     Router,
 };
 use eyre::{eyre, Report, Result};
-use index_maker::core::functional::{MultiObserver, PublishMany, PublishSingle, SingleObserver};
-use itertools::Itertools;
+use index_maker::core::functional::{PublishSingle, SingleObserver};
 use std::net::SocketAddr;
 use tokio::{
     select,
     sync::{
-        mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender},
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
         RwLock,
     },
 };
@@ -221,18 +218,28 @@ where
         loop {
             select! {
                 // quit => { break; }
-                Some(res) = ws.recv() => {
+                res = ws.recv() =>{
                     match res {
-                        Ok(message) => {
+                         Some(Ok(message)) => {
                             if let axum::extract::ws::Message::Text(text) = message {
                                 tracing::debug!("Received message: {}", text);
                                 if let Err(e) = server.read().await.process_incoming_message(text.to_string(), session_id.clone()).await {
                                     tracing::error!("Failed to process incoming message: {}", e);
+                                    // Send error message back to the client
+                                    let error_msg = format!("Error processing message: {}", e);
+                                    if let Err(e) = ws.send(Message::Text(error_msg)).await {
+                                        tracing::error!("Failed to send WebSocket message: {}", e);
+                                    break;
+                            }
                                 }
                             }
                         }
-                        Err(e) => {
+                        Some(Err(e)) => {
                             tracing::error!("WebSocket error: {}", e);
+                            break;
+                        }
+                        None => {
+                            tracing::info!("WebSocket connection closed on session {}", session_id);
                             break;
                         }
                     }
