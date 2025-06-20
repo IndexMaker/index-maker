@@ -104,7 +104,7 @@ impl TradingSession {
                 .as_seconds_f64();
 
             sleep(std::time::Duration::from_secs_f64(sleep_time)).await;
-        
+
             if !self.order_limit.try_consume(1, Utc::now()) {
                 Err(eyre!("Failed to satisfy rate-limit"))?
             }
@@ -159,7 +159,11 @@ impl TradingSession {
         Ok(())
     }
 
-    pub async fn send_command(&mut self, command: Command) -> Result<()> {
+    pub async fn send_command(
+        &mut self,
+        command: Command,
+        observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
+    ) -> Result<()> {
         match command {
             Command::NewOrder(single_order) => {
                 let params = OrderPlaceParams {
@@ -185,21 +189,40 @@ impl TradingSession {
                     recv_window: Some(10000),
                 };
 
-                tracing::debug!("PlaceOrder send: {:#?}", params);
+                let f = async || {
+                    tracing::debug!("PlaceOrder send: {:#?}", params);
 
-                self.will_send_order().await?;
+                    self.will_send_order().await?;
 
-                let res = self
-                    .wsapi
-                    .order_place(params)
-                    .await
-                    .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
+                    let res = self
+                        .wsapi
+                        .order_place(params)
+                        .await
+                        .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
 
-                if let Some(limits) = &res.rate_limits {
-                    self.update_limits(limits);
+                    if let Some(limits) = &res.rate_limits {
+                        self.update_limits(limits);
+                    }
+
+                    tracing::debug!("PlaceOrder returned: {:#?}", res);
+
+                    Result::<()>::Ok(())
+                };
+
+                if let Err(err) = f().await {
+                    observer
+                        .read()
+                        .publish_single(OrderConnectorNotification::Rejected {
+                            order_id: single_order.order_id.clone(),
+                            symbol: single_order.symbol.clone(),
+                            side: single_order.side,
+                            price: single_order.price,
+                            quantity: single_order.quantity,
+                            reason: format!("Failed to send order: {:?}", err),
+                            timestamp: Utc::now(),
+                        });
+                    Err(err)?
                 }
-
-                tracing::debug!("PlaceOrder returned: {:#?}", res);
 
                 Ok(())
             }

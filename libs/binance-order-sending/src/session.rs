@@ -96,7 +96,7 @@ impl Session {
                         break;
                     },
                     Some(command) = command_rx.recv() => {
-                        if let Err(res) = trading_session.send_command(command).await {
+                        if let Err(res) = trading_session.send_command(command, &observer).await {
                             tracing::warn!("Failed to send command: {:?}", res);
                         }
                     },

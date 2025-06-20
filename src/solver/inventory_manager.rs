@@ -354,7 +354,6 @@ impl IntoObservableSingle<InventoryEvent> for InventoryManager {
 
 #[cfg(test)]
 mod test {
-    use core::time;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
