@@ -218,9 +218,9 @@ where
         loop {
             select! {
                 // quit => { break; }
-                res = ws.recv() =>{
+                res = ws.recv() => {
                     match res {
-                         Some(Ok(message)) => {
+                        Some(Ok(message)) => {
                             if let axum::extract::ws::Message::Text(text) = message {
                                 tracing::debug!("Received message: {}", text);
                                 if let Err(e) = server.read().await.process_incoming_message(text.to_string(), session_id.clone()).await {
