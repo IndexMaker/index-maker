@@ -215,7 +215,11 @@ mod test {
 
         assert_eq!(limiter.current_weight(Duration::seconds(10), timestamp), 0);
 
+        // Here in this test we control the time explicilty stating how much passes.
+
         timestamp += TimeDelta::seconds(3);
+
+        // Put some event with some weight
 
         limiter.put_weight(5, timestamp);
 
@@ -223,15 +227,44 @@ mod test {
 
         timestamp += TimeDelta::seconds(3);
 
+        // Put another event with other weight
+
         limiter.put_weight(3, timestamp);
 
         timestamp += TimeDelta::seconds(3);
 
+        // Note that:
+        // - 3 seconds ago we put 3, and
+        // - 6 seconds ago we put 5
+
+        // Here we're asking:
+        // - How much altogether weight is currently in a window of given length?
+        
         assert_eq!(limiter.current_weight(Duration::seconds(10), timestamp), 8);
         assert_eq!(limiter.current_weight(Duration::seconds(5), timestamp), 3);
         assert_eq!(limiter.current_weight(Duration::seconds(1), timestamp), 0);
 
+        // Here we're asking:
+        // - How much time I need to wait for rolling window of given length
+        //   to contain in it altogether less than the given weight?
+
+        // Note that as we're waiting the window is moving forwards, and events
+        // are dropping off from it. We're asking how much this window needs to
+        // move forward so that enough events drops off, so that their total
+        // weight will be no less than given weight.
+
+        assert_eq!(limiter.waiting_period(1, Duration::seconds(20), timestamp), Duration::seconds(14));
+        assert_eq!(limiter.waiting_period(5, Duration::seconds(20), timestamp), Duration::seconds(14));
+        assert_eq!(limiter.waiting_period(6, Duration::seconds(20), timestamp), Duration::seconds(17));
+        assert_eq!(limiter.waiting_period(9, Duration::seconds(20), timestamp), Duration::seconds(17));
+        
+        assert_eq!(limiter.waiting_period(1, Duration::seconds(5), timestamp), Duration::seconds(2));
+        assert_eq!(limiter.waiting_period(3, Duration::seconds(5), timestamp), Duration::seconds(2));
+        assert_eq!(limiter.waiting_period(9, Duration::seconds(5), timestamp), Duration::seconds(2));
+
         timestamp += TimeDelta::seconds(3);
+
+        // After time passed some events dropped off
 
         assert_eq!(limiter.current_weight(Duration::seconds(10), timestamp), 8);
         assert_eq!(limiter.current_weight(Duration::seconds(5), timestamp), 0);
@@ -242,6 +275,8 @@ mod test {
         assert_eq!(limiter.current_weight(Duration::seconds(5), timestamp), 0);
 
         timestamp += TimeDelta::seconds(3);
+
+        // Eventually all events drop off
 
         assert_eq!(limiter.current_weight(Duration::seconds(10), timestamp), 0);
     }
