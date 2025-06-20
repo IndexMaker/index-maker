@@ -1,23 +1,27 @@
 use std::sync::Arc;
 
 use binance_sdk::common::websocket::WebsocketStream;
+use binance_sdk::models::{self, WebsocketApiRateLimit};
 use binance_sdk::spot::websocket_api::{
     OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum, UserDataStreamStartParams,
     UserDataStreamSubscribeParams, WebsocketApi,
 };
 use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use eyre::{eyre, Result};
 use index_maker::core::bits::{OrderId, Side, Symbol};
 use index_maker::core::decimal_ext::DecimalExt;
 use index_maker::core::functional::{PublishSingle, SingleObserver};
+use index_maker::core::limit::{LimiterConfig, MultiLimiter};
 use index_maker::order_sender::order_connector::{OrderConnectorNotification, SessionId};
+use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use rust_decimal::Decimal;
 use safe_math::safe;
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::time::sleep;
 
 use crate::command::Command;
 use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
@@ -73,37 +77,89 @@ impl TradingSessionBuilder {
             .await
             .map_err(move |err| eyre!("Failed to connect to Binance: {:?}", err))?;
 
-        Ok(TradingSession {
-            session_id: credentials.into_session_id(),
-            wsapi,
-        })
+        Ok(TradingSession::new(credentials.into_session_id(), wsapi))
     }
 }
 
 pub struct TradingSession {
     session_id: SessionId,
     wsapi: WebsocketApi,
+    order_limit: MultiLimiter,
 }
 
 impl TradingSession {
+    fn new(session_id: SessionId, wsapi: WebsocketApi) -> Self {
+        Self {
+            session_id,
+            wsapi,
+            order_limit: MultiLimiter::new(vec![]),
+        }
+    }
+
+    async fn will_send_order(&mut self) -> Result<()> {
+        if !self.order_limit.try_consume(1, Utc::now()) {
+            let sleep_time = self
+                .order_limit
+                .waiting_period_half_limit(Utc::now())
+                .as_seconds_f64();
+
+            sleep(std::time::Duration::from_secs_f64(sleep_time)).await;
+        
+            if !self.order_limit.try_consume(1, Utc::now()) {
+                Err(eyre!("Failed to satisfy rate-limit"))?
+            }
+        }
+        Ok(())
+    }
+
+    fn update_limits(&mut self, limits: &Vec<WebsocketApiRateLimit>) {
+        let timestamp = Utc::now();
+        let values = limits
+            .iter()
+            .filter(|limit| match limit.rate_limit_type {
+                models::RateLimitType::Orders => true,
+                _ => false,
+            })
+            .map(|limit| {
+                let conf = LimiterConfig::new(
+                    limit.limit as usize,
+                    match limit.interval {
+                        models::Interval::Second => Duration::seconds(limit.interval_num.into()),
+                        models::Interval::Minute => Duration::minutes(limit.interval_num.into()),
+                        models::Interval::Hour => Duration::hours(limit.interval_num.into()),
+                        models::Interval::Day => Duration::days(limit.interval_num.into()),
+                    },
+                );
+                (conf, limit.count.unwrap_or_default() as usize)
+            })
+            .collect_vec();
+
+        self.order_limit.refit(values, timestamp);
+    }
+
     pub fn get_session_id(&self) -> &SessionId {
         &self.session_id
     }
 
-    pub async fn logon(&self) -> Result<()> {
+    pub async fn logon(&mut self) -> Result<()> {
         let logon_params = SessionLogonParams::builder()
             .build()
             .map_err(|err| eyre!("Failed to build logon request: {}", err))?;
 
-        self.wsapi
+        let res = self
+            .wsapi
             .session_logon(logon_params)
             .await
             .map_err(|err| eyre!("Failed to logon: {}", err))?;
 
+        if let Some(limits) = &res.rate_limits {
+            self.update_limits(limits);
+        }
+
         Ok(())
     }
 
-    pub async fn send_command(&self, command: Command) -> Result<()> {
+    pub async fn send_command(&mut self, command: Command) -> Result<()> {
         match command {
             Command::NewOrder(single_order) => {
                 let params = OrderPlaceParams {
@@ -131,45 +187,60 @@ impl TradingSession {
 
                 tracing::debug!("PlaceOrder send: {:#?}", params);
 
+                self.will_send_order().await?;
+
                 let res = self
                     .wsapi
                     .order_place(params)
                     .await
                     .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
 
+                if let Some(limits) = &res.rate_limits {
+                    self.update_limits(limits);
+                }
+
                 tracing::debug!("PlaceOrder returned: {:#?}", res);
+
                 Ok(())
             }
         }
     }
 
     pub async fn subscribe(
-        &self,
+        &mut self,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) -> Result<TradingUserData> {
         let user_data_stream_start_params = UserDataStreamStartParams::builder()
             .build()
             .map_err(|err| eyre!("Failed to configure user data stream: {}", err))?;
 
-        let resp = self
+        let res = self
             .wsapi
             .user_data_stream_start(user_data_stream_start_params)
             .await
             .map_err(|err| eyre!("Failed to start user data stream: {}", err))?;
 
-        tracing::debug!("Start user data: {:#?}", resp.data());
+        if let Some(limits) = &res.rate_limits {
+            self.update_limits(limits);
+        }
+
+        tracing::debug!("Start user data: {:#?}", res.data());
 
         let user_data_stream_subscribe_params = UserDataStreamSubscribeParams::builder()
             .build()
             .map_err(|err| eyre!("Failed to configure user data subscription: {}", err))?;
 
-        let (resp, stream) = self
+        let (res, stream) = self
             .wsapi
             .user_data_stream_subscribe(user_data_stream_subscribe_params)
             .await
             .map_err(|err| eyre!("Failed to subscribe to user data stream: {}", err))?;
 
-        tracing::debug!("Subscribe user data: {:#?}", resp.data());
+        if let Some(limits) = &res.rate_limits {
+            self.update_limits(limits);
+        }
+
+        tracing::debug!("Subscribe user data: {:#?}", res.data());
 
         stream.on_message(move |data| {
             tracing::debug!("User data: {:#?}", data);
@@ -193,13 +264,15 @@ impl TradingSession {
 
             let order_id = OrderId::from(execution_report.client_order_id);
             let symbol = Symbol::from(execution_report.symbol);
-            let remaining_quantity = match safe!(execution_report.order_quantity - execution_report.cumulative_quantity) {
-                Some(x) => x,
-                None => {
-                    tracing::warn!("Cannot compute remaining quantity: Math error");
-                    return;
-                }
-            };
+            let remaining_quantity =
+                match safe!(execution_report.order_quantity - execution_report.cumulative_quantity)
+                {
+                    Some(x) => x,
+                    None => {
+                        tracing::warn!("Cannot compute remaining quantity: Math error");
+                        return;
+                    }
+                };
 
             match execution_report.order_status.as_str() {
                 "FILLED" => observer
@@ -260,6 +333,8 @@ impl TradingUserData {
 
 #[cfg(test)]
 mod test {
+    use binance_sdk::models::{self, WebsocketApiRateLimit};
+    use chrono::{TimeDelta, Utc};
     use serde_json::json;
 
     use crate::trading_session::ExecutionReport;

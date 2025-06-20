@@ -354,6 +354,7 @@ impl IntoObservableSingle<InventoryEvent> for InventoryManager {
 
 #[cfg(test)]
 mod test {
+    use core::time;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -421,6 +422,8 @@ mod test {
 
         let counter_1 = Arc::new(AtomicUsize::new(0));
         let counter_2 = counter_1.clone();
+        
+        let logon_timestamp = Utc::now();
 
         let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
         let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
@@ -463,6 +466,8 @@ mod test {
         let mut closed_lot = None;
         assert!(matches!(closed_lot, None));
 
+        let logout_timestamp = Utc::now();
+
         // Make sure Order Connector sends events to Order Tracker
         let order_tracker_1 = Arc::downgrade(&order_tracker);
         order_connector
@@ -478,7 +483,7 @@ mod test {
             });
 
         order_connector.write().connect();
-        order_connector.write().notify_logon("Session-01".into());
+        order_connector.write().notify_logon("Session-01".into(), logon_timestamp);
         run_mock_deferred(&deferred);
 
         //
@@ -980,7 +985,7 @@ mod test {
 
         order_connector
             .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), logout_timestamp);
         run_mock_deferred(&deferred);
     }
 }

@@ -45,15 +45,47 @@ pub async fn main() {
     let (sess_tx, mut sess_rx) = unbounded_channel();
 
     let handle_event_internal = move |e: OrderConnectorNotification| match e {
-        OrderConnectorNotification::SessionLogon { session_id } => {
-            tracing::info!("Session Logon {}", session_id);
+        OrderConnectorNotification::SessionLogon {
+            session_id,
+            timestamp,
+        } => {
+            tracing::info!("Session Logon {} at {}", session_id, timestamp);
             sess_tx
                 .send(Some(session_id))
                 .expect("Failed to notify session logon");
         }
-        OrderConnectorNotification::SessionLogout { session_id, reason } => {
-            tracing::info!("Session Logout {} - {}", session_id, reason);
+        OrderConnectorNotification::SessionLogout {
+            session_id,
+            reason,
+            timestamp,
+        } => {
+            tracing::info!(
+                "Session Logout {} at {} - {}",
+                session_id,
+                timestamp,
+                reason
+            );
             sess_tx.send(None).expect("Failed to notify session logout");
+        }
+        OrderConnectorNotification::Rejected {
+            order_id,
+            symbol,
+            side,
+            price,
+            quantity,
+            reason,
+            timestamp,
+        } => {
+            tracing::warn!(
+                "Rejected {} {} {:?} {} {} {}: {}",
+                order_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                timestamp,
+                reason,
+            );
         }
         OrderConnectorNotification::Fill {
             order_id,

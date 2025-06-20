@@ -1895,7 +1895,7 @@ mod test {
 
         // connect to exchange
         order_connector.write().connect();
-        order_connector.write().notify_logon("Session-01".into());
+        order_connector.write().notify_logon("Session-01".into(), timestamp);
 
         // connect to exchange
         market_data_connector.write().connect();
@@ -2269,7 +2269,7 @@ mod test {
 
         order_connector
             .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), timestamp);
         heading("Scenario completed");
     }
 }

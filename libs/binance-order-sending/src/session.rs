@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_core::async_loop::AsyncLoop;
+use chrono::Utc;
 use eyre::{eyre, Report, Result};
 use index_maker::{
     core::functional::{PublishSingle, SingleObserver},
@@ -57,10 +58,11 @@ impl Session {
                     .publish_single(OrderConnectorNotification::SessionLogout {
                         session_id: session_id.clone(),
                         reason,
+                        timestamp: Utc::now(),
                     })
             };
 
-            let trading_session = match TradingSessionBuilder::build(&credentials).await {
+            let mut trading_session = match TradingSessionBuilder::build(&credentials).await {
                 Err(err) => {
                     on_error(format!("Failed create session: {:?}", err));
                     return credentials;
@@ -85,6 +87,7 @@ impl Session {
                 .read()
                 .publish_single(OrderConnectorNotification::SessionLogon {
                     session_id: session_id.clone(),
+                    timestamp: Utc::now(),
                 });
 
             loop {
@@ -107,6 +110,7 @@ impl Session {
                 .publish_single(OrderConnectorNotification::SessionLogout {
                     session_id,
                     reason: "Session disconnected".to_owned(),
+                    timestamp: Utc::now(),
                 });
 
             tracing::info!("Session loop exited");
