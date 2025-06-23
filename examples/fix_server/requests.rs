@@ -55,9 +55,9 @@ impl AxumServerRequest for Request {
 
     fn deserialize_from_fix(
         message: FixMessage,
-        session_id: SessionId,
+        this_session_id: SessionId,
     ) -> Result<Self, eyre::Error> {
-        println!("{}: {}", session_id, message);
+        println!("{}: {}", this_session_id, message);
         // First, parse the message into a generic serde_json::Value to inspect fields
         let value: serde_json::Value = serde_json::from_str(&message.to_string())
             .map_err(|e| eyre!("Failed to parse FixMessage as JSON: {}", e))?;
@@ -77,7 +77,7 @@ impl AxumServerRequest for Request {
                     .map_err(|e| eyre!("Failed to deserialize FixMessage into Request: {}", e))?;
 
                 if let Request::NewOrderSingle { ref mut session_id, .. } = request {
-                    *session_id = session_id.clone();
+                    *session_id = this_session_id.clone();
                     println!("deserialize_from_fix: Session ID set to {}", session_id);
                 }
                 Ok(request)

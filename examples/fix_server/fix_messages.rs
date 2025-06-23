@@ -36,14 +36,14 @@ pub struct NAKBody {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NewOrderBody{
-    ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
-    Instrument: String,
+    pub ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
+    pub Instrument: String,
     //Instrument: Instrument, // All instrument parameters
-    Side: String,           // "1" = BUY, "2" = SELL
-    Price: String,          // Limit price
+    pub Side: String,           // "1" = BUY, "2" = SELL
+    pub Price: String,          // Limit price
 //    TransactTime: u64,      // Time this order request was initiated
-    OrderQtyData: String,
-    OrdType: String,        // "1" = MARKET, "2" = LIMIT
+    pub OrderQtyData: String,
+    pub OrdType: String,        // "1" = MARKET, "2" = LIMIT
 }
 
 #[derive(Serialize, Deserialize, Debug)]

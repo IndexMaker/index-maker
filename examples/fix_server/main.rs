@@ -14,7 +14,7 @@ mod responses;
 use requests::Request;
 use responses::Response;
 
-use crate::fix_messages::{ACKBody, FixHeader, FixTrailer};
+use crate::fix_messages::{ACKBody, FixHeader, FixTrailer, NewOrderBody};
 
 fn handle_server_event(event: &Request) {
     // println!(
@@ -47,8 +47,13 @@ pub async fn main() {
     let handle_server_event_internal = move |e: Request| {
         let fix_server = fix_server_weak.upgrade().unwrap();
         let response = match e {
-            Request::NewOrderSingle {session_id, StandardHeader, Body, StandardTrailer } =>  {
-                println!("deserialize_from_fix: Session ID set to {}", session_id);
+            Request::NewOrderSingle {
+                session_id,
+                StandardHeader,
+                Body,
+                StandardTrailer,
+            } => {
+                println!("handle_server_event_internal: Session ID set to {}", session_id);
                 Response::ACK {
                     session_id: session_id,
                     StandardHeader: FixHeader {
@@ -57,18 +62,17 @@ pub async fn main() {
                         TargetCompID: StandardHeader.SenderCompID,
                         SeqNum: 1,
                     },
-                    Body: ACKBody{
+                    Body: ACKBody {
                         RefSeqNum: StandardHeader.SeqNum,
                     },
-                    StandardTrailer: FixTrailer{
+                    StandardTrailer: FixTrailer {
                         PublicKey: vec!["serverKey".to_string()],
                         Signature: vec!["serverSign".to_string()],
                     },
                 }
             }
-            
         };
-        
+
         fix_server.blocking_read().send_response(response);
     };
 
