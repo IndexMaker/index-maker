@@ -11,6 +11,7 @@ too_many_arguments = "allow"
 index-maker = { path = "../.." }
 alloy = { workspace = true }
 chrono = { workspace = true }
+dotenv = "0.15"
 eyre = { workspace = true }
 futures-util = "0.3.31"
 itertools = { workspace = true }

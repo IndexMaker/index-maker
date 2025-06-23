@@ -4,11 +4,13 @@ sol! {
     #[sol(rpc)]
     contract AcrossConnector {
         function deposit(
+            address recipient,
             address inputToken,
             address outputToken,
             uint256 amount,
+            uint256 minAmount,
             uint256 destinationChainId,
-            address recipient,
+            address exclusiveRelayer,
             uint32 fillDeadline,
             uint32 exclusivityDeadline,
             bytes calldata message

@@ -1,12 +1,14 @@
+use alloy::signers::local::LocalSigner;
 use alloy::{
     hex,
     primitives::{address, Address, FixedBytes, U256},
-    providers::{Provider, ProviderBuilder, ProviderLayer},
+    providers::{Provider, ProviderBuilder},
     sol_types::SolCall,
 };
+use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use crate::contracts::{AcrossConnector, OTCCustody, ERC20};
 use crate::custody_helper::CAHelper;
@@ -32,47 +34,54 @@ pub struct AcrossSuggestedOutput {
 }
 
 pub struct AcrossDeposit {
-    input_token: Address,
-    output_token: Address,
-    deposit_amount: U256,
-    output_amount: U256,
-    destination_chain_id: u64,
-    exclusive_relayer: Address,
-    fill_deadline: u64,
-    exclusivity_deadline: u64,
+    pub recipient: Address,
+    pub input_token: Address,
+    pub output_token: Address,
+    pub deposit_amount: U256,
+    pub min_amount: U256,
+    pub destination_chain_id: u64,
+    pub exclusive_relayer: Address,
+    pub fill_deadline: u64,
+    pub exclusivity_deadline: u64,
+    pub message: Vec<u8>,
 }
 
 impl AcrossDeposit {
     pub fn new(
+        recipient: Address,
         input_token: Address,
         output_token: Address,
         deposit_amount: U256,
-        output_amount: U256,
+        min_amount: U256,
         destination_chain_id: u64,
         exclusive_relayer: Address,
         fill_deadline: u64,
         exclusivity_deadline: u64,
     ) -> Self {
         Self {
+            recipient,
             input_token,
             output_token,
             deposit_amount,
-            output_amount,
+            min_amount,
             destination_chain_id,
             exclusive_relayer,
             fill_deadline,
             exclusivity_deadline,
+            message: Vec::new().into(),
         }
     }
 
     /// Task 2: Encode deposit calldata (standalone function)
     pub fn encode_deposit_calldata(&self) -> Vec<u8> {
         let call = AcrossConnector::depositCall {
+            recipient: self.recipient,
             inputToken: self.input_token,
             outputToken: self.output_token,
             amount: self.deposit_amount,
+            minAmount: self.min_amount,
             destinationChainId: U256::from(self.destination_chain_id),
-            recipient: self.exclusive_relayer,
+            exclusiveRelayer: self.exclusive_relayer,
             fillDeadline: self.fill_deadline as u32,
             exclusivityDeadline: self.exclusivity_deadline as u32,
             message: Vec::new().into(),
@@ -85,6 +94,33 @@ pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
     pub across_connector: AcrossConnector::AcrossConnectorInstance<P>,
     pub otc_custody: OTCCustody::OTCCustodyInstance<P>,
     pub usdc: ERC20::ERC20Instance<P>,
+}
+
+/// Create a new builder using environment variables
+///
+/// Reads from .env file:
+/// - PRIVATE_KEY: Your wallet's private key
+/// - RPC_URL: RPC endpoint (optional, defaults to http://localhost:8545)
+pub async fn new_builder_from_env(
+) -> Result<AcrossDepositBuilder<impl Provider + Clone>, Box<dyn std::error::Error>> {
+    // Load environment variables from .env file
+    dotenv().ok();
+
+    // Read private key from environment variable
+    let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set");
+
+    // Read RPC URL from environment variable with fallback
+    let rpc_url = env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
+
+    // Create wallet from private key
+    let wallet = LocalSigner::from_str(&private_key)?;
+
+    // Create provider with wallet attached
+    let provider = ProviderBuilder::new()
+        .wallet(wallet)
+        .connect_http(rpc_url.parse()?);
+
+    AcrossDepositBuilder::new(provider).await
 }
 
 impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
@@ -199,17 +235,16 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     /// Complete Across deposit flow with all steps
     pub async fn execute_complete_across_deposit(
         &self,
+        recipient: Address,
         input_token: Address,
         output_token: Address,
         deposit_amount: U256,
+        origin_chain_id: u64,
         destination_chain_id: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let origin_chain_id = ORIGIN_CHAIN_ID;
-
         // Step 3: Approve input token for OTCCustody
         println!("Step 3: Approving input token for custody");
-        self.approve_input_token_for_custody(deposit_amount)
-            .await?;
+        self.approve_input_token_for_custody(deposit_amount).await?;
 
         // Step 4: Setup custody helper (CAHelper)
         println!("Step 4: Setting up CAHelper");
@@ -241,6 +276,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         // Step 7: Encode deposit call data
         println!("Step 7: Encoding deposit calldata");
         let deposit = AcrossDeposit::new(
+            recipient,
             input_token,
             output_token,
             deposit_amount,
@@ -347,22 +383,25 @@ pub fn create_verification_data(
 
 /// Example usage function with all steps
 pub async fn example_complete_across_deposit_flow() -> Result<(), Box<dyn std::error::Error>> {
-    // Setup provider and builder
-    let provider = alloy::providers::ProviderBuilder::new().connect("http://localhost:8545").await?;
-    let builder = AcrossDepositBuilder::new(provider).await?;
+    // Create builder using environment variables
+    let builder = new_builder_from_env().await?;
 
     // Example parameters
+    let recipient = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
     let input_token = USDC_ARBITRUM_ADDRESS;
     let output_token = USDC_BASE_ADDRESS;
     let deposit_amount = U256::from(1_000_000u128); // 1 USDC (6 decimals)
+    let origin_chain_id = ORIGIN_CHAIN_ID;
     let destination_chain_id = DESTINATION_CHAIN_ID;
 
     // Execute the complete flow with all steps
     builder
         .execute_complete_across_deposit(
+            recipient,
             input_token,
             output_token,
             deposit_amount,
+            origin_chain_id,
             destination_chain_id,
         )
         .await?;
@@ -379,11 +418,13 @@ mod tests {
     fn test_sol_macro_types() {
         // Test that the sol! macro generated types work correctly
         let call = AcrossConnector::depositCall {
+            recipient: Address::ZERO,
             inputToken: Address::ZERO,
             outputToken: Address::ZERO,
             amount: U256::from(1000000u128),
+            minAmount: U256::from(1000000u128),
             destinationChainId: U256::from(42161u64),
-            recipient: Address::ZERO,
+            exclusiveRelayer: Address::ZERO,
             fillDeadline: 0u32,
             exclusivityDeadline: 0u32,
             message: Vec::new().into(),
@@ -401,9 +442,10 @@ mod tests {
         let deposit_data = AcrossDeposit::new(
             Address::ZERO,
             Address::ZERO,
+            Address::ZERO,
             U256::from(1000000u128),
             U256::from(1000000u128),
-            42161u64,
+            0u64,
             Address::ZERO,
             0u64,
             0u64,
@@ -453,24 +495,25 @@ mod tests {
     #[test]
     fn test_across_deposit_struct() {
         let deposit = AcrossDeposit::new(
-            Address::from([1u8; 20]),
-            Address::from([2u8; 20]),
+            Address::ZERO,
+            Address::ZERO,
+            Address::ZERO,
             U256::from(1000000u128),
             U256::from(999999u128),
-            42161u64,
-            Address::from([3u8; 20]),
-            1234567890u64,
-            1234567891u64,
+            0u64,
+            Address::ZERO,
+            0u64,
+            0u64,
         );
 
-        assert_eq!(deposit.input_token, Address::from([1u8; 20]));
-        assert_eq!(deposit.output_token, Address::from([2u8; 20]));
+        assert_eq!(deposit.input_token, Address::ZERO);
+        assert_eq!(deposit.output_token, Address::ZERO);
         assert_eq!(deposit.deposit_amount, U256::from(1000000u128));
-        assert_eq!(deposit.output_amount, U256::from(999999u128));
-        assert_eq!(deposit.destination_chain_id, 42161u64);
-        assert_eq!(deposit.exclusive_relayer, Address::from([3u8; 20]));
-        assert_eq!(deposit.fill_deadline, 1234567890u64);
-        assert_eq!(deposit.exclusivity_deadline, 1234567891u64);
+        assert_eq!(deposit.min_amount, U256::from(999999u128));
+        assert_eq!(deposit.destination_chain_id, 0u64);
+        assert_eq!(deposit.exclusive_relayer, Address::ZERO);
+        assert_eq!(deposit.fill_deadline, 0u64);
+        assert_eq!(deposit.exclusivity_deadline, 0u64);
     }
 
     #[test]
