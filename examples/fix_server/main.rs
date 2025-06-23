@@ -16,12 +16,18 @@ use responses::Response;
 
 use crate::fix_messages::{ACKBody, FixHeader, FixTrailer, NewOrderBody};
 
-fn handle_server_event(event: &Request) {
+#[derive(Debug)]
+enum ServerEvent {
+    Message(Request),
+    Quit,
+}
+
+//fn handle_server_event(event: &Request) {
     // println!(
     //     "handle_server_event >> {} {} {}",
     //     event.session_id, event.address, event.quantity
     // );
-}
+//}
 
 #[tokio::main]
 pub async fn main() {
@@ -31,20 +37,22 @@ pub async fn main() {
     //let plugin = DummyPlugin;
     //let fix_server = Arc::new(RwLock::new(Server::<MyServerRequest, MyServerResponse, DummyPlugin>::new(plugin)));
 
-    let (event_tx, event_rx) = unbounded::<Request>();
+    let (event_tx, event_rx) = unbounded::<ServerEvent>();
+    let event_tx_clone = event_tx.clone();
 
     fix_server
         .write()
         .await
         .get_multi_observer_mut()
         .set_observer_fn(move |e: Request| {
-            handle_server_event(&e);
-            event_tx.send(e).unwrap();
+            //handle_server_event(&e);
+            event_tx.send(ServerEvent::Message(e)).unwrap();
         });
 
     let fix_server_weak = Arc::downgrade(&fix_server);
 
     let handle_server_event_internal = move |e: Request| {
+        sleep(Duration::from_secs(5));
         let fix_server = fix_server_weak.upgrade().unwrap();
         let response = match e {
             Request::NewOrderSingle {
@@ -53,7 +61,10 @@ pub async fn main() {
                 Body,
                 StandardTrailer,
             } => {
-                println!("handle_server_event_internal: Session ID set to {}", session_id);
+                println!(
+                    "handle_server_event_internal: Session ID set to {}",
+                    session_id
+                );
                 Response::ACK {
                     session_id: session_id,
                     StandardHeader: FixHeader {
@@ -76,15 +87,27 @@ pub async fn main() {
         fix_server.blocking_read().send_response(response);
     };
 
-    spawn(move || loop {
+    // Capture the JoinHandle to wait for the thread later
+    let handle = spawn(move || loop {
         select!(
             recv(event_rx) -> res => {
-                handle_server_event_internal(res.unwrap())
+                match res.unwrap() {
+                    ServerEvent::Message(req) => handle_server_event_internal(req),
+                    ServerEvent::Quit => {
+                        println!("Received Quit signal, terminating event loop thread.");
+                        break;
+                    }
+                }
             },
         )
     });
-
     fix_server.read().await.start_server(); //< should launch async task, and return immediatelly
 
     sleep(Duration::from_secs(600));
+    event_tx_clone.send(ServerEvent::Quit).unwrap();
+    println!("Sent Quit signal to event loop thread.");
+
+    // Wait for the spawned thread to finish using join
+    handle.join().unwrap();
+    println!("Event loop thread has terminated, main thread exiting.");
 }
