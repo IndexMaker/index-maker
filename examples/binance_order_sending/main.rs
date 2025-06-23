@@ -1,27 +1,39 @@
+use core::time;
 use std::{env, sync::Arc, thread::spawn, time::Duration};
 
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use chrono::Utc;
+use clap::Parser;
 use crossbeam::{
     channel::{bounded, unbounded},
     select,
 };
+use parking_lot::RwLock;
+use rust_decimal::dec;
 use symm_core::{
     core::{
-        bits::{BatchOrderId, OrderId, Side, SingleOrder, Symbol},
+        bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
         functional::IntoObservableSingleArc,
         logging::log_init,
     },
     init_log,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
 };
-use parking_lot::RwLock;
-use rust_decimal::dec;
 use tokio::{sync::mpsc::unbounded_channel, time::sleep};
+
+#[derive(Parser)]
+struct Cli {
+    symbol: Symbol,
+    side: Side,
+    quantity: Amount,
+    price: Amount,
+}
 
 #[tokio::main]
 pub async fn main() {
     init_log!();
+
+    let cli = Cli::parse();
 
     let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
     let credentials = Credentials::new(
@@ -161,18 +173,20 @@ pub async fn main() {
         .cloned()
         .expect("Session not logged on");
 
+    let timestamp = Utc::now();
+
     order_sender
         .write()
         .send_order(
             session_id,
             &Arc::new(SingleOrder {
-                order_id: OrderId::from(format!("O-{}", Utc::now().timestamp_millis())),
-                batch_order_id: BatchOrderId::from("B-1"),
-                symbol: Symbol::from("BNBEUR"),
-                side: Side::Buy,
-                price: dec!(560.0),
-                quantity: dec!(0.02),
-                created_timestamp: Utc::now(),
+                order_id: OrderId::from(format!("O-{}", timestamp.timestamp_millis())),
+                batch_order_id: BatchOrderId::from(format!("B-{}", timestamp.timestamp_millis())),
+                symbol: cli.symbol,
+                side: cli.side,
+                price: cli.price,
+                quantity: cli.quantity,
+                created_timestamp: timestamp,
             }),
         )
         .expect("Failed to send order");

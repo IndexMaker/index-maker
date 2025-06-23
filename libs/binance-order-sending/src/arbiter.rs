@@ -64,6 +64,10 @@ impl Arbiter {
                     }
                 }
             }
+            let sessions = sessions.write().drain_all_sessions();
+            if let Err(err) = Sessions::stop_all(sessions).await {
+                tracing::warn!("Error stopping sessions {:?}", err);
+            }
             tracing::info!("Loop exited");
             subaccount_rx
         });

@@ -84,6 +84,33 @@ impl Side {
     }
 }
 
+impl From<&str> for Side {
+    fn from(value: &str) -> Self {
+        match value {
+            "buy" => Side::Buy,
+            "Buy" => Side::Buy,
+            "BUY" => Side::Buy,
+            "bid" => Side::Buy,
+            "Bid" => Side::Buy,
+            "BID" => Side::Buy,
+            "B" => Side::Buy,
+            "b" => Side::Buy,
+            "sell" => Side::Sell,
+            "Sell" => Side::Sell,
+            "SELL" => Side::Sell,
+            "S" => Side::Sell,
+            "s" => Side::Sell,
+            "ask" => Side::Sell,
+            "Ask" => Side::Sell,
+            "ASK" => Side::Sell,
+            "A" => Side::Sell,
+            "a" => Side::Sell,
+            _ => panic!("Invalid side")
+        }
+    }
+}
+
+
 /// Single leg of a Batch Order
 pub struct AssetOrder {
     /// An internal ID we assign to order

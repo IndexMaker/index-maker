@@ -1,8 +1,4 @@
-use std::{
-    env,
-    sync::Arc,
-    thread,
-};
+use std::{env, sync::Arc, thread};
 
 use binance_market_data::binance_market_data::BinanceMarketData;
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
@@ -31,7 +27,7 @@ use symm_core::{
         order_tracker::{OrderTracker, OrderTrackerNotification},
     },
 };
-use tokio::{runtime::Handle, sync::watch, time::{sleep, Sleep}};
+use tokio::{sync::oneshot, time::sleep};
 
 fn get_tollerance() -> Decimal {
     dec!(0.000000001)
@@ -179,7 +175,7 @@ async fn main() {
         .write()
         .get_single_observer_mut()
         .set_observer_fn(move |e: PriceEvent| match e {
-            PriceEvent::PriceChange { symbol } => tracing::debug!("PriceInfo {}", symbol),
+            PriceEvent::PriceChange { symbol } => tracing::trace!("PriceInfo {}", symbol),
         });
 
     book_manager
@@ -195,12 +191,12 @@ async fn main() {
         });
 
     let (stop_tx, stop_rx) = unbounded::<()>();
-    let (tokio_tx, mut tokio_rx) = watch::channel(false);
+    let (stopped_tx, stopped_rx) = oneshot::channel();
 
     thread::spawn(move || loop {
         select! {
             recv(stop_rx) -> _ => {
-                tokio_tx.send(true).unwrap();
+                stopped_tx.send(()).unwrap();
                 break;
             },
             recv(connector_event_rx) -> res => {
@@ -215,12 +211,13 @@ async fn main() {
         }
     });
 
-    sleep(std::time::Duration::from_secs(60)).await;
-
-    stop_tx.send(()).unwrap();
-    tokio_rx.wait_for(|v| *v).await.unwrap();
+    sleep(std::time::Duration::from_secs(5)).await;
 
     order_sender.write().stop().await.unwrap();
+
+    stop_tx.send(()).unwrap();
+    stopped_rx.await.unwrap();
+
     market_data.write().stop().await.unwrap();
 
     // TODO: replace unwrap() with error logging
