@@ -143,7 +143,7 @@ pub trait IntoObservableMany<T>: Send + Sync {
 }
 
 pub trait IntoObservableManyArc<T>: Send + Sync {
-    fn get_multi_observer_arc(&mut self) -> &Arc<RwLock<MultiObserver<T>>>;
+    fn get_multi_observer_arc(&self) -> &Arc<RwLock<MultiObserver<T>>>;
 }
 
 pub mod crossbeam {

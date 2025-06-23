@@ -73,7 +73,7 @@ impl MarketDataConnector for BinanceMarketData {
 }
 
 impl IntoObservableManyArc<Arc<MarketDataEvent>> for BinanceMarketData {
-    fn get_multi_observer_arc(&mut self) -> &Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>> {
+    fn get_multi_observer_arc(&self) -> &Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>> {
         &self.observer
     }
 }

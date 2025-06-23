@@ -16,6 +16,8 @@ autoexamples = false
 
 [dependencies]
 alloy = { workspace = true }
+binance-market-data = { workspace = true }
+binance-order-sending = { workspace = true }
 chrono = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
@@ -29,6 +31,7 @@ symm-core = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }

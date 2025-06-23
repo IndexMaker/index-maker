@@ -20,6 +20,7 @@ pub struct GetPositionsResponse {
     pub missing_symbols: Vec<Symbol>,
 }
 
+#[derive(Debug)]
 pub enum InventoryEvent {
     OpenLot {
         order_id: OrderId,
