@@ -1,35 +1,34 @@
-use std::{fmt::Display, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     core::bits::{Amount, OrderId, Side, SingleOrder, Symbol},
     solver::position::LotId,
+    string_id,
 };
 use chrono::{DateTime, Utc};
 use eyre::Result;
 
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct SessionId(pub String);
-
-impl Display for SessionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SessionId({})", self.0)
-    }
-}
-
-impl From<&str> for SessionId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
+string_id!(SessionId);
 
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
 pub enum OrderConnectorNotification {
     SessionLogon {
         session_id: SessionId,
+        timestamp: DateTime<Utc>,
     },
     SessionLogout {
         session_id: SessionId,
         reason: String,
+        timestamp: DateTime<Utc>,
+    },
+    Rejected {
+        order_id: OrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        quantity: Amount,
+        reason: String,
+        timestamp: DateTime<Utc>,
     },
     Fill {
         order_id: OrderId,
@@ -91,14 +90,26 @@ pub mod test_util {
             }
         }
 
-        pub fn notify_logon(&self, session_id: SessionId) {
+        pub fn notify_logon(&self, session_id: SessionId, timestamp: DateTime<Utc>) {
             self.observer
-                .publish_single(OrderConnectorNotification::SessionLogon { session_id });
+                .publish_single(OrderConnectorNotification::SessionLogon {
+                    session_id,
+                    timestamp,
+                });
         }
 
-        pub fn notify_logout(&self, session_id: SessionId, reason: String) {
+        pub fn notify_logout(
+            &self,
+            session_id: SessionId,
+            reason: String,
+            timestamp: DateTime<Utc>,
+        ) {
             self.observer
-                .publish_single(OrderConnectorNotification::SessionLogout { session_id, reason });
+                .publish_single(OrderConnectorNotification::SessionLogout {
+                    session_id,
+                    reason,
+                    timestamp,
+                });
         }
 
         /// Receive fills from exchange, and publish an event to subscrber (-> Order Tracker)
@@ -252,11 +263,29 @@ pub mod test {
                 tx_2.send(Box::new(move || {
                     let tolerance = dec!(0.01);
                     match e {
-                        OrderConnectorNotification::SessionLogon { session_id } => {
+                        OrderConnectorNotification::SessionLogon {
+                            session_id,
+                            timestamp,
+                        } => {
                             assert_eq!(session_id, SessionId("Session-01".to_owned()));
                         }
-                        OrderConnectorNotification::SessionLogout { session_id, reason } => {
+                        OrderConnectorNotification::SessionLogout {
+                            session_id,
+                            reason,
+                            timestamp,
+                        } => {
                             assert_eq!(session_id, SessionId("Session-01".to_owned()));
+                        }
+                        OrderConnectorNotification::Rejected {
+                            order_id,
+                            symbol,
+                            side,
+                            price,
+                            quantity,
+                            reason,
+                            timestamp,
+                        } => {
+                            todo!("Test rejected reason");
                         }
                         OrderConnectorNotification::Fill {
                             symbol,
@@ -297,7 +326,9 @@ pub mod test {
             });
 
         order_connector_1.write().connect();
-        order_connector_1.write().notify_logon("Session-01".into());
+        order_connector_1
+            .write()
+            .notify_logon("Session-01".into(), timestamp);
 
         assert!(order_connector_1
             .read()
@@ -320,9 +351,11 @@ pub mod test {
             )
             .unwrap();
 
-        order_connector_1
-            .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
+        order_connector_1.write().notify_logout(
+            "Session-01".into(),
+            "Session disconnected".to_owned(),
+            timestamp,
+        );
 
         run_mock_deferred(&rx);
         test_mock_atomic_bool(&flag_1);

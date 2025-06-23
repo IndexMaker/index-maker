@@ -909,17 +909,17 @@ dependencies = [
  "itertools 0.14.0",
  "parking_lot",
  "rust_decimal",
+ "safe-math",
  "serde",
  "serde_json",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
 name = "binance-sdk"
 version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "550892bea53ed417f0ff3a466d4c46027e5c93a70fb2d1db3892cdbb7017d179"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -937,6 +937,7 @@ dependencies = [
  "regex",
  "reqwest",
  "reqwest-middleware",
+ "rust_decimal",
  "rustc_version 0.4.1",
  "serde",
  "serde_json",

@@ -1504,11 +1504,11 @@ mod test {
                     batch_order_id,
                     continued_orders,
                 } => {
-                    assert_eq!(batch_order_id.0, "B-1".to_owned());
+                    assert_eq!(*batch_order_id, "B-1".to_owned());
                     assert_eq!(continued_orders.len(), 1);
 
                     let first = continued_orders[0].read();
-                    assert_eq!(first.client_order_id.0, "C-1".to_owned());
+                    assert_eq!(*first.client_order_id, "C-1".to_owned());
 
                     flag_mock_atomic_bool(&batch_complete_set);
                 }

@@ -1457,11 +1457,11 @@ mod test {
     }
 
     fn gen_client_order_id(index: u32) -> ClientOrderId {
-        ClientOrderId(format!("C-{:02}", index))
+        ClientOrderId::from(format!("C-{:02}", index))
     }
 
     fn gen_client_quote_id(index: u32) -> ClientQuoteId {
-        ClientQuoteId(format!("Q-{:02}", index))
+        ClientQuoteId::from(format!("Q-{:02}", index))
     }
 
     fn make_solver_order(

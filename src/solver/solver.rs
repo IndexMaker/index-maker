@@ -1373,11 +1373,11 @@ mod test {
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
-            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId(format!("O-{:02}", n)))),
+            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId::from(format!("O-{:02}", n)))),
             batch_order_ids: VecDeque::from_iter(
-                (1..4).map(|n| BatchOrderId(format!("B-{:02}", n))),
+                (1..4).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
             ),
-            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId(format!("P-{:02}", n)))),
+            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId::from(format!("P-{:02}", n)))),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1509,7 +1509,7 @@ mod test {
         let order_tracker_2 = order_tracker.clone();
 
         let lot_ids = RwLock::new(VecDeque::<LotId>::from_iter(
-            (1..13).map(|n| LotId(format!("L-{:02}", n))),
+            (1..13).map(|n| LotId::from(format!("L-{:02}", n))),
         ));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
@@ -1895,7 +1895,7 @@ mod test {
 
         // connect to exchange
         order_connector.write().connect();
-        order_connector.write().notify_logon("Session-01".into());
+        order_connector.write().notify_logon("Session-01".into(), timestamp);
 
         // connect to exchange
         market_data_connector.write().connect();
@@ -2269,7 +2269,7 @@ mod test {
 
         order_connector
             .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), timestamp);
         heading("Scenario completed");
     }
 }

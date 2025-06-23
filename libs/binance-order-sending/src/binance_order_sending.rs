@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use crate::{
     arbiter::Arbiter,
     command::{Command, SessionCommand},
-    session::Credentials,
+    credentials::Credentials,
     sessions::Sessions,
     subaccounts::SubAccounts,
 };

@@ -4,7 +4,7 @@ use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::session::Credentials;
+use crate::credentials::Credentials;
 
 pub struct SubAccounts {
     subaccount_sender: UnboundedSender<Credentials>,
