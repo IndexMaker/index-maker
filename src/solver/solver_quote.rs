@@ -7,7 +7,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 
-use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+use symm_core::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverQuoteStatus {

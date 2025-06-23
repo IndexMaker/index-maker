@@ -14,7 +14,7 @@ use crate::core::{
     decimal_ext::DecimalExt,
 };
 use crate::order_sender::order_connector::SessionId;
-use crate::solver::position::LotId;
+use crate::order_sender::position::LotId;
 use crate::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
@@ -339,10 +339,9 @@ mod test {
                 get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
-        order_sender::order_connector::{
+        order_sender::{order_connector::{
             test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
-        },
-        solver::position::LotId,
+        }, position::LotId},
     };
 
     use super::{OrderTracker, OrderTrackerNotification};
@@ -378,7 +377,7 @@ mod test {
         });
 
         let order_2 = order_1.clone();
-        let lot_id_1: LotId = "Lot01".into();
+        let lot_id_1 = LotId::from("Lot01");
         let lot_id_2 = lot_id_1.clone();
 
         // Let's provide internal (mocked) implementation of the Order Connector

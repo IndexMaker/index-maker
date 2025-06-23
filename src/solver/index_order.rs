@@ -6,7 +6,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use crate::core::{
+use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
     decimal_ext::DecimalExt,
 };
@@ -509,12 +509,14 @@ mod test {
     use chrono::Utc;
     use rust_decimal::dec;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::{Amount, Side},
             test_util::{get_mock_address_1, get_mock_asset_name_1},
         },
+    };
+    use crate::{
         solver::index_order::UpdateIndexOrderOutcome,
     };
 

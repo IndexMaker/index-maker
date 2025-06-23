@@ -818,17 +818,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-core"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "futures-util",
- "itertools 0.14.0",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "async-executor"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1076,7 +1065,6 @@ dependencies = [
 name = "binance-market-data"
 version = "0.1.0"
 dependencies = [
- "async-core",
  "binance-sdk",
  "eyre",
  "futures-util",
@@ -1087,6 +1075,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "symm-core",
  "tokio",
  "tokio-util",
  "tracing",
@@ -1096,7 +1085,6 @@ dependencies = [
 name = "binance-order-sending"
 version = "0.1.0"
 dependencies = [
- "async-core",
  "base64 0.22.1",
  "binance-sdk",
  "chrono",
@@ -1109,6 +1097,7 @@ dependencies = [
  "safe-math",
  "serde",
  "serde_json",
+ "symm-core",
  "tokio",
  "tokio-util",
  "tracing",
@@ -2000,13 +1989,13 @@ dependencies = [
  "crossbeam",
  "eyre",
  "futures-util",
- "index-maker",
  "itertools 0.14.0",
  "parking_lot",
  "rand 0.9.1",
  "rust_decimal",
  "serde",
  "serde_json",
+ "symm-core",
  "tokio",
  "tokio-util",
  "tracing",
@@ -2789,6 +2778,7 @@ dependencies = [
  "rust_decimal",
  "safe-math",
  "string_cache",
+ "symm-core",
  "test-case",
  "thiserror 2.0.12",
  "tracing",
@@ -4579,6 +4569,30 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "symm-core"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "chrono",
+ "crossbeam",
+ "eyre",
+ "futures-util",
+ "intrusive-collections",
+ "itertools 0.14.0",
+ "parking_lot",
+ "paste",
+ "rust_decimal",
+ "safe-math",
+ "string_cache",
+ "test-case",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "syn"

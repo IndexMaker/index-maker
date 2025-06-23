@@ -8,15 +8,15 @@ use eyre::{eyre, Result};
 use parking_lot::RwLock;
 
 use crate::{
-    core::{
-        bits::{Address, Amount, ClientQuoteId, Side, Symbol},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
     server::server::{
         CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
     solver::index_quote::IndexQuote,
+};
+use symm_core::core::{
+    bits::{Address, Amount, ClientQuoteId, Side, Symbol},
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
 use super::solver::SolveQuotesResult;

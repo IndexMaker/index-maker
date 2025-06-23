@@ -8,7 +8,7 @@ use itertools::Itertools;
 
 use eyre::{eyre, OptionExt, Result};
 
-use crate::core::{
+use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
@@ -327,7 +327,7 @@ pub mod test_util {
         sync::{mpsc::Sender, Arc, RwLock as ComponentLock},
     };
 
-    use crate::core::{
+    use symm_core::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     };
@@ -615,9 +615,9 @@ mod test {
 
     use test_case::test_case;
 
-    use crate::{
+    use crate::collateral::collateral_router::test_util::build_test_router;
+    use symm_core::{
         assert_decimal_approx_eq,
-        collateral::collateral_router::test_util::build_test_router,
         core::{
             bits::Side,
             functional::IntoObservableSingle,

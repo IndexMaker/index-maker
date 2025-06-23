@@ -36,7 +36,6 @@ pub trait MarketDataConnector {
     fn subscribe(&self, symbols: &[Symbol]) -> Result<()>;
 }
 
-#[cfg(test)]
 pub mod test_util {
 
     use std::{

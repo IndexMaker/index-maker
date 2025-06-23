@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use index_maker::{core::bits::SingleOrder, order_sender::order_connector::SessionId};
+use symm_core::{core::bits::SingleOrder, order_sender::order_connector::SessionId};
 
 pub enum Command {
     NewOrder(Arc<SingleOrder>),

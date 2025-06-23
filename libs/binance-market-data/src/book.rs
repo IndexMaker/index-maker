@@ -8,7 +8,7 @@ use binance_sdk::spot::{
     websocket_streams::{BookTickerResponse, DiffBookDepthResponse},
 };
 use eyre::{eyre, OptionExt, Report, Result};
-use index_maker::{
+use symm_core::{
     core::{
         bits::{Amount, PricePointEntry, Symbol},
         functional::{MultiObserver, PublishMany},

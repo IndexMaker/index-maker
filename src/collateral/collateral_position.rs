@@ -7,7 +7,7 @@ use itertools::Itertools;
 use eyre::{OptionExt, Result};
 use safe_math::safe;
 
-use crate::core::{
+use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     decimal_ext::DecimalExt,
 };
@@ -546,14 +546,15 @@ mod test {
     use rust_decimal::dec;
     use test_case::test_case;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
-        collateral::collateral_position::{ConfirmStatus, PreAuthStatus},
         core::{
             bits::{Amount, Side},
             test_util::get_mock_address_1,
         },
     };
+
+    use crate::collateral::collateral_position::{ConfirmStatus, PreAuthStatus};
 
     use super::CollateralPosition;
 

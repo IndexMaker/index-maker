@@ -2,8 +2,11 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
-use crate::{
+use symm_core::{
     core::bits::{Address, Amount, Symbol},
+};
+
+use crate::{
     index::basket::{Basket, BasketDefinition},
 };
 
@@ -56,11 +59,14 @@ pub mod test_util {
 
     use chrono::{DateTime, Utc};
 
-    use crate::{
+    use symm_core::{
         core::{
             bits::{Address, Amount, Symbol},
             functional::{IntoObservableSingle, PublishSingle, SingleObserver},
         },
+    };
+
+    use crate::{
         index::basket::{Basket, BasketDefinition},
     };
 
@@ -237,14 +243,17 @@ mod tests {
     use parking_lot::RwLock;
     use rust_decimal::dec;
 
-    use crate::{
+    use symm_core::{
         assert_hashmap_amounts_eq,
-        blockchain::chain_connector::{ChainConnector, ChainNotification},
         core::{
             bits::{Amount, Symbol},
             functional::{IntoObservableSingle, SingleObserver},
             test_util::*,
         },
+    };
+
+    use crate::{
+        blockchain::chain_connector::{ChainConnector, ChainNotification},
         index::{
             basket::{AssetWeight, BasketDefinition},
             basket_manager::{BasketManager, BasketNotification},

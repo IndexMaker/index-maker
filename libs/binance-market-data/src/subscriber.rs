@@ -8,8 +8,8 @@ use binance_sdk::spot::{websocket_streams::DiffBookDepthParams, SpotWsStreams};
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
-use index_maker::{
-    core::{bits::Symbol, functional::MultiObserver},
+use symm_core::{
+    core::{async_loop::AsyncLoop, bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
 use itertools::Itertools;
@@ -20,7 +20,6 @@ use tokio::{
 };
 
 use crate::{book::Books, subscriptions::Subscriptions};
-use async_core::async_loop::AsyncLoop;
 
 pub struct Subscriber {
     subscriptions: Arc<AtomicLock<Subscriptions>>,
