@@ -179,11 +179,7 @@ impl CAHelper {
             .map(|(name, value)| (*name, value.as_slice()))
             .collect();
 
-        let encoded_args = if item_type == CAItemType::CallConnector {
-            self.encode_args(&item_type, &new_args)
-        } else {
-            self.encode_args(&item_type, &new_args)
-        };
+        let encoded_args = self.encode_args(&item_type, &new_args);
 
         let item = CAItem {
             item_type,

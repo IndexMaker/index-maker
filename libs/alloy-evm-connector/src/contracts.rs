@@ -43,6 +43,7 @@ sol! {
         ) external;
         function getCustodyBalances(bytes32 id, address token) external view returns (uint256);
         function getCustodyState(bytes32 id) external view returns (uint8);
+        function getCA(bytes32 id) external view returns (bytes32);
     }
 
     struct VerificationData {
