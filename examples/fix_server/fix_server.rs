@@ -5,8 +5,7 @@ use std::{
 };
 
 use eyre::{eyre, Report, Result};
-use index_maker::core::functional::{MultiObserver, PublishMany};
-use itertools::Itertools;
+use symm_core::core::functional::{MultiObserver, PublishMany};
 use tokio::{
     select,
     sync::{

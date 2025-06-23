@@ -10,17 +10,21 @@ use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use chrono::{Duration, Utc};
 use eyre::{eyre, Result};
-use index_maker::core::bits::{OrderId, Side, Symbol};
-use index_maker::core::decimal_ext::DecimalExt;
-use index_maker::core::functional::{PublishSingle, SingleObserver};
-use index_maker::core::limit::{LimiterConfig, MultiLimiter};
-use index_maker::order_sender::order_connector::{OrderConnectorNotification, SessionId};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use rust_decimal::Decimal;
 use safe_math::safe;
 use serde::Deserialize;
 use serde_json::Value;
+use symm_core::{
+    core::{
+        bits::{OrderId, Side, Symbol},
+        decimal_ext::DecimalExt,
+        functional::{PublishSingle, SingleObserver},
+        limit::{LimiterConfig, MultiLimiter},
+    },
+    order_sender::order_connector::{OrderConnectorNotification, SessionId},
+};
 use tokio::time::sleep;
 
 use crate::command::Command;
@@ -130,7 +134,7 @@ impl TradingSession {
                         models::Interval::Day => Duration::days(limit.interval_num.into()),
                     },
                 );
-                (conf, limit.count.unwrap_or_default() as usize)
+                (conf, limit.count as usize)
             })
             .collect_vec();
 
@@ -169,12 +173,12 @@ impl TradingSession {
                 let params = OrderPlaceParams {
                     id: None,
                     side: match single_order.side {
-                        Side::Buy => OrderPlaceSideEnum::BUY,
-                        Side::Sell => OrderPlaceSideEnum::SELL,
+                        Side::Buy => OrderPlaceSideEnum::Buy,
+                        Side::Sell => OrderPlaceSideEnum::Sell,
                     },
                     symbol: single_order.symbol.to_string(),
-                    r#type: websocket_api::OrderPlaceTypeEnum::LIMIT,
-                    time_in_force: Some(OrderPlaceTimeInForceEnum::IOC),
+                    r#type: websocket_api::OrderPlaceTypeEnum::Limit,
+                    time_in_force: Some(OrderPlaceTimeInForceEnum::Ioc),
                     price: Some(single_order.price),
                     quantity: Some(single_order.quantity),
                     quote_order_qty: None,

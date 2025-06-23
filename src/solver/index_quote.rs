@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+use symm_core::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
 
 /// a quote on index
 pub struct IndexQuote {

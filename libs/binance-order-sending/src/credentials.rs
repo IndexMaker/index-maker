@@ -1,6 +1,6 @@
 use crate::config::ConfigureBinanceAccess;
 use eyre::Result;
-use index_maker::order_sender::order_connector::SessionId;
+use symm_core::order_sender::order_connector::SessionId;
 
 pub struct Credentials {
     api_key: String,

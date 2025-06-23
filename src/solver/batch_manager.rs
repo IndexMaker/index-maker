@@ -9,7 +9,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
-use crate::{
+use symm_core::{
     core::{
         bits::{
             Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId, Side,
@@ -18,12 +18,14 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
+    order_sender::position::LotId,
+};
+use crate::{
     solver::solver_order::SolverOrderStatus,
 };
 
 use super::{
     index_order_manager::EngagedIndexOrder,
-    position::LotId,
     solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
     solver_order::{SolverOrder, SolverOrderAssetLot},
 };
@@ -1138,7 +1140,7 @@ mod test {
     use rust_decimal::dec;
     use test_case::test_case;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::{
@@ -1151,6 +1153,9 @@ mod test {
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
             },
         },
+    };
+
+    use crate::{
         index::basket::{AssetWeight, Basket, BasketDefinition},
         solver::{
             batch_manager::BatchEvent,

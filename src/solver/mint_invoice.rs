@@ -5,10 +5,8 @@ use eyre::Result;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use crate::{
-    core::bits::{Address, Amount, PaymentId, Symbol},
-    solver::solver_order::SolverOrderAssetLot,
-};
+use crate::solver::solver_order::SolverOrderAssetLot;
+use symm_core::core::bits::{Address, Amount, PaymentId, Symbol};
 
 use super::index_order::{IndexOrder, IndexOrderUpdate};
 

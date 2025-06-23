@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use safe_math::safe;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
-use crate::{
+use symm_core::{
     assets::asset::Asset,
     core::{
         bits::{Amount, Symbol},
@@ -246,10 +246,12 @@ impl From<Basket> for Vec<AssetWeight> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         assets::asset::Asset,
         core::bits::{Amount, Symbol},
+    };
+    use crate::{
         index::basket::{AssetWeight, Basket, BasketDefinition},
     };
     use eyre::Result;

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     core::bits::{Amount, OrderId, Side, SingleOrder, Symbol},
-    solver::position::LotId,
+    order_sender::position::LotId,
     string_id,
 };
 use chrono::{DateTime, Utc};
@@ -54,7 +54,6 @@ pub trait OrderConnector: Send + Sync {
     fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()>;
 }
 
-#[cfg(test)]
 pub mod test_util {
 
     use std::sync::{
@@ -67,8 +66,7 @@ pub mod test_util {
             bits::{Amount, OrderId, Side, SingleOrder, Symbol},
             functional::{IntoObservableSingle, PublishSingle, SingleObserver},
         },
-        order_sender::order_connector::SessionId,
-        solver::position::LotId,
+        order_sender::{order_connector::SessionId, position::LotId},
     };
     use chrono::{DateTime, Utc};
     use eyre::Result;
@@ -196,8 +194,7 @@ pub mod test {
                 get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
-        order_sender::order_connector::SessionId,
-        solver::position::LotId,
+        order_sender::{order_connector::SessionId, position::LotId},
     };
 
     use super::{test_util::MockOrderConnector, OrderConnector, OrderConnectorNotification};

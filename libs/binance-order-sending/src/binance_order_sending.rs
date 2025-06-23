@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::{
+use symm_core::{
     core::{
         bits::SingleOrder,
         functional::{IntoObservableSingleArc, SingleObserver},

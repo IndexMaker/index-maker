@@ -4,7 +4,7 @@ use std::{
 };
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::{
+use symm_core::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };

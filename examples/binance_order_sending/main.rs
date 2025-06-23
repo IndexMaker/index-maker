@@ -3,10 +3,10 @@ use std::{env, sync::Arc, thread::spawn, time::Duration};
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use chrono::Utc;
 use crossbeam::{
-    channel::{self, bounded, unbounded},
+    channel::{bounded, unbounded},
     select,
 };
-use index_maker::{
+use symm_core::{
     core::{
         bits::{BatchOrderId, OrderId, Side, SingleOrder, Symbol},
         functional::IntoObservableSingleArc,
