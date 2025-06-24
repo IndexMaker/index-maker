@@ -83,5 +83,8 @@ async fn main() {
         )
         .expect("Failed to schedule funds transfer");
 
-    end_rx.changed().await.expect("Failed to await for transfer");
+    end_rx
+        .changed()
+        .await
+        .expect("Failed to await for transfer");
 }

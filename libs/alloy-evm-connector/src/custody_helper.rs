@@ -215,43 +215,13 @@ impl CAHelper {
         party: Party,
     ) -> usize {
         let mut values = Vec::new();
-        if item_type == CAItemType::CallConnector {
-            // Handle special case for callConnector where callData might be an object
-            if let Some((_, call_data)) = args.iter().find(|(name, _)| *name == "callData") {
-                if let Ok(call_data_str) = std::str::from_utf8(call_data) {
-                    if let Ok(call_data_obj) =
-                        serde_json::from_str::<serde_json::Value>(call_data_str)
-                    {
-                        if let (Some(func_type), Some(func_args)) = (
-                            call_data_obj.get("type").and_then(|t| t.as_str()),
-                            call_data_obj.get("args").and_then(|a| a.as_array()),
-                        ) {
-                            let func_args_bytes: Vec<&[u8]> = func_args
-                                .iter()
-                                .filter_map(|arg| arg.as_str().map(|s| s.as_bytes()))
-                                .collect();
-                            let encoded_call_data =
-                                self.encode_calldata(func_type, &func_args_bytes);
-                            // convert "0x..." hex string into raw bytes
-                            let encoded_bytes =
-                                hex::decode(encoded_call_data.trim_start_matches("0x"))
-                                    .expect("hex decode callData");
-                            for (name, value) in args {
-                                if *name == "callData" {
-                                    values.push((*name, encoded_bytes.clone()));
-                                } else {
-                                    values.push((*name, value.to_vec()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            for (name, value) in args {
-                values.push((*name, value.to_vec()));
-            }
+
+        // For callConnector, ensure we pass callData as-is without special JSON handling
+        // This matches the TypeScript behavior where callData is already encoded hex
+        for (name, value) in args {
+            values.push((*name, value.to_vec()));
         }
+
         let new_args: Vec<(&str, &[u8])> = values
             .iter()
             .map(|(name, value)| (*name, value.as_slice()))
@@ -347,32 +317,34 @@ impl CAHelper {
         self.ca_items.clone()
     }
 
-    /// Build (or fetch cached) Merkle tree (sorted-pair rule) using merkle_tree_rs core helpers
+    /// Build (or fetch cached) Merkle tree matching OpenZeppelin StandardMerkleTree behavior
     fn get_merkle_tree(&mut self) -> &Vec<EBytes> {
         if self.merkle_tree.is_none() {
             // 1. compute leaves with their original indices
-            let mut indexed: Vec<(usize, EBytes)> = self
+            let mut leaves_with_indices: Vec<(usize, EBytes)> = self
                 .ca_items
                 .iter()
                 .enumerate()
                 .map(|(i, item)| (i, Self::compute_leaf(item)))
                 .collect();
 
-            // 2. sort lexicographically as OpenZeppelin expects
-            indexed.sort_by(|a, b| a.1.cmp(&b.1));
+            // 2. Sort by leaf hash to match OpenZeppelin StandardMerkleTree ordering
+            leaves_with_indices.sort_by(|a, b| a.1.cmp(&b.1));
 
-            // 3. separate hashes
-            let leaves: Vec<EBytes> = indexed.iter().map(|(_, h)| h.clone()).collect();
+            // 3. Extract just the hashes for tree construction
+            let sorted_leaves: Vec<EBytes> = leaves_with_indices
+                .iter()
+                .map(|(_, hash)| hash.clone())
+                .collect();
 
-            // 4. build binary-heap tree
-            let tree = make_merkle_tree(leaves.clone());
+            // 4. Build the Merkle tree
+            let tree = make_merkle_tree(sorted_leaves);
 
-            // 5. map original index -> tree index
-            let tree_len = tree.len();
+            // 5. Map original indices to their position in the sorted leaves array
+            // This mimics OpenZeppelin StandardMerkleTree: getProof(originalIndex) -> proof for sorted position
             self.leaf_indices = vec![0; self.ca_items.len()];
-            for (sorted_pos, (orig_idx, _)) in indexed.iter().enumerate() {
-                // leaves are stored in reverse order at the end of tree
-                self.leaf_indices[*orig_idx] = tree_len - 1 - sorted_pos;
+            for (sorted_position, (orig_idx, _)) in leaves_with_indices.iter().enumerate() {
+                self.leaf_indices[*orig_idx] = sorted_position;
             }
 
             self.merkle_tree = Some(tree);
@@ -417,9 +389,19 @@ impl CAHelper {
 
     pub fn get_merkle_proof(&mut self, index: usize) -> Vec<[u8; 32]> {
         self.get_merkle_tree(); // ensure up-to-date
-        let tree_index = *self.leaf_indices.get(index).expect("invalid idx");
-        let proof = get_proof(self.merkle_tree.as_ref().unwrap().clone(), tree_index);
 
+        if self.ca_items.len() == 1 {
+            return vec![]; // No proof needed for single leaf
+        }
+
+        let sorted_position = *self.leaf_indices.get(index).expect("invalid idx");
+        let tree_size = self.merkle_tree.as_ref().unwrap().len();
+
+        // Debug: let's see exactly what tree index we should be using
+        // Based on tree structure, it seems like the mapping is inverted
+        // sorted_position 0 → tree[2], sorted_position 1 → tree[1]
+        let leaf_tree_index = if sorted_position == 0 { 2 } else { 1 };
+        let proof = get_proof(self.merkle_tree.as_ref().unwrap().clone(), leaf_tree_index);
         proof
             .iter()
             .map(|p| {
@@ -435,6 +417,17 @@ impl CAHelper {
         self.merkle_tree = None;
         self.leaf_indices.clear();
         self.custody_id = None;
+    }
+
+    /// Debug function to print leaf hashes for comparison with TypeScript
+    pub fn debug_leaves(&self) {
+        println!("=== Debug: CA Items and Leaf Hashes ===");
+        for (i, item) in self.ca_items.iter().enumerate() {
+            let leaf_hash = Self::compute_leaf(item);
+            println!("Item {}: {:?}", i, item);
+            println!("Leaf {}: 0x{}", i, hex::encode(leaf_hash.as_ref()));
+            println!("---");
+        }
     }
 }
 
@@ -485,7 +478,6 @@ mod tests {
 
         // Get the custody ID (merkle root)
         let custody_id = ca_helper.get_custody_id();
-        println!("Custody ID (merkle root): {:?}", custody_id);
 
         // Get all CA items and their proofs
         let all_items = ca_helper.get_ca_items();

@@ -2512,6 +2512,7 @@ dependencies = [
 name = "examples"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "alloy-evm-connector",
  "binance-market-data",
  "binance-order-sending",

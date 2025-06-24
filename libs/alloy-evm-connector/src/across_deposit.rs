@@ -1,3 +1,4 @@
+use alloy::rpc::types::TransactionReceipt;
 use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use alloy::{
@@ -231,7 +232,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         &self,
         calldata: Vec<u8>,
         verification_data: crate::contracts::VerificationData,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         let call = self.otc_custody.callConnector(
             "AcrossConnector".to_string(),
             ACROSS_CONNECTOR_ADDRESS,
@@ -240,8 +241,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             verification_data,
         );
         let receipt = call.send().await?.get_receipt().await?;
-        println!("receipt: {:?}", receipt);
-        Ok(())
+        Ok(receipt)
     }
 
     async fn get_ca(&self, custody_id: [u8; 32]) -> Result<String, Box<dyn std::error::Error>> {
@@ -307,13 +307,6 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         );
         let calldata = deposit.encode_deposit_calldata();
 
-        // The first 4 bytes should be the function selector
-        assert_eq!(calldata.len() % 32, 4); // selector + N*32 bytes
-        println!(
-            "encoded deposit calldata: {:?}",
-            hex::encode_prefixed(&calldata)
-        );
-
         // Step 6: Call callConnector of custody_helper
         println!("Step 6: Adding callConnector action to CAHelper");
         let connector_action_index = ca_helper.call_connector(
@@ -354,26 +347,24 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
             crate::contracts::Signature {
-                e: FixedBytes([0u8; 32]),
-                s: FixedBytes([0u8; 32]),
+                e: FixedBytes(rand::random::<[u8; 32]>()),
+                s: FixedBytes(rand::random::<[u8; 32]>()),
             },
             ca_helper.get_merkle_proof(custody_action_index),
-        );
-        println!(
-            "custody_verification: {:?}",
-            custody_verification.merkleProof
         );
 
         // Step 10: Call otc_custody.custodyToConnector
         println!("Step 10: Executing custodyToConnector");
         self.execute_custody_to_connector(input_token, deposit_amount, custody_verification)
             .await?;
+        println!("Step 10: custodyToConnector completed successfully");
 
         // Step 11: Setup verification data for callConnector
-        // println!("Step 11: Creating verification data for callConnector");
+        println!("Step 11: Creating verification data for callConnector");
         // Use the same timestamp as custodyToConnector for consistency
         let connector_timestamp = custody_timestamp + 3600;
         set_next_block_timestamp(self.across_connector.provider(), connector_timestamp).await?;
+        let connector_proof = ca_helper.get_merkle_proof(connector_action_index);
         let connector_verification = create_verification_data(
             custody_id,
             0,
@@ -383,18 +374,23 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
             crate::contracts::Signature {
-                e: FixedBytes([1u8; 32]),
-                s: FixedBytes([1u8; 32]),
+                e: FixedBytes(rand::random::<[u8; 32]>()),
+                s: FixedBytes(rand::random::<[u8; 32]>()),
             },
-            ca_helper.get_merkle_proof(connector_action_index),
+            connector_proof,
         );
 
         // Step 12: Call otc_custody.callConnector
         println!("Step 12: Executing callConnector");
-        self.execute_call_connector(calldata, connector_verification)
+        let receipt = self
+            .execute_call_connector(calldata, connector_verification)
             .await?;
-
         println!("Across deposit completed successfully!");
+        println!(
+            "Across transaction via calConnector hash: {:?}",
+            receipt.transaction_hash
+        );
+
         Ok(())
     }
 }

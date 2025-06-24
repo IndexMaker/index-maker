@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 index-maker = { path = ".." }
 alloy-evm-connector = { path = "../libs/alloy-evm-connector" }
+alloy = { workspace = true }
 binance-market-data = { path = "../libs/binance-market-data" }
 binance-order-sending = { path = "../libs/binance-order-sending" }
 binance-sdk = { version = "1.0.0", features = ["spot"] }
@@ -25,33 +26,33 @@ tokio = { version = "1.45.1", features = ["full"] }
 tokio-util = "0.7.15"
 
 [[example]]
-name="binance_market_data_market_data"
-path="binance_market_data/market_data.rs"
+name = "binance_market_data_market_data"
+path = "binance_market_data/market_data.rs"
 
 [[example]]
-name="binance_market_data_book_building"
-path="binance_market_data/book_building.rs"
+name = "binance_market_data_book_building"
+path = "binance_market_data/book_building.rs"
 
 [[example]]
-name="binance_order_sending_all_orders"
-path="binance_order_sending/all_orders.rs"
+name = "binance_order_sending_all_orders"
+path = "binance_order_sending/all_orders.rs"
 
 [[example]]
-name="binance_order_sending_wss_sample"
-path="binance_order_sending/wss_sample.rs"
+name = "binance_order_sending_wss_sample"
+path = "binance_order_sending/wss_sample.rs"
 
 [[example]]
-name="binance_order_sending"
-path="binance_order_sending/main.rs"
+name = "binance_order_sending"
+path = "binance_order_sending/main.rs"
 
 [[example]]
-name="fix_server_fix_server"
-path="fix_server/fix_server.rs"
+name = "fix_server_fix_server"
+path = "fix_server/fix_server.rs"
 
 [[example]]
-name="evm_connector"
-path="evm_connector/main.rs"
+name = "evm_connector"
+path = "evm_connector/main.rs"
 
 [[example]]
-name="evm_bridge"
-path="evm_connector/main_bridge.rs"
+name = "evm_bridge"
+path = "evm_connector/main_bridge.rs"
