@@ -422,7 +422,7 @@ mod test {
 
         let counter_1 = Arc::new(AtomicUsize::new(0));
         let counter_2 = counter_1.clone();
-        
+
         let logon_timestamp = Utc::now();
 
         let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
@@ -483,7 +483,9 @@ mod test {
             });
 
         order_connector.write().connect();
-        order_connector.write().notify_logon("Session-01".into(), logon_timestamp);
+        order_connector
+            .write()
+            .notify_logon("Session-01".into(), logon_timestamp);
         run_mock_deferred(&deferred);
 
         //
@@ -983,9 +985,11 @@ mod test {
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
         }
 
-        order_connector
-            .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), logout_timestamp);
+        order_connector.write().notify_logout(
+            "Session-01".into(),
+            "Session disconnected".to_owned(),
+            logout_timestamp,
+        );
         run_mock_deferred(&deferred);
     }
 }

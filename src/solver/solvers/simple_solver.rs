@@ -9,11 +9,9 @@ use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
-use symm_core::{
-    core::{
-        bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
-        decimal_ext::DecimalExt,
-    },
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
+    decimal_ext::DecimalExt,
 };
 
 use crate::{

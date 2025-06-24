@@ -1,3 +1,14 @@
+pub mod app {
+    pub mod basket_manager;
+    pub mod batch_manager;
+    pub mod config;
+    pub mod inventory_manager;
+    pub mod market_data;
+    pub mod order_sender;
+    pub mod order_tracker;
+    pub mod order_ids;
+}
+
 pub mod blockchain {
     pub mod chain_connector;
 }

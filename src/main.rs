@@ -1,146 +1,57 @@
 use std::{env, sync::Arc, thread};
 
-use binance_market_data::binance_market_data::BinanceMarketData;
-use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
-use crossbeam::{
-    channel::{unbounded, Receiver},
-    select,
+use binance_order_sending::credentials::Credentials;
+use chrono::TimeDelta;
+use clap::Parser;
+use crossbeam::{channel::unbounded, select};
+use index_maker::{
+    app::{
+        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
+        inventory_manager::InventoryManagerConfig, market_data::MarketDataConfig,
+        order_ids::TimestampOrderIds, order_sender::OrderSenderConfig,
+        order_tracker::OrderTrackerConfig,
+    },
+    solver::{solver::Solver, solvers::simple_solver::SimpleSolver},
 };
-use eyre::{eyre, Result};
 use parking_lot::RwLock;
-use rust_decimal::{dec, Decimal};
+use rust_decimal::dec;
 use symm_core::{
     core::{
-        bits::Symbol,
-        functional::{IntoObservableManyArc, IntoObservableSingle, IntoObservableSingleArc},
+        bits::{Amount, Side, Symbol},
+        functional::IntoObservableSingle,
         logging::log_init,
     },
     init_log,
-    market_data::{
-        market_data_connector::{self, MarketDataConnector, MarketDataEvent},
-        order_book::order_book_manager::{OrderBookEvent, PricePointBookManager},
-        price_tracker::{PriceEvent, PriceTracker},
-    },
-    order_sender::{
-        inventory_manager::{InventoryEvent, InventoryManager},
-        order_connector::{OrderConnector, OrderConnectorNotification},
-        order_tracker::{OrderTracker, OrderTrackerNotification},
-    },
+    market_data::{order_book::order_book_manager::OrderBookEvent, price_tracker::PriceEvent},
 };
 use tokio::{sync::oneshot, time::sleep};
 
-fn get_tollerance() -> Decimal {
-    dec!(0.000000001)
-}
-
-async fn start_market_data(
-    symbols: &[Symbol],
-) -> Result<(
-    Arc<RwLock<BinanceMarketData>>,
-    Arc<RwLock<PriceTracker>>,
-    Arc<RwLock<PricePointBookManager>>,
-)> {
-    let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
-    let book_manager = Arc::new(RwLock::new(PricePointBookManager::new(get_tollerance())));
-
-    let market_data = Arc::new(RwLock::new(BinanceMarketData::new(100)));
-
-    let price_tracker_clone = price_tracker.clone();
-    let book_manager_clone = book_manager.clone();
-
-    market_data
-        .write()
-        .get_multi_observer_arc()
-        .write()
-        .add_observer_fn(move |event: &Arc<MarketDataEvent>| {
-            price_tracker_clone.write().handle_market_data(&*event);
-            book_manager_clone.write().handle_market_data(&*event);
-        });
-
-    market_data
-        .write()
-        .start()
-        .map_err(|err| eyre!("Failed to start Market Data: {:?}", err))?;
-
-    market_data
-        .write()
-        .subscribe(symbols)
-        .map_err(|err| eyre!("Failed to subscribe for market data: {:?}", err))?;
-
-    Ok((market_data, price_tracker, book_manager))
-}
-
-async fn start_order_sender(
-    credentials: Credentials,
-) -> Result<(
-    Arc<RwLock<BinanceOrderSending>>,
-    Receiver<OrderConnectorNotification>,
-)> {
-    let order_sender = Arc::new(RwLock::new(BinanceOrderSending::new()));
-
-    let (connector_event_tx, connector_event_rx) = unbounded::<OrderConnectorNotification>();
-
-    order_sender
-        .write()
-        .get_single_observer_arc()
-        .write()
-        .set_observer_from(connector_event_tx);
-
-    order_sender
-        .write()
-        .start()
-        .map_err(|err| eyre!("Failed to start order sender: {:?}", err))?;
-
-    order_sender
-        .write()
-        .logon(Some(credentials))
-        .map_err(|err| eyre!("Failed to logon: {:?}", err))?;
-
-    Ok((order_sender, connector_event_rx))
-}
-
-fn build_order_tracker(
-    order_connector: Arc<RwLock<dyn OrderConnector>>,
-) -> Result<(
-    Arc<RwLock<OrderTracker>>,
-    Receiver<OrderTrackerNotification>,
-)> {
-    let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
-        order_connector,
-        get_tollerance(),
-    )));
-
-    let (order_tracker_tx, order_tracker_rx) = unbounded::<OrderTrackerNotification>();
-
-    order_tracker
-        .write()
-        .get_single_observer_mut()
-        .set_observer_from(order_tracker_tx);
-
-    Ok((order_tracker, order_tracker_rx))
-}
-
-fn build_inventory_manager(
-    order_tracker: Arc<RwLock<OrderTracker>>,
-) -> Result<(Arc<RwLock<InventoryManager>>, Receiver<InventoryEvent>)> {
-    let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
-        order_tracker,
-        get_tollerance(),
-    )));
-
-    let (inventory_event_tx, inventory_event_rx) = unbounded::<InventoryEvent>();
-
-    inventory_manager
-        .write()
-        .get_single_observer_mut()
-        .set_observer_from(inventory_event_tx);
-
-    Ok((inventory_manager, inventory_event_rx))
+#[derive(Parser)]
+struct Cli {
+    symbol: Symbol,
+    side: Side,
+    collateral_amount: Amount,
 }
 
 #[tokio::main]
 async fn main() {
     init_log!();
+
+    let cli = Cli::parse();
+
+    let price_threshold = dec!(0.01);
+    let fee_factor = dec!(1.001);
+    let max_order_volley_size = dec!(20.0);
+    let max_volley_size = dec!(100.0);
+
+    let fill_threshold = dec!(0.9999);
+    let mint_threshold = dec!(0.99);
+    let mint_wait_period = TimeDelta::seconds(10);
+
+    let max_batch_size = 4;
+    let zero_threshold = dec!(0.00001);
+    let client_order_wait_period = TimeDelta::seconds(5);
+    let client_quote_wait_period = TimeDelta::seconds(1);
 
     let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
     let credentials = Credentials::new(
@@ -157,19 +68,61 @@ async fn main() {
         Symbol::from("LINKEUR"),
     ];
 
-    let (market_data, price_tracker, book_manager) = start_market_data(&symbols)
-        .await
+    let weights = [dec!(0.3), dec!(0.2), dec!(0.4), dec!(0.1)];
+    let index_symbol = Symbol::from("SO4");
+
+    let market_data_config = MarketDataConfig::builder()
+        .zero_threshold(zero_threshold)
+        .symbols(&symbols)
+        .try_build()
+        .expect("Failed to build market data config");
+
+    let (market_data, price_tracker, book_manager) = market_data_config
+        .make()
         .expect("Failed to start market data");
 
-    let (order_sender, connector_event_rx) = start_order_sender(credentials)
-        .await
+    let order_sender_config = OrderSenderConfig::builder()
+        .credentials(vec![credentials])
+        .try_build()
+        .expect("Failed to build order sender config");
+
+    let (order_sender, connector_event_rx) = order_sender_config
+        .make()
         .expect("Failed to start order sender");
 
-    let (order_tracker, order_tracker_rx) =
-        build_order_tracker(order_sender.clone()).expect("Failed to build order tracker");
+    let order_tracker_config = OrderTrackerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .try_build()
+        .expect("Failed to build order tracker config");
 
-    let (inventory_manager, inventory_event_rx) =
-        build_inventory_manager(order_tracker.clone()).expect("Failed to build inventory manager");
+    let (order_tracker, order_tracker_rx) = order_tracker_config
+        .make(order_sender.clone())
+        .expect("Failed to build order tracker");
+
+    let inventory_manager_config = InventoryManagerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .try_build()
+        .expect("Failed to build inventory manager cnofig");
+
+    let (inventory_manager, inventory_event_rx) = inventory_manager_config
+        .make(order_tracker.clone())
+        .expect("Failed to build inventory manager");
+
+    let basket_manager_config = BasketManagerConfig::builder()
+        .try_build()
+        .expect("Failed to build basket manager config");
+
+    let (basket_manager, basket_event_rx) = basket_manager_config
+        .make()
+        .expect("Failed to build basket manager");
+
+    let batch_manager_config = BatchManagerConfig::builder()
+        .try_build()
+        .expect("Failed to build batch manager config");
+
+    let (batch_manager, batch_event_rx) = batch_manager_config
+        .make()
+        .expect("Failed to build batch manager");
 
     price_tracker
         .write()
@@ -189,6 +142,33 @@ async fn main() {
                 tracing::warn!("BookUpdate {}: Error: {}", symbol, error)
             }
         });
+
+    let strategy = Arc::new(SimpleSolver::new(
+        price_threshold,
+        fee_factor,
+        max_order_volley_size,
+        max_volley_size,
+    ));
+
+    let order_ids = Arc::new(RwLock::new(TimestampOrderIds {}));
+
+    //let solver = Arc::new(ComponentLock::new(Solver::new(
+    //    strategy,
+    //    order_ids,
+    //    basket_manager,
+    //    price_tracker,
+    //    book_manager,
+    //    chain_connector,
+    //    batch_manager,
+    //    collateral_manager,
+    //    index_order_manager,
+    //    quote_request_manager,
+    //    inventory_manager,
+    //    max_batch_size,
+    //    zero_threshold,
+    //    client_order_wait_period,
+    //    client_quote_wait_period,
+    //)));
 
     let (stop_tx, stop_rx) = unbounded::<()>();
     let (stopped_tx, stopped_rx) = oneshot::channel();

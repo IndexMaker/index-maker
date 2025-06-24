@@ -8,12 +8,12 @@ use binance_sdk::spot::{websocket_streams::DiffBookDepthParams, SpotWsStreams};
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
+use itertools::Itertools;
+use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{async_loop::AsyncLoop, bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
-use itertools::Itertools;
-use parking_lot::RwLock as AtomicLock;
 use tokio::{
     select,
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -124,7 +124,7 @@ impl Subscriber {
                                 continue;
                             }
                         };
-                    
+
                         let ticker_stream = match connection.book_ticker(ticker_params).await {
                             Ok(x) => x,
                             Err(err) => {
@@ -154,7 +154,7 @@ impl Subscriber {
                     },
                 }
             }
-            
+
             if let Err(err) = connection.disconnect().await {
                 tracing::warn!("Failed to disconnect websocket client: {}", err);
             }

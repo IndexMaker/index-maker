@@ -2,13 +2,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
-use symm_core::{
-    core::bits::{Address, Amount, Symbol},
-};
+use symm_core::core::bits::{Address, Amount, Symbol};
 
-use crate::{
-    index::basket::{Basket, BasketDefinition},
-};
+use crate::index::basket::{Basket, BasketDefinition};
 
 /// call blockchain methods, receive blockchain events
 
@@ -59,16 +55,12 @@ pub mod test_util {
 
     use chrono::{DateTime, Utc};
 
-    use symm_core::{
-        core::{
-            bits::{Address, Amount, Symbol},
-            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-        },
+    use symm_core::core::{
+        bits::{Address, Amount, Symbol},
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     };
 
-    use crate::{
-        index::basket::{Basket, BasketDefinition},
-    };
+    use crate::index::basket::{Basket, BasketDefinition};
 
     use super::{ChainConnector, ChainNotification};
 

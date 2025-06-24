@@ -9,6 +9,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
+use crate::solver::solver_order::SolverOrderStatus;
 use symm_core::{
     core::{
         bits::{
@@ -19,9 +20,6 @@ use symm_core::{
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     order_sender::position::LotId,
-};
-use crate::{
-    solver::solver_order::SolverOrderStatus,
 };
 
 use super::{

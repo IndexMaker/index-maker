@@ -1136,7 +1136,8 @@ mod test {
             order_connector::{
                 test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
             },
-            order_tracker::{OrderTracker, OrderTrackerNotification}, position::LotId,
+            order_tracker::{OrderTracker, OrderTrackerNotification},
+            position::LotId,
         },
     };
 
@@ -1156,7 +1157,7 @@ mod test {
             basket_manager::BasketNotification,
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
-        solver::{solvers::simple_solver::SimpleSolver},
+        solver::solvers::simple_solver::SimpleSolver,
     };
 
     use super::*;
@@ -1383,7 +1384,9 @@ mod test {
             batch_order_ids: VecDeque::from_iter(
                 (1..4).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
             ),
-            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId::from(format!("P-{:02}", n)))),
+            payment_ids: VecDeque::from_iter(
+                (1..4).map(|n| PaymentId::from(format!("P-{:02}", n))),
+            ),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1901,7 +1904,9 @@ mod test {
 
         // connect to exchange
         order_connector.write().connect();
-        order_connector.write().notify_logon("Session-01".into(), timestamp);
+        order_connector
+            .write()
+            .notify_logon("Session-01".into(), timestamp);
 
         // connect to exchange
         market_data_connector.write().connect();
@@ -2273,9 +2278,11 @@ mod test {
 
         println!(" -> Chain response received");
 
-        order_connector
-            .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), timestamp);
+        order_connector.write().notify_logout(
+            "Session-01".into(),
+            "Session disconnected".to_owned(),
+            timestamp,
+        );
         heading("Scenario completed");
     }
 }

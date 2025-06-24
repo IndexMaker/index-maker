@@ -5,10 +5,13 @@ use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use crate::{core::{
-    bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
-    decimal_ext::DecimalExt,
-}, string_id};
+use crate::{
+    core::{
+        bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
+        decimal_ext::DecimalExt,
+    },
+    string_id,
+};
 
 string_id!(LotId);
 

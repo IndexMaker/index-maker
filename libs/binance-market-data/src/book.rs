@@ -8,6 +8,9 @@ use binance_sdk::spot::{
     websocket_streams::{BookTickerResponse, DiffBookDepthResponse},
 };
 use eyre::{eyre, OptionExt, Report, Result};
+use itertools::Itertools;
+use parking_lot::RwLock as AtomicLock;
+use serde::{Deserialize, Serialize};
 use symm_core::{
     core::{
         bits::{Amount, PricePointEntry, Symbol},
@@ -15,9 +18,6 @@ use symm_core::{
     },
     market_data::market_data_connector::MarketDataEvent,
 };
-use itertools::Itertools;
-use parking_lot::RwLock as AtomicLock;
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,7 +180,8 @@ impl Book {
         }
         tracing::info!(
             "(binance-book) Snapshot received for {} and will overwrite book (lastUpdateId: {})",
-            self.symbol, snapshot.last_update_id
+            self.symbol,
+            snapshot.last_update_id
         );
         self.last_update_id = Some(snapshot.last_update_id);
         self.snapshot_requested = false;

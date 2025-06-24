@@ -68,7 +68,6 @@ string_id!(ClientOrderId);
 string_id!(ClientQuoteId);
 string_id!(PaymentId);
 
-
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
 pub enum Side {
     Buy,
@@ -105,11 +104,10 @@ impl From<&str> for Side {
             "ASK" => Side::Sell,
             "A" => Side::Sell,
             "a" => Side::Sell,
-            _ => panic!("Invalid side")
+            _ => panic!("Invalid side"),
         }
     }
 }
-
 
 /// Single leg of a Batch Order
 pub struct AssetOrder {

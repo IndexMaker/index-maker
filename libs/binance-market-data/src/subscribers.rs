@@ -2,12 +2,12 @@ use std::{sync::Arc, usize};
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
+use itertools::Itertools;
+use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
-use itertools::Itertools;
-use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::subscriber::Subscriber;

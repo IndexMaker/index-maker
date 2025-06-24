@@ -19,7 +19,9 @@ alloy = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 chrono = { workspace = true }
+clap = { workspace = true }
 crossbeam = { workspace = true }
+derive_builder = { workspace = true }
 eyre = { workspace = true }
 intrusive-collections = { workspace = true }
 itertools = { workspace = true }
@@ -45,6 +47,7 @@ binance-sdk = { version = "^5.0.0", features = ["spot"] }
 chrono = "0.4.40"
 crossbeam = "0.8.4"
 clap = { version = "4.0", features = ["derive"] }
+derive_builder = "^0.10"
 eyre = "0.6.12"
 futures-util = "0.3.31"
 index-maker = { path = "." }

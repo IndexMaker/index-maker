@@ -1,11 +1,11 @@
 use std::{sync::Arc, usize};
 
 use eyre::{Report, Result};
+use itertools::Either;
+use parking_lot::RwLock as AtomicLock;
 use symm_core::core::bits::Symbol;
 use symm_core::core::functional::MultiObserver;
 use symm_core::market_data::market_data_connector::MarketDataEvent;
-use itertools::Either;
-use parking_lot::RwLock as AtomicLock;
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
 use symm_core::core::async_loop::AsyncLoop;
