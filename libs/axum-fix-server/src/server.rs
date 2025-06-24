@@ -17,7 +17,7 @@ use axum::{
     Router,
 };
 use eyre::{eyre, Report, Result};
-use index_maker::core::functional::{PublishSingle, SingleObserver};
+use symm_core::core::functional::{PublishSingle, SingleObserver};
 use std::net::SocketAddr;
 use tokio::{
     select,

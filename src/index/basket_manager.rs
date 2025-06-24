@@ -1,7 +1,7 @@
 use eyre::{eyre, Result};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::core::{
+use symm_core::core::{
     bits::{Amount, Symbol},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
@@ -96,19 +96,22 @@ impl IntoObservableSingle<BasketNotification> for BasketManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::assert_deque_single_matches;
-    use crate::core::functional::IntoObservableSingle;
+    use crate::index::basket::AssetWeight;
     use crate::index::basket::BasketDefinition;
     use crate::index::basket_manager::{BasketManager, BasketNotification};
-    use crate::{
-        assert_deque_single_matches_and_return, assert_hashmap_amounts_eq,
-        core::bits::{Amount, Symbol},
-    };
-    use crate::{assets::asset::Asset, index::basket::AssetWeight};
     use eyre::{eyre, Result};
     use parking_lot::RwLock;
     use std::collections::VecDeque;
     use std::{collections::HashMap, sync::Arc};
+    use symm_core::{
+        assert_deque_single_matches, assert_deque_single_matches_and_return,
+        assert_hashmap_amounts_eq,
+        assets::asset::Asset,
+        core::{
+            bits::{Amount, Symbol},
+            functional::IntoObservableSingle,
+        },
+    };
 
     #[test]
     fn test_basket_manager() -> Result<()> {

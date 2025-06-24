@@ -1,7 +1,7 @@
 use std::{collections::HashSet, usize};
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::core::bits::Symbol;
+use symm_core::core::bits::Symbol;
 use itertools::Itertools;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -44,7 +44,7 @@ impl Subscriptions {
         Ok(())
     }
 
-    pub fn subscribe(&mut self, symbols: &[index_maker::core::bits::Symbol]) -> Result<()> {
+    pub fn subscribe(&mut self, symbols: &[Symbol]) -> Result<()> {
         let (successes, failures): (Vec<_>, Vec<_>) = symbols
             .iter()
             .map(|symbol| {

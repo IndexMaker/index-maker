@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::{
+use symm_core::{
     core::{
         bits::SingleOrder,
         functional::{IntoObservableSingleArc, SingleObserver},
@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use crate::{
     arbiter::Arbiter,
     command::{Command, SessionCommand},
-    session::Credentials,
+    credentials::Credentials,
     sessions::Sessions,
     subaccounts::SubAccounts,
 };

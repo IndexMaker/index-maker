@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use eyre::{Report, Result};
-use crate::{messages::{FixMessage, FixMessageBuilder, ServerRequest, ServerResponse, SessionId}};
+use crate::{messages::{FixMessage, ServerRequest, ServerResponse, SessionId}};
 
 pub struct SerdePlugin<R, Q> {
     _phantom_r: PhantomData<R>,

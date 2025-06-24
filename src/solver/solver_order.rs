@@ -9,12 +9,13 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use crate::core::{
-    bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
-    decimal_ext::DecimalExt,
+use symm_core::{
+    core::{
+        bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
+        decimal_ext::DecimalExt,
+    },
+    order_sender::position::LotId,
 };
-
-use super::position::LotId;
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
@@ -378,7 +379,7 @@ mod test {
     use chrono::{TimeDelta, Utc};
     use rust_decimal::dec;
 
-    use crate::core::{
+    use symm_core::core::{
         bits::Side,
         test_util::{get_mock_address_1, get_mock_asset_name_1},
     };

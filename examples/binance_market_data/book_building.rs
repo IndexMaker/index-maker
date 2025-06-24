@@ -5,7 +5,7 @@ use crossbeam::{
     channel::{bounded, unbounded},
     select,
 };
-use index_maker::{
+use symm_core::{
     core::{
         bits::{Amount, PriceType, Side},
         functional::{IntoObservableManyArc, IntoObservableSingle},

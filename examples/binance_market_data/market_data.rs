@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use binance_market_data::binance_market_data::BinanceMarketData;
-use index_maker::{
+use symm_core::{
     core::{functional::IntoObservableManyArc, logging::log_init},
     init_log,
     market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},

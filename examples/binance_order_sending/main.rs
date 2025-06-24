@@ -1,27 +1,38 @@
 use std::{env, sync::Arc, thread::spawn, time::Duration};
 
-use binance_order_sending::{binance_order_sending::BinanceOrderSending, session::Credentials};
+use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use chrono::Utc;
-use crossbeam::{channel::unbounded, select};
-use index_maker::{
+use crossbeam::{
+    channel::{bounded, unbounded},
+    select,
+};
+use symm_core::{
     core::{
-        bits::{Side, SingleOrder},
+        bits::{BatchOrderId, OrderId, Side, SingleOrder, Symbol},
         functional::IntoObservableSingleArc,
+        logging::log_init,
     },
+    init_log,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use tokio::{sync::watch::channel, time::sleep};
+use tokio::{sync::mpsc::unbounded_channel, time::sleep};
 
 #[tokio::main]
 pub async fn main() {
-    let api_key = env::var("MY_BINANCE_API_KEY").expect("No API key in env");
-    let credentials = Credentials::new(api_key, move || {
-        env::var("MY_BINANCE_API_SECRET").expect("No API secret in env")
-    });
+    init_log!();
+
+    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let credentials = Credentials::new(
+        api_key,
+        move || env::var("BINANCE_API_SECRET").ok(),
+        move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
+        move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
+    );
 
     let (event_tx, event_rx) = unbounded::<OrderConnectorNotification>();
+    let (end_tx, end_rx) = bounded::<()>(1);
 
     let order_sender = Arc::new(RwLock::new(BinanceOrderSending::new()));
 
@@ -31,21 +42,50 @@ pub async fn main() {
         .write()
         .set_observer_from(event_tx);
 
-    let (sess_tx, mut sess_rx) = channel(None);
+    let (sess_tx, mut sess_rx) = unbounded_channel();
 
     let handle_event_internal = move |e: OrderConnectorNotification| match e {
-        OrderConnectorNotification::SessionLogon { session_id } => {
-            println!("(binance-order-sender-main) Session Logon {}", session_id);
+        OrderConnectorNotification::SessionLogon {
+            session_id,
+            timestamp,
+        } => {
+            tracing::info!("Session Logon {} at {}", session_id, timestamp);
             sess_tx
                 .send(Some(session_id))
                 .expect("Failed to notify session logon");
         }
-        OrderConnectorNotification::SessionLogout { session_id, reason } => {
-            println!(
-                "(binance-order-sender-main) Session Logout {} - {}",
-                session_id, reason
+        OrderConnectorNotification::SessionLogout {
+            session_id,
+            reason,
+            timestamp,
+        } => {
+            tracing::info!(
+                "Session Logout {} at {} - {}",
+                session_id,
+                timestamp,
+                reason
             );
             sess_tx.send(None).expect("Failed to notify session logout");
+        }
+        OrderConnectorNotification::Rejected {
+            order_id,
+            symbol,
+            side,
+            price,
+            quantity,
+            reason,
+            timestamp,
+        } => {
+            tracing::warn!(
+                "Rejected {} {} {:?} {} {} {}: {}",
+                order_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                timestamp,
+                reason,
+            );
         }
         OrderConnectorNotification::Fill {
             order_id,
@@ -57,9 +97,16 @@ pub async fn main() {
             fee,
             timestamp,
         } => {
-            println!(
-                "(binance-order-sender-main) Fill {} {} {} {:?} {} {} {} {}",
-                order_id, lot_id, symbol, side, price, quantity, fee, timestamp
+            tracing::info!(
+                "Fill {} {} {} {:?} {} {} {} {}",
+                order_id,
+                lot_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                fee,
+                timestamp
             );
         }
         OrderConnectorNotification::Cancel {
@@ -69,19 +116,30 @@ pub async fn main() {
             quantity,
             timestamp,
         } => {
-            println!(
-                "(binance-order-sender-main) Cancel {} {} {:?} {} {}",
-                order_id, symbol, side, quantity, timestamp
+            tracing::info!(
+                "Cancel {} {} {:?} {} {}",
+                order_id,
+                symbol,
+                side,
+                quantity,
+                timestamp
             );
         }
     };
 
-    spawn(move || loop {
-        select! {
-            recv(event_rx) -> res => {
-                handle_event_internal(res.unwrap());
+    let task = spawn(move || {
+        tracing::info!("Loop started");
+        loop {
+            select! {
+                recv(event_rx) -> res => {
+                    handle_event_internal(res.unwrap());
+                },
+                recv(end_rx) -> _ => {
+                    break;
+                }
             }
         }
+        tracing::info!("Loop exited");
     });
 
     order_sender
@@ -96,7 +154,7 @@ pub async fn main() {
 
     // wait for logon
     let session_id = sess_rx
-        .wait_for(|v| v.is_some())
+        .recv()
         .await
         .expect("Failed to await logon")
         .as_ref()
@@ -108,12 +166,12 @@ pub async fn main() {
         .send_order(
             session_id,
             &Arc::new(SingleOrder {
-                order_id: "O1".into(),
-                batch_order_id: "B1".into(),
-                symbol: "A1".into(),
+                order_id: OrderId::from(format!("O-{}", Utc::now().timestamp_millis())),
+                batch_order_id: BatchOrderId::from("B-1"),
+                symbol: Symbol::from("BNBEUR"),
                 side: Side::Buy,
-                price: dec!(1.0),
-                quantity: dec!(1.0),
+                price: dec!(560.0),
+                quantity: dec!(0.02),
                 created_timestamp: Utc::now(),
             }),
         )
@@ -126,4 +184,7 @@ pub async fn main() {
         .expect("Failed to stop order sender");
 
     sleep(Duration::from_secs(10)).await;
+
+    end_tx.send(()).expect("Failed to send stop");
+    task.join().expect("Failed to await task");
 }

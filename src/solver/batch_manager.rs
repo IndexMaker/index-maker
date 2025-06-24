@@ -9,7 +9,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
-use crate::{
+use symm_core::{
     core::{
         bits::{
             Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId, Side,
@@ -18,12 +18,14 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
+    order_sender::position::LotId,
+};
+use crate::{
     solver::solver_order::SolverOrderStatus,
 };
 
 use super::{
     index_order_manager::EngagedIndexOrder,
-    position::LotId,
     solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
     solver_order::{SolverOrder, SolverOrderAssetLot},
 };
@@ -1138,7 +1140,7 @@ mod test {
     use rust_decimal::dec;
     use test_case::test_case;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::{
@@ -1151,6 +1153,9 @@ mod test {
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
             },
         },
+    };
+
+    use crate::{
         index::basket::{AssetWeight, Basket, BasketDefinition},
         solver::{
             batch_manager::BatchEvent,
@@ -1504,11 +1509,11 @@ mod test {
                     batch_order_id,
                     continued_orders,
                 } => {
-                    assert_eq!(batch_order_id.0, "B-1".to_owned());
+                    assert_eq!(*batch_order_id, "B-1".to_owned());
                     assert_eq!(continued_orders.len(), 1);
 
                     let first = continued_orders[0].read();
-                    assert_eq!(first.client_order_id.0, "C-1".to_owned());
+                    assert_eq!(*first.client_order_id, "C-1".to_owned());
 
                     flag_mock_atomic_bool(&batch_complete_set);
                 }

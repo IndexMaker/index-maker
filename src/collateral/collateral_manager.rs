@@ -9,11 +9,14 @@ use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
-use crate::{
+use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
+};
+
+use crate::{
     solver::solver::{CollateralManagement, SetSolverOrderStatus},
 };
 
@@ -408,11 +411,8 @@ mod test {
     use chrono::Utc;
     use rust_decimal::dec;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
-        collateral::{
-            collateral_manager::PreAuthStatus, collateral_router::test_util::build_test_router,
-        },
         core::{
             bits::{PaymentId, Side},
             functional::IntoObservableSingle,
@@ -421,6 +421,12 @@ mod test {
                 get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
                 run_mock_deferred, test_mock_atomic_bool,
             },
+        },
+    };
+
+    use crate::{
+        collateral::{
+            collateral_manager::PreAuthStatus, collateral_router::test_util::build_test_router,
         },
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
@@ -455,7 +461,7 @@ mod test {
     impl CollateralManagerHost for MockCollateralManagerHost {
         fn get_next_payment_id(&self) -> PaymentId {
             let last_id = self.last_id.fetch_add(1, Ordering::SeqCst);
-            PaymentId(format!("P-{}", last_id))
+            PaymentId::from(format!("P-{}", last_id))
         }
     }
 

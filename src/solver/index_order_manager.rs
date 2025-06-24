@@ -9,19 +9,17 @@ use parking_lot::RwLock;
 use safe_math::safe;
 
 use crate::{
-    core::{
-        bits::{BatchOrderId, PaymentId},
-        decimal_ext::DecimalExt,
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
     server::server::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
     solver::index_order::IndexOrder,
 };
-
-use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
+use symm_core::core::{
+    bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
+    decimal_ext::DecimalExt,
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+};
 
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},

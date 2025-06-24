@@ -1,0 +1,202 @@
+2025-06-19T21:27:06.813060Z  INFO binance_order_sending: Loop started
+2025-06-19T21:27:06.813237Z  INFO binance_order_sending::arbiter: Loop started
+2025-06-19T21:27:06.813610Z  INFO binance_order_sending::session: Session loop started
+2025-06-19T21:27:08.461987Z DEBUG tungstenite::handshake::client: Client handshake done.    
+2025-06-19T21:27:08.462256Z DEBUG binance_sdk::common::websocket: WebSocket connected: Response { status: 101, version: HTTP/1.1, headers: {"date": "Thu, 19 Jun 2025 21:27:08 GMT", "connection": "upgrade", "upgrade": "websocket", "sec-websocket-accept": "6CeQJLiu1Xh07owIBxAJTYBozT4=", "x-mbx-used-weight": "2", "x-mbx-used-weight-1m": "2", "server": "X"}, body: None }
+2025-06-19T21:27:08.462425Z  INFO binance_sdk::common::websocket: Established 18c673f40239723d17eaaae4a41abdcc → wss://ws-api.binance.com:443/ws-api/v3
+2025-06-19T21:27:08.462583Z  INFO binance_sdk::common::websocket: Connected to WebSocket Server with id 18c673f40239723d17eaaae4a41abdcc: wss://ws-api.binance.com:443/ws-api/v3
+2025-06-19T21:27:08.462656Z  INFO binance_sdk::common::websocket: Successfully connected to wss://ws-api.binance.com:443/ws-api/v3
+2025-06-19T21:27:08.462639Z DEBUG binance_sdk::common::websocket: Scheduling renewal for 18c673f40239723d17eaaae4a41abdcc
+2025-06-19T21:27:08.474818Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket API: Object {"id": String("fb2a636db758eea9b498fdad7e7e106b"), "method": String("session.logon"), "params": Object {"apiKey": String("<API KEY>"), "signature": String("uLk6BoAYsRLXGhUlsZpQAHnONTTlWeuMXjIg7oXxU/jR+ZpvHn6I4rBhIio9Xafd2WsYpz7C1RJmIVUz+7RCDA=="), "timestamp": Number(1750368428462)}}
+2025-06-19T21:27:08.474943Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket on connection 18c673f40239723d17eaaae4a41abdcc
+2025-06-19T21:27:08.801922Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket API: Object {"id": String("6f68f00ee945de2a786ec8fad6ba979c"), "method": String("userDataStream.start"), "params": Object {"apiKey": String("<API KEY>")}}
+2025-06-19T21:27:08.802110Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket on connection 18c673f40239723d17eaaae4a41abdcc
+2025-06-19T21:27:09.108613Z DEBUG binance_order_sending::trading_session: Start user data: Ok(
+    UserDataStreamStartResponseResult {
+        listen_key: Some(
+            "WOrhj4FSB4OtrmawieVhJVPwWfQnDJVHSCWYZFzlszsCAeQQiiWEdAXorGiJ",
+        ),
+    },
+)
+2025-06-19T21:27:09.109038Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket API: Object {"id": String("163d6ef9f42b5feb3fcd00d765d786c3"), "method": String("userDataStream.subscribe"), "params": Object {}}
+2025-06-19T21:27:09.109132Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket on connection 18c673f40239723d17eaaae4a41abdcc
+2025-06-19T21:27:09.415859Z DEBUG binance_order_sending::trading_session: Subscribe user data: Ok(
+    Object {},
+)
+2025-06-19T21:27:09.416748Z  INFO binance_order_sending: Session Logon <API KEY>
+2025-06-19T21:27:09.417048Z  INFO binance_order_sending::arbiter: Loop exited
+2025-06-19T21:27:09.417039Z DEBUG binance_order_sending::trading_session: PlaceOrder send: OrderPlaceParams {
+    symbol: "BNBEUR",
+    side: BUY,
+    type: LIMIT,
+    id: None,
+    time_in_force: Some(
+        IOC,
+    ),
+    price: Some(
+        559.00,
+    ),
+    quantity: Some(
+        0.02,
+    ),
+    quote_order_qty: None,
+    new_client_order_id: Some(
+        "O-1750368429416",
+    ),
+    new_order_resp_type: None,
+    stop_price: None,
+    trailing_delta: None,
+    iceberg_qty: None,
+    strategy_id: None,
+    strategy_type: None,
+    self_trade_prevention_mode: None,
+    recv_window: Some(
+        10000,
+    ),
+}
+2025-06-19T21:27:09.418821Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket API: Object {"id": String("90936b832dea08166c5be8ea302164ea"), "method": String("order.place"), "params": Object {"apiKey": String("<API KEY>"), "newClientOrderId": String("O-1750368429416"), "price": String("559.00"), "quantity": String("0.02"), "recvWindow": Number(10000), "side": String("BUY"), "signature": String("RsltxgneA16ndUubVZY6YweZQ1JSHHT4Rg53Aab5ad7pI2Z4pPDgRZgZLIP4dQ4WzPdKJLv8OWpcngRh0D5IAg=="), "symbol": String("BNBEUR"), "timeInForce": String("IOC"), "timestamp": Number(1750368429417), "type": String("LIMIT")}}
+2025-06-19T21:27:09.418971Z DEBUG binance_sdk::common::websocket: Sending message to WebSocket on connection 18c673f40239723d17eaaae4a41abdcc
+2025-06-19T21:27:09.722928Z DEBUG binance_order_sending::trading_session: User data: Object {
+    "B": Array [
+        Object {
+            "a": String("BNB"),
+            "f": String("0.00700210"),
+            "l": String("0.00000000"),
+        },
+        Object {
+            "a": String("EUR"),
+            "f": String("20.09000000"),
+            "l": String("0.00000000"),
+        },
+    ],
+    "E": Number(1750368429610),
+    "e": String("outboundAccountPosition"),
+    "u": Number(1750368429609),
+}
+2025-06-19T21:27:09.723192Z DEBUG binance_order_sending::trading_session: PlaceOrder returned: WebsocketApiResponse {
+    _marker: PhantomData<alloc::boxed::Box<binance_sdk::spot::websocket_api::models::order_place_response_result::OrderPlaceResponseResult>>,
+    raw: Object {
+        "clientOrderId": String("O-1750368429416"),
+        "cummulativeQuoteQty": String("0.00000000"),
+        "executedQty": String("0.00000000"),
+        "fills": Array [],
+        "orderId": Number(797422555),
+        "orderListId": Number(-1),
+        "origQty": String("0.02000000"),
+        "origQuoteOrderQty": String("0.00000000"),
+        "price": String("559.00000000"),
+        "selfTradePreventionMode": String("EXPIRE_MAKER"),
+        "side": String("BUY"),
+        "status": String("EXPIRED"),
+        "symbol": String("BNBEUR"),
+        "timeInForce": String("IOC"),
+        "transactTime": Number(1750368429609),
+        "type": String("LIMIT"),
+        "workingTime": Number(1750368429609),
+    },
+    rate_limits: Some(
+        [
+            WebsocketApiRateLimit {
+                rate_limit_type: Orders,
+                interval: Second,
+                interval_num: 10,
+                limit: 100,
+                count: Some(
+                    1,
+                ),
+            },
+            WebsocketApiRateLimit {
+                rate_limit_type: Orders,
+                interval: Day,
+                interval_num: 1,
+                limit: 200000,
+                count: Some(
+                    2,
+                ),
+            },
+            WebsocketApiRateLimit {
+                rate_limit_type: RequestWeight,
+                interval: Minute,
+                interval_num: 1,
+                limit: 6000,
+                count: Some(
+                    9,
+                ),
+            },
+        ],
+    ),
+}
+2025-06-19T21:27:09.723320Z DEBUG binance_order_sending::trading_session: User data: Object {
+    "C": String(""),
+    "E": Number(1750368429610),
+    "F": String("0.00000000"),
+    "I": Number(1627826558),
+    "L": String("0.00000000"),
+    "M": Bool(false),
+    "N": Null,
+    "O": Number(1750368429609),
+    "P": String("0.00000000"),
+    "Q": String("0.00000000"),
+    "S": String("BUY"),
+    "T": Number(1750368429609),
+    "V": String("EXPIRE_MAKER"),
+    "W": Number(1750368429609),
+    "X": String("NEW"),
+    "Y": String("0.00000000"),
+    "Z": String("0.00000000"),
+    "c": String("O-1750368429416"),
+    "e": String("executionReport"),
+    "f": String("IOC"),
+    "g": Number(-1),
+    "i": Number(797422555),
+    "l": String("0.00000000"),
+    "m": Bool(false),
+    "n": String("0"),
+    "o": String("LIMIT"),
+    "p": String("559.00000000"),
+    "q": String("0.02000000"),
+    "r": String("NONE"),
+    "s": String("BNBEUR"),
+    "t": Number(-1),
+    "w": Bool(true),
+    "x": String("NEW"),
+    "z": String("0.00000000"),
+}
+2025-06-19T21:27:09.724049Z DEBUG binance_order_sending::trading_session: User data: Object {
+    "C": String(""),
+    "E": Number(1750368429610),
+    "F": String("0.00000000"),
+    "I": Number(1627826559),
+    "L": String("0.00000000"),
+    "M": Bool(false),
+    "N": Null,
+    "O": Number(1750368429609),
+    "P": String("0.00000000"),
+    "Q": String("0.00000000"),
+    "S": String("BUY"),
+    "T": Number(1750368429609),
+    "V": String("EXPIRE_MAKER"),
+    "W": Number(1750368429609),
+    "X": String("EXPIRED"),
+    "Y": String("0.00000000"),
+    "Z": String("0.00000000"),
+    "c": String("O-1750368429416"),
+    "e": String("executionReport"),
+    "f": String("IOC"),
+    "g": Number(-1),
+    "i": Number(797422555),
+    "l": String("0.00000000"),
+    "m": Bool(false),
+    "n": String("0"),
+    "o": String("LIMIT"),
+    "p": String("559.00000000"),
+    "q": String("0.02000000"),
+    "r": String("NONE"),
+    "s": String("BNBEUR"),
+    "t": Number(-1),
+    "w": Bool(false),
+    "x": String("EXPIRED"),
+    "z": String("0.00000000"),
+}
+
+2025-06-19T21:27:19.419084Z  INFO binance_order_sending: Loop exited

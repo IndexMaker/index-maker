@@ -5,10 +5,8 @@ use eyre::Result;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use crate::{
-    core::bits::{Address, Amount, PaymentId, Symbol},
-    solver::solver_order::SolverOrderAssetLot,
-};
+use crate::solver::solver_order::SolverOrderAssetLot;
+use symm_core::core::bits::{Address, Amount, PaymentId, Symbol};
 
 use super::index_order::{IndexOrder, IndexOrderUpdate};
 
@@ -160,7 +158,7 @@ pub fn print_mint_invoice(
     println!("(report) {}", (0..72).map(|_| "-").join(""));
     let lots = lots
         .into_iter()
-        .sorted_by_cached_key(|x| x.lot_id.0.clone())
+        .sorted_by_cached_key(|x| x.lot_id.cloned())
         .coalesce(|a, b| {
             if a.lot_id.eq(&b.lot_id) {
                 Ok(SolverOrderAssetLot {
@@ -184,7 +182,7 @@ pub fn print_mint_invoice(
                 x.price * x.quantity + x.fee,
             )
         })
-        .sorted_by_cached_key(|x| x.0.clone())
+        .sorted_by_cached_key(|(symbol, _, _, _)| symbol.clone())
         .coalesce(|a, b| {
             if a.0.eq(&b.0) {
                 Ok((a.0, a.1 + b.1, a.2 + b.2, a.3 + b.3))

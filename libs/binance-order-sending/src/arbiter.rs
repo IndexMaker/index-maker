@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use async_core::async_loop::AsyncLoop;
 use eyre::Report;
-use index_maker::{
-    core::functional::SingleObserver, order_sender::order_connector::OrderConnectorNotification,
-};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
+use symm_core::{
+    core::{async_loop::AsyncLoop, functional::SingleObserver},
+    order_sender::order_connector::OrderConnectorNotification,
+};
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
-use crate::{session::Credentials, sessions::Sessions, subaccounts::SubAccounts};
+use crate::{credentials::Credentials, sessions::Sessions, subaccounts::SubAccounts};
 
 /// Arbiter manages open sessions
 ///
@@ -42,6 +42,7 @@ impl Arbiter {
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
+            tracing::info!("Loop started");
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
@@ -53,16 +54,17 @@ impl Arbiter {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
                                 if let Err(err) = suba.add_subaccount_taken(api_key) {
-                                    eprintln!("Error storing taken session {:?}", err);
+                                    tracing::warn!("Error storing taken session {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("Error while creating session {:?}", err);
+                                tracing::warn!("Error while creating session {:?}", err);
                             }
                         }
                     }
                 }
             }
+            tracing::info!("Loop exited");
             subaccount_rx
         });
     }

@@ -4,7 +4,7 @@ use std::{
 };
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::{
+use symm_core::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
@@ -12,8 +12,7 @@ use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    command::SessionCommand,
-    session::{Credentials, Session},
+    command::SessionCommand, credentials::Credentials, session::Session
 };
 
 pub struct Sessions {

@@ -9,12 +9,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
-use crate::{
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
-    collateral::{
-        collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
-        collateral_position::{ConfirmStatus, PreAuthStatus},
-    },
+use symm_core::{
     core::{
         bits::{
             Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
@@ -22,13 +17,22 @@ use crate::{
         },
         decimal_ext::DecimalExt,
     },
-    index::{
-        basket::Basket,
-        basket_manager::{BasketManager, BasketNotification},
-    },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
         price_tracker::{GetPricesResponse, PriceEvent, PriceTracker},
+    },
+    order_sender::inventory_manager::{InventoryEvent, InventoryManager},
+};
+
+use crate::{
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
+    collateral::{
+        collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
+        collateral_position::{ConfirmStatus, PreAuthStatus},
+    },
+    index::{
+        basket::Basket,
+        basket_manager::{BasketManager, BasketNotification},
     },
 };
 
@@ -36,7 +40,6 @@ use super::{
     batch_manager::{BatchEvent, BatchManager, BatchManagerHost},
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
-    inventory_manager::{InventoryEvent, InventoryManager},
     solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
     solver_quote::{SolverClientQuotes, SolverQuote, SolverQuoteStatus},
 };
@@ -1113,18 +1116,8 @@ mod test {
     };
     use rust_decimal::dec;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
-        blockchain::chain_connector::test_util::{
-            MockChainConnector, MockChainInternalNotification,
-        },
-        collateral::collateral_router::{
-            test_util::{
-                MockCollateralBridge, MockCollateralBridgeInternalEvent, MockCollateralDesignation,
-            },
-            CollateralDesignation, CollateralRouter, CollateralRouterEvent,
-            CollateralTransferEvent,
-        },
         core::{
             bits::{PricePointEntry, SingleOrder},
             functional::{IntoObservableMany, IntoObservableSingle},
@@ -1132,10 +1125,6 @@ mod test {
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_name_1, get_mock_asset_name_2, get_mock_index_name_1,
             },
-        },
-        index::{
-            basket::{AssetWeight, BasketDefinition},
-            basket_manager::BasketNotification,
         },
         market_data::{
             market_data_connector::{
@@ -1147,10 +1136,27 @@ mod test {
             order_connector::{
                 test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
             },
-            order_tracker::{OrderTracker, OrderTrackerNotification},
+            order_tracker::{OrderTracker, OrderTrackerNotification}, position::LotId,
+        },
+    };
+
+    use crate::{
+        blockchain::chain_connector::test_util::{
+            MockChainConnector, MockChainInternalNotification,
+        },
+        collateral::collateral_router::{
+            test_util::{
+                MockCollateralBridge, MockCollateralBridgeInternalEvent, MockCollateralDesignation,
+            },
+            CollateralDesignation, CollateralRouter, CollateralRouterEvent,
+            CollateralTransferEvent,
+        },
+        index::{
+            basket::{AssetWeight, BasketDefinition},
+            basket_manager::BasketNotification,
         },
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
-        solver::{position::LotId, solvers::simple_solver::SimpleSolver},
+        solver::{solvers::simple_solver::SimpleSolver},
     };
 
     use super::*;
@@ -1373,11 +1379,11 @@ mod test {
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
-            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId(format!("O-{:02}", n)))),
+            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId::from(format!("O-{:02}", n)))),
             batch_order_ids: VecDeque::from_iter(
-                (1..4).map(|n| BatchOrderId(format!("B-{:02}", n))),
+                (1..4).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
             ),
-            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId(format!("P-{:02}", n)))),
+            payment_ids: VecDeque::from_iter((1..4).map(|n| PaymentId::from(format!("P-{:02}", n)))),
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
@@ -1509,7 +1515,7 @@ mod test {
         let order_tracker_2 = order_tracker.clone();
 
         let lot_ids = RwLock::new(VecDeque::<LotId>::from_iter(
-            (1..13).map(|n| LotId(format!("L-{:02}", n))),
+            (1..13).map(|n| LotId::from(format!("L-{:02}", n))),
         ));
         let order_connector_weak = Arc::downgrade(&order_connector);
         let (defer_1, deferred) = unbounded::<Box<dyn FnOnce() + Send + Sync>>();
@@ -1895,7 +1901,7 @@ mod test {
 
         // connect to exchange
         order_connector.write().connect();
-        order_connector.write().notify_logon("Session-01".into());
+        order_connector.write().notify_logon("Session-01".into(), timestamp);
 
         // connect to exchange
         market_data_connector.write().connect();
@@ -2269,7 +2275,7 @@ mod test {
 
         order_connector
             .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), timestamp);
         heading("Scenario completed");
     }
 }

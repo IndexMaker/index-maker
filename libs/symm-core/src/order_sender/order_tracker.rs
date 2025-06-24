@@ -14,7 +14,7 @@ use crate::core::{
     decimal_ext::DecimalExt,
 };
 use crate::order_sender::order_connector::SessionId;
-use crate::solver::position::LotId;
+use crate::order_sender::position::LotId;
 use crate::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
@@ -153,6 +153,7 @@ impl OrderTracker {
         match notification {
             OrderConnectorNotification::SessionLogon {
                 session_id,
+                timestamp,
                 // TODO: maybe we include list of assets and markets, and
                 // account status then new_order() could chose which session to
                 // send order.
@@ -163,13 +164,49 @@ impl OrderTracker {
                 }
                 Ok(())
             }
-            OrderConnectorNotification::SessionLogout { session_id, reason } => {
+            OrderConnectorNotification::SessionLogout {
+                session_id,
+                reason,
+                timestamp,
+            } => {
                 println!(
                     "(order-tracker) Session diconnected: {}, Reason: {}",
                     session_id, reason
                 );
                 self.session = None;
                 Ok(())
+            }
+            OrderConnectorNotification::Rejected {
+                order_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                reason,
+                timestamp,
+            } => {
+                println!("Order {} was rejected: {}", order_id, reason);
+                match self.update_order_status(order_id.clone(), quantity, true) {
+                    Ok((order_entry, quantity_remaining, was_live, is_cancelled)) => {
+                        // Notify about fills sending notification to subscriber (-> Inventory Manager)
+                        if was_live {
+                            self.observer
+                                .publish_single(OrderTrackerNotification::Cancel {
+                                    order_id,
+                                    batch_order_id: order_entry.order.batch_order_id.clone(),
+                                    symbol,
+                                    side,
+                                    original_quantity: order_entry.order.quantity,
+                                    quantity_cancelled: quantity,
+                                    quantity_remaining,
+                                    is_cancelled,
+                                    cancel_timestamp: timestamp,
+                                });
+                        } // otherwise we already notified in the fill
+                        Ok(())
+                    }
+                    Err(err) => Err(eyre!("Error for {} {}", order_id, err)),
+                }
             }
             OrderConnectorNotification::Fill {
                 order_id,
@@ -302,10 +339,9 @@ mod test {
                 get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
-        order_sender::order_connector::{
+        order_sender::{order_connector::{
             test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
-        },
-        solver::position::LotId,
+        }, position::LotId},
     };
 
     use super::{OrderTracker, OrderTrackerNotification};
@@ -341,7 +377,7 @@ mod test {
         });
 
         let order_2 = order_1.clone();
-        let lot_id_1: LotId = "Lot01".into();
+        let lot_id_1 = LotId::from("Lot01");
         let lot_id_2 = lot_id_1.clone();
 
         // Let's provide internal (mocked) implementation of the Order Connector
@@ -351,7 +387,7 @@ mod test {
             move |(sid, e): (SessionId, Arc<SingleOrder>)| {
                 let lot_id_1 = lot_id_1.clone();
                 let order_connector = order_connector_weak.upgrade().unwrap();
-                assert_eq!(sid, SessionId("Session-01".to_owned()));
+                assert_eq!(sid, SessionId::from("Session-01"));
                 defer_1
                     .send(Box::new(move || {
                         order_connector.read().notify_fill(
@@ -471,7 +507,7 @@ mod test {
                     .unwrap();
             });
 
-        order_connector.write().notify_logon("Session-01".into());
+        order_connector.write().notify_logon("Session-01".into(), timestamp);
         run_mock_deferred(&deferred_actions);
 
         order_tracker
@@ -482,7 +518,7 @@ mod test {
 
         order_connector
             .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned());
+            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), timestamp);
         run_mock_deferred(&deferred_actions);
 
         test_mock_atomic_bool(&flag_fill_1);

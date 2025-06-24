@@ -74,6 +74,12 @@
     - [x] Create Binance Market Data Connector implementation
     - [x] Create Binance Market Data Connector integration example
     - [x] Build order book from Binance market data events
+* [x] Binance Order Sending Connector
+    - [x] Investigate work required to support sending orders to Binance
+    - [x] Design Binance Order Connector architecture
+    - [x] Create Binance Order Connector implementation
+    - [x] Create Binance Order Connector integration example
+    - [x] Send small order to Binance using limit price X% away from TOB
 * [ ] Bitget Market Data Connector
     - [ ] Investigate work required to support Bitget Market Data
     - [ ] Receive book deltas and snapshots from Bitget
@@ -81,12 +87,6 @@
     - [ ] Create Bitget Market Data Connector implementation
     - [ ] Create Bitget Market Data Connector integration example
     - [ ] Build order book from Bitget market data events
-* [ ] Binance Order Sending Connector
-    - [ ] Investigate work required to support sending orders to Binance
-    - [ ] Design Binance Order Connector architecture
-    - [ ] Create Binance Order Connector implementation
-    - [ ] Create Binance Order Connector integration example
-    - [ ] Send small order to Binance using limit price X% away from TOB
 * [ ] Bitget Order Sending Connector
     - [ ] Investigate work required to support sending orders to Bitget
     - [ ] Design Bitget Order Connector architecture
@@ -120,8 +120,7 @@
     - [ ] Investigate system to maintain the list of assets
     - [ ] Create Solver example with live market data
 * [ ] Logging & Error handling
-    - [ ] Use Rust `log` package for logging
-    - [ ] Use `env_logger` package for log level configuration
+    - [x] Choose Rust package for logging (see `tracing` package)
     - [ ] Find out best way to handle runtime errors
     - [ ] Explore logging mechanism, and craft log messages
     - [x] Error handling for server events
