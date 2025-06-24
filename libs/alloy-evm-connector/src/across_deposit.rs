@@ -1,4 +1,5 @@
 use alloy::signers::local::LocalSigner;
+use alloy::sol_types::SolValue;
 use alloy::{
     hex,
     primitives::{address, Address, FixedBytes, U256},
@@ -69,7 +70,7 @@ impl AcrossDeposit {
             exclusive_relayer,
             fill_deadline,
             exclusivity_deadline,
-            message: Vec::new().into(),
+            message: Vec::new(),
         }
     }
 
@@ -92,6 +93,7 @@ impl AcrossDeposit {
 }
 
 pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
+    pub signer_address: Address,
     pub across_connector: AcrossConnector::AcrossConnectorInstance<P>,
     pub otc_custody: OTCCustody::OTCCustodyInstance<P>,
     pub usdc: ERC20::ERC20Instance<P>,
@@ -118,15 +120,19 @@ pub async fn new_builder_from_env(
 
     // Create provider with wallet attached
     let provider = ProviderBuilder::new()
-        .wallet(wallet)
+        .wallet(wallet.clone())
         .connect_http(rpc_url.parse()?);
 
-    AcrossDepositBuilder::new(provider).await
+    AcrossDepositBuilder::new(provider, wallet.address().clone()).await
 }
 
 impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
-    pub async fn new(provider: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(
+        provider: P,
+        signer_address: Address,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
+            signer_address,
             across_connector: AcrossConnector::AcrossConnectorInstance::new(
                 ACROSS_CONNECTOR_ADDRESS,
                 provider.clone(),
@@ -258,9 +264,10 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         println!("Step 1: Approving input token for custody");
         self.approve_input_token_for_custody(deposit_amount).await?;
 
-        // Step 2: Setup custody helper (CAHelper)
+        // Step 2: Setup custody helper (CAHelper) with the on-chain chain-id
         println!("Step 2: Setting up CAHelper");
-        let mut ca_helper = CAHelper::new(origin_chain_id, OTC_CUSTODY_ADDRESS);
+        let chain_id_runtime = self.across_connector.provider().get_chain_id().await?;
+        let mut ca_helper = CAHelper::new(chain_id_runtime, OTC_CUSTODY_ADDRESS);
 
         // Step 3: Call custodyToConnector of custody_helper
         println!("Step 3: Adding custodyToConnector action to CAHelper");
@@ -270,7 +277,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             0,
             crate::custody_helper::Party {
                 parity: 0,
-                x: FixedBytes([0u8; 32]),
+                x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
         );
 
@@ -300,6 +307,13 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         );
         let calldata = deposit.encode_deposit_calldata();
 
+        // The first 4 bytes should be the function selector
+        assert_eq!(calldata.len() % 32, 4); // selector + N*32 bytes
+        println!(
+            "encoded deposit calldata: {:?}",
+            hex::encode_prefixed(&calldata)
+        );
+
         // Step 6: Call callConnector of custody_helper
         println!("Step 6: Adding callConnector action to CAHelper");
         let connector_action_index = ca_helper.call_connector(
@@ -309,13 +323,14 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             0u8,
             crate::custody_helper::Party {
                 parity: 0,
-                x: FixedBytes([0u8; 32]),
+                x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
         );
 
         // Step 7: Fetch custodyId from custody_helper.get_custody_id()
         println!("Step 7: Getting custody ID");
         let custody_id = ca_helper.get_ca_root();
+        println!("custody_id: {:?}", hex::encode_prefixed(custody_id));
 
         // Step 8: Call otc_custody.addressToCustody
         println!("Step 8: Setting up custody with input tokens");
@@ -336,7 +351,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             custody_timestamp,
             crate::contracts::CAKey {
                 parity: 0,
-                x: FixedBytes([0u8; 32]),
+                x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
             crate::contracts::Signature {
                 e: FixedBytes([0u8; 32]),
@@ -344,7 +359,6 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             },
             ca_helper.get_merkle_proof(custody_action_index),
         );
-
         println!(
             "custody_verification: {:?}",
             custody_verification.merkleProof
@@ -356,21 +370,21 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             .await?;
 
         // Step 11: Setup verification data for callConnector
-        println!("Step 11: Creating verification data for callConnector");
+        // println!("Step 11: Creating verification data for callConnector");
         // Use the same timestamp as custodyToConnector for consistency
         let connector_timestamp = custody_timestamp + 3600;
         set_next_block_timestamp(self.across_connector.provider(), connector_timestamp).await?;
         let connector_verification = create_verification_data(
             custody_id,
             0,
-            custody_timestamp,
+            connector_timestamp,
             crate::contracts::CAKey {
                 parity: 0,
-                x: FixedBytes([0u8; 32]),
+                x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
             crate::contracts::Signature {
-                e: FixedBytes([0u8; 32]), // Mock signature
-                s: FixedBytes([0u8; 32]), // Mock signature
+                e: FixedBytes([1u8; 32]),
+                s: FixedBytes([1u8; 32]),
             },
             ca_helper.get_merkle_proof(connector_action_index),
         );
@@ -433,6 +447,14 @@ pub async fn example_complete_across_deposit_flow() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// Left-pad a 20-byte `Address` into a 32-byte array (Solidity bytes32(bytes20(addr))).
+fn address_to_bytes32(addr: Address) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    // copy the 20-byte address into the lower 20 bytes (right-aligned)
+    out[12..].copy_from_slice(addr.as_slice());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,9 +498,12 @@ mod tests {
 
         let calldata = deposit_data.encode_deposit_calldata();
 
-        println!("calldata: {:?}", hex::encode_prefixed(&calldata));
-
-        assert!(!calldata.is_empty());
+        // The first 4 bytes should be the function selector
+        assert_eq!(calldata.len() % 32, 4); // selector + N*32 bytes
+        println!(
+            "encoded deposit calldata: {:?}",
+            hex::encode_prefixed(&calldata)
+        );
     }
 
     #[test]

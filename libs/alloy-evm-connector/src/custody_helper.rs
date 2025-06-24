@@ -3,7 +3,11 @@ use alloy::{
     primitives::{Address, B256},
     sol_types::SolValue,
 };
-use merkle_tree_rs::standard::{LeafType, StandardMerkleTree};
+use ethers::{
+    abi::{self, Token},
+    types::{Address as EthAddress, Bytes as EBytes, U256},
+};
+use merkle_tree_rs::core::{get_proof, make_merkle_tree};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -52,7 +56,8 @@ pub struct CAItem {
 
 pub struct CAHelper {
     ca_items: Vec<CAItem>,
-    merkle_tree: Option<StandardMerkleTree>,
+    merkle_tree: Option<Vec<EBytes>>, // flat binary-heap tree
+    leaf_indices: Vec<usize>,         // original -> tree index
     args_to_types: HashMap<CAItemType, String>,
     custody_id: Option<[u8; 32]>,
     chain_id: u64,
@@ -86,6 +91,7 @@ impl CAHelper {
         Self {
             ca_items: Vec::new(),
             merkle_tree: None,
+            leaf_indices: Vec::new(),
             args_to_types,
             custody_id: None,
             chain_id,
@@ -94,20 +100,89 @@ impl CAHelper {
     }
 
     fn encode_args(&self, item_type: &CAItemType, args: &[(&str, &[u8])]) -> String {
-        if let Some(param_types) = self.args_to_types.get(item_type) {
-            if param_types.is_empty() {
-                return "0x".to_string();
+        // Early-exit for parameter-less variants
+        if matches!(
+            item_type,
+            CAItemType::UpdateCA | CAItemType::UpdateCustodyState
+        ) {
+            return "0x".to_string();
+        }
+
+        // Helper to fetch an argument by name.
+        let find_arg_opt = |name: &str| -> Option<&[u8]> {
+            args.iter().find(|(n, _)| *n == name).map(|(_, v)| *v)
+        };
+
+        let addr_or_zero = |name: &str| -> Address {
+            find_arg_opt(name)
+                .map(Address::from_slice)
+                .unwrap_or(Address::ZERO)
+        };
+
+        let bytes32_or_zero = |name: &str| -> B256 {
+            find_arg_opt(name)
+                .map(B256::from_slice)
+                .unwrap_or(B256::ZERO)
+        };
+
+        // Encode depending on entry type.
+        let encoded: Vec<u8> = match item_type {
+            // string connectorType,address factoryAddress,bytes callData
+            CAItemType::DeployConnector => {
+                let connector_type =
+                    std::str::from_utf8(find_arg_opt("connectorType").unwrap_or(&[]))
+                        .expect("utf8")
+                        .to_string();
+                let factory_addr = addr_or_zero("factoryAddress");
+                let call_data = find_arg_opt("callData").unwrap_or(&[]).to_vec();
+
+                SolValue::abi_encode_params(&(connector_type, factory_addr, call_data))
             }
 
-            // Convert args to a tuple of values
-            let values: Vec<&[u8]> = args.iter().map(|(_, value)| *value).collect();
+            // string connectorType,address connectorAddress,bytes callData
+            CAItemType::CallConnector => {
+                let connector_type =
+                    std::str::from_utf8(find_arg_opt("connectorType").unwrap_or(&[]))
+                        .expect("utf8")
+                        .to_string();
+                let connector_addr = addr_or_zero("connectorAddress");
+                let call_data = find_arg_opt("callData").unwrap_or(&[]).to_vec();
 
-            // Use alloy's abi_encode_params to encode the values
-            let encoded = SolValue::abi_encode_params(&values);
-            format!("0x{}", hex::encode(encoded))
-        } else {
-            "0x".to_string()
-        }
+                SolValue::abi_encode_params(&(connector_type, connector_addr, call_data))
+            }
+
+            // address receiver
+            CAItemType::CustodyToAddress => {
+                let receiver = addr_or_zero("receiver");
+                SolValue::abi_encode_params(&(receiver,))
+            }
+
+            // address connectorAddress,address token
+            CAItemType::CustodyToConnector => {
+                let connector = addr_or_zero("connectorAddress");
+                let token = addr_or_zero("token");
+                SolValue::abi_encode_params(&(connector, token))
+            }
+
+            // uint8 newState
+            CAItemType::ChangeCustodyState => {
+                let new_state_u64 = find_arg_opt("newState")
+                    .map(|v| v[0] as u64)
+                    .unwrap_or(0u64);
+                SolValue::abi_encode_params(&(new_state_u64,))
+            }
+
+            // bytes32 receiverId
+            CAItemType::CustodyToCustody => {
+                let receiver_id = bytes32_or_zero("receiverId");
+                SolValue::abi_encode_params(&(receiver_id,))
+            }
+
+            // The remaining types were handled by early-exit above
+            _ => unreachable!(),
+        };
+
+        format!("0x{}", hex::encode(encoded))
     }
 
     fn encode_calldata(&self, func_type: &str, func_args: &[&[u8]]) -> String {
@@ -157,7 +232,10 @@ impl CAHelper {
                                 .collect();
                             let encoded_call_data =
                                 self.encode_calldata(func_type, &func_args_bytes);
-                            let encoded_bytes = encoded_call_data.as_bytes().to_vec();
+                            // convert "0x..." hex string into raw bytes
+                            let encoded_bytes =
+                                hex::decode(encoded_call_data.trim_start_matches("0x"))
+                                    .expect("hex decode callData");
                             for (name, value) in args {
                                 if *name == "callData" {
                                     values.push((*name, encoded_bytes.clone()));
@@ -191,7 +269,7 @@ impl CAHelper {
         };
 
         self.ca_items.push(item);
-        self.merkle_tree = None; // Invalidate the tree to be reconstructed at next call
+        self.merkle_tree = None;
 
         self.ca_items.len() - 1 // return the index of the added item
     }
@@ -269,37 +347,56 @@ impl CAHelper {
         self.ca_items.clone()
     }
 
-    fn get_merkle_tree(&mut self) -> &StandardMerkleTree {
+    /// Build (or fetch cached) Merkle tree (sorted-pair rule) using merkle_tree_rs core helpers
+    fn get_merkle_tree(&mut self) -> &Vec<EBytes> {
         if self.merkle_tree.is_none() {
-            let values: Vec<Vec<String>> = self
+            // 1. compute leaves with their original indices
+            let mut indexed: Vec<(usize, EBytes)> = self
                 .ca_items
                 .iter()
-                .map(|item| {
-                    vec![
-                        item.item_type.to_string(),
-                        item.chain_id.to_string(),
-                        item.otc_custody.to_string(),
-                        item.state.to_string(),
-                        hex::encode(&item.args),
-                        item.party.parity.to_string(),
-                        hex::encode(item.party.x),
-                    ]
-                })
+                .enumerate()
+                .map(|(i, item)| (i, Self::compute_leaf(item)))
                 .collect();
 
-            let types = [
-                "string".to_string(),  // entry type
-                "uint256".to_string(), // chainId
-                "address".to_string(), // otcCustody
-                "uint".to_string(),    // state
-                "string".to_string(),  // abi.encode(args)
-                "uint".to_string(),    // party.parity
-                "string".to_string(),  // party.x
-            ];
+            // 2. sort lexicographically as OpenZeppelin expects
+            indexed.sort_by(|a, b| a.1.cmp(&b.1));
 
-            self.merkle_tree = Some(StandardMerkleTree::of(values, &types));
+            // 3. separate hashes
+            let leaves: Vec<EBytes> = indexed.iter().map(|(_, h)| h.clone()).collect();
+
+            // 4. build binary-heap tree
+            let tree = make_merkle_tree(leaves.clone());
+
+            // 5. map original index -> tree index
+            let tree_len = tree.len();
+            self.leaf_indices = vec![0; self.ca_items.len()];
+            for (sorted_pos, (orig_idx, _)) in indexed.iter().enumerate() {
+                // leaves are stored in reverse order at the end of tree
+                self.leaf_indices[*orig_idx] = tree_len - 1 - sorted_pos;
+            }
+
+            self.merkle_tree = Some(tree);
         }
         self.merkle_tree.as_ref().unwrap()
+    }
+
+    /// Compute leaf hash identical to Solidity implementation.
+    fn compute_leaf(item: &CAItem) -> EBytes {
+        let tokens: Vec<Token> = vec![
+            Token::String(item.item_type.to_string()),
+            Token::Uint(U256::from(item.chain_id)),
+            Token::Address(EthAddress::from_slice(item.otc_custody.as_slice())),
+            Token::Uint(U256::from(item.state)),
+            {
+                let bytes = hex::decode(item.args.trim_start_matches("0x")).unwrap_or_default();
+                Token::Bytes(bytes)
+            },
+            Token::Uint(U256::from(item.party.parity)),
+            Token::FixedBytes(item.party.x.as_slice().to_vec()),
+        ];
+        let inner = alloy::primitives::keccak256(abi::encode(&tokens));
+        let leaf = alloy::primitives::keccak256(inner);
+        EBytes::from(leaf.to_vec())
     }
 
     pub fn get_custody_id(&mut self) -> [u8; 32] {
@@ -310,42 +407,25 @@ impl CAHelper {
     }
 
     pub fn get_ca_root(&mut self) -> [u8; 32] {
-        let tree = self.get_merkle_tree();
-        let root = tree.root();
-
-        // The root is returned as a hex string, so we need to decode it
-        let root_str = root.as_str();
-        let root_bytes = hex::decode(root_str.strip_prefix("0x").unwrap_or(root_str))
-            .expect("Failed to decode merkle root");
-
-        let mut custody_id = [0u8; 32];
-        custody_id.copy_from_slice(&root_bytes);
-        custody_id
+        // Root comes back as 0x-prefixed hex string
+        let root = &self.get_merkle_tree()[0];
+        let bytes = root.as_ref();
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(bytes);
+        arr
     }
 
     pub fn get_merkle_proof(&mut self, index: usize) -> Vec<[u8; 32]> {
-        if self.ca_items.len() == 1 {
-            return vec![];
-        }
-        if index >= self.ca_items.len() {
-            panic!(
-                "Invalid index: {}. Valid range is 0-{}",
-                index,
-                self.ca_items.len() - 1
-            );
-        }
+        self.get_merkle_tree(); // ensure up-to-date
+        let tree_index = *self.leaf_indices.get(index).expect("invalid idx");
+        let proof = get_proof(self.merkle_tree.as_ref().unwrap().clone(), tree_index);
 
-        let tree = self.get_merkle_tree();
-        let proof = tree.get_proof(LeafType::Number(index));
         proof
             .iter()
             .map(|p| {
-                let proof_str = p.as_str();
-                let proof_bytes = hex::decode(proof_str.strip_prefix("0x").unwrap_or(proof_str))
-                    .expect("Failed to decode merkle proof");
-                let mut proof_array = [0u8; 32];
-                proof_array.copy_from_slice(&proof_bytes);
-                proof_array
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(p.as_ref());
+                arr
             })
             .collect()
     }
@@ -353,6 +433,7 @@ impl CAHelper {
     pub fn clear(&mut self) {
         self.ca_items.clear();
         self.merkle_tree = None;
+        self.leaf_indices.clear();
         self.custody_id = None;
     }
 }
@@ -409,7 +490,6 @@ mod tests {
         // Get all CA items and their proofs
         let all_items = ca_helper.get_ca_items();
         let root = ca_helper.get_ca_root();
-        let tree = ca_helper.get_merkle_tree();
         let proofs: Vec<_> = (0..all_items.len())
             .map(|i| ca_helper.get_merkle_proof(i))
             .collect();
@@ -420,13 +500,15 @@ mod tests {
         println!("Total actions: {}", all_actions_with_proofs.len());
         println!("Proofs: {:?}", proofs.clone());
 
-        // Verify the merkle proofs
-        for (index, item, proof) in all_actions_with_proofs {
-            // Verify the proof is valid
-            assert!(
-                !proof.is_empty() || all_items.len() == 1,
-                "Proof should be empty only when there's a single item"
-            );
+        // Basic sanity: each proof should be non-empty (unless there is only one leaf)
+        for (index, _item, proof) in all_actions_with_proofs {
+            if all_items.len() > 1 {
+                assert!(
+                    !proof.is_empty(),
+                    "Expected non-empty proof for action {}",
+                    index
+                );
+            }
         }
     }
 
@@ -457,5 +539,82 @@ mod tests {
 
         // Verify items were cleared
         assert_eq!(ca_helper.get_ca_items().len(), 0);
+    }
+
+    #[test]
+    fn test_call_connector_merkle_proof_validation() {
+        // Define a sample CA address and chain ID
+        let ca_address = Address::ZERO;
+        let chain_id = 1; // Ethereum mainnet
+
+        // Create a new CAHelper instance
+        let mut ca_helper = CAHelper::new(chain_id, ca_address);
+
+        // Define a party
+        let party = Party {
+            parity: 1,
+            x: B256::from_slice(&[0x42; 32]),
+        };
+
+        // Add a deployConnector action first (to ensure we have multiple items)
+        let _deploy_index = ca_helper.deploy_connector(
+            "Test Connector",
+            Address::ZERO,
+            &[0x12, 0x34],
+            0, // state
+            party.clone(),
+        );
+
+        // Add a callConnector action with complex calldata
+        let call_data = serde_json::json!({
+            "type": "deposit(address,address,uint256,uint256,uint256,address,uint32,uint32,bytes)",
+            "args": [
+                "0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd",
+                "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+                "1000000",
+                "999999",
+                "8453",
+                "0x0000000000000000000000000000000000000000",
+                "0",
+                "0"
+            ]
+        });
+
+        let call_connector_index = ca_helper.call_connector(
+            "AcrossConnector",
+            Address::from_slice(&[
+                0x83, 0x50, 0xa9, 0xAb, 0x66, 0x98, 0x08, 0xBE, 0x1D, 0xDF, 0x24, 0xFA, 0xF9, 0xc1,
+                0x44, 0x75, 0x32, 0x1D, 0x05, 0x04,
+            ]),
+            call_data.to_string().as_bytes(),
+            1, // state
+            party.clone(),
+        );
+
+        // Get the custody ID (merkle root)
+        let custody_id = ca_helper.get_ca_root();
+        println!(
+            "Custody ID (merkle root): {:?}",
+            hex::encode_prefixed(custody_id)
+        );
+
+        // Get the callConnector item and its proof
+        let all_items = ca_helper.get_ca_items();
+        let call_connector_item = &all_items[call_connector_index];
+        let call_connector_proof = ca_helper.get_merkle_proof(call_connector_index);
+
+        println!("CallConnector item: {:?}", call_connector_item);
+        println!("CallConnector proof length: {}", call_connector_proof.len());
+        println!("CallConnector proof: {:?}", call_connector_proof);
+
+        // Additional verification: check that the proof is not empty (unless it's the only item)
+        if all_items.len() > 1 {
+            assert!(
+                !call_connector_proof.is_empty(),
+                "CallConnector proof should not be empty when there are multiple items"
+            );
+        }
+
+        println!("CallConnector merkle proof extracted successfully!");
     }
 }

@@ -146,7 +146,7 @@ impl CollateralBridge for EvmCollateralBridge {
             let provider = alloy::providers::ProviderBuilder::new()
                 .connect("http://localhost:8545")
                 .await?;
-            let deposit_builder = AcrossDepositBuilder::new(provider).await.unwrap();
+            let deposit_builder = AcrossDepositBuilder::new(provider, address).await.unwrap();
             //
             let timestamp = Utc::now();
             let fee = safe!(cumulative_fee + dec!(0.1)).ok_or_eyre("Math Problem")?;
