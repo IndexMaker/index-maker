@@ -1,30 +1,13 @@
-use chrono::{TimeDelta, Utc};
+use chrono::TimeDelta;
 use std::sync::{Arc, RwLock as ComponentLock};
-use symm_core::core::bits::{BatchOrderId, OrderId, PaymentId};
 
-use crate::solver::{batch_manager::BatchManager, solver::OrderIdProvider};
+use crate::solver::batch_manager::BatchManager;
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::Result;
 use rust_decimal::dec;
 use symm_core::core::bits::Amount;
-
-pub struct TimestampOrderIds {}
-
-impl OrderIdProvider for TimestampOrderIds {
-    fn next_order_id(&mut self) -> OrderId {
-        OrderId::from(format!("O-{}", Utc::now().timestamp_millis()))
-    }
-
-    fn next_batch_order_id(&mut self) -> BatchOrderId {
-        BatchOrderId::from(format!("B-{}", Utc::now().timestamp_millis()))
-    }
-
-    fn next_payment_id(&mut self) -> PaymentId {
-        PaymentId::from(format!("P-{}", Utc::now().timestamp_millis()))
-    }
-}
 
 #[derive(Clone, Builder)]
 #[builder(

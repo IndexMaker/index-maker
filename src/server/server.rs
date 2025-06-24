@@ -186,7 +186,6 @@ pub trait Server: Send + Sync {
     fn respond_with(&mut self, response: ServerResponse);
 }
 
-#[cfg(test)]
 pub mod test_util {
 
     use std::sync::Arc;

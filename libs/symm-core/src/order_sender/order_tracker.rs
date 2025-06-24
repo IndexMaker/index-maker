@@ -21,6 +21,7 @@ use crate::{
 };
 
 /// track orders that we sent to
+#[derive(Debug)]
 pub enum OrderTrackerNotification {
     Fill {
         order_id: OrderId,

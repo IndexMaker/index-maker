@@ -3,8 +3,10 @@ pub mod app {
     pub mod basket_manager;
     pub mod collateral_manager;
     pub mod config;
+    pub mod index_order_manager;
     pub mod market_data;
     pub mod order_sender;
+    pub mod quote_request_manager;
     pub mod simple_solver;
     pub mod solver;
 }

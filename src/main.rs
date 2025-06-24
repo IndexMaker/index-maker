@@ -1,32 +1,40 @@
-use std::{env, sync::{Arc, RwLock as ComponentLock}, thread};
+use std::{
+    env,
+    sync::{Arc, RwLock as ComponentLock},
+};
 
 use binance_order_sending::credentials::Credentials;
-use chrono::TimeDelta;
+use chrono::{DateTime, TimeDelta, Utc};
 use clap::Parser;
-use crossbeam::{channel::unbounded, select};
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
-        batch_manager::{BatchManagerConfig, TimestampOrderIds},
+        batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig,
+        index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
         order_sender::OrderSenderConfig,
-        simple_solver::SimpleSolverConfig, solver::SolverConfig,
+        quote_request_manager::QuoteRequestManagerConfig,
+        simple_solver::SimpleSolverConfig,
+        solver::SolverConfig,
     },
+    blockchain::chain_connector::ChainConnector,
     collateral::collateral_router::test_util,
-    solver::{solver::{OrderIdProvider, Solver}, solver_quote::SolverClientQuotes},
+    index::basket::Basket,
+    server::server::{Server, ServerResponse},
+    solver::solver::OrderIdProvider,
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     core::{
-        bits::{Amount, Side, Symbol},
+        bits::{Address, Amount, BatchOrderId, OrderId, PaymentId, Side, Symbol},
         logging::log_init,
         test_util::get_mock_defer_channel,
     },
     init_log,
 };
-use tokio::{sync::oneshot, time::sleep};
+use tokio::time::sleep;
 
 #[derive(Parser)]
 struct Cli {
@@ -35,11 +43,89 @@ struct Cli {
     collateral_amount: Amount,
 }
 
+pub struct TimestampOrderIds {}
+
+impl OrderIdProvider for TimestampOrderIds {
+    fn next_order_id(&mut self) -> OrderId {
+        OrderId::from(format!("O-{}", Utc::now().timestamp_millis()))
+    }
+
+    fn next_batch_order_id(&mut self) -> BatchOrderId {
+        BatchOrderId::from(format!("B-{}", Utc::now().timestamp_millis()))
+    }
+
+    fn next_payment_id(&mut self) -> PaymentId {
+        PaymentId::from(format!("P-{}", Utc::now().timestamp_millis()))
+    }
+}
+
+struct SimpleServer {}
+
+impl Server for SimpleServer {
+    fn respond_with(&mut self, response: ServerResponse) {
+        tracing::info!("Received response: {:?}", response);
+    }
+}
+
+struct SimpleChainConnector {}
+
+impl ChainConnector for SimpleChainConnector {
+    fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
+        tracing::info!("SolverWeightsSet: {}", symbol);
+    }
+
+    fn mint_index(
+        &self,
+        chain_id: u32,
+        symbol: Symbol,
+        quantity: Amount,
+        receipient: Address,
+        execution_price: Amount,
+        execution_time: DateTime<Utc>,
+    ) {
+        tracing::info!(
+            "MintIndex: {} {:0.5} {:0.5} {}",
+            symbol,
+            quantity,
+            execution_price,
+            execution_time
+        )
+    }
+
+    fn burn_index(
+        &self,
+        chain_id: u32,
+        symbol: Symbol,
+        quantity: Amount,
+        receipient: symm_core::core::bits::Address,
+    ) {
+        todo!()
+    }
+
+    fn withdraw(
+        &self,
+        chain_id: u32,
+        receipient: symm_core::core::bits::Address,
+        amount: Amount,
+        execution_price: Amount,
+        execution_time: chrono::DateTime<chrono::Utc>,
+    ) {
+        todo!()
+    }
+}
+
 #[tokio::main]
 async fn main() {
     init_log!();
 
     let cli = Cli::parse();
+
+    tracing::info!(
+        "Index Order: {} {:?} {}",
+        cli.symbol,
+        cli.side,
+        cli.collateral_amount
+    );
 
     let price_threshold = dec!(0.01);
     let fee_factor = dec!(1.001);
@@ -50,7 +136,7 @@ async fn main() {
     let mint_threshold = dec!(0.99);
     let mint_wait_period = TimeDelta::seconds(10);
 
-    let max_batch_size = 4;
+    let max_batch_size = 4usize;
     let zero_threshold = dec!(0.00001);
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
@@ -73,6 +159,7 @@ async fn main() {
     let weights = [dec!(0.3), dec!(0.2), dec!(0.4), dec!(0.1)];
     let index_symbol = Symbol::from("SO4");
 
+    // TODO: This is fake router
     let (router_tx, router_rx) = get_mock_defer_channel();
     let router = test_util::build_test_router(
         &router_tx,
@@ -83,6 +170,12 @@ async fn main() {
         "DST:BINANCE:EUR",
         |_, _| (Amount::ZERO, Amount::ZERO),
     );
+
+    // Fake FIX server
+    let server = Arc::new(RwLock::new(SimpleServer {}));
+
+    // Fake Blockchain connector
+    let chain = Arc::new(ComponentLock::new(SimpleChainConnector {}));
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
@@ -97,12 +190,23 @@ async fn main() {
         .build()
         .expect("Failed to build order sender");
 
+    let index_order_manager_config = IndexOrderManagerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .with_server(server.clone() as Arc<RwLock<dyn Server>>)
+        .build()
+        .expect("Failed to build index order manager");
+
+    let quote_request_manager_config = QuoteRequestManagerConfig::builder()
+        .with_server(server as Arc<RwLock<dyn Server>>)
+        .build()
+        .expect("Failed to build quote request manager");
+
     let batch_manager_config = BatchManagerConfig::builder()
         .zero_threshold(zero_threshold)
         .fill_threshold(fill_threshold)
-        .mint_threshold(dec!(0.99))
-        .mint_wait_period(TimeDelta::seconds(10))
-        .max_batch_size(4)
+        .mint_threshold(mint_threshold)
+        .mint_wait_period(mint_wait_period)
+        .max_batch_size(max_batch_size)
         .build()
         .expect("Failed to build batch manager");
 
@@ -126,7 +230,7 @@ async fn main() {
 
     let order_ids = Arc::new(RwLock::new(TimestampOrderIds {}));
 
-    let solver_config = SolverConfig::builder()
+    let mut solver_config = SolverConfig::builder()
         .zero_threshold(zero_threshold)
         .max_batch_size(max_batch_size)
         .client_order_wait_period(client_order_wait_period)
@@ -136,47 +240,17 @@ async fn main() {
         .with_collateral_manager(collateral_manager_config)
         .with_market_data(market_data_config)
         .with_order_sender(order_sender_config)
+        .with_index_order_manager(index_order_manager_config)
+        .with_quote_request_manager(quote_request_manager_config)
         .with_strategy(strategy_config)
         .with_order_ids(order_ids as Arc<RwLock<dyn OrderIdProvider + Send + Sync>>)
-        /* todo
-        .with_index_order_manager(value)
-        .with_quote_request_manager(value)
-        .with_chain_connector(value)
-         */
-        .build();
+        .with_chain_connector(chain as Arc<ComponentLock<dyn ChainConnector + Send + Sync>>)
+        .build()
+        .expect("Failed to build solver");
 
-    let (stop_tx, stop_rx) = unbounded::<()>();
-    let (stopped_tx, stopped_rx) = oneshot::channel();
-
-    thread::spawn(move || loop {
-        select! {
-            recv(stop_rx) -> _ => {
-                stopped_tx.send(()).unwrap();
-                break;
-            },
-            recv(connector_event_rx) -> res => {
-                order_tracker.write().handle_order_notification(res.unwrap()).unwrap();
-            },
-            recv(order_tracker_rx) -> res => {
-                inventory_manager.write().handle_fill_report(res.unwrap()).unwrap();
-            },
-            recv(inventory_event_rx) -> res => {
-                tracing::warn!("Inventory Event unexpected: {:?}", res.unwrap());
-            }
-        }
-    });
-
-    market_data.start().expect("Failed to start market data");
-    order_sender.start().expect("Failed to start order sender");
+    solver_config.run().await.expect("Failed to run solver");
 
     sleep(std::time::Duration::from_secs(5)).await;
 
-    order_sender.write().stop().await.unwrap();
-
-    stop_tx.send(()).unwrap();
-    stopped_rx.await.unwrap();
-
-    market_data.write().stop().await.unwrap();
-
-    // TODO: replace unwrap() with error logging
+    solver_config.stop().await.expect("Failed to stop solver");
 }
