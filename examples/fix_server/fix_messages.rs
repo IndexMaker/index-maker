@@ -23,6 +23,7 @@ pub struct FixTrailer {
 
 
 #[derive(Serialize, Deserialize, Debug)]
+
 pub struct ACKBody {
     pub RefSeqNum: u32,
 }
@@ -57,4 +58,39 @@ pub struct ExecReportBody {
     OrderQtyData: String,
     Price: String,              // Execution price
     CumQty: String,             // Cumulative executed quantity
+}
+
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum Body {
+    ACKBody {
+        RefSeqNum: u32,
+    },
+    NAKBody {
+        RefSeqNum: u32,
+        //    ErrorID: u32,
+        Text: String,
+    },
+    NewOrderBody{
+        ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
+        Instrument: String,
+        //Instrument: Instrument, // All instrument parameters
+        Side: String,           // "1" = BUY, "2" = SELL
+        Price: String,          // Limit price
+        //    TransactTime: u64,      // Time this order request was initiated
+        OrderQtyData: String,
+        OrdType: String,        // "1" = MARKET, "2" = LIMIT
+    },
+    ExecReportBody {
+        ClOrdID: String,            // Order identifier
+    //    ExecSeqNum: String,         // Execution identifier
+        ExecType: String,           // "0" = NEW, "4" = CANCELED, "F" = TRADE, "B" = EXPIRED
+        OrdStatus: String,          // "0" = NEW, "1" = PARTIALLY FILLED, "2" = FILLED, "4" = CANCELED, "8" = REJECTED
+        Side: String,               // "1" = BUY, "2" = SELL
+    //    TransactTime: u64,          // Time this order request was initiated
+        OrderQtyData: String,
+        Price: String,              // Execution price
+        CumQty: String,             // Cumulative executed quantity
+    }
 }

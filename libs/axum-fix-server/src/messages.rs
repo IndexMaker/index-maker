@@ -159,6 +159,6 @@ where
 }
 
 pub trait ServerResponse {
-    fn get_session_id(&self) -> &SessionId;
+    fn get_session_id(&self) ->&SessionId;
     fn serialize_into_fix(&self, builder: FixMessageBuilder) -> Result<FixMessage, Report>;
 }

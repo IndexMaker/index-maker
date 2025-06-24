@@ -28,30 +28,24 @@ use tokio::{
 };
 
 use crate::{
-    messages::{FixMessage, FixMessageBuilder, ServerRequest, ServerResponse, SessionId},
-    plugins::server_plugin::ServerPlugin,
+    messages::{ServerRequest, ServerResponse, SessionId},
+    server_plugin::ServerPlugin,
 };
 
 /// Session
 ///
 /// Manages a single client session for sending responses. Holds a sender channel for
 /// responses and a unique session identifier.
-pub(crate) struct Session<Q>
-where
-    Q: ServerResponse,
-{
-    response_tx: UnboundedSender<Q>,
+pub struct Session {
+    response_tx: UnboundedSender<String>,
     session_id: SessionId,
 }
 
-impl<Q> Session<Q>
-where
-    Q: ServerResponse,
-{
+impl Session {
     /// new
     ///
     /// Creates a new Session.
-    pub fn new(tx: UnboundedSender<Q>, session_id: SessionId) -> Self {
+    pub fn new(tx: UnboundedSender<String>, session_id: SessionId) -> Self {
         Self {
             response_tx: tx,
             session_id,
@@ -63,7 +57,7 @@ where
     /// Sends a response to the client by enqueueing a message
     /// to the receivieng channel held by 'ws_handler'.
     /// Returns a `Result` indicating success or failure.
-    pub fn send_response(&self, response: Q) -> Result<()> {
+    pub fn send_response(&self, response: String) -> Result<()> {
         self.response_tx
             .send(response)
             .map_err(|err| eyre!("Error {:?}", err))
@@ -84,7 +78,7 @@ where
 {
     me: Weak<RwLock<Self>>,
     observer: SingleObserver<R>, //Option<Box<dyn Fn(&R)>>,
-    sessions: HashMap<SessionId, Arc<Session<Q>>>,
+    sessions: HashMap<SessionId, Arc<Session>>,
     session_id_counter: AtomicUsize,
     plugin: P,
 }
@@ -134,10 +128,11 @@ where
     ///
     /// Sends a response to the appropriate client session based on the session ID in the response.
     /// Returns a `Result` indicating success or failure if the session is not found.
-    pub fn send_response(&self, response: Q) -> Result<()> {
+    pub fn send_response(&self, response: &mut Q) -> Result<()> {
+        let processed_response = self.process_outgoing_message(response);
         let session_id = response.get_session_id().clone();
         match self.sessions.get(&session_id) {
-            Some(session) => session.send_response(response),
+            Some(session) => session.send_response(processed_response?),
             None => Err(eyre!("Oh, no!")),
         }
     }
@@ -145,7 +140,7 @@ where
     /// handle_server_message
     ///
     /// Processes an incoming server request by publishing it to all registered observers for processing.
-    pub fn handle_server_message(&self, request: R) {
+    fn handle_server_message(&self, request: R) {
         self.observer.publish_single(request);
     }
 
@@ -153,9 +148,9 @@ where
     ///
     /// Creates a new client session with a unique session ID. Returns a tuple containing
     /// the session handle, a receiver for responses, and the session ID.
-    pub(crate) fn create_session(
+    pub fn create_session(
         &mut self,
-    ) -> Result<(Arc<Session<Q>>, UnboundedReceiver<Q>, SessionId)> {
+    ) -> Result<(Arc<Session>, UnboundedReceiver<String>, SessionId)> {
         let session_id = SessionId(format!(
             "session_{}",
             self.session_id_counter.fetch_add(1, Ordering::SeqCst)
@@ -164,20 +159,36 @@ where
             Entry::Occupied(_) => Err(eyre!("Oh, no!")),
             Entry::Vacant(vacant_entry) => {
                 let (tx, rx) = unbounded_channel();
-                let session =
-                    vacant_entry.insert(Arc::new(Session::<Q>::new(tx, session_id.clone())));
-                Ok((session.clone(), rx, session_id))
+                let session = vacant_entry.insert(Arc::new(Session::new(tx, session_id.clone())));
+                match self.plugin.create_session(session_id.clone()) {
+                    Ok(()) => Ok((session.clone(), rx, session_id)),
+                    Err(e) => Err(e),
+                }
             }
         }
     }
 
-    pub fn build_fix_message(&self, q: Q) -> Result<FixMessage> {
-        let builder = FixMessageBuilder::new();
-        let message = q.serialize_into_fix(builder);
-        message
+    /// close_session
+    ///
+    /// Closes an existing client session with a unique session ID.
+    pub fn close_session(&mut self, session_id: SessionId) {
+        match self.plugin.destroy_session(session_id.clone()) {
+            Ok(()) => {
+                self.sessions.remove(&session_id);
+            }
+            Err(e) => {
+                eprintln!("Failed to destroy session: {}", e);
+            }
+        }
     }
 
-    pub async fn process_incoming_message(
+    // pub fn build_fix_message(&self, q: Q) -> Result<FixMessage> {
+    //     let builder = FixMessageBuilder::new();
+    //     let message = q.serialize_into_fix(builder);
+    //     message
+    // }
+
+    pub fn process_incoming_message(
         &self,
         message: String,
         session_id: SessionId,
@@ -187,8 +198,8 @@ where
         Ok(())
     }
 
-    pub fn process_outgoing_message(&self, response: Q) -> Result<String, Report> {
-        self.plugin.process_outgoing(&response)
+    pub fn process_outgoing_message(&self, response: &mut Q) -> Result<String, Report> {
+        self.plugin.process_outgoing(response)
     }
 
     pub fn get_multi_observer_mut(&mut self) -> &mut SingleObserver<R> {
@@ -214,7 +225,7 @@ where
     P: ServerPlugin<R, Q> + Send + Sync + 'static,
 {
     ws.on_upgrade(move |mut ws: WebSocket| async move {
-        let (session, mut receiver, session_id) = server.write().await.create_session().unwrap();
+        let (_session, mut receiver, session_id) = server.write().await.create_session().unwrap();
         loop {
             select! {
                 // quit => { break; }
@@ -223,7 +234,7 @@ where
                         Some(Ok(message)) => {
                             if let axum::extract::ws::Message::Text(text) = message {
                                 tracing::debug!("Received message: {}", text);
-                                if let Err(e) = server.read().await.process_incoming_message(text.to_string(), session_id.clone()).await {
+                                if let Err(e) = server.read().await.process_incoming_message(text.to_string(), session_id.clone()) {
                                     tracing::error!("Failed to process incoming message: {}", e);
                                     // Send error message back to the client
                                     let error_msg = format!("Error processing message: {}", e);
@@ -245,20 +256,29 @@ where
                     }
                 }
                 Some(res) = receiver.recv() => {
-                    match server.write().await.build_fix_message(res) {
-                        Ok(fix_message) => {
-                            println!("SENDING: {}", fix_message.0.to_owned());
-                            if let Err(e) = ws.send(Message::Text(fix_message.0.into())).await {
-                                tracing::error!("Failed to send WebSocket message: {}", e);
-                                break;
-                            }
-                        }
+                    match ws.send(Message::Text(res)).await {
+                        Ok(()) => {},
                         Err(e) => {
-                            tracing::error!("Failed to build FIX message: {}", e);
+                            tracing::error!("WebSocket error: {}", e);
+                            // Close the session?
                         }
                     }
                 }
+                    // match server.write().await.build_fix_message(res) {
+                    // let fix_message = server.write().await.build_fix_message(res);
+                    //     Ok(fix_message) => {
+                    //         println!("SENDING: {}", fix_message.0.to_owned());
+                    //         if let Err(e) = ws.send(Message::Text(fix_message.0.into())).await {
+                    //             tracing::error!("Failed to send WebSocket message: {}", e);
+                    //             break;
+                    //         }
+                    //     }
+                    //     Err(e) => {
+                    //         tracing::error!("Failed to build FIX message: {}", e);
+                    //     }
+                    // 
             }
         }
+        server.write().await.close_session(session_id);
     })
 }

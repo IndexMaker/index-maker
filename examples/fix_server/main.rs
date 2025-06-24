@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use axum_fix_server::{plugins::server_plugin::SerdePlugin, server::Server};
+use axum_fix_server::{server::Server, server_plugin::CompositeServerPlugin};
 use crossbeam::{channel::unbounded, select};
 use index_maker::{core::logging::log_init, init_log};
 mod fix_messages;
@@ -14,7 +14,7 @@ mod responses;
 use requests::Request;
 use responses::Response;
 
-use crate::fix_messages::{ACKBody, FixHeader, FixTrailer, NewOrderBody};
+use crate::fix_messages::{FixHeader, FixTrailer, Body};
 
 #[derive(Debug)]
 enum ServerEvent {
@@ -32,7 +32,7 @@ enum ServerEvent {
 #[tokio::main]
 pub async fn main() {
     init_log!();
-    let plugin = SerdePlugin::<Request, Response>::new();
+    let plugin = CompositeServerPlugin::<Request, Response>::new();
     let fix_server = Server::new_arc(plugin);
     //let plugin = DummyPlugin;
     //let fix_server = Arc::new(RwLock::new(Server::<MyServerRequest, MyServerResponse, DummyPlugin>::new(plugin)));
@@ -54,37 +54,24 @@ pub async fn main() {
     let handle_server_event_internal = move |e: Request| {
         sleep(Duration::from_secs(5));
         let fix_server = fix_server_weak.upgrade().unwrap();
-        let response = match e {
-            Request::NewOrderSingle {
-                session_id,
-                StandardHeader,
-                Body,
-                StandardTrailer,
-            } => {
-                println!(
-                    "handle_server_event_internal: Session ID set to {}",
-                    session_id
-                );
-                Response::ACK {
-                    session_id: session_id,
-                    StandardHeader: FixHeader {
-                        MsgType: "ACK".to_string(),
-                        SenderCompID: "server".to_string(),
-                        TargetCompID: StandardHeader.SenderCompID,
-                        SeqNum: 1,
-                    },
-                    Body: ACKBody {
-                        RefSeqNum: StandardHeader.SeqNum,
-                    },
-                    StandardTrailer: FixTrailer {
-                        PublicKey: vec!["serverKey".to_string()],
-                        Signature: vec!["serverSign".to_string()],
-                    },
-                }
-            }
+        let mut response = Response {
+            session_id: e.session_id.clone(),
+            standard_header: FixHeader {
+                MsgType: "ACK".to_string(),
+                SenderCompID: "server".to_string(),
+                TargetCompID: e.standard_header.SenderCompID,
+                SeqNum: 1,
+            },
+            body: Body::ACKBody {
+                RefSeqNum: e.standard_header.SeqNum,
+            },
+            standard_trailer: FixTrailer {
+                PublicKey: vec!["serverKey".to_string()],
+                Signature: vec!["serverSign".to_string()],
+            },
         };
 
-        fix_server.blocking_read().send_response(response);
+        fix_server.blocking_read().send_response(&mut response);
     };
 
     // Capture the JoinHandle to wait for the thread later

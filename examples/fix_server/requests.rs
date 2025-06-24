@@ -1,8 +1,11 @@
 use alloy::transports::http::reqwest::header;
-use axum_fix_server::messages::{FixMessage, SessionId, ServerRequest as AxumServerRequest};
+use axum_fix_server::{
+    messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
+    plugins::seq_num_plugin::SeqNumPluginAux,
+};
 use eyre::{eyre, Result};
-use index_maker::core::bits::Address;
 use serde::{Deserialize, Serialize};
+use index_maker::core::bits::Address;
 
 use crate::fix_messages::*;
 
@@ -14,21 +17,45 @@ use crate::fix_messages::*;
 //     pub quantity: i32,
 // }
 
+// #[derive(Serialize, Deserialize, Debug)]
+// #[serde(untagged)]
+// pub enum Request {
+//     #[serde(untagged)]
+//     NewOrderSingle{
+//         #[serde(skip)]
+//         session_id: SessionId,
+//         StandardHeader: FixHeader,
+//         #[serde(flatten)]
+//         Body: NewOrderBody,
+//         StandardTrailer: FixTrailer,
+//     }
+// }
+
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum Request {
-    #[serde(untagged)]
-    NewOrderSingle{
-        #[serde(skip)]
-        session_id: SessionId,
-        StandardHeader: FixHeader,
-        #[serde(flatten)]
-        Body: NewOrderBody,
-        StandardTrailer: FixTrailer,
+pub struct Request {
+    #[serde(skip)]
+    pub session_id: SessionId,
+    pub standard_header: FixHeader,
+    #[serde(flatten)]
+    pub body: Body,
+    pub standard_trailer: FixTrailer,
+}
+
+impl Request {
+    pub fn msg_type(&self) -> String {
+        self.standard_header.MsgType.clone()
     }
 }
 
+impl SeqNumPluginAux for Request {
+    fn get_seq_num(&self) -> u32 {
+        self.standard_header.SeqNum
+    }
 
+    fn set_seq_num(&mut self, seq_num: u32) {
+        self.standard_header.SeqNum = seq_num;
+    }
+}
 
 impl AxumServerRequest for Request {
     // fn deserialize_from_fix(
@@ -58,33 +85,14 @@ impl AxumServerRequest for Request {
         this_session_id: SessionId,
     ) -> Result<Self, eyre::Error> {
         println!("{}: {}", this_session_id, message);
-        // First, parse the message into a generic serde_json::Value to inspect fields
-        let value: serde_json::Value = serde_json::from_str(&message.to_string())
-            .map_err(|e| eyre!("Failed to parse FixMessage as JSON: {}", e))?;
 
-        let msg_type = if let Some(header) = value.get("StandardHeader") {
-            header.get("MsgType").and_then(|msg_type| msg_type.as_str())
-        } else {
-            return Err(eyre!("StandardHeader field not found or not an object in FixMessage"));
-        };
+        let mut request: Request = serde_json::from_str(&message.to_string())
+            .map_err(|e| eyre!("Failed to deserialize FixMessage into Request: {}", e))?;
 
-        println!("msg_type: {:?}", msg_type);
-
-        match msg_type {
-            Some("NewOrderSingle") => {
-                // Now deserialize the full Request since MsgType matches
-                let mut request: Request = serde_json::from_str(&message.to_string())
-                    .map_err(|e| eyre!("Failed to deserialize FixMessage into Request: {}", e))?;
-
-                if let Request::NewOrderSingle { ref mut session_id, .. } = request {
-                    *session_id = this_session_id.clone();
-                    println!("deserialize_from_fix: Session ID set to {}", session_id);
-                }
-                Ok(request)
-            },
-            Some(other) => Err(eyre!("Unsupported message type: {}", other)),
-            None => Err(eyre!("MsgType field not found or not a string in StandardHeader")),
-        }
+        // Set the session_id
+        request.session_id = this_session_id.clone();
+        println!("deserialize_from_fix: Session ID set to {}", this_session_id);
+        Ok(request)
     }
 }
 
