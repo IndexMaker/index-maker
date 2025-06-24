@@ -1,14 +1,30 @@
-use eyre::{eyre, Result};
+use chrono::{TimeDelta, Utc};
 use std::sync::{Arc, RwLock as ComponentLock};
+use symm_core::core::bits::{BatchOrderId, OrderId, PaymentId};
+
+use crate::solver::{batch_manager::BatchManager, solver::OrderIdProvider};
 
 use super::config::ConfigBuildError;
-use chrono::TimeDelta;
-use crossbeam::channel::{unbounded, Receiver};
 use derive_builder::Builder;
+use eyre::Result;
 use rust_decimal::dec;
-use symm_core::core::{bits::Amount, functional::IntoObservableSingle};
+use symm_core::core::bits::Amount;
 
-use crate::solver::batch_manager::{BatchEvent, BatchManager};
+pub struct TimestampOrderIds {}
+
+impl OrderIdProvider for TimestampOrderIds {
+    fn next_order_id(&mut self) -> OrderId {
+        OrderId::from(format!("O-{}", Utc::now().timestamp_millis()))
+    }
+
+    fn next_batch_order_id(&mut self) -> BatchOrderId {
+        BatchOrderId::from(format!("B-{}", Utc::now().timestamp_millis()))
+    }
+
+    fn next_payment_id(&mut self) -> PaymentId {
+        PaymentId::from(format!("P-{}", Utc::now().timestamp_millis()))
+    }
+}
 
 #[derive(Clone, Builder)]
 #[builder(
@@ -30,6 +46,9 @@ pub struct BatchManagerConfig {
 
     #[builder(setter(into, strip_option), default)]
     pub mint_wait_period: Option<TimeDelta>,
+
+    #[builder(setter(skip))]
+    pub(crate) batch_manager: Option<Arc<ComponentLock<BatchManager>>>,
 }
 
 impl BatchManagerConfig {
@@ -37,24 +56,22 @@ impl BatchManagerConfig {
     pub fn builder() -> BatchManagerConfigBuilder {
         BatchManagerConfigBuilder::default()
     }
+}
 
-    pub fn make(self) -> Result<(Arc<ComponentLock<BatchManager>>, Receiver<BatchEvent>)> {
+impl BatchManagerConfigBuilder {
+    pub fn build(self) -> Result<BatchManagerConfig, ConfigBuildError> {
+        let mut config = self.try_build()?;
+
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
-            self.max_batch_size.unwrap_or(4),
-            self.zero_threshold.unwrap_or(dec!(0.00001)),
-            self.fill_threshold.unwrap_or(dec!(0.9999)),
-            self.mint_threshold.unwrap_or(dec!(0.99)),
-            self.mint_wait_period.unwrap_or(TimeDelta::seconds(10)),
+            config.max_batch_size.unwrap_or(4),
+            config.zero_threshold.unwrap_or(dec!(0.00001)),
+            config.fill_threshold.unwrap_or(dec!(0.9999)),
+            config.mint_threshold.unwrap_or(dec!(0.99)),
+            config.mint_wait_period.unwrap_or(TimeDelta::seconds(10)),
         )));
 
-        let (batch_event_tx, batch_event_rx) = unbounded::<BatchEvent>();
+        config.batch_manager.replace(batch_manager);
 
-        batch_manager
-            .write()
-            .map_err(|err| eyre!("Failed to build batch manager: {:?}", err))?
-            .get_single_observer_mut()
-            .set_observer_from(batch_event_tx);
-
-        Ok((batch_manager, batch_event_rx))
+        Ok(config)
     }
 }

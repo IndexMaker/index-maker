@@ -1,12 +1,12 @@
 pub mod app {
-    pub mod basket_manager;
     pub mod batch_manager;
+    pub mod basket_manager;
+    pub mod collateral_manager;
     pub mod config;
-    pub mod inventory_manager;
     pub mod market_data;
     pub mod order_sender;
-    pub mod order_tracker;
-    pub mod order_ids;
+    pub mod simple_solver;
+    pub mod solver;
 }
 
 pub mod blockchain {

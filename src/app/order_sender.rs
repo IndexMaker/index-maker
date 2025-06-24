@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use super::config::ConfigBuildError;
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
-use crossbeam::channel::{unbounded, Receiver};
 use derive_builder::Builder;
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Result};
 use parking_lot::RwLock;
+use rust_decimal::dec;
 use symm_core::{
-    core::functional::IntoObservableSingleArc,
-    order_sender::order_connector::OrderConnectorNotification,
+    core::bits::Amount,
+    order_sender::{inventory_manager::InventoryManager, order_tracker::OrderTracker},
 };
 
 #[derive(Builder)]
@@ -18,7 +18,25 @@ use symm_core::{
 )]
 pub struct OrderSenderConfig {
     #[builder(setter(into, strip_option), default)]
+    pub zero_threshold: Option<Amount>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub with_order_tracker: Option<bool>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub with_inventory_manager: Option<bool>,
+
+    #[builder(setter(into, strip_option), default)]
     pub credentials: Vec<Credentials>,
+
+    #[builder(setter(skip))]
+    pub(crate) order_sender: Option<Arc<RwLock<BinanceOrderSending>>>,
+
+    #[builder(setter(skip))]
+    pub(crate) order_tracker: Option<Arc<RwLock<OrderTracker>>>,
+
+    #[builder(setter(skip))]
+    pub(crate) inventory_manager: Option<Arc<RwLock<InventoryManager>>>,
 }
 
 impl OrderSenderConfig {
@@ -27,31 +45,52 @@ impl OrderSenderConfig {
         OrderSenderConfigBuilder::default()
     }
 
-    pub fn make(self,
-    ) -> Result<(
-        Arc<RwLock<BinanceOrderSending>>,
-        Receiver<OrderConnectorNotification>,
-    )> {
+    pub fn start(&mut self) -> Result<()> {
+        if let Some(order_sender) = &self.order_sender {
+            order_sender
+                .write()
+                .start()
+                .map_err(|err| eyre!("Failed to start order sender: {:?}", err))?;
+
+            order_sender
+                .write()
+                .logon(self.credentials.drain(..))
+                .map_err(|err| eyre!("Failed to logon: {:?}", err))?;
+
+            Ok(())
+        } else {
+            Err(eyre!(""))
+        }
+    }
+}
+
+impl OrderSenderConfigBuilder {
+    pub fn build(self) -> Result<OrderSenderConfig, ConfigBuildError> {
+        let mut config = self.try_build()?;
+
         let order_sender = Arc::new(RwLock::new(BinanceOrderSending::new()));
+        config.order_sender.replace(order_sender.clone());
 
-        let (connector_event_tx, connector_event_rx) = unbounded::<OrderConnectorNotification>();
+        if config.with_order_tracker.unwrap_or(true) {
+            let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
+                order_sender.clone(),
+                config.zero_threshold.unwrap_or(dec!(0.00001)),
+            )));
 
-        order_sender
-            .write()
-            .get_single_observer_arc()
-            .write()
-            .set_observer_from(connector_event_tx);
+            config.order_tracker.replace(order_tracker.clone());
 
-        order_sender
-            .write()
-            .start()
-            .map_err(|err| eyre!("Failed to start order sender: {:?}", err))?;
+            if config.with_inventory_manager.unwrap_or(true) {
+                config
+                    .inventory_manager
+                    .replace(Arc::new(RwLock::new(InventoryManager::new(
+                        order_tracker,
+                        config.zero_threshold.unwrap_or(dec!(0.00001)),
+                    ))));
+            }
+        } else {
+            Err(ConfigBuildError::UninitializedField("with_order_tracker"))?;
+        }
 
-        order_sender
-            .write()
-            .logon(self.credentials)
-            .map_err(|err| eyre!("Failed to logon: {:?}", err))?;
-
-        Ok((order_sender, connector_event_rx))
+        Ok(config)
     }
 }

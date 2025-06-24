@@ -316,7 +316,6 @@ impl IntoObservableSingle<CollateralTransferEvent> for CollateralRouter {
     }
 }
 
-#[cfg(test)]
 pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;

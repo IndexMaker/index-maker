@@ -1,4 +1,4 @@
-use std::{env, sync::Arc, thread};
+use std::{env, sync::{Arc, RwLock as ComponentLock}, thread};
 
 use binance_order_sending::credentials::Credentials;
 use chrono::TimeDelta;
@@ -6,23 +6,25 @@ use clap::Parser;
 use crossbeam::{channel::unbounded, select};
 use index_maker::{
     app::{
-        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
-        inventory_manager::InventoryManagerConfig, market_data::MarketDataConfig,
-        order_ids::TimestampOrderIds, order_sender::OrderSenderConfig,
-        order_tracker::OrderTrackerConfig,
+        basket_manager::BasketManagerConfig,
+        batch_manager::{BatchManagerConfig, TimestampOrderIds},
+        collateral_manager::CollateralManagerConfig,
+        market_data::MarketDataConfig,
+        order_sender::OrderSenderConfig,
+        simple_solver::SimpleSolverConfig, solver::SolverConfig,
     },
-    solver::{solver::Solver, solvers::simple_solver::SimpleSolver},
+    collateral::collateral_router::test_util,
+    solver::{solver::{OrderIdProvider, Solver}, solver_quote::SolverClientQuotes},
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     core::{
         bits::{Amount, Side, Symbol},
-        functional::IntoObservableSingle,
         logging::log_init,
+        test_util::get_mock_defer_channel,
     },
     init_log,
-    market_data::{order_book::order_book_manager::OrderBookEvent, price_tracker::PriceEvent},
 };
 use tokio::{sync::oneshot, time::sleep};
 
@@ -71,104 +73,77 @@ async fn main() {
     let weights = [dec!(0.3), dec!(0.2), dec!(0.4), dec!(0.1)];
     let index_symbol = Symbol::from("SO4");
 
+    let (router_tx, router_rx) = get_mock_defer_channel();
+    let router = test_util::build_test_router(
+        &router_tx,
+        &["SRC:BINANCE:EUR", "DST:BINANCE:EUR"],
+        &[("SRC:BINANCE:EUR", "DST:BINANCE:EUR")],
+        &[&["SRC:BINANCE:EUR", "DST:BINANCE:EUR"]],
+        &[(1, "SRC:BINANCE:EUR")],
+        "DST:BINANCE:EUR",
+        |_, _| (Amount::ZERO, Amount::ZERO),
+    );
+
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
         .symbols(&symbols)
-        .try_build()
-        .expect("Failed to build market data config");
-
-    let (market_data, price_tracker, book_manager) = market_data_config
-        .make()
-        .expect("Failed to start market data");
+        .with_price_tracker(true)
+        .with_book_manager(true)
+        .build()
+        .expect("Failed to build market data");
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(vec![credentials])
-        .try_build()
-        .expect("Failed to build order sender config");
-
-    let (order_sender, connector_event_rx) = order_sender_config
-        .make()
-        .expect("Failed to start order sender");
-
-    let order_tracker_config = OrderTrackerConfig::builder()
-        .zero_threshold(zero_threshold)
-        .try_build()
-        .expect("Failed to build order tracker config");
-
-    let (order_tracker, order_tracker_rx) = order_tracker_config
-        .make(order_sender.clone())
-        .expect("Failed to build order tracker");
-
-    let inventory_manager_config = InventoryManagerConfig::builder()
-        .zero_threshold(zero_threshold)
-        .try_build()
-        .expect("Failed to build inventory manager cnofig");
-
-    let (inventory_manager, inventory_event_rx) = inventory_manager_config
-        .make(order_tracker.clone())
-        .expect("Failed to build inventory manager");
-
-    let basket_manager_config = BasketManagerConfig::builder()
-        .try_build()
-        .expect("Failed to build basket manager config");
-
-    let (basket_manager, basket_event_rx) = basket_manager_config
-        .make()
-        .expect("Failed to build basket manager");
+        .build()
+        .expect("Failed to build order sender");
 
     let batch_manager_config = BatchManagerConfig::builder()
-        .try_build()
-        .expect("Failed to build batch manager config");
-
-    let (batch_manager, batch_event_rx) = batch_manager_config
-        .make()
+        .zero_threshold(zero_threshold)
+        .fill_threshold(fill_threshold)
+        .mint_threshold(dec!(0.99))
+        .mint_wait_period(TimeDelta::seconds(10))
+        .max_batch_size(4)
+        .build()
         .expect("Failed to build batch manager");
 
-    price_tracker
-        .write()
-        .get_single_observer_mut()
-        .set_observer_fn(move |e: PriceEvent| match e {
-            PriceEvent::PriceChange { symbol } => tracing::trace!("PriceInfo {}", symbol),
-        });
+    let basket_manager_config = BasketManagerConfig::builder()
+        .build()
+        .expect("Failed to build basket manager");
 
-    book_manager
-        .write()
-        .get_single_observer_mut()
-        .set_observer_fn(move |e: OrderBookEvent| match e {
-            OrderBookEvent::BookUpdate { symbol } => {
-                tracing::debug!("BookUpdate {}", symbol)
-            }
-            OrderBookEvent::UpdateError { symbol, error } => {
-                tracing::warn!("BookUpdate {}: Error: {}", symbol, error)
-            }
-        });
+    let collateral_manager_config = CollateralManagerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .with_router(router)
+        .build()
+        .expect("Failed tp build collateral manager");
 
-    let strategy = Arc::new(SimpleSolver::new(
-        price_threshold,
-        fee_factor,
-        max_order_volley_size,
-        max_volley_size,
-    ));
+    let strategy_config = SimpleSolverConfig::builder()
+        .price_threshold(price_threshold)
+        .fee_factor(fee_factor)
+        .max_order_volley_size(max_order_volley_size)
+        .max_volley_size(max_volley_size)
+        .build()
+        .expect("Failed to build simple solver");
 
     let order_ids = Arc::new(RwLock::new(TimestampOrderIds {}));
 
-    //let solver = Arc::new(ComponentLock::new(Solver::new(
-    //    strategy,
-    //    order_ids,
-    //    basket_manager,
-    //    price_tracker,
-    //    book_manager,
-    //    chain_connector,
-    //    batch_manager,
-    //    collateral_manager,
-    //    index_order_manager,
-    //    quote_request_manager,
-    //    inventory_manager,
-    //    max_batch_size,
-    //    zero_threshold,
-    //    client_order_wait_period,
-    //    client_quote_wait_period,
-    //)));
+    let solver_config = SolverConfig::builder()
+        .zero_threshold(zero_threshold)
+        .max_batch_size(max_batch_size)
+        .client_order_wait_period(client_order_wait_period)
+        .client_quote_wait_period(client_quote_wait_period)
+        .with_basket_manager(basket_manager_config)
+        .with_batch_manager(batch_manager_config)
+        .with_collateral_manager(collateral_manager_config)
+        .with_market_data(market_data_config)
+        .with_order_sender(order_sender_config)
+        .with_strategy(strategy_config)
+        .with_order_ids(order_ids as Arc<RwLock<dyn OrderIdProvider + Send + Sync>>)
+        /* todo
+        .with_index_order_manager(value)
+        .with_quote_request_manager(value)
+        .with_chain_connector(value)
+         */
+        .build();
 
     let (stop_tx, stop_rx) = unbounded::<()>();
     let (stopped_tx, stopped_rx) = oneshot::channel();
@@ -190,6 +165,9 @@ async fn main() {
             }
         }
     });
+
+    market_data.start().expect("Failed to start market data");
+    order_sender.start().expect("Failed to start order sender");
 
     sleep(std::time::Duration::from_secs(5)).await;
 

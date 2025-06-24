@@ -7,12 +7,9 @@ use eyre::{eyre, Result};
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::{
-        bits::{Amount, Symbol},
-        functional::IntoObservableManyArc,
-    },
+    core::bits::{Amount, Symbol},
     market_data::{
-        market_data_connector::{MarketDataConnector, MarketDataEvent},
+        market_data_connector::MarketDataConnector,
         order_book::order_book_manager::PricePointBookManager,
         price_tracker::PriceTracker,
     },
@@ -27,9 +24,26 @@ pub struct MarketDataConfig {
     #[builder(setter(into, strip_option), default)]
     pub zero_threshold: Option<Amount>,
 
+    #[builder(setter(into, strip_option), default)]
+    pub max_subscriber_symbols: Option<usize>,
+
     #[builder(setter(into), default)]
     pub symbols: Vec<Symbol>,
 
+    #[builder(setter(into, strip_option), default)]
+    pub with_price_tracker: Option<bool>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub with_book_manager: Option<bool>,
+
+    #[builder(setter(skip))]
+    pub(crate) market_data: Option<Arc<RwLock<BinanceMarketData>>>,
+
+    #[builder(setter(skip))]
+    pub(crate) price_tracker: Option<Arc<RwLock<PriceTracker>>>,
+
+    #[builder(setter(skip))]
+    pub(crate) book_manager: Option<Arc<RwLock<PricePointBookManager>>>,
 }
 
 impl MarketDataConfig {
@@ -38,42 +52,49 @@ impl MarketDataConfig {
         MarketDataConfigBuilder::default()
     }
 
-    pub fn make(
-        self,
-    ) -> Result<(
-        Arc<RwLock<BinanceMarketData>>,
-        Arc<RwLock<PriceTracker>>,
-        Arc<RwLock<PricePointBookManager>>,
-    )> {
-        let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
-        let book_manager = Arc::new(RwLock::new(PricePointBookManager::new(
-            self.zero_threshold.unwrap_or(dec!(0.00001)),
-        )));
+    pub fn start(&self) -> Result<()> {
+        if let Some(market_data) = &self.market_data {
+            market_data
+                .write()
+                .start()
+                .map_err(|err| eyre!("Failed to start Market Data: {:?}", err))?;
 
-        let market_data = Arc::new(RwLock::new(BinanceMarketData::new(100)));
+            market_data
+                .write()
+                .subscribe(&self.symbols)
+                .map_err(|err| eyre!("Failed to subscribe for market data: {:?}", err))?;
 
-        let price_tracker_clone = price_tracker.clone();
-        let book_manager_clone = book_manager.clone();
+            Ok(())
+        } else {
+            Err(eyre!("Cannot start market data not configured"))
+        }
+    }
+}
 
-        market_data
-            .write()
-            .get_multi_observer_arc()
-            .write()
-            .add_observer_fn(move |event: &Arc<MarketDataEvent>| {
-                price_tracker_clone.write().handle_market_data(&*event);
-                book_manager_clone.write().handle_market_data(&*event);
-            });
+impl MarketDataConfigBuilder {
+    pub fn build(self) -> Result<MarketDataConfig, ConfigBuildError> {
+        let mut config = self.try_build()?;
 
-        market_data
-            .write()
-            .start()
-            .map_err(|err| eyre!("Failed to start Market Data: {:?}", err))?;
+        config
+            .market_data
+            .replace(Arc::new(RwLock::new(BinanceMarketData::new(
+                config.max_subscriber_symbols.unwrap_or(100),
+            ))));
 
-        market_data
-            .write()
-            .subscribe(&self.symbols)
-            .map_err(|err| eyre!("Failed to subscribe for market data: {:?}", err))?;
+        if config.with_price_tracker.unwrap_or(true) {
+            config
+                .price_tracker
+                .replace(Arc::new(RwLock::new(PriceTracker::new())));
+        }
 
-        Ok((market_data, price_tracker, book_manager))
+        if config.with_book_manager.unwrap_or(true) {
+            config
+                .book_manager
+                .replace(Arc::new(RwLock::new(PricePointBookManager::new(
+                    config.zero_threshold.unwrap_or(dec!(0.00001)),
+                ))));
+        }
+
+        Ok(config)
     }
 }
