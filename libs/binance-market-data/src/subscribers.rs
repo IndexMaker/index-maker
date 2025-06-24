@@ -2,7 +2,7 @@ use std::{sync::Arc, usize};
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
-use index_maker::{
+use symm_core::{
     core::{bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };

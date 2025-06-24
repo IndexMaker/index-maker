@@ -71,10 +71,11 @@ pub trait ServerRequest
 where
     Self: Sized,
 {
-    fn deserialize_from_fix(message: FixMessage, session_id: SessionId) -> Result<Self, Report>;
+    fn deserialize_from_fix(message: FixMessage, session_id: &SessionId) -> Result<Self, Report>;
 }
 
 pub trait ServerResponse {
-    fn get_session_id(&self) ->&SessionId;
+    fn get_session_id(&self) -> &SessionId;
     fn serialize_into_fix(&self) -> Result<FixMessage, Report>;
+    fn format_errors(session_id: &SessionId, error_msg: String, ref_seq_num: u32) -> Self;
 }

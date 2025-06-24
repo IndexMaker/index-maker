@@ -2,9 +2,9 @@
 members = [
     ".",
     "libs/axum-fix-server",
-    "libs/async-core",
     "libs/binance-market-data",
     "libs/binance-order-sending",
+    "libs/symm-core",
     "examples",
     "proc-macros/safe-math",
 ]
@@ -26,6 +26,7 @@ parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 string_cache = { workspace = true }
 safe-math = { workspace = true }
+symm-core = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -36,9 +37,9 @@ test-case = { workspace = true }
 
 [workspace.dependencies]
 alloy = "0.14.0"
-async-core = { path = "./libs/async-core" }
 base64 = "0.22.1"
-binance-sdk = { version = "2.0.1", features = ["spot"] }
+#binance-sdk = { version = "^4.0.1", features = ["spot"] }
+binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
 chrono = "0.4.40"
 crossbeam = "0.8.4"
 eyre = "0.6.12"
@@ -52,6 +53,7 @@ safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 string_cache = "0.8.9"
+symm-core = { path = "./libs/symm-core" }
 thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-util = "0.7.15"

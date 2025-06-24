@@ -13,6 +13,29 @@ pub struct FixHeader {
 //    CustodyId: String,
 }
 
+impl FixHeader {
+    pub fn new(MsgType: String) -> Self{
+        Self {
+            MsgType,
+            SenderCompID: "".to_string(),
+            TargetCompID: "".to_string(),
+            SeqNum: 0,
+        }
+    }
+
+    pub fn add_sender(&mut self, sender: String) {
+        self.SenderCompID = sender;
+    }
+
+    pub fn add_target(&mut self, target: String) {
+        self.TargetCompID = target;
+    }
+
+    pub fn add_seq_num(&mut self, SeqNum: u32) {
+        self.SeqNum = SeqNum;
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FixTrailer {
     pub PublicKey: Vec<String>,  // Public key of sender
@@ -21,6 +44,22 @@ pub struct FixTrailer {
 //    RateLimitCount: u32,
 }
 
+impl FixTrailer {
+    pub fn new() -> Self{
+        Self {
+            PublicKey: Vec::new(),
+            Signature: Vec::new(),
+        }
+    }
+
+    pub fn add_public(&mut self, public_key: String) {
+        self.PublicKey.push(public_key);
+    }
+
+    pub fn add_signature(&mut self, signature: String) {
+        self.Signature.push(signature);
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 

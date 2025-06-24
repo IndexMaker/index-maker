@@ -9,11 +9,14 @@ use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
-use crate::{
+use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
         decimal_ext::DecimalExt,
     },
+};
+
+use crate::{
     index::basket::Basket,
     solver::{
         solver::{
@@ -1321,7 +1324,7 @@ mod test {
         sync::Arc,
     };
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::*,
@@ -1331,8 +1334,11 @@ mod test {
                 get_mock_asset_name_3, get_mock_index_name_1, get_mock_index_name_2,
             },
         },
-        index::basket::*,
         market_data::price_tracker::*,
+    };
+
+    use crate::{
+        index::basket::*,
         solver::{
             solver::*,
             solver_order::{SolverOrder, SolverOrderStatus},
@@ -1457,11 +1463,11 @@ mod test {
     }
 
     fn gen_client_order_id(index: u32) -> ClientOrderId {
-        ClientOrderId(format!("C-{:02}", index))
+        ClientOrderId::from(format!("C-{:02}", index))
     }
 
     fn gen_client_quote_id(index: u32) -> ClientQuoteId {
-        ClientQuoteId(format!("Q-{:02}", index))
+        ClientQuoteId::from(format!("Q-{:02}", index))
     }
 
     fn make_solver_order(

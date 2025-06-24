@@ -32,9 +32,19 @@ where
         }
     }
 
-    pub fn valid_seq_num(&self, seq_num: u32, session_id: SessionId) -> bool {
+    pub fn last_sent_seq_num(&self, session_id: &SessionId) -> u32 {
+        let read_lock = self.last_sent_seq_num.read().unwrap();
+        read_lock.get(&session_id).map_or(0, |v| *v)
+    } 
+
+    pub fn last_received_seq_num(&self, session_id: &SessionId) -> u32 {
         let read_lock = self.last_received_seq_num.read().unwrap();
-        let is_valid = read_lock.get(&session_id).map_or(0, |v| *v) + 1 == seq_num;
+        read_lock.get(&session_id).map_or(0, |v| *v)
+    } 
+
+    pub fn valid_seq_num(&self, seq_num: u32, session_id: &SessionId) -> bool {
+        let read_lock = self.last_received_seq_num.read().unwrap();
+        let is_valid = read_lock.get(session_id).map_or(0, |v| *v) + 1 == seq_num;
         drop(read_lock); // Release the read lock before acquiring write lock
 
         if is_valid {
@@ -49,7 +59,7 @@ where
 
     pub fn next_seq_num(&self, session_id: &SessionId) -> u32 {
         let mut write_lock = self.last_sent_seq_num.write().unwrap();
-        if let Some(value) = write_lock.get_mut(session_id) {
+        if let Some(value) = write_lock.get_mut(&session_id) {
             *value += 1;
             *value
         } else {
@@ -58,7 +68,7 @@ where
         }
     }
 
-    pub fn create_session(&self, session_id: SessionId) -> Result<(), Report> {
+    pub fn create_session(&self, session_id: &SessionId) -> Result<(), Report> {
         println!("Creating session with ID: {}", session_id);
         let mut write_lock = self.last_received_seq_num.write().unwrap();
         write_lock.insert(session_id.clone(), 0);
@@ -71,7 +81,7 @@ where
         Ok(())
     }
 
-    pub fn destroy_session(&self, session_id: SessionId) -> Result<(), Report> {
+    pub fn destroy_session(&self, session_id: &SessionId) -> Result<(), Report> {
         println!("Destroying session with ID: {}", session_id);
         let mut write_lock = self.last_received_seq_num.write().unwrap();
         write_lock.remove(&session_id.clone());

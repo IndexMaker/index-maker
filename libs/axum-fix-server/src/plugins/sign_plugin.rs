@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 use eyre::{Report, Result};
-use index_maker::core::bits::Address;
 use crate::{messages::{ServerRequest, ServerResponse, SessionId}, server_plugin::ServerPlugin};
 
 pub trait SignPluginAux {

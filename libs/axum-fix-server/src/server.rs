@@ -17,7 +17,7 @@ use axum::{
     Router,
 };
 use eyre::{eyre, Report, Result};
-use index_maker::core::functional::{PublishSingle, SingleObserver};
+use symm_core::core::functional::{PublishSingle, SingleObserver};
 use std::net::SocketAddr;
 use tokio::{
     select,
@@ -38,17 +38,15 @@ use crate::{
 /// responses and a unique session identifier.
 pub struct Session {
     response_tx: UnboundedSender<String>,
-    session_id: SessionId,
 }
 
 impl Session {
     /// new
     ///
     /// Creates a new Session.
-    pub fn new(tx: UnboundedSender<String>, session_id: SessionId) -> Self {
+    pub fn new(tx: UnboundedSender<String>) -> Self {
         Self {
             response_tx: tx,
-            session_id,
         }
     }
 
@@ -128,9 +126,9 @@ where
     ///
     /// Sends a response to the appropriate client session based on the session ID in the response.
     /// Returns a `Result` indicating success or failure if the session is not found.
-    pub fn send_response(&self, response: &mut Q) -> Result<()> {
-        let processed_response = self.process_outgoing_message(response);
+    pub fn send_response(&self, response: Q) -> Result<()> {
         let session_id = response.get_session_id().clone();
+        let processed_response = self.process_outgoing_message(response);
         match self.sessions.get(&session_id) {
             Some(session) => session.send_response(processed_response?),
             None => Err(eyre!("Oh, no!")),
@@ -150,7 +148,7 @@ where
     /// the session handle, a receiver for responses, and the session ID.
     pub fn create_session(
         &mut self,
-    ) -> Result<(Arc<Session>, UnboundedReceiver<String>, SessionId)> {
+    ) -> Result<(UnboundedReceiver<String>, SessionId)> {
         let session_id = SessionId(format!(
             "session_{}",
             self.session_id_counter.fetch_add(1, Ordering::SeqCst)
@@ -159,9 +157,9 @@ where
             Entry::Occupied(_) => Err(eyre!("Oh, no!")),
             Entry::Vacant(vacant_entry) => {
                 let (tx, rx) = unbounded_channel();
-                let session = vacant_entry.insert(Arc::new(Session::new(tx, session_id.clone())));
-                match self.plugin.create_session(session_id.clone()) {
-                    Ok(()) => Ok((session.clone(), rx, session_id)),
+                vacant_entry.insert(Arc::new(Session::new(tx)));
+                match self.plugin.create_session(&session_id) {
+                    Ok(()) => Ok((rx, session_id)),
                     Err(e) => Err(e),
                 }
             }
@@ -172,7 +170,7 @@ where
     ///
     /// Closes an existing client session with a unique session ID.
     pub fn close_session(&mut self, session_id: SessionId) {
-        match self.plugin.destroy_session(session_id.clone()) {
+        match self.plugin.destroy_session(&session_id) {
             Ok(()) => {
                 self.sessions.remove(&session_id);
             }
@@ -185,14 +183,14 @@ where
     pub fn process_incoming_message(
         &self,
         message: String,
-        session_id: SessionId,
+        session_id: &SessionId,
     ) -> Result<(), Report> {
         let request = self.plugin.process_incoming(message, session_id)?;
         self.handle_server_message(request);
         Ok(())
     }
 
-    pub fn process_outgoing_message(&self, response: &mut Q) -> Result<String, Report> {
+    pub fn process_outgoing_message(&self, response: Q) -> Result<String, Report> {
         self.plugin.process_outgoing(response)
     }
 
@@ -211,7 +209,7 @@ where
     P: ServerPlugin<R, Q> + Send + Sync + 'static,
 {
     ws.on_upgrade(move |mut ws: WebSocket| async move {
-        let (_session, mut receiver, session_id) = server.write().await.create_session().unwrap();
+        let (mut receiver, session_id) = server.write().await.create_session().unwrap();
         loop {
             select! {
                 // quit => { break; }
@@ -220,12 +218,17 @@ where
                         Some(Ok(message)) => {
                             if let axum::extract::ws::Message::Text(text) = message {
                                 tracing::debug!("Received message: {}", text);
-                                if let Err(e) = server.read().await.process_incoming_message(text.to_string(), session_id.clone()) {
+                                if let Err(e) = server.read().await.process_incoming_message(text.to_string(), &session_id) {
                                     tracing::error!("Failed to process incoming message: {}", e);
                                     // Send error message back to the client
+
+
                                     let error_msg = format!("Error processing message: {}", e);
-                                    if let Err(e) = ws.send(Message::Text(error_msg)).await {
+                                    let msg = server.read().await.plugin.process_error(error_msg, &session_id).unwrap(); 
+                                    if let Err(e) = ws.send(Message::Text(msg)).await {
                                         tracing::error!("Failed to send WebSocket message: {}", e);
+
+                                        
                                     break;
                             }
                                 }

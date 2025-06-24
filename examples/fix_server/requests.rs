@@ -5,7 +5,6 @@ use axum_fix_server::{
 };
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
-use index_maker::core::bits::Address;
 
 use crate::fix_messages::*;
 
@@ -39,7 +38,7 @@ impl SeqNumPluginAux for Request {
 impl AxumServerRequest for Request {
     fn deserialize_from_fix(
         message: FixMessage,
-        this_session_id: SessionId,
+        this_session_id: &SessionId,
     ) -> Result<Self, eyre::Error> {
         println!("{}: {}", this_session_id, message);
 

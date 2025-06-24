@@ -1,0 +1,29 @@
+[package]
+name = "symm-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+alloy = { workspace = true }
+chrono = { workspace = true }
+crossbeam = { workspace = true }
+eyre = { workspace = true }
+futures-util = { workspace = true }
+intrusive-collections = { workspace = true }
+itertools = { workspace = true }
+parking_lot = { workspace = true }
+rust_decimal = { workspace = true }
+safe-math = { workspace = true }
+string_cache = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+paste = { workspace = true }
+test-case = { workspace = true }
+
+

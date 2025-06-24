@@ -8,6 +8,8 @@ use axum_fix_server::{
         server_plugin::ServerPlugin,
     };
 
+use crate::responses::{self, Response};
+
 // A composite plugin that can wrap other plugins and delegate functionality.
 pub struct CompositeServerPlugin<R, Q> 
 where
@@ -36,27 +38,37 @@ where
     R: ServerRequest + SeqNumPluginAux,
     Q: ServerResponse + SeqNumPluginAux,
 {
-    fn process_incoming(&self, message: String, session_id: SessionId) -> Result<R, Report> {
-        let result = self.serde_plugin.process_incoming(message.clone(), session_id.clone())?;
+    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<R, Report> {
+        let result = self.serde_plugin.process_incoming(message, session_id)?;
         let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
-        if self.seq_num_plugin.valid_seq_num(seq_num, session_id.clone()) {
+        if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
             Ok(result)
         } else {
-            Err(eyre::eyre!("Invalid sequence number: {}", seq_num))
+            Err(eyre::eyre!("Invalid sequence number: {}; Last valid: {}", seq_num, self.seq_num_plugin.last_received_seq_num(session_id)))
         }
     }
+    
+    fn process_error(&self, error_msg: String, session_id: &SessionId) -> Result<String> {
+        let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
+        //let nak: Response = Response::create_nak(session_id, seq_num, error_msg);
+        let mut nak = Q::format_errors(session_id, error_msg, seq_num);
+        nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+        self.serde_plugin.process_outgoing(nak)
+    }
 
-    fn process_outgoing(&self, response: &mut Q) -> Result<String, Report> {
-        let session_id = response.get_session_id();
+    fn process_outgoing(&self, response: Q) -> Result<String, Report> {
+        let mut response = response;
+        let session_id = &response.get_session_id();
         response.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
         self.serde_plugin.process_outgoing(response)
     }
 
-    fn create_session(&self, session_id: SessionId) -> Result<(), Report> {
+    fn create_session(&self, session_id: &SessionId) -> Result<(), Report> {
         self.seq_num_plugin.create_session(session_id)
     }
 
-    fn destroy_session(&self, session_id: SessionId) -> Result<(), Report> {
+    fn destroy_session(&self, session_id: &SessionId) -> Result<(), Report> {
         self.seq_num_plugin.destroy_session(session_id)
     }
+    
 }

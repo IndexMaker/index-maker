@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 
-use crate::core::bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol};
+use symm_core::core::bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol};
 
 pub enum ServerEvent {
     NewIndexOrder {
@@ -191,7 +191,7 @@ pub mod test_util {
 
     use std::sync::Arc;
 
-    use crate::core::functional::{
+    use symm_core::core::functional::{
         IntoObservableMany, MultiObserver, PublishMany, PublishSingle, SingleObserver,
     };
 

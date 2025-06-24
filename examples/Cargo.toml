@@ -21,6 +21,7 @@ rand = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+symm-core = { workspace = true, path = "../libs/symm-core" }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -35,12 +36,16 @@ name="binance-order-book"
 path="binance_market_data/book_building.rs"
 
 [[example]]
-name="binance-get-all-orders"
-path="binance_order_sending/all_orders.rs"
+name="binance-all-orders-rest"
+path="binance_order_sending/all_orders_rest.rs"
 
 [[example]]
-name="binance-wss-sample"
-path="binance_order_sending/wss_sample.rs"
+name="binance-all-orders-wsapi"
+path="binance_order_sending/all_orders_wsapi.rs"
+
+[[example]]
+name="binance-logon-wsapi"
+path="binance_order_sending/logon_wsapi.rs"
 
 [[example]]
 name="binance-order-sending"

@@ -8,11 +8,13 @@ where
     R: ServerRequest,
     Q: ServerResponse,
 {
-    fn process_incoming(&self, message: String, session_id: SessionId) -> Result<R, Report>;
-    
-    fn process_outgoing(&self, response: &mut Q) -> Result<String, Report>;
+    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<R, Report>;
 
-    fn create_session(&self, session_id: SessionId) -> Result<(), Report>;
-    
-    fn destroy_session(&self, session_id: SessionId) -> Result<(), Report>;
+    fn process_error(&self, error_msg: String, session_id: &SessionId) -> Result<String>;
+
+    fn process_outgoing(&self, response: Q) -> Result<String, Report>;
+
+    fn create_session(&self, session_id: &SessionId) -> Result<(), Report>;
+
+    fn destroy_session(&self, session_id: &SessionId) -> Result<(), Report>;
 }

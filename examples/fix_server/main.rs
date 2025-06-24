@@ -4,17 +4,17 @@ use std::{
     time::Duration,
 };
 
-use axum_fix_server::{messages::{FixMessage, ServerRequest}, server::Server};
+use axum_fix_server::server::Server;
 use crossbeam::{channel::unbounded, select};
-use index_maker::{core::logging::log_init, init_log};
+use symm_core::{core::logging::log_init, init_log};
+mod example_plugin;
 mod fix_messages;
 mod requests;
 mod responses;
-mod example_plugin;
 
+use example_plugin::CompositeServerPlugin;
 use requests::Request;
 use responses::Response;
-use example_plugin::CompositeServerPlugin;
 
 use crate::fix_messages::{Body, FixHeader, FixTrailer};
 
@@ -24,21 +24,13 @@ enum ServerEvent {
     Quit,
 }
 
-//fn handle_server_event(event: &Request) {
-// println!(
-//     "handle_server_event >> {} {} {}",
-//     event.session_id, event.address, event.quantity
-// );
-//}
 
 #[tokio::main]
 pub async fn main() {
     init_log!();
     let plugin = CompositeServerPlugin::<Request, Response>::new();
     let fix_server = Server::new_arc(plugin);
-    //let plugin = DummyPlugin;
-    //let fix_server = Arc::new(RwLock::new(Server::<MyServerRequest, MyServerResponse, DummyPlugin>::new(plugin)));
-
+ 
     let (event_tx, event_rx) = unbounded::<ServerEvent>();
     let event_tx_clone = event_tx.clone();
 
@@ -56,7 +48,7 @@ pub async fn main() {
     let handle_server_event_internal = move |e: Request| {
         sleep(Duration::from_secs(5));
         let fix_server = fix_server_weak.upgrade().unwrap();
-        let mut response = Response {
+        let response = Response {
             session_id: e.session_id.clone(),
             standard_header: FixHeader {
                 MsgType: "ACK".to_string(),
@@ -73,7 +65,7 @@ pub async fn main() {
             },
         };
 
-        fix_server.blocking_read().send_response(&mut response);
+        fix_server.blocking_read().send_response(response);
     };
 
     // Capture the JoinHandle to wait for the thread later

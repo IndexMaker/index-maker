@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 
-use crate::core::decimal_ext::DecimalExt;
+use crate::{core::decimal_ext::DecimalExt, string_id};
 use chrono::{DateTime, Utc};
 use safe_math::safe;
 
@@ -62,96 +62,12 @@ pub struct PricePointEntry {
     pub quantity: Amount,
 }
 
-/// OrderId is intended to be used for exchange orders (-> Binance)
-///
-/// This is an ID for an individual order produced from order batch.
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct OrderId(pub String);
+string_id!(OrderId);
+string_id!(BatchOrderId);
+string_id!(ClientOrderId);
+string_id!(ClientQuoteId);
+string_id!(PaymentId);
 
-impl Display for OrderId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OrderId({})", self.0)
-    }
-}
-
-impl From<&str> for OrderId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-/// BatchOrderId is intended to be used internally (<- Solver)
-///
-/// Solver will produce order batches to be taken from market.
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct BatchOrderId(pub String);
-
-impl Display for BatchOrderId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BatchOrderId({})", self.0)
-    }
-}
-
-impl From<&str> for BatchOrderId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-/// ClientOrderId is intended to be used for index orders (<- FIX)
-///
-/// User will put ID on their requests.
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct ClientOrderId(pub String);
-
-impl Display for ClientOrderId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ClientOrderId({})", self.0)
-    }
-}
-
-impl From<&str> for ClientOrderId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-/// ClientQuoteId is intended to be used for quote requests (<- FIX)
-///
-/// User will put ID on their requests.
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct ClientQuoteId(pub String);
-
-impl Display for ClientQuoteId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ClientQuoteId({})", self.0)
-    }
-}
-
-impl From<&str> for ClientQuoteId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-/// PaymentId is intended to be used for payments (<-> Blockchain)
-///
-/// On-chain transactions will produce this ID. It is a confirmation of the payment
-/// either from then to us, or from us to them.
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct PaymentId(pub String);
-
-impl Display for PaymentId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PaymentId({})", self.0)
-    }
-}
-
-impl From<&str> for PaymentId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
 pub enum Side {
