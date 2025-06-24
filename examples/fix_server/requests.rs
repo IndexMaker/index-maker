@@ -1,6 +1,6 @@
 use alloy::transports::http::reqwest::header;
 use axum_fix_server::{
-    messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
+    messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId, FixMessageBuilder, ServerResponse as AxumServerResponse},
     plugins::seq_num_plugin::SeqNumPluginAux,
 };
 use eyre::{eyre, Result};
@@ -93,6 +93,25 @@ impl AxumServerRequest for Request {
         request.session_id = this_session_id.clone();
         println!("deserialize_from_fix: Session ID set to {}", this_session_id);
         Ok(request)
+    }
+}
+
+
+impl  Request {
+    fn get_session_id(&self) -> &SessionId {
+        &self.session_id
+    }
+
+    pub fn serialize_into_fix(&self) -> Result<FixMessage, eyre::Error> {
+        // Serialize the response to JSON
+        let json_str = serde_json::to_string(self)
+            .map_err(|e| eyre!("Failed to serialize ExampleResponse: {}", e))?;
+        // Construct a FixMessage with the serialized data in the body
+        println!("serialize_into_fix: {}",json_str);
+        Ok(FixMessage (json_str.to_owned()))
+        // Ok(FixMessage(
+        //     "this is a response, not a good one, but it's something".to_owned(),
+        // ))
     }
 }
 
