@@ -182,12 +182,6 @@ where
         }
     }
 
-    // pub fn build_fix_message(&self, q: Q) -> Result<FixMessage> {
-    //     let builder = FixMessageBuilder::new();
-    //     let message = q.serialize_into_fix(builder);
-    //     message
-    // }
-
     pub fn process_incoming_message(
         &self,
         message: String,
@@ -205,14 +199,6 @@ where
     pub fn get_multi_observer_mut(&mut self) -> &mut SingleObserver<R> {
         &mut self.observer
     }
-
-    // Function to allow plugin trait implementation by composition
-    // pub fn with_plugin<NewP>(&self, new_plugin: NewP) -> Server<R, Q, NewP>
-    // where
-    //     NewP: ServerPlugin<R, Q>,
-    // {
-    // todo!();
-    // }
 }
 
 async fn ws_handler<R, Q, P>(
@@ -264,19 +250,6 @@ where
                         }
                     }
                 }
-                    // match server.write().await.build_fix_message(res) {
-                    // let fix_message = server.write().await.build_fix_message(res);
-                    //     Ok(fix_message) => {
-                    //         println!("SENDING: {}", fix_message.0.to_owned());
-                    //         if let Err(e) = ws.send(Message::Text(fix_message.0.into())).await {
-                    //             tracing::error!("Failed to send WebSocket message: {}", e);
-                    //             break;
-                    //         }
-                    //     }
-                    //     Err(e) => {
-                    //         tracing::error!("Failed to build FIX message: {}", e);
-                    //     }
-                    // 
             }
         }
         server.write().await.close_session(session_id);

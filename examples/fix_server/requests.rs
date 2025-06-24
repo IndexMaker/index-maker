@@ -1,6 +1,6 @@
 use alloy::transports::http::reqwest::header;
 use axum_fix_server::{
-    messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId, FixMessageBuilder, ServerResponse as AxumServerResponse},
+    messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
     plugins::seq_num_plugin::SeqNumPluginAux,
 };
 use eyre::{eyre, Result};
@@ -9,27 +9,6 @@ use index_maker::core::bits::Address;
 
 use crate::fix_messages::*;
 
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct ExampleRequest {
-//     #[serde(skip)]
-//     pub session_id: SessionId,
-//     pub address: Address,
-//     pub quantity: i32,
-// }
-
-// #[derive(Serialize, Deserialize, Debug)]
-// #[serde(untagged)]
-// pub enum Request {
-//     #[serde(untagged)]
-//     NewOrderSingle{
-//         #[serde(skip)]
-//         session_id: SessionId,
-//         StandardHeader: FixHeader,
-//         #[serde(flatten)]
-//         Body: NewOrderBody,
-//         StandardTrailer: FixTrailer,
-//     }
-// }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
@@ -58,28 +37,6 @@ impl SeqNumPluginAux for Request {
 }
 
 impl AxumServerRequest for Request {
-    // fn deserialize_from_fix(
-    //     message: FixMessage,
-    //     session_id: SessionId,
-    // ) -> Result<Self, eyre::Error> {
-    //     println!("{}: {}", session_id, message);
-    //     let header: FixHeader = serde_json::from_str(&message.to_string())
-    //         .map_err(|e| eyre!("Failed to deserialize FixMessage Header: {}", e))?;
-
-    //     match header.MsgType.as_str() {
-    //         "NewOrderSingle" => {
-    //             let mut request: Request = serde_json::from_str(&message.to_string())
-    //                 .map_err(|e| eyre!("Failed to deserialize FixMessage: {}", e))?;
-    //             if let Request::NewOrderSingle { ref mut session_id, .. } = request {
-    //                 *session_id = session_id.clone();
-    //                 println!("deserialize_from_fix: Session ID set to {}", session_id);
-    //             }
-    //             Ok(request)
-    //         },
-    //         _ => Err(eyre!("Unsupported message type: {}", header.MsgType)),
-    //     }
-    // }
-
     fn deserialize_from_fix(
         message: FixMessage,
         this_session_id: SessionId,
@@ -95,56 +52,3 @@ impl AxumServerRequest for Request {
         Ok(request)
     }
 }
-
-
-impl  Request {
-    fn get_session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    pub fn serialize_into_fix(&self) -> Result<FixMessage, eyre::Error> {
-        // Serialize the response to JSON
-        let json_str = serde_json::to_string(self)
-            .map_err(|e| eyre!("Failed to serialize ExampleResponse: {}", e))?;
-        // Construct a FixMessage with the serialized data in the body
-        println!("serialize_into_fix: {}",json_str);
-        Ok(FixMessage (json_str.to_owned()))
-        // Ok(FixMessage(
-        //     "this is a response, not a good one, but it's something".to_owned(),
-        // ))
-    }
-}
-
-// impl axum_fix_server::plugins::server_plugin::Signer for ExampleRequest {
-//     fn get_address(&self) -> &Address {
-//         &self.address
-//     }
-// }
-
-// impl AxumServerRequest for ExampleRequest {
-//     fn deserialize_from_fix(
-//         message: FixMessage,
-//         session_id: SessionId,
-//     ) -> Result<Self, eyre::Error> {
-//         println!("{}: {}", session_id, message);
-//         let header: FixHeader = serde_json::from_str(&message.to_string())
-//             .map_err(|e| eyre!("Failed to deserialize FixMessage: {}", e))?;
-
-//         match header.MsgType.as_str() {
-//             "NewOrderSingle" => {
-//                 let mut request: ExampleRequest = serde_json::from_str(&message.to_string())
-//                     .map_err(|e| eyre!("Failed to deserialize FixMessage: {}", e))?;
-//                 request.session_id = session_id.clone();
-//                 println!("deserialize_from_fix: {} {} {}", request.session_id, request.address, request.quantity);
-//                 Ok(request)
-//             },
-//             _ => Err(eyre!("Unsupported message type: {}", header.MsgType)),
-//         }
-//     }
-// }
-
-// impl axum_fix_server::plugins::server_plugin::Signer for ExampleRequest {
-//     fn get_address(&self) -> &Address {
-//         &self.address
-//     }
-// }

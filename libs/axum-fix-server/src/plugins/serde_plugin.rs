@@ -25,7 +25,6 @@ where
     }
 
     pub fn process_outgoing(&self, response: &Q) -> Result<String, Report> {
-        let builder = FixMessageBuilder::new();
-        response.serialize_into_fix(builder).map(|msg| msg.0)
+        response.serialize_into_fix().map(|msg| msg.0)
     }
 }

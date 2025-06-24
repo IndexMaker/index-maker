@@ -4,15 +4,17 @@ use std::{
     time::Duration,
 };
 
-use axum_fix_server::{messages::{FixMessage, ServerRequest}, server::Server, server_plugin::CompositeServerPlugin};
+use axum_fix_server::{messages::{FixMessage, ServerRequest}, server::Server};
 use crossbeam::{channel::unbounded, select};
 use index_maker::{core::logging::log_init, init_log};
 mod fix_messages;
 mod requests;
 mod responses;
+mod example_plugin;
 
 use requests::Request;
 use responses::Response;
+use example_plugin::CompositeServerPlugin;
 
 use crate::fix_messages::{Body, FixHeader, FixTrailer};
 
@@ -36,39 +38,6 @@ pub async fn main() {
     let fix_server = Server::new_arc(plugin);
     //let plugin = DummyPlugin;
     //let fix_server = Arc::new(RwLock::new(Server::<MyServerRequest, MyServerResponse, DummyPlugin>::new(plugin)));
-
-    let mut req = Request {
-        session_id: "session".into(),
-        standard_header: FixHeader {
-            MsgType: "ACK".to_string(),
-            SenderCompID: "server".to_string(),
-            TargetCompID: "client".to_string(),
-            SeqNum: 1,
-        },
-        body: Body::NewOrderBody {
-            ClOrdID: ("123".to_string()),
-            Instrument: ("BTC/USDT".to_string()),
-            Side: ("Buy".to_string()),
-            Price: ("10000".to_string()),
-            OrderQtyData: ("100".to_string()),
-            OrdType: ("Limit".to_string()),
-        },
-        standard_trailer: FixTrailer {
-            PublicKey: vec!["serverKey".to_string()],
-            Signature: vec!["serverSign".to_string()],
-        },
-    };
-    let deser = req.serialize_into_fix();
-    println!("DESER");
-    match deser {
-        Ok(fix_message) => { 
-            println!("{}", fix_message); // or {} if Display is implemented
-            println!("DESER");
-            let new_req = <Request>::deserialize_from_fix(fix_message, "Session1".into());
-        }
-        Err(e) => eprintln!("Failed to serialize: {}", e),
-    }
-
 
     let (event_tx, event_rx) = unbounded::<ServerEvent>();
     let event_tx_clone = event_tx.clone();
