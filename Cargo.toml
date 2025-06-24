@@ -40,8 +40,8 @@ test-case = { workspace = true }
 [workspace.dependencies]
 alloy = "0.14.0"
 base64 = "0.22.1"
-#binance-sdk = { version = "^4.0.1", features = ["spot"] }
-binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
+binance-sdk = { version = "^5.0.0", features = ["spot"] }
+#binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
 chrono = "0.4.40"
 crossbeam = "0.8.4"
 clap = { version = "4.0", features = ["derive"] }
