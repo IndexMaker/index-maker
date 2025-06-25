@@ -5,14 +5,10 @@ use std::{
 
 use crate::{
     app::{
-        basket_manager::BasketManagerConfig,
-        batch_manager::{self, BatchManagerConfig},
-        collateral_manager::CollateralManagerConfig,
-        index_order_manager::{self, IndexOrderManagerConfig},
-        market_data::MarketDataConfig,
-        order_sender::OrderSenderConfig,
-        quote_request_manager::{self, QuoteRequestManagerConfig},
-        simple_solver::SimpleSolverConfig,
+        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
+        collateral_manager::CollateralManagerConfig, index_order_manager::IndexOrderManagerConfig,
+        market_data::MarketDataConfig, order_sender::OrderSenderConfig,
+        quote_request_manager::QuoteRequestManagerConfig, simple_solver::SimpleSolverConfig,
     },
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::{
@@ -23,8 +19,8 @@ use crate::{
     server::server::{Server, ServerEvent},
     solver::{
         batch_manager::BatchEvent,
-        index_order_manager::{IndexOrderEvent, IndexOrderManager},
-        index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
+        index_order_manager::IndexOrderEvent,
+        index_quote_manager::QuoteRequestEvent,
         solver::{OrderIdProvider, Solver},
     },
 };
@@ -36,14 +32,14 @@ use crossbeam::{
     select,
 };
 use derive_builder::Builder;
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Result};
 use parking_lot::RwLock;
 use symm_core::{
     core::{
         bits::Amount,
         functional::{
             IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
-            IntoObservableSingleArc, IntoObservableSingleFun, IntoObservableSingleVTable,
+            IntoObservableSingleArc, IntoObservableSingleFun,
         },
     },
     market_data::{
@@ -77,9 +73,6 @@ pub struct SolverConfig {
 
     #[builder(setter(into, strip_option))]
     pub with_chain_connector: Option<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>,
-
-    #[builder(setter(into, strip_option))]
-    pub with_server: Option<Arc<RwLock<dyn Server + Send + Sync>>>,
 
     #[builder(setter(into, strip_option))]
     pub with_batch_manager: BatchManagerConfig,
@@ -135,13 +128,14 @@ impl SolverConfig {
         let (basket_event_tx, basket_event_rx) = unbounded::<BasketNotification>();
         let (index_event_tx, index_event_rx) = unbounded::<IndexOrderEvent>();
         let (quote_event_tx, quote_event_rx) = unbounded::<QuoteRequestEvent>();
+
         let (router_event_tx, router_event_rx) = unbounded::<CollateralRouterEvent>();
         let (transfer_event_tx, transfer_event_rx) = unbounded::<CollateralTransferEvent>();
         let (collateral_event_tx, collateral_event_rx) = unbounded::<CollateralEvent>();
-        let (batch_event_tx, batch_event_rx) = unbounded::<BatchEvent>();
 
-        // TODO: Add these
+        let (batch_event_tx, batch_event_rx) = unbounded::<BatchEvent>();
         let (chain_event_tx, chain_event_rx) = unbounded::<ChainNotification>();
+
         let (server_order_tx, server_order_rx) = unbounded::<Arc<ServerEvent>>();
         let (server_quote_tx, server_quote_rx) = unbounded::<Arc<ServerEvent>>();
 
@@ -157,7 +151,8 @@ impl SolverConfig {
         let batch_manager = self.with_batch_manager.batch_manager.clone().unwrap();
 
         let chain_connector = self.with_chain_connector.clone().unwrap();
-        let server = self.with_server.clone().unwrap();
+        let order_server = self.with_index_order_manager.with_server.clone().unwrap();
+        let quote_server = self.with_quote_request_manager.with_server.clone().unwrap();
 
         let index_order_manager = self
             .with_index_order_manager
@@ -281,8 +276,8 @@ impl SolverConfig {
             .map_err(|err| eyre!("Failed to obtain lock on chain connector: {:?}", err))?
             .set_observer_from(chain_event_tx);
 
-        server.write().add_observer_from(server_order_tx);
-        server.write().add_observer_from(server_quote_tx);
+        order_server.write().add_observer_from(server_order_tx);
+        quote_server.write().add_observer_from(server_quote_tx);
 
         thread::spawn(move || loop {
             select! {

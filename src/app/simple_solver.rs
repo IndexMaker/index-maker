@@ -15,13 +15,13 @@ use symm_core::core::bits::Amount;
 pub struct SimpleSolverConfig {
     #[builder(setter(into, strip_option), default)]
     pub price_threshold: Amount,
-    
+
     #[builder(setter(into, strip_option), default)]
     pub fee_factor: Amount,
-    
+
     #[builder(setter(into, strip_option), default)]
     pub max_order_volley_size: Amount,
-    
+
     #[builder(setter(into, strip_option), default)]
     pub max_volley_size: Amount,
 
@@ -44,7 +44,7 @@ impl SimpleSolverConfigBuilder {
             config.price_threshold,
             config.fee_factor,
             config.max_order_volley_size,
-            config.max_volley_size
+            config.max_volley_size,
         ));
 
         config.simple_solver.replace(simple_solver);

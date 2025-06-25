@@ -10,8 +10,7 @@ use symm_core::{
     core::bits::{Amount, Symbol},
     market_data::{
         market_data_connector::MarketDataConnector,
-        order_book::order_book_manager::PricePointBookManager,
-        price_tracker::PriceTracker,
+        order_book::order_book_manager::PricePointBookManager, price_tracker::PriceTracker,
     },
 };
 

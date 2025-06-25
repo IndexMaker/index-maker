@@ -1,24 +1,30 @@
 use std::{
     env,
-    ops::{self, DerefMut},
     sync::{Arc, RwLock as ComponentLock},
 };
 
 use binance_order_sending::credentials::Credentials;
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{TimeDelta, Utc};
 use clap::Parser;
 use index_maker::{
     app::{
-        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
-        collateral_manager::CollateralManagerConfig, index_order_manager::IndexOrderManagerConfig,
-        market_data::MarketDataConfig, order_sender::OrderSenderConfig,
-        quote_request_manager::QuoteRequestManagerConfig, simple_solver::SimpleSolverConfig,
+        basket_manager::BasketManagerConfig,
+        batch_manager::BatchManagerConfig,
+        collateral_manager::CollateralManagerConfig,
+        index_order_manager::IndexOrderManagerConfig,
+        market_data::MarketDataConfig,
+        order_sender::OrderSenderConfig,
+        quote_request_manager::QuoteRequestManagerConfig,
+        simple_chain::SimpleChainConnector,
+        simple_router::build_collateral_router,
+        simple_server::SimpleServer,
+        simple_solver::SimpleSolverConfig,
         solver::SolverConfig,
+        timestamp_ids::{util::make_timestamp_id, TimestampOrderIds},
     },
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    collateral::collateral_router::test_util,
-    index::basket::{AssetWeight, Basket, BasketDefinition},
-    server::server::{Server, ServerEvent, ServerResponse},
+    index::basket::{AssetWeight, BasketDefinition},
+    server::server::{Server, ServerEvent},
     solver::solver::OrderIdProvider,
 };
 use itertools::Itertools;
@@ -27,14 +33,9 @@ use rust_decimal::dec;
 use symm_core::{
     assets::asset::Asset,
     core::{
-        bits::{Address, Amount, BatchOrderId, ClientOrderId, OrderId, PaymentId, Side, Symbol},
-        functional::{
-            IntoObservableMany, IntoObservableManyVTable, IntoObservableSingleVTable,
-            MultiObserver, NotificationHandler, NotificationHandlerOnce, PublishMany,
-            PublishSingle, SingleObserver,
-        },
+        bits::{Amount, Side, Symbol},
         logging::log_init,
-        test_util::{get_mock_address_1, get_mock_defer_channel},
+        test_util::get_mock_address_1,
     },
     init_log,
 };
@@ -47,120 +48,12 @@ struct Cli {
     collateral_amount: Amount,
 }
 
-pub struct TimestampOrderIds {}
-
-impl OrderIdProvider for TimestampOrderIds {
-    fn next_order_id(&mut self) -> OrderId {
-        OrderId::from(format!("O-{}", Utc::now().timestamp_millis()))
-    }
-
-    fn next_batch_order_id(&mut self) -> BatchOrderId {
-        BatchOrderId::from(format!("B-{}", Utc::now().timestamp_millis()))
-    }
-
-    fn next_payment_id(&mut self) -> PaymentId {
-        PaymentId::from(format!("P-{}", Utc::now().timestamp_millis()))
-    }
-}
-
-struct SimpleServer {
-    observer: MultiObserver<Arc<ServerEvent>>,
-}
-
-impl SimpleServer {
-    pub fn new() -> Self {
-        Self {
-            observer: MultiObserver::new(),
-        }
-    }
-
-    pub fn publish_event(&self, event: &Arc<ServerEvent>) {
-        self.observer.publish_many(event);
-    }
-}
-
-impl Server for SimpleServer {
-    fn respond_with(&mut self, response: ServerResponse) {
-        tracing::info!("Received response: {:?}", response);
-    }
-}
-
-impl IntoObservableManyVTable<Arc<ServerEvent>> for SimpleServer {
-    fn add_observer(&mut self, observer: Box<dyn NotificationHandler<Arc<ServerEvent>>>) {
-        self.observer.add_observer(observer);
-    }
-}
-
-struct SimpleChainConnector {
-    observer: SingleObserver<ChainNotification>,
-}
-
-impl SimpleChainConnector {
-    pub fn new() -> Self {
-        Self {
-            observer: SingleObserver::new(),
-        }
-    }
-
-    pub fn publish_event(&self, event: ChainNotification) {
-        self.observer.publish_single(event);
-    }
-}
-
-impl IntoObservableSingleVTable<ChainNotification> for SimpleChainConnector {
-    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
-        self.observer.set_observer(observer);
-    }
-}
-
-impl ChainConnector for SimpleChainConnector {
-    fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
-        tracing::info!("SolverWeightsSet: {}", symbol);
-    }
-
-    fn mint_index(
-        &self,
-        chain_id: u32,
-        symbol: Symbol,
-        quantity: Amount,
-        receipient: Address,
-        execution_price: Amount,
-        execution_time: DateTime<Utc>,
-    ) {
-        tracing::info!(
-            "MintIndex: {} {:0.5} {:0.5} {}",
-            symbol,
-            quantity,
-            execution_price,
-            execution_time
-        )
-    }
-
-    fn burn_index(
-        &self,
-        chain_id: u32,
-        symbol: Symbol,
-        quantity: Amount,
-        receipient: symm_core::core::bits::Address,
-    ) {
-        todo!()
-    }
-
-    fn withdraw(
-        &self,
-        chain_id: u32,
-        receipient: symm_core::core::bits::Address,
-        amount: Amount,
-        execution_price: Amount,
-        execution_time: chrono::DateTime<chrono::Utc>,
-    ) {
-        todo!()
-    }
-}
-
 #[tokio::main]
 async fn main() {
     init_log!();
+
+    // ==== Command line input
+    // ----
 
     let cli = Cli::parse();
 
@@ -171,6 +64,10 @@ async fn main() {
         cli.collateral_amount
     );
 
+
+    // ==== Configuration parameters
+    // ----
+    
     let price_threshold = dec!(0.01);
     let fee_factor = dec!(1.001);
     let max_order_volley_size = dec!(20.0);
@@ -193,7 +90,11 @@ async fn main() {
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
     );
 
-    // TODO: Should be assets and not markets
+
+    // ==== Fake stuff
+    // ----
+
+    // Fake index assets (btw: these should be assets and not markets)
     let symbols = [
         Symbol::from("BNBEUR"),
         Symbol::from("BTCEUR"),
@@ -215,20 +116,9 @@ async fn main() {
         .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
         .collect_vec();
 
+    // Fake backet definition
     let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
         .expect("Failed to create basket definition");
-
-    // TODO: This is fake router
-    let (router_tx, router_rx) = get_mock_defer_channel();
-    let router = test_util::build_test_router(
-        &router_tx,
-        &["SRC:BINANCE:EUR", "DST:BINANCE:EUR"],
-        &[("SRC:BINANCE:EUR", "DST:BINANCE:EUR")],
-        &[&["SRC:BINANCE:EUR", "DST:BINANCE:EUR"]],
-        &[(1, "SRC:BINANCE:EUR")],
-        "DST:BINANCE:EUR",
-        |_, _| (Amount::ZERO, Amount::ZERO),
-    );
 
     // Fake FIX server
     let server = Arc::new(RwLock::new(SimpleServer::new()));
@@ -236,6 +126,16 @@ async fn main() {
     // Fake Blockchain connector
     let chain = Arc::new(ComponentLock::new(SimpleChainConnector::new()));
 
+    // Fake router
+    let router = build_collateral_router(1, "SRC:BINANCE:EUR", "DST:BINANCE:EUR");
+
+    // Fake order IDs
+    let order_ids = Arc::new(RwLock::new(TimestampOrderIds {}));
+
+
+    // ==== Real stuff
+    // ----
+    
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
         .symbols(&symbols)
@@ -287,8 +187,6 @@ async fn main() {
         .build()
         .expect("Failed to build simple solver");
 
-    let order_ids = Arc::new(RwLock::new(TimestampOrderIds {}));
-
     let mut solver_config = SolverConfig::builder()
         .zero_threshold(zero_threshold)
         .max_batch_size(max_batch_size)
@@ -304,7 +202,6 @@ async fn main() {
         .with_strategy(strategy_config)
         .with_order_ids(order_ids as Arc<RwLock<dyn OrderIdProvider + Send + Sync>>)
         .with_chain_connector(chain.clone() as Arc<ComponentLock<dyn ChainConnector + Send + Sync>>)
-        .with_server(server.clone() as Arc<RwLock<dyn Server + Send + Sync>>)
         .build()
         .expect("Failed to build solver");
 
@@ -325,7 +222,7 @@ async fn main() {
         .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
             chain_id: 1,
             address: get_mock_address_1(),
-            client_order_id: ClientOrderId::from(format!("C-{}", Utc::now().timestamp_millis())),
+            client_order_id: make_timestamp_id("C-"),
             symbol: cli.symbol,
             side: cli.side,
             collateral_amount: cli.collateral_amount,

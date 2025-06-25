@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
-use symm_core::core::{bits::{Address, Amount, Symbol}, functional::IntoObservableSingleVTable};
+use symm_core::core::{
+    bits::{Address, Amount, Symbol},
+    functional::IntoObservableSingleVTable,
+};
 
 use crate::index::basket::{Basket, BasketDefinition};
 
@@ -57,7 +60,10 @@ pub mod test_util {
 
     use symm_core::core::{
         bits::{Address, Amount, Symbol},
-        functional::{IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver},
+        functional::{
+            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+            PublishSingle, SingleObserver,
+        },
     };
 
     use crate::index::basket::{Basket, BasketDefinition};

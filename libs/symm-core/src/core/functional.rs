@@ -196,7 +196,8 @@ pub mod crossbeam {
     use crossbeam::channel::Sender;
 
     use crate::core::functional::{
-        IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox, NotificationHandler, NotificationHandlerOnce
+        IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox, NotificationHandler,
+        NotificationHandlerOnce,
     };
 
     impl<T> NotificationHandlerOnce<T> for Sender<T>

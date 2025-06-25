@@ -58,7 +58,9 @@ pub trait CollateralDesignation: Send + Sync {
     fn get_balance(&self) -> Amount;
 }
 
-pub trait CollateralBridge: IntoObservableSingleVTable<CollateralRouterEvent> + Send + Sync {
+pub trait CollateralBridge:
+    IntoObservableSingleVTable<CollateralRouterEvent> + Send + Sync
+{
     /// e.g. EVM:ARBITRUM:USDC
     fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
 
@@ -320,6 +322,7 @@ impl IntoObservableSingle<CollateralTransferEvent> for CollateralRouter {
     }
 }
 
+#[cfg(test)]
 pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;
@@ -332,7 +335,10 @@ pub mod test_util {
 
     use symm_core::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
-        functional::{IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver},
+        functional::{
+            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+            PublishSingle, SingleObserver,
+        },
     };
 
     use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
@@ -429,7 +435,10 @@ pub mod test_util {
     }
 
     impl IntoObservableSingleVTable<CollateralRouterEvent> for MockCollateralBridge {
-        fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
+        fn set_observer(
+            &mut self,
+            observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>,
+        ) {
             self.get_single_observer_mut().set_observer(observer);
         }
     }

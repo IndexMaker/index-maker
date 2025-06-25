@@ -3,7 +3,10 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 
-use symm_core::core::{bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol}, functional::IntoObservableManyVTable};
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
+    functional::IntoObservableManyVTable,
+};
 
 pub enum ServerEvent {
     NewIndexOrder {
@@ -193,7 +196,8 @@ pub mod test_util {
     use std::sync::Arc;
 
     use symm_core::core::functional::{
-        IntoObservableMany, IntoObservableManyVTable, MultiObserver, NotificationHandler, PublishMany, PublishSingle, SingleObserver
+        IntoObservableMany, IntoObservableManyVTable, MultiObserver, NotificationHandler,
+        PublishMany, PublishSingle, SingleObserver,
     };
 
     use super::{Server, ServerEvent, ServerResponse};

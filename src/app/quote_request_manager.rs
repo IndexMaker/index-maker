@@ -6,8 +6,6 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::Result;
 use parking_lot::RwLock;
-use rust_decimal::dec;
-use symm_core::core::bits::Amount;
 
 #[derive(Clone, Builder)]
 #[builder(

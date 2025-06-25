@@ -1,9 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use crate::{
-    server::server::Server,
-    solver::index_order_manager::IndexOrderManager,
-};
+use crate::{server::server::Server, solver::index_order_manager::IndexOrderManager};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
