@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::DerefMut, sync::Arc};
 
 use parking_lot::RwLock;
 
@@ -74,6 +74,28 @@ pub trait IntoObservableSingleArc<T>: Send + Sync {
     fn get_single_observer_arc(&mut self) -> &Arc<RwLock<SingleObserver<T>>>;
 }
 
+pub trait IntoObservableSingleVTable<T>: Send + Sync {
+    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<T>>);
+}
+
+pub trait IntoObservableSingleFun<T>: Send + Sync {
+    fn set_observer_fn(&mut self, observer: impl NotificationHandlerOnce<T> + 'static);
+    fn set_observer_from(&mut self, observer: impl IntoNotificationHandlerOnceBox<T>);
+}
+
+impl<A, T> IntoObservableSingleFun<T> for A
+where
+    A: IntoObservableSingleVTable<T> + ?Sized,
+{
+    fn set_observer_fn(&mut self, observer: impl NotificationHandlerOnce<T> + 'static) {
+        self.set_observer(Box::new(observer));
+    }
+
+    fn set_observer_from(&mut self, observer: impl IntoNotificationHandlerOnceBox<T>) {
+        self.set_observer(observer.into_notification_handler_once_box());
+    }
+}
+
 /// Notifications can be handled by multiple handler, and so they must be passed
 /// by reference
 pub trait NotificationHandler<T>: Send + Sync {
@@ -144,6 +166,28 @@ pub trait IntoObservableMany<T>: Send + Sync {
 
 pub trait IntoObservableManyArc<T>: Send + Sync {
     fn get_multi_observer_arc(&self) -> &Arc<RwLock<MultiObserver<T>>>;
+}
+
+pub trait IntoObservableManyVTable<T>: Send + Sync {
+    fn add_observer(&mut self, observer: Box<dyn NotificationHandler<T>>);
+}
+
+pub trait IntoObservableManyFun<T>: Send + Sync {
+    fn add_observer_fn(&mut self, observer: impl NotificationHandler<T> + 'static);
+    fn add_observer_from(&mut self, observer: impl IntoNotificationHandlerBox<T>);
+}
+
+impl<A, T> IntoObservableManyFun<T> for A
+where
+    A: IntoObservableManyVTable<T> + ?Sized,
+{
+    fn add_observer_fn(&mut self, observer: impl NotificationHandler<T> + 'static) {
+        self.add_observer(Box::new(observer));
+    }
+
+    fn add_observer_from(&mut self, observer: impl IntoNotificationHandlerBox<T>) {
+        self.add_observer(observer.into_notification_handler_box());
+    }
 }
 
 pub mod crossbeam {

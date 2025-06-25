@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 
-use symm_core::core::bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol};
+use symm_core::core::{bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol}, functional::IntoObservableManyVTable};
 
 pub enum ServerEvent {
     NewIndexOrder {
@@ -181,7 +183,7 @@ pub enum ServerResponse {
     },
 }
 
-pub trait Server: Send + Sync {
+pub trait Server: IntoObservableManyVTable<Arc<ServerEvent>> + Send + Sync {
     /// provide methods for sending FIX responses
     fn respond_with(&mut self, response: ServerResponse);
 }
@@ -191,7 +193,7 @@ pub mod test_util {
     use std::sync::Arc;
 
     use symm_core::core::functional::{
-        IntoObservableMany, MultiObserver, PublishMany, PublishSingle, SingleObserver,
+        IntoObservableMany, IntoObservableManyVTable, MultiObserver, NotificationHandler, PublishMany, PublishSingle, SingleObserver
     };
 
     use super::{Server, ServerEvent, ServerResponse};
@@ -232,6 +234,11 @@ pub mod test_util {
     impl IntoObservableMany<Arc<ServerEvent>> for MockServer {
         fn get_multi_observer_mut(&mut self) -> &mut MultiObserver<Arc<ServerEvent>> {
             &mut self.observer
+        }
+    }
+    impl IntoObservableManyVTable<Arc<ServerEvent>> for MockServer {
+        fn add_observer(&mut self, observer: Box<dyn NotificationHandler<Arc<ServerEvent>>>) {
+            self.get_multi_observer_mut().add_observer(observer);
         }
     }
 }

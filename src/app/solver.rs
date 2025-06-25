@@ -20,7 +20,7 @@ use crate::{
         collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
     },
     index::basket_manager::BasketNotification,
-    server::server::ServerEvent,
+    server::server::{Server, ServerEvent},
     solver::{
         batch_manager::BatchEvent, index_order_manager::{IndexOrderEvent, IndexOrderManager}, index_quote_manager::{QuoteRequestEvent, QuoteRequestManager}, solver::{OrderIdProvider, Solver}
     },
@@ -38,7 +38,7 @@ use parking_lot::RwLock;
 use symm_core::{
     core::{
         bits::Amount,
-        functional::{IntoObservableManyArc, IntoObservableSingle, IntoObservableSingleArc},
+        functional::{IntoObservableManyArc, IntoObservableSingle, IntoObservableSingleArc, IntoObservableSingleVTable, IntoObservableSingleFun},
     },
     market_data::{
         market_data_connector::MarketDataEvent, order_book::order_book_manager::OrderBookEvent,
@@ -46,7 +46,7 @@ use symm_core::{
     },
     order_sender::{
         inventory_manager::InventoryEvent,
-        order_connector::{self, OrderConnectorNotification},
+        order_connector::OrderConnectorNotification,
         order_tracker::OrderTrackerNotification,
     },
 };
@@ -72,6 +72,9 @@ pub struct SolverConfig {
 
     #[builder(setter(into, strip_option))]
     pub with_chain_connector: Option<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>,
+    
+    #[builder(setter(into, strip_option))]
+    pub with_server: Option<Arc<RwLock<dyn Server + Send + Sync>>>,
 
     #[builder(setter(into, strip_option))]
     pub with_batch_manager: BatchManagerConfig,

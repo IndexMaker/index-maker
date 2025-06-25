@@ -1,5 +1,6 @@
 use std::{
     env,
+    ops::{self, DerefMut},
     sync::{Arc, RwLock as ComponentLock},
 };
 
@@ -8,29 +9,32 @@ use chrono::{DateTime, TimeDelta, Utc};
 use clap::Parser;
 use index_maker::{
     app::{
-        basket_manager::BasketManagerConfig,
-        batch_manager::BatchManagerConfig,
-        collateral_manager::CollateralManagerConfig,
-        index_order_manager::IndexOrderManagerConfig,
-        market_data::MarketDataConfig,
-        order_sender::OrderSenderConfig,
-        quote_request_manager::QuoteRequestManagerConfig,
-        simple_solver::SimpleSolverConfig,
+        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
+        collateral_manager::CollateralManagerConfig, index_order_manager::IndexOrderManagerConfig,
+        market_data::MarketDataConfig, order_sender::OrderSenderConfig,
+        quote_request_manager::QuoteRequestManagerConfig, simple_solver::SimpleSolverConfig,
         solver::SolverConfig,
     },
-    blockchain::chain_connector::ChainConnector,
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::collateral_router::test_util,
-    index::basket::Basket,
-    server::server::{Server, ServerResponse},
+    index::basket::{AssetWeight, Basket, BasketDefinition},
+    server::server::{Server, ServerEvent, ServerResponse},
     solver::solver::OrderIdProvider,
 };
+use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
+    assets::asset::Asset,
     core::{
-        bits::{Address, Amount, BatchOrderId, OrderId, PaymentId, Side, Symbol},
+        bits::{Address, Amount, BatchOrderId, ClientOrderId, OrderId, PaymentId, Side, Symbol},
+        functional::{
+            IntoObservableMany, IntoObservableManyVTable, IntoObservableSingleVTable,
+            MultiObserver, NotificationHandler, NotificationHandlerOnce, PublishMany,
+            PublishSingle, SingleObserver,
+        },
         logging::log_init,
-        test_util::get_mock_defer_channel,
+        test_util::{get_mock_address_1, get_mock_defer_channel},
     },
     init_log,
 };
@@ -59,7 +63,21 @@ impl OrderIdProvider for TimestampOrderIds {
     }
 }
 
-struct SimpleServer {}
+struct SimpleServer {
+    observer: MultiObserver<Arc<ServerEvent>>,
+}
+
+impl SimpleServer {
+    pub fn new() -> Self {
+        Self {
+            observer: MultiObserver::new(),
+        }
+    }
+
+    pub fn publish_event(&self, event: &Arc<ServerEvent>) {
+        self.observer.publish_many(event);
+    }
+}
 
 impl Server for SimpleServer {
     fn respond_with(&mut self, response: ServerResponse) {
@@ -67,7 +85,33 @@ impl Server for SimpleServer {
     }
 }
 
-struct SimpleChainConnector {}
+impl IntoObservableManyVTable<Arc<ServerEvent>> for SimpleServer {
+    fn add_observer(&mut self, observer: Box<dyn NotificationHandler<Arc<ServerEvent>>>) {
+        self.observer.add_observer(observer);
+    }
+}
+
+struct SimpleChainConnector {
+    observer: SingleObserver<ChainNotification>,
+}
+
+impl SimpleChainConnector {
+    pub fn new() -> Self {
+        Self {
+            observer: SingleObserver::new(),
+        }
+    }
+
+    pub fn publish_event(&self, event: ChainNotification) {
+        self.observer.publish_single(event);
+    }
+}
+
+impl IntoObservableSingleVTable<ChainNotification> for SimpleChainConnector {
+    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
+        self.observer.set_observer(observer);
+    }
+}
 
 impl ChainConnector for SimpleChainConnector {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
@@ -149,6 +193,7 @@ async fn main() {
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
     );
 
+    // TODO: Should be assets and not markets
     let symbols = [
         Symbol::from("BNBEUR"),
         Symbol::from("BTCEUR"),
@@ -158,6 +203,20 @@ async fn main() {
 
     let weights = [dec!(0.3), dec!(0.2), dec!(0.4), dec!(0.1)];
     let index_symbol = Symbol::from("SO4");
+
+    let assets = symbols
+        .iter()
+        .map(|s| Arc::new(Asset::new(s.clone())))
+        .collect_vec();
+
+    let asset_weights = assets
+        .iter()
+        .zip(weights)
+        .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
+        .collect_vec();
+
+    let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
+        .expect("Failed to create basket definition");
 
     // TODO: This is fake router
     let (router_tx, router_rx) = get_mock_defer_channel();
@@ -172,10 +231,10 @@ async fn main() {
     );
 
     // Fake FIX server
-    let server = Arc::new(RwLock::new(SimpleServer {}));
+    let server = Arc::new(RwLock::new(SimpleServer::new()));
 
     // Fake Blockchain connector
-    let chain = Arc::new(ComponentLock::new(SimpleChainConnector {}));
+    let chain = Arc::new(ComponentLock::new(SimpleChainConnector::new()));
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
@@ -197,7 +256,7 @@ async fn main() {
         .expect("Failed to build index order manager");
 
     let quote_request_manager_config = QuoteRequestManagerConfig::builder()
-        .with_server(server as Arc<RwLock<dyn Server>>)
+        .with_server(server.clone() as Arc<RwLock<dyn Server>>)
         .build()
         .expect("Failed to build quote request manager");
 
@@ -244,13 +303,34 @@ async fn main() {
         .with_quote_request_manager(quote_request_manager_config)
         .with_strategy(strategy_config)
         .with_order_ids(order_ids as Arc<RwLock<dyn OrderIdProvider + Send + Sync>>)
-        .with_chain_connector(chain as Arc<ComponentLock<dyn ChainConnector + Send + Sync>>)
+        .with_chain_connector(chain.clone() as Arc<ComponentLock<dyn ChainConnector + Send + Sync>>)
+        .with_server(server.clone() as Arc<RwLock<dyn Server + Send + Sync>>)
         .build()
         .expect("Failed to build solver");
 
     solver_config.run().await.expect("Failed to run solver");
 
     sleep(std::time::Duration::from_secs(5)).await;
+
+    chain
+        .write()
+        .expect("Failed to lock chain connector")
+        .publish_event(ChainNotification::CuratorWeightsSet(
+            index_symbol,
+            basket_definition,
+        ));
+
+    server
+        .read()
+        .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            client_order_id: ClientOrderId::from(format!("C-{}", Utc::now().timestamp_millis())),
+            symbol: cli.symbol,
+            side: cli.side,
+            collateral_amount: cli.collateral_amount,
+            timestamp: Utc::now(),
+        }));
 
     solver_config.stop().await.expect("Failed to stop solver");
 }
