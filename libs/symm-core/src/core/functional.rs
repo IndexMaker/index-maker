@@ -195,15 +195,18 @@ pub mod crossbeam {
 
     use crossbeam::channel::Sender;
 
-    use crate::core::functional::{IntoNotificationHandlerOnceBox, NotificationHandlerOnce};
+    use crate::core::functional::{
+        IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox, NotificationHandler, NotificationHandlerOnce
+    };
 
     impl<T> NotificationHandlerOnce<T> for Sender<T>
     where
         T: Send + Sync,
     {
         fn handle_notification(&self, notification: T) {
-            self.send(notification)
-                .expect(format!("Failed to handle {}", type_name::<T>()).as_str());
+            if let Err(err) = self.send(notification) {
+                tracing::warn!("Failed to send {}: {:?}", type_name::<T>(), err);
+            }
         }
     }
 
@@ -212,6 +215,25 @@ pub mod crossbeam {
         T: Send + Sync + 'static,
     {
         fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
+            Box::new(self)
+        }
+    }
+
+    impl<T> NotificationHandler<T> for Sender<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        fn handle_notification(&self, notification: &T) {
+            if let Err(err) = self.send(notification.clone()) {
+                tracing::warn!("Failed to send {}: {:?}", type_name::<T>(), err);
+            }
+        }
+    }
+    impl<T> IntoNotificationHandlerBox<T> for Sender<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        fn into_notification_handler_box(self) -> Box<dyn NotificationHandler<T>> {
             Box::new(self)
         }
     }

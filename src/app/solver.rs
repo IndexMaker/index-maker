@@ -22,7 +22,10 @@ use crate::{
     index::basket_manager::BasketNotification,
     server::server::{Server, ServerEvent},
     solver::{
-        batch_manager::BatchEvent, index_order_manager::{IndexOrderEvent, IndexOrderManager}, index_quote_manager::{QuoteRequestEvent, QuoteRequestManager}, solver::{OrderIdProvider, Solver}
+        batch_manager::BatchEvent,
+        index_order_manager::{IndexOrderEvent, IndexOrderManager},
+        index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
+        solver::{OrderIdProvider, Solver},
     },
 };
 
@@ -33,20 +36,22 @@ use crossbeam::{
     select,
 };
 use derive_builder::Builder;
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use symm_core::{
     core::{
         bits::Amount,
-        functional::{IntoObservableManyArc, IntoObservableSingle, IntoObservableSingleArc, IntoObservableSingleVTable, IntoObservableSingleFun},
+        functional::{
+            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
+            IntoObservableSingleArc, IntoObservableSingleFun, IntoObservableSingleVTable,
+        },
     },
     market_data::{
         market_data_connector::MarketDataEvent, order_book::order_book_manager::OrderBookEvent,
         price_tracker::PriceEvent,
     },
     order_sender::{
-        inventory_manager::InventoryEvent,
-        order_connector::OrderConnectorNotification,
+        inventory_manager::InventoryEvent, order_connector::OrderConnectorNotification,
         order_tracker::OrderTrackerNotification,
     },
 };
@@ -72,7 +77,7 @@ pub struct SolverConfig {
 
     #[builder(setter(into, strip_option))]
     pub with_chain_connector: Option<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>,
-    
+
     #[builder(setter(into, strip_option))]
     pub with_server: Option<Arc<RwLock<dyn Server + Send + Sync>>>,
 
@@ -130,14 +135,15 @@ impl SolverConfig {
         let (basket_event_tx, basket_event_rx) = unbounded::<BasketNotification>();
         let (index_event_tx, index_event_rx) = unbounded::<IndexOrderEvent>();
         let (quote_event_tx, quote_event_rx) = unbounded::<QuoteRequestEvent>();
+        let (router_event_tx, router_event_rx) = unbounded::<CollateralRouterEvent>();
         let (transfer_event_tx, transfer_event_rx) = unbounded::<CollateralTransferEvent>();
         let (collateral_event_tx, collateral_event_rx) = unbounded::<CollateralEvent>();
         let (batch_event_tx, batch_event_rx) = unbounded::<BatchEvent>();
 
         // TODO: Add these
         let (chain_event_tx, chain_event_rx) = unbounded::<ChainNotification>();
-        let (server_event_tx, server_event_rx) = unbounded::<ServerEvent>();
-        let (router_event_tx, router_event_rx) = unbounded::<CollateralRouterEvent>();
+        let (server_order_tx, server_order_rx) = unbounded::<Arc<ServerEvent>>();
+        let (server_quote_tx, server_quote_rx) = unbounded::<Arc<ServerEvent>>();
 
         let market_data = self.with_market_data.market_data.clone().unwrap();
         let price_tracker = self.with_market_data.price_tracker.clone().unwrap();
@@ -150,11 +156,15 @@ impl SolverConfig {
         let basket_manager = self.with_basket_manager.basket_manager.clone().unwrap();
         let batch_manager = self.with_batch_manager.batch_manager.clone().unwrap();
 
+        let chain_connector = self.with_chain_connector.clone().unwrap();
+        let server = self.with_server.clone().unwrap();
+
         let index_order_manager = self
             .with_index_order_manager
             .index_order_manager
             .clone()
             .unwrap();
+
         let quote_request_manager = self
             .with_quote_request_manager
             .quote_request_manager
@@ -166,11 +176,34 @@ impl SolverConfig {
             .collateral_manager
             .clone()
             .unwrap();
+
         let collateral_router = self
             .with_collateral_manager
             .collateral_router
             .clone()
             .unwrap();
+
+        let collateral_bridges = collateral_router
+            .read()
+            .map_err(|err| {
+                eyre!(
+                    "Failed to obtain lock on collateral router manager: {:?}",
+                    err
+                )
+            })?
+            .get_bridges();
+
+        for bridge in collateral_bridges {
+            bridge
+                .write()
+                .map_err(|err| {
+                    eyre!(
+                        "Failed to obtain lock on collateral bridge manager: {:?}",
+                        err
+                    )
+                })?
+                .set_observer_from(router_event_tx.clone());
+        }
 
         price_tracker
             .write()
@@ -243,6 +276,14 @@ impl SolverConfig {
             .get_single_observer_mut()
             .set_observer_from(batch_event_tx);
 
+        chain_connector
+            .write()
+            .map_err(|err| eyre!("Failed to obtain lock on chain connector: {:?}", err))?
+            .set_observer_from(chain_event_tx);
+
+        server.write().add_observer_from(server_order_tx);
+        server.write().add_observer_from(server_quote_tx);
+
         thread::spawn(move || loop {
             select! {
                 recv(stop_rx) -> _ => {
@@ -258,22 +299,6 @@ impl SolverConfig {
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive market data event: {:?}", err);
-                    }
-                },
-                recv(price_event_rx) -> res => match res {
-                    Ok(event) => {
-                        tracing::debug!("Price event: {:?}", event);
-                    }
-                    Err(err) => {
-                        tracing::warn!("Failed to receive price event: {:?}", err);
-                    }
-                },
-                recv(book_event_rx) -> res => match res {
-                    Ok(event) => {
-                        tracing::debug!("Book event: {:?}", event);
-                    }
-                    Err(err) => {
-                        tracing::warn!("Failed to receive book event: {:?}", err);
                     }
                 },
                 recv(order_event_rx) -> res => match res {
@@ -296,6 +321,104 @@ impl SolverConfig {
                     },
                     Err(err) => {
                         tracing::warn!("Failed to receive order tracking event: {:?}", err);
+                    }
+                },
+                recv(router_event_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Router event");
+                        match collateral_router.write() {
+                            Ok(mut router) => if let Err(err) = router.handle_collateral_router_event(event) {
+                                tracing::warn!("Failed to handle collateral router event: {:?}", err);
+                            }
+                            Err(err) => {
+                                tracing::warn!("Failed to obtain lock on collateral router: {:?}", err);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to receive router event: {:?}", err);
+                    }
+                },
+                recv(transfer_event_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Collateral transfer event");
+                        match collateral_manager.write() {
+                            Ok(mut collateral_manager) => {
+                                if let Err(err) = collateral_manager.handle_collateral_transfer_event(event) {
+                                    tracing::warn!("Failed to handle collateral transfer event: {:?}", err);
+                                }
+                            },
+                            Err(err) => {
+                                tracing::warn!("Failed to obtain lock on collateral manager: {:?}", err);
+                            }
+                        };
+                    },
+                    Err(err) => {
+                        tracing::warn!("Failed to receive collateral transfer event: {:?}", err);
+                    }
+                },
+                recv(server_order_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Server order event");
+                        match index_order_manager.write() {
+                            Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
+                                    tracing::warn!("Failed to handle index order event: {:?}", err);
+                            }
+                            Err(err) => {
+                                tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        tracing::warn!("Failed to receive server order event: {:?}", err);
+                    }
+                },
+                recv(server_quote_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Server quote event");
+                        match quote_request_manager.write() {
+                            Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
+                                    tracing::warn!("Failed to handle index order event: {:?}", err);
+                            }
+                            Err(err) => {
+                                tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        tracing::warn!("Failed to receive server quote event: {:?}", err);
+                    }
+                },
+                recv(price_event_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Price event: {:?}", event);
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to receive price event: {:?}", err);
+                    }
+                },
+                recv(book_event_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Book event: {:?}", event);
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to receive book event: {:?}", err);
+                    }
+                },
+                recv(collateral_event_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Collateral event");
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to receive collateral event: {:?}", err);
+                    }
+                },
+                recv(batch_event_rx) -> res => match res {
+                    Ok(event) => {
+                        tracing::debug!("Batch event");
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to receive batch event: {:?}", err);
                     }
                 },
                 recv(inventory_event_rx) -> res => match res {
@@ -330,38 +453,12 @@ impl SolverConfig {
                         tracing::warn!("Failed to receive quote request event: {:?}", err);
                     }
                 },
-                recv(transfer_event_rx) -> res => match res {
+                recv(chain_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Collateral transfer event");
-                        match collateral_manager.write() {
-                            Ok(mut collateral_manager) => {
-                                if let Err(err) = collateral_manager.handle_collateral_transfer_event(event) {
-                                    tracing::warn!("Failed to handle collateral transfer event: {:?}", err);
-                                }
-                            },
-                            Err(err) => {
-                                tracing::warn!("Failed to obtain lock on collateral manager: {:?}", err);
-                            }
-                        };
+                        tracing::debug!("Chain event");
                     },
                     Err(err) => {
-                        tracing::warn!("Failed to receive collateral transfer event: {:?}", err);
-                    }
-                },
-                recv(collateral_event_rx) -> res => match res {
-                    Ok(event) => {
-                        tracing::debug!("Collateral event");
-                    }
-                    Err(err) => {
-                        tracing::warn!("Failed to receive collateral event: {:?}", err);
-                    }
-                },
-                recv(batch_event_rx) -> res => match res {
-                    Ok(event) => {
-                        tracing::debug!("Batch event");
-                    }
-                    Err(err) => {
-                        tracing::warn!("Failed to receive batch event: {:?}", err);
+                        tracing::warn!("Failed to receive chain event: {:?}", err);
                     }
                 },
             }
