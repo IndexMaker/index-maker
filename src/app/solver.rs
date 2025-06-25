@@ -8,9 +8,10 @@ use crate::{
         basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig, index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig, order_sender::OrderSenderConfig,
-        quote_request_manager::QuoteRequestManagerConfig, simple_solver::SimpleSolverConfig,
+        quote_request_manager::QuoteRequestManagerConfig, simple_chain::ChainConnectorConfig,
+        simple_solver::SimpleSolverConfig, timestamp_ids::OrderIdConfig,
     },
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
+    blockchain::chain_connector::{self, ChainConnector, ChainNotification},
     collateral::{
         collateral_manager::CollateralEvent,
         collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
@@ -63,7 +64,7 @@ pub struct SolverConfig {
     pub with_strategy: SimpleSolverConfig,
 
     #[builder(setter(into, strip_option))]
-    pub with_order_ids: Arc<RwLock<dyn OrderIdProvider + Send + Sync>>,
+    pub with_order_ids: OrderIdConfig,
 
     #[builder(setter(into, strip_option))]
     pub with_basket_manager: BasketManagerConfig,
@@ -72,7 +73,7 @@ pub struct SolverConfig {
     pub with_market_data: MarketDataConfig,
 
     #[builder(setter(into, strip_option))]
-    pub with_chain_connector: Option<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>,
+    pub with_chain_connector: ChainConnectorConfig,
 
     #[builder(setter(into, strip_option))]
     pub with_batch_manager: BatchManagerConfig,
@@ -150,9 +151,19 @@ impl SolverConfig {
         let basket_manager = self.with_basket_manager.basket_manager.clone().unwrap();
         let batch_manager = self.with_batch_manager.batch_manager.clone().unwrap();
 
-        let chain_connector = self.with_chain_connector.clone().unwrap();
-        let order_server = self.with_index_order_manager.with_server.clone().unwrap();
-        let quote_server = self.with_quote_request_manager.with_server.clone().unwrap();
+        let chain_connector = self.with_chain_connector.expect_chain_connector_cloned();
+
+        let order_server = self
+            .with_index_order_manager
+            .with_server
+            .expect_server_cloned();
+
+        let quote_server = self
+            .with_quote_request_manager
+            .with_server
+            .server
+            .clone()
+            .unwrap();
 
         let index_order_manager = self
             .with_index_order_manager
@@ -500,6 +511,15 @@ impl SolverConfigBuilder {
                 ConfigBuildError::UninitializedField("with_strategy.simple_solver")
             })?;
 
+        let order_id_provider =
+            config
+                .with_order_ids
+                .order_id_provider
+                .clone()
+                .ok_or_else(|| {
+                    ConfigBuildError::UninitializedField("with_order_ids.order_id_provider")
+                })?;
+
         let basket_manager = config
             .with_basket_manager
             .basket_manager
@@ -562,15 +582,23 @@ impl SolverConfigBuilder {
                 ConfigBuildError::UninitializedField("with_order_sender.quote_request_manager")
             })?;
 
+        let chain_connector = config
+            .with_chain_connector
+            .chain_connector
+            .clone()
+            .ok_or_else(|| {
+                ConfigBuildError::UninitializedField("with_chain_connector.chain_connector")
+            })?;
+
         config
             .solver
             .replace(Arc::new(ComponentLock::new(Solver::new(
                 strategy,
-                config.with_order_ids.clone(),
+                order_id_provider,
                 basket_manager,
                 price_tracker,
                 order_book_manager,
-                config.with_chain_connector.clone().unwrap(),
+                chain_connector,
                 batch_manager,
                 collateral_manager,
                 index_order_manager,

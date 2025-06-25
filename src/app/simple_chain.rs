@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as ComponentLock};
 
 use chrono::{DateTime, Utc};
+
+use super::config::ConfigBuildError;
+use derive_builder::Builder;
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
     functional::{
@@ -77,5 +80,60 @@ impl ChainConnector for SimpleChainConnector {
         execution_time: chrono::DateTime<chrono::Utc>,
     ) {
         todo!()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ChainConnectorKind {
+    Simple,
+}
+
+pub enum ChainConnectorHandoffEvent {
+    Simple(Arc<ComponentLock<SimpleChainConnector>>),
+}
+
+#[derive(Clone, Builder)]
+#[builder(
+    pattern = "owned",
+    build_fn(name = "try_build", error = "ConfigBuildError")
+)]
+pub struct ChainConnectorConfig {
+    #[builder(setter(into, strip_option), default)]
+    pub chain_connector_kind: Option<ChainConnectorKind>,
+
+    #[builder(setter(skip))]
+    pub(crate) chain_connector: Option<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>,
+}
+
+impl ChainConnectorConfig {
+    #[must_use]
+    pub fn builder() -> ChainConnectorConfigBuilder {
+        ChainConnectorConfigBuilder::default()
+    }
+
+    pub fn expect_chain_connector_cloned(
+        &self,
+    ) -> Arc<ComponentLock<dyn ChainConnector + Send + Sync>> {
+        self.chain_connector.clone().ok_or(()).expect("Failed to get server")
+    }
+}
+
+impl ChainConnectorConfigBuilder {
+    pub fn build(
+        self,
+        handoff: impl NotificationHandlerOnce<ChainConnectorHandoffEvent>,
+    ) -> Result<ChainConnectorConfig, ConfigBuildError> {
+        let mut config = self.try_build()?;
+
+        config.chain_connector.replace(match config.chain_connector_kind.take() {
+            Some(ChainConnectorKind::Simple) => {
+                let server = Arc::new(ComponentLock::new(SimpleChainConnector::new()));
+                handoff.handle_notification(ChainConnectorHandoffEvent::Simple(server.clone()));
+                server
+            }
+            None => Err(ConfigBuildError::UninitializedField("chain_connector_kind"))?,
+        });
+
+        Ok(config)
     }
 }
