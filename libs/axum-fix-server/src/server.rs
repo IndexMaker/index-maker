@@ -4,7 +4,6 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Weak,
     },
-    usize,
 };
 
 use axum::{
@@ -16,8 +15,7 @@ use axum::{
     routing::get,
     Router,
 };
-use eyre::{eyre, Report, Result};
-use symm_core::core::functional::{PublishSingle, SingleObserver};
+use eyre::{eyre, Result};
 use std::net::SocketAddr;
 use tokio::{
     select,
@@ -28,7 +26,7 @@ use tokio::{
 };
 
 use crate::{
-    messages::{ServerRequest, ServerResponse, SessionId},
+    messages::{ServerResponse, SessionId},
     server_plugin::ServerPlugin,
 };
 
@@ -45,9 +43,7 @@ impl Session {
     ///
     /// Creates a new Session.
     pub fn new(tx: UnboundedSender<String>) -> Self {
-        Self {
-            response_tx: tx,
-        }
+        Self { response_tx: tx }
     }
 
     /// send_response
@@ -64,10 +60,11 @@ impl Session {
 
 /// Server
 ///
-/// The core server structure that manages client sessions and handles incoming requests.
-/// It uses a `MultiObserver` to publish requests to registered observers and maintains
-/// a map of active sessions. The server must be loaded with a `Plugin`to define incoming
-/// and outgoing message handling.
+/// The core server structure that manages client sessions and handles incoming requests,
+/// it maintains a map of all active sessions and handles their lifetime. The server
+/// must be loaded with a `Plugin` to define incoming and outgoing message handling.
+/// The `Plugin` consumes the message and is responsible for deserialization,
+/// message validation (fields, seqnum, signatures), publishing to application, etc.
 pub struct Server<Q, P>
 where
     Q: ServerResponse,
@@ -77,9 +74,8 @@ where
     sessions: HashMap<SessionId, Arc<Session>>,
     session_id_counter: AtomicUsize,
     plugin: P,
+    pub accept_connections: bool,
 }
-
-const BUFFER_SIZE: usize = 1024;
 
 impl<Q, P> Server<Q, P>
 where
@@ -97,40 +93,65 @@ where
                 sessions: HashMap::new(),
                 session_id_counter: AtomicUsize::new(1),
                 plugin,
+                accept_connections: true,
             })
         })
     }
 
-    pub fn start_server(&self) {
+    /// start_server
+    ///
+    /// Initializes the server, spawining it on a thread using `ws_handler` logic.
+    pub fn start_server(&self, address: &'static str) {
         let my_clone = self.me.upgrade().unwrap();
         tokio::spawn(async move {
-            let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+            let addr: SocketAddr = address.parse().expect(&format!(
+                "Server failed to start: Invalid address ({})",
+                address
+            ));
             tracing::info!("Listening on {}", addr);
-            println!("Listening on {}", addr);
 
             let app = Router::new()
                 .route("/ws", get(ws_handler))
                 .with_state(my_clone);
 
             if let Err(e) = axum_server::bind(addr).serve(app.into_make_service()).await {
-                tracing::error!("Server failed to start: {}", e);
+                tracing::warn!("Server failed to start: {}", e);
             }
         });
+    }
+
+    /// close_server
+    ///
+    /// Closes server for new connections
+    pub fn close_server(&mut self) {
+        self.accept_connections = false;
+    }
+
+    /// close_server
+    ///
+    /// Closes all sessions
+    pub fn stop_server(&mut self) {
+        let session_ids: Vec<_> = self.sessions.keys().cloned().collect();
+        for session_id in session_ids {
+            self.close_session(&session_id);
+        }
     }
 
     /// create_session
     ///
     /// Creates a new client session with a unique session ID. Returns a tuple containing
-    /// the session handle, a receiver for responses, and the session ID.
-    pub fn create_session(
-        &mut self,
-    ) -> Result<(UnboundedReceiver<String>, SessionId)> {
+    /// the session receiver channel (for sending response buffers), and the session ID.
+    pub fn create_session(&mut self) -> Result<(UnboundedReceiver<String>, SessionId)> {
         let session_id = SessionId(format!(
             "session_{}",
             self.session_id_counter.fetch_add(1, Ordering::SeqCst)
         ));
         match self.sessions.entry(session_id.clone()) {
-            Entry::Occupied(_) => Err(eyre!("Oh, no!")),
+            Entry::Occupied(_) => {
+                let error_msg = format!("Session already opened: {}", &session_id);
+                tracing::warn!(error_msg);
+                Err(eyre!(error_msg))
+            }
             Entry::Vacant(vacant_entry) => {
                 let (tx, rx) = unbounded_channel();
                 vacant_entry.insert(Arc::new(Session::new(tx)));
@@ -151,16 +172,16 @@ where
                 self.sessions.remove(&session_id);
             }
             Err(e) => {
-                eprintln!("Failed to destroy session: {}", e);
+                tracing::warn!("Failed to destroy session: {}; {}", &session_id, e);
             }
         }
     }
 
-    pub fn receive_message(
-        &self,
-        message: String,
-        session_id: &SessionId,
-    ) -> Result<(), Report> {
+    /// receive_message
+    ///
+    /// Process incoming message by passing it to the `Plugin`. The `Plugin` will be responsible
+    /// for deserialization, validation, and publishing the result to the application.
+    pub fn receive_message(&self, message: String, session_id: &SessionId) -> Result<()> {
         self.plugin.process_incoming(message, session_id)
     }
 
@@ -170,18 +191,24 @@ where
     /// Returns a `Result` indicating success or failure if the session is not found.
     pub fn send_response(&self, response: Q) -> Result<()> {
         let session_id = response.get_session_id().clone();
-        let processed_response = self.process_outgoing_message(response);
+        let processed_response = self.plugin.process_outgoing(response);
         match self.sessions.get(&session_id) {
             Some(session) => session.send_response(processed_response?),
-            None => Err(eyre!("Oh, no!")),
+            None => {
+                let error_msg = format!("Session not found: {}", &session_id);
+                tracing::warn!(error_msg);
+                Err(eyre!(error_msg))
+            }
         }
-    }
-
-    pub fn process_outgoing_message(&self, response: Q) -> Result<String, Report> {
-        self.plugin.process_outgoing(response)
     }
 }
 
+/// ws_handler
+///
+/// This is the closure that contains the async logic used by the `Server`. On a WS upgrade it
+/// creates a new session and awaits for either a message from the client (on the ws), or
+/// for a response coming from the server (on the tokio channel). In case of an error, or the
+/// session is closed by the client, the loop is broken and the session destroyed.
 async fn ws_handler<Q, P>(
     ws: WebSocketUpgrade,
     State(server): State<Arc<RwLock<Server<Q, P>>>>,
@@ -191,52 +218,48 @@ where
     P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     ws.on_upgrade(move |mut ws: WebSocket| async move {
-        let (mut receiver, session_id) = server.write().await.create_session().unwrap();
-        loop {
-            select! {
-                // quit => { break; }
-                res = ws.recv() => {
-                    match res {
-                        Some(Ok(message)) => {
-                            if let axum::extract::ws::Message::Text(text) = message {
-                                tracing::debug!("Received message: {}", text);
-                                if let Err(e) = server.read().await.receive_message(text.to_string(), &session_id) {
-                                    tracing::error!("Failed to process incoming message: {}", e);
-                                    // Send error message back to the client
-
-
-                                    let error_msg = format!("Error processing message: {}", e);
-                                    let msg = server.read().await.plugin.process_error(error_msg, &session_id).unwrap(); 
-                                    if let Err(e) = ws.send(Message::Text(msg)).await {
-                                        tracing::error!("Failed to send WebSocket message: {}", e);
-
-                                        
-                                    break;
-                            }
+        if server.read().await.accept_connections {
+            let (mut receiver, session_id) = server.write().await.create_session().unwrap();
+            loop {
+                select! {
+                    res = ws.recv() => {
+                        match res {
+                            Some(Ok(message)) => {
+                                if let axum::extract::ws::Message::Text(text) = message {
+                                    tracing::debug!("Received message on {}: {}", &session_id, &text);
+                                    // Server processes received message
+                                    if let Err(e) = server.read().await.receive_message(text.to_string(), &session_id) {
+                                        // Session sends error message back to the client
+                                        tracing::warn!("Failed to process incoming message: {}", e);
+                                        if let Err(e) = ws.send(Message::Text(e.to_string())).await {
+                                            tracing::warn!("Failed to send WebSocket message: {}", e);
+                                            break;
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        Some(Err(e)) => {
-                            tracing::error!("WebSocket error: {}", e);
-                            break;
-                        }
-                        None => {
-                            tracing::info!("WebSocket connection closed on session {}", &session_id);
-                            break;
+                            Some(Err(e)) => {
+                                tracing::warn!("WebSocket error: {}", e);
+                                break;
+                            }
+                            None => {
+                                tracing::info!("WebSocket connection closed on session {}", &session_id);
+                                break;
+                            }
                         }
                     }
-                }
-                Some(res) = receiver.recv() => {
-                    match ws.send(Message::Text(res)).await {
-                        Ok(()) => {},
-                        Err(e) => {
-                            tracing::error!("WebSocket error: {}", e);
-                            // Close the session?
+                    Some(res) = receiver.recv() => {
+                        match ws.send(Message::Text(res)).await {
+                            Ok(()) => {},
+                            Err(e) => {
+                                tracing::warn!("WebSocket error: {}", e);
+                                break;
+                            }
                         }
                     }
                 }
             }
+            server.write().await.close_session(&session_id);
         }
-        server.write().await.close_session(&session_id);
     })
 }

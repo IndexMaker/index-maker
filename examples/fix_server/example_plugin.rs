@@ -52,14 +52,13 @@ where
                 Ok(())
             } else {
                 let error_msg = format!("Invalid sequence number: {}; Last valid: {}", seq_num, self.seq_num_plugin.last_received_seq_num(session_id)); 
-                let e = error_msg.clone();
-                self.process_error(error_msg, session_id);
-                Err(eyre::eyre!(e))
+                let error_msg = self.process_error(error_msg, session_id)?;
+                Err(eyre::eyre!(error_msg))
             }
         }
         Err(e) => {
-            self.process_error(e.to_string(), session_id);
-            return Err(eyre::eyre!(e));
+            let error_msg = self.process_error(e.to_string(), session_id)?;
+            return Err(eyre::eyre!(error_msg));
         }
     }
         
