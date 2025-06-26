@@ -109,12 +109,8 @@ async fn main() {
         .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
         .collect_vec();
 
-    // Fake backet definition
     let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
         .expect("Failed to create basket definition");
-
-    // ==== Real stuff
-    // ----
 
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
@@ -138,6 +134,9 @@ async fn main() {
         .expect("Failed to build chain connector");
 
     let simple_chain = chain_connector_config.expect_chain_connector_cloned();
+
+    // ==== Real stuff
+    // ----
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
