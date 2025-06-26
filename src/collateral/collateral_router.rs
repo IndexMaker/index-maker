@@ -10,7 +10,7 @@ use eyre::{eyre, OptionExt, Result};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
-    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    functional::{IntoObservableSingle, IntoObservableSingleVTable, PublishSingle, SingleObserver},
 };
 
 pub enum CollateralTransferEvent {
@@ -58,7 +58,9 @@ pub trait CollateralDesignation: Send + Sync {
     fn get_balance(&self) -> Amount;
 }
 
-pub trait CollateralBridge: Send + Sync {
+pub trait CollateralBridge:
+    IntoObservableSingleVTable<CollateralRouterEvent> + Send + Sync
+{
     /// e.g. EVM:ARBITRUM:USDC
     fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
 
@@ -135,6 +137,10 @@ impl CollateralRouter {
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate designation ID")
+    }
+
+    pub fn get_bridges(&self) -> Vec<Arc<ComponentLock<dyn CollateralBridge>>> {
+        self.bridges.values().cloned().collect_vec()
     }
 
     pub fn add_route(&mut self, route: &[Symbol]) -> Result<()> {
@@ -329,7 +335,10 @@ pub mod test_util {
 
     use symm_core::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        functional::{
+            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+            PublishSingle, SingleObserver,
+        },
     };
 
     use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
@@ -422,6 +431,15 @@ pub mod test_util {
     impl IntoObservableSingle<CollateralRouterEvent> for MockCollateralBridge {
         fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralRouterEvent> {
             &mut self.observer
+        }
+    }
+
+    impl IntoObservableSingleVTable<CollateralRouterEvent> for MockCollateralBridge {
+        fn set_observer(
+            &mut self,
+            observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>,
+        ) {
+            self.get_single_observer_mut().set_observer(observer);
         }
     }
 

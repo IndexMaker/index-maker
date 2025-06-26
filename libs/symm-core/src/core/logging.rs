@@ -26,7 +26,7 @@ pub fn log_init(filter: String) {
 ///
 /// # Configuring
 /// Standard `RUST_LOG` environment variable can be used to configure, e.g.:
-/// 
+///
 /// ```
 /// export RUST_LOG="info"
 /// ```

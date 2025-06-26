@@ -9,6 +9,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
+use crate::solver::solver_order::SolverOrderStatus;
 use symm_core::{
     core::{
         bits::{
@@ -19,9 +20,6 @@ use symm_core::{
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     order_sender::position::LotId,
-};
-use crate::{
-    solver::solver_order::SolverOrderStatus,
 };
 
 use super::{
@@ -864,7 +862,7 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let new_engagements = (|| {
+        let new_engagements = {
             let new_batches = &mut self.ready_batches;
             let max_drain = new_batches.len().min(self.max_batch_size);
             new_batches
@@ -872,7 +870,7 @@ impl BatchManager {
                 .filter_map(|batch_order_id| self.engagements.get(&batch_order_id))
                 .cloned()
                 .collect_vec()
-        })();
+        };
 
         for engaged_orders in new_engagements {
             self.send_batch(host, &engaged_orders.read(), timestamp)?;
@@ -901,7 +899,7 @@ impl BatchManager {
     fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.mint_wait_period;
         let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
-        let ready_mints = (|| {
+        let ready_mints = {
             let mut mints = self.ready_mints.lock();
             let res = mints.iter().find_position(|p| check_not_ready(&p.read()));
             if let Some((pos, _)) = res {
@@ -910,7 +908,7 @@ impl BatchManager {
                 mints.drain(..)
             }
             .collect_vec()
-        })();
+        };
         ready_mints
     }
 
@@ -977,14 +975,11 @@ impl BatchManager {
 
                                 index_order_stored.timestamp = timestamp;
 
-                                match index_order_stored.status {
-                                    SolverOrderStatus::Ready => {
-                                        host.set_order_status(
-                                            &mut index_order_stored,
-                                            SolverOrderStatus::Engaged,
-                                        );
-                                    }
-                                    _ => (),
+                                if let SolverOrderStatus::Ready = index_order_stored.status {
+                                    host.set_order_status(
+                                        &mut index_order_stored,
+                                        SolverOrderStatus::Engaged,
+                                    );
                                 }
                             }
                             None => {

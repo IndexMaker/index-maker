@@ -9,11 +9,9 @@ use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
-use symm_core::{
-    core::{
-        bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
-        decimal_ext::DecimalExt,
-    },
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
+    decimal_ext::DecimalExt,
 };
 
 use crate::{
@@ -295,7 +293,7 @@ impl SimpleSolver {
                 }
             });
 
-        (HashMap::from_iter(index_prices.into_iter()), bad)
+        (HashMap::from_iter(index_prices), bad)
     }
 
     /// Calculate quantity of An Index that fits within Collateral given, and

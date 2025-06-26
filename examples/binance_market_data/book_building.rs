@@ -5,6 +5,8 @@ use crossbeam::{
     channel::{bounded, unbounded},
     select,
 };
+use parking_lot::RwLock;
+use rust_decimal::dec;
 use symm_core::{
     core::{
         bits::{Amount, PriceType, Side},
@@ -18,8 +20,6 @@ use symm_core::{
         price_tracker::{PriceEvent, PriceTracker},
     },
 };
-use parking_lot::RwLock;
-use rust_decimal::dec;
 use tokio::time::sleep;
 
 #[tokio::main]

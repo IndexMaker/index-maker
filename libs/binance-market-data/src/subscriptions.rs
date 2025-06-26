@@ -1,8 +1,8 @@
 use std::{collections::HashSet, usize};
 
 use eyre::{eyre, OptionExt, Result};
-use symm_core::core::bits::Symbol;
 use itertools::Itertools;
+use symm_core::core::bits::Symbol;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub struct Subscriptions {

@@ -111,7 +111,7 @@ impl Session {
                 .read()
                 .publish_single(OrderConnectorNotification::SessionLogout {
                     session_id,
-                    reason: "Session disconnected".to_owned(),
+                    reason: "Session ended".to_owned(),
                     timestamp: Utc::now(),
                 });
 

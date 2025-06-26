@@ -190,14 +190,13 @@ impl IndexOrderManager {
         let index_order = user_index_orders
             .entry(symbol.clone())
             .or_insert_with(|| {
-                let order = Arc::new(RwLock::new(IndexOrder::new(
+                Arc::new(RwLock::new(IndexOrder::new(
                     chain_id,
                     address.clone(),
                     symbol.clone(),
                     side,
                     timestamp.clone(),
-                )));
-                order
+                )))
             })
             .clone();
 
@@ -452,8 +451,7 @@ impl IndexOrderManager {
     ) -> Result<()> {
         self.index_orders
             .get(&(chain_id, *address))
-            .and_then(|x| x.get(symbol))
-            .and_then(|index_order| Some(index_order.upgradable_read()))
+            .and_then(|x| x.get(symbol).map(|index_order| index_order.upgradable_read()))
             .and_then(|mut order_upread| {
                 let (update_remaining_collateral, update_collateral_spent, update_fee) = (|| {
                     let update = order_upread

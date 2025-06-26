@@ -8,7 +8,6 @@ publish = false
 binance-sdk = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
-index-maker = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }

@@ -10,6 +10,7 @@ use crate::{
 };
 
 /// manage order books across markets
+#[derive(Debug)]
 pub enum OrderBookEvent {
     BookUpdate { symbol: Symbol },
     UpdateError { symbol: Symbol, error: Report },

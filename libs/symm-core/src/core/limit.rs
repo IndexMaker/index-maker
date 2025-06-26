@@ -239,7 +239,7 @@ mod test {
 
         // Here we're asking:
         // - How much altogether weight is currently in a window of given length?
-        
+
         assert_eq!(limiter.current_weight(Duration::seconds(10), timestamp), 8);
         assert_eq!(limiter.current_weight(Duration::seconds(5), timestamp), 3);
         assert_eq!(limiter.current_weight(Duration::seconds(1), timestamp), 0);
@@ -253,14 +253,35 @@ mod test {
         // move forward so that enough events drops off, so that their total
         // weight will be no less than given weight.
 
-        assert_eq!(limiter.waiting_period(1, Duration::seconds(20), timestamp), Duration::seconds(14));
-        assert_eq!(limiter.waiting_period(5, Duration::seconds(20), timestamp), Duration::seconds(14));
-        assert_eq!(limiter.waiting_period(6, Duration::seconds(20), timestamp), Duration::seconds(17));
-        assert_eq!(limiter.waiting_period(9, Duration::seconds(20), timestamp), Duration::seconds(17));
-        
-        assert_eq!(limiter.waiting_period(1, Duration::seconds(5), timestamp), Duration::seconds(2));
-        assert_eq!(limiter.waiting_period(3, Duration::seconds(5), timestamp), Duration::seconds(2));
-        assert_eq!(limiter.waiting_period(9, Duration::seconds(5), timestamp), Duration::seconds(2));
+        assert_eq!(
+            limiter.waiting_period(1, Duration::seconds(20), timestamp),
+            Duration::seconds(14)
+        );
+        assert_eq!(
+            limiter.waiting_period(5, Duration::seconds(20), timestamp),
+            Duration::seconds(14)
+        );
+        assert_eq!(
+            limiter.waiting_period(6, Duration::seconds(20), timestamp),
+            Duration::seconds(17)
+        );
+        assert_eq!(
+            limiter.waiting_period(9, Duration::seconds(20), timestamp),
+            Duration::seconds(17)
+        );
+
+        assert_eq!(
+            limiter.waiting_period(1, Duration::seconds(5), timestamp),
+            Duration::seconds(2)
+        );
+        assert_eq!(
+            limiter.waiting_period(3, Duration::seconds(5), timestamp),
+            Duration::seconds(2)
+        );
+        assert_eq!(
+            limiter.waiting_period(9, Duration::seconds(5), timestamp),
+            Duration::seconds(2)
+        );
 
         timestamp += TimeDelta::seconds(3);
 
