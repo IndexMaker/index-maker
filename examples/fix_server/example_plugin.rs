@@ -2,13 +2,12 @@ use eyre::{Report, Result};
 use axum_fix_server::{
         messages::{ServerRequest, ServerResponse, SessionId},
         plugins::{
-            seq_num_plugin::{SeqNumPlugin, SeqNumPluginAux},
-            serde_plugin::SerdePlugin,
+            observer_plugin::ObserverPlugin, seq_num_plugin::{SeqNumPlugin, SeqNumPluginAux}, serde_plugin::SerdePlugin
         },
         server_plugin::ServerPlugin,
     };
+use symm_core::core::functional::NotificationHandlerOnce;
 
-use crate::responses::{self, Response};
 
 // A composite plugin that can wrap other plugins and delegate functionality.
 pub struct CompositeServerPlugin<R, Q> 
@@ -16,6 +15,7 @@ where
     R: ServerRequest,
     Q: ServerResponse,
 {
+    observer_plugin: ObserverPlugin<R>,
     serde_plugin: SerdePlugin<R, Q>,
     seq_num_plugin: SeqNumPlugin<R, Q>,
 }
@@ -27,25 +27,42 @@ where
 {
     pub fn new() -> Self {
         Self {
+            observer_plugin: ObserverPlugin::new(),
             serde_plugin: SerdePlugin::new(),
             seq_num_plugin: SeqNumPlugin::new(),
         }
     }
+
+    pub fn set_observer_plugin_callback(&mut self, closure: impl NotificationHandlerOnce<R> + 'static) {
+        self.observer_plugin.set_observer_closure(closure);
+    }
 }
 
-impl<R, Q> ServerPlugin<R, Q> for CompositeServerPlugin<R, Q>
+impl<R, Q> ServerPlugin<Q> for CompositeServerPlugin<R, Q>
 where
     R: ServerRequest + SeqNumPluginAux,
     Q: ServerResponse + SeqNumPluginAux,
 {
-    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<R, Report> {
-        let result = self.serde_plugin.process_incoming(message, session_id)?;
-        let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
-        if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
-            Ok(result)
-        } else {
-            Err(eyre::eyre!("Invalid sequence number: {}; Last valid: {}", seq_num, self.seq_num_plugin.last_received_seq_num(session_id)))
+    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()> {
+        match self.serde_plugin.process_incoming(message, session_id) {
+        Ok(result) => {
+            let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
+            if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
+                self.observer_plugin.publish_request(result);
+                Ok(())
+            } else {
+                let error_msg = format!("Invalid sequence number: {}; Last valid: {}", seq_num, self.seq_num_plugin.last_received_seq_num(session_id)); 
+                let e = error_msg.clone();
+                self.process_error(error_msg, session_id);
+                Err(eyre::eyre!(e))
+            }
         }
+        Err(e) => {
+            self.process_error(e.to_string(), session_id);
+            return Err(eyre::eyre!(e));
+        }
+    }
+        
     }
     
     fn process_error(&self, error_msg: String, session_id: &SessionId) -> Result<String> {
@@ -56,18 +73,18 @@ where
         self.serde_plugin.process_outgoing(nak)
     }
 
-    fn process_outgoing(&self, response: Q) -> Result<String, Report> {
+    fn process_outgoing(&self, response: Q) -> Result<String> {
         let mut response = response;
         let session_id = &response.get_session_id();
         response.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
         self.serde_plugin.process_outgoing(response)
     }
 
-    fn create_session(&self, session_id: &SessionId) -> Result<(), Report> {
+    fn create_session(&self, session_id: &SessionId) -> Result<()> {
         self.seq_num_plugin.create_session(session_id)
     }
 
-    fn destroy_session(&self, session_id: &SessionId) -> Result<(), Report> {
+    fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
         self.seq_num_plugin.destroy_session(session_id)
     }
     

@@ -19,30 +19,24 @@ use responses::Response;
 use crate::fix_messages::{Body, FixHeader, FixTrailer};
 
 #[derive(Debug)]
-enum ServerEvent {
+enum ProcessorEvent {
     Message(Request),
     Quit,
 }
 
-
 #[tokio::main]
 pub async fn main() {
     init_log!();
-    let plugin = CompositeServerPlugin::<Request, Response>::new();
-    let fix_server = Server::new_arc(plugin);
- 
-    let (event_tx, event_rx) = unbounded::<ServerEvent>();
+    let (event_tx, event_rx) = unbounded::<ProcessorEvent>();
     let event_tx_clone = event_tx.clone();
 
-    fix_server
-        .write()
-        .await
-        .get_multi_observer_mut()
-        .set_observer_fn(move |e: Request| {
-            //handle_server_event(&e);
-            event_tx.send(ServerEvent::Message(e)).unwrap();
-        });
+    let mut plugin = CompositeServerPlugin::<Request, Response>::new();
+    plugin.set_observer_plugin_callback(move |e: Request| {
+        //handle_server_event(&e);
+        event_tx.send(ProcessorEvent::Message(e)).unwrap();
+    });
 
+    let fix_server = Server::new_arc(plugin);
     let fix_server_weak = Arc::downgrade(&fix_server);
 
     let handle_server_event_internal = move |e: Request| {
@@ -73,8 +67,8 @@ pub async fn main() {
         select!(
             recv(event_rx) -> res => {
                 match res.unwrap() {
-                    ServerEvent::Message(req) => handle_server_event_internal(req),
-                    ServerEvent::Quit => {
+                    ProcessorEvent::Message(req) => handle_server_event_internal(req),
+                    ProcessorEvent::Quit => {
                         println!("Received Quit signal, terminating event loop thread.");
                         break;
                     }
@@ -84,8 +78,8 @@ pub async fn main() {
     });
     fix_server.read().await.start_server(); //< should launch async task, and return immediatelly
 
-    sleep(Duration::from_secs(600));
-    event_tx_clone.send(ServerEvent::Quit).unwrap();
+    sleep(Duration::from_secs(60));
+    event_tx_clone.send(ProcessorEvent::Quit).unwrap();
     println!("Sent Quit signal to event loop thread.");
 
     // Wait for the spawned thread to finish using join

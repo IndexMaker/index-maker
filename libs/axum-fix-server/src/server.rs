@@ -68,14 +68,12 @@ impl Session {
 /// It uses a `MultiObserver` to publish requests to registered observers and maintains
 /// a map of active sessions. The server must be loaded with a `Plugin`to define incoming
 /// and outgoing message handling.
-pub struct Server<R, Q, P>
+pub struct Server<Q, P>
 where
-    R: ServerRequest,
     Q: ServerResponse,
-    P: ServerPlugin<R, Q>,
+    P: ServerPlugin<Q>,
 {
     me: Weak<RwLock<Self>>,
-    observer: SingleObserver<R>, //Option<Box<dyn Fn(&R)>>,
     sessions: HashMap<SessionId, Arc<Session>>,
     session_id_counter: AtomicUsize,
     plugin: P,
@@ -83,11 +81,10 @@ where
 
 const BUFFER_SIZE: usize = 1024;
 
-impl<R, Q, P> Server<R, Q, P>
+impl<Q, P> Server<Q, P>
 where
-    R: ServerRequest + Send + 'static,
     Q: ServerResponse + Send + 'static,
-    P: ServerPlugin<R, Q> + Send + Sync + 'static,
+    P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     /// new
     ///
@@ -97,7 +94,6 @@ where
         Arc::new_cyclic(|me| {
             RwLock::new(Self {
                 me: me.clone(),
-                observer: SingleObserver::new(),
                 sessions: HashMap::new(),
                 session_id_counter: AtomicUsize::new(1),
                 plugin,
@@ -120,26 +116,6 @@ where
                 tracing::error!("Server failed to start: {}", e);
             }
         });
-    }
-
-    /// send_response
-    ///
-    /// Sends a response to the appropriate client session based on the session ID in the response.
-    /// Returns a `Result` indicating success or failure if the session is not found.
-    pub fn send_response(&self, response: Q) -> Result<()> {
-        let session_id = response.get_session_id().clone();
-        let processed_response = self.process_outgoing_message(response);
-        match self.sessions.get(&session_id) {
-            Some(session) => session.send_response(processed_response?),
-            None => Err(eyre!("Oh, no!")),
-        }
-    }
-
-    /// handle_server_message
-    ///
-    /// Processes an incoming server request by publishing it to all registered observers for processing.
-    fn handle_server_message(&self, request: R) {
-        self.observer.publish_single(request);
     }
 
     /// create_session
@@ -169,7 +145,7 @@ where
     /// close_session
     ///
     /// Closes an existing client session with a unique session ID.
-    pub fn close_session(&mut self, session_id: SessionId) {
+    pub fn close_session(&mut self, session_id: &SessionId) {
         match self.plugin.destroy_session(&session_id) {
             Ok(()) => {
                 self.sessions.remove(&session_id);
@@ -180,33 +156,39 @@ where
         }
     }
 
-    pub fn process_incoming_message(
+    pub fn receive_message(
         &self,
         message: String,
         session_id: &SessionId,
     ) -> Result<(), Report> {
-        let request = self.plugin.process_incoming(message, session_id)?;
-        self.handle_server_message(request);
-        Ok(())
+        self.plugin.process_incoming(message, session_id)
+    }
+
+    /// send_response
+    ///
+    /// Sends a response to the appropriate client session based on the session ID in the response.
+    /// Returns a `Result` indicating success or failure if the session is not found.
+    pub fn send_response(&self, response: Q) -> Result<()> {
+        let session_id = response.get_session_id().clone();
+        let processed_response = self.process_outgoing_message(response);
+        match self.sessions.get(&session_id) {
+            Some(session) => session.send_response(processed_response?),
+            None => Err(eyre!("Oh, no!")),
+        }
     }
 
     pub fn process_outgoing_message(&self, response: Q) -> Result<String, Report> {
         self.plugin.process_outgoing(response)
     }
-
-    pub fn get_multi_observer_mut(&mut self) -> &mut SingleObserver<R> {
-        &mut self.observer
-    }
 }
 
-async fn ws_handler<R, Q, P>(
+async fn ws_handler<Q, P>(
     ws: WebSocketUpgrade,
-    State(server): State<Arc<RwLock<Server<R, Q, P>>>>,
+    State(server): State<Arc<RwLock<Server<Q, P>>>>,
 ) -> impl IntoResponse
 where
-    R: ServerRequest + Send + 'static,
     Q: ServerResponse + Send + 'static,
-    P: ServerPlugin<R, Q> + Send + Sync + 'static,
+    P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     ws.on_upgrade(move |mut ws: WebSocket| async move {
         let (mut receiver, session_id) = server.write().await.create_session().unwrap();
@@ -218,7 +200,7 @@ where
                         Some(Ok(message)) => {
                             if let axum::extract::ws::Message::Text(text) = message {
                                 tracing::debug!("Received message: {}", text);
-                                if let Err(e) = server.read().await.process_incoming_message(text.to_string(), &session_id) {
+                                if let Err(e) = server.read().await.receive_message(text.to_string(), &session_id) {
                                     tracing::error!("Failed to process incoming message: {}", e);
                                     // Send error message back to the client
 
@@ -239,7 +221,7 @@ where
                             break;
                         }
                         None => {
-                            tracing::info!("WebSocket connection closed on session {}", session_id);
+                            tracing::info!("WebSocket connection closed on session {}", &session_id);
                             break;
                         }
                     }
@@ -255,6 +237,6 @@ where
                 }
             }
         }
-        server.write().await.close_session(session_id);
+        server.write().await.close_session(&session_id);
     })
 }

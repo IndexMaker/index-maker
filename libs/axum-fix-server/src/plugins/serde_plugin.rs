@@ -20,7 +20,7 @@ where
         }
     }
 
-    pub fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<R, Report> {
+    pub fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<R> {
         let fix_message = FixMessage(message);
         <R as ServerRequest>::deserialize_from_fix(fix_message, session_id)
     }
