@@ -57,7 +57,6 @@ impl Sessions {
     pub fn drain_all_sessions(&mut self) -> Vec<Session> {
         self.sessions
             .drain()
-            .into_iter()
             .map(|(k, v)| v)
             .collect_vec()
     }

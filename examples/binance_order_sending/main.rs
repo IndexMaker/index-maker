@@ -1,4 +1,3 @@
-use core::time;
 use std::{env, sync::Arc, thread::spawn, time::Duration};
 
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
@@ -9,7 +8,6 @@ use crossbeam::{
     select,
 };
 use parking_lot::RwLock;
-use rust_decimal::dec;
 use symm_core::{
     core::{
         bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol},

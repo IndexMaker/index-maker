@@ -120,10 +120,7 @@ impl TradingSession {
         let timestamp = Utc::now();
         let values = limits
             .iter()
-            .filter(|limit| match limit.rate_limit_type {
-                models::RateLimitType::Orders => true,
-                _ => false,
-            })
+            .filter(|limit| matches!(limit.rate_limit_type, models::RateLimitType::Orders))
             .map(|limit| {
                 let conf = LimiterConfig::new(
                     limit.limit as usize,
@@ -360,8 +357,8 @@ impl TradingUserData {
 
 #[cfg(test)]
 mod test {
-    use binance_sdk::models::{self, WebsocketApiRateLimit};
-    use chrono::{TimeDelta, Utc};
+    
+    
     use serde_json::json;
 
     use crate::trading_session::ExecutionReport;

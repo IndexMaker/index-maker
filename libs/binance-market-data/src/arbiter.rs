@@ -1,4 +1,4 @@
-use std::{sync::Arc, usize};
+use std::sync::Arc;
 
 use eyre::{Report, Result};
 use itertools::Either;

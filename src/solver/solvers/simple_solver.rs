@@ -293,7 +293,7 @@ impl SimpleSolver {
                 }
             });
 
-        (HashMap::from_iter(index_prices.into_iter()), bad)
+        (HashMap::from_iter(index_prices), bad)
     }
 
     /// Calculate quantity of An Index that fits within Collateral given, and

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display, sync::Arc};
+use std::{collections::VecDeque, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};

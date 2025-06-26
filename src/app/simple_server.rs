@@ -6,7 +6,7 @@ use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 
 use symm_core::core::functional::{
-    IntoObservableManyVTable, MultiObserver, NotificationHandler, NotificationHandlerOnce,
+    IntoObservableManyVTable, MultiObserver, NotificationHandler,
     PublishMany,
 };
 

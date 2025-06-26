@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock as ComponentLock};
 
 use crate::{
     app::simple_router::CollateralRouterConfig,
-    collateral::{collateral_manager::CollateralManager, collateral_router::CollateralRouter},
+    collateral::collateral_manager::CollateralManager,
 };
 
 use super::config::ConfigBuildError;

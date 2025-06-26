@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use crate::{
-    app::simple_server::ServerConfig, server::server::Server,
+    app::simple_server::ServerConfig,
     solver::index_quote_manager::QuoteRequestManager,
 };
 

@@ -126,7 +126,7 @@ fn build_collateral_router(
         router.add_bridge(Arc::new(ComponentLock::new(SimpleBridge::new(
             source,
             destination,
-        ))));
+        ))))?;
         router.add_route(&[Symbol::from(source), Symbol::from(destination)])?;
         router.add_chain_source(chain_id, Symbol::from(source))?;
         router.set_default_destination(Symbol::from(destination))?;

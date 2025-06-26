@@ -1,4 +1,4 @@
-use std::{ops::DerefMut, sync::Arc};
+use std::sync::Arc;
 
 use parking_lot::RwLock;
 

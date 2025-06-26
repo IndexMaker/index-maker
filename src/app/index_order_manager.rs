@@ -1,11 +1,10 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use crate::{app::simple_server::ServerConfig, server::server::Server, solver::index_order_manager::IndexOrderManager};
+use crate::{app::simple_server::ServerConfig, solver::index_order_manager::IndexOrderManager};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
-use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::core::bits::Amount;
 
