@@ -210,7 +210,7 @@ async fn main() {
 
     solver_config.run().await.expect("Failed to run solver");
 
-    sleep(std::time::Duration::from_secs(5)).await;
+    sleep(std::time::Duration::from_secs(10)).await;
 
     simple_chain
         .write()
@@ -219,6 +219,20 @@ async fn main() {
             index_symbol,
             basket_definition,
         ));
+
+    sleep(std::time::Duration::from_secs(5)).await;
+
+    simple_chain
+        .write()
+        .expect("Failed to lock chain connector")
+        .publish_event(ChainNotification::Deposit {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            amount: cli.collateral_amount,
+            timestamp: Utc::now(),
+        });
+
+    sleep(std::time::Duration::from_secs(5)).await;
 
     simple_server
         .read()
@@ -231,6 +245,8 @@ async fn main() {
             collateral_amount: cli.collateral_amount,
             timestamp: Utc::now(),
         }));
+
+    sleep(std::time::Duration::from_secs(15)).await;
 
     solver_config.stop().await.expect("Failed to stop solver");
 }

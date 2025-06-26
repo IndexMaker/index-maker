@@ -135,9 +135,9 @@ pub trait SolverStrategy {
 /// wasn't matched against ordered indexes shouldn't be kept for too long.
 pub struct Solver {
     // solver strategy for calculating order batches
-    strategy: Arc<dyn SolverStrategy>,
+    strategy: Arc<dyn SolverStrategy + Send + Sync>,
     basket_manager: Arc<RwLock<BasketManager>>,
-    order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
+    order_id_provider: Arc<RwLock<dyn OrderIdProvider + Send + Sync>>,
     price_tracker: Arc<RwLock<PriceTracker>>,
     order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
     // dependencies
@@ -161,8 +161,8 @@ pub struct Solver {
 }
 impl Solver {
     pub fn new(
-        strategy: Arc<dyn SolverStrategy>,
-        order_id_provider: Arc<RwLock<dyn OrderIdProvider>>,
+        strategy: Arc<dyn SolverStrategy + Send + Sync>,
+        order_id_provider: Arc<RwLock<dyn OrderIdProvider + Send + Sync>>,
         basket_manager: Arc<RwLock<BasketManager>>,
         price_tracker: Arc<RwLock<PriceTracker>>,
         order_book_manager: Arc<RwLock<dyn OrderBookManager + Send + Sync>>,
@@ -412,9 +412,9 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        println!("\n(solver) Begin solve");
+        // println!("\n(solver) Begin solve");
 
-        println!("(solver) * Process collateral");
+        // println!("(solver) * Process collateral");
         if let Err(err) = self
             .collateral_manager
             .write()
@@ -424,22 +424,22 @@ impl Solver {
             eprintln!("(solver) Error while processing credits: {:?}", err);
         }
 
-        println!("(solver) * Mint indexes");
+        // println!("(solver) * Mint indexes");
         if let Err(err) = self.mint_indexes(timestamp) {
             eprintln!("(solver) Error while processing mints: {:?}", err);
         }
 
-        println!("(solver) * Serve more clients");
+        // println!("(solver) * Serve more clients");
         if let Err(err) = self.serve_more_clients(timestamp) {
             eprintln!("(solver) Error while serving more clients: {:?}", err);
         }
 
-        println!("(solver) * Engage more orders");
+        // println!("(solver) * Engage more orders");
         if let Err(err) = self.engage_more_orders(timestamp) {
             eprintln!("Error while engaging more orders: {:?}", err);
         }
 
-        println!("(solver) * Process batches");
+        // println!("(solver) * Process batches");
         if let Err(err) = self
             .batch_manager
             .write()
@@ -449,12 +449,12 @@ impl Solver {
             eprintln!("(solver) Error while sending more batches: {:?}", err);
         }
 
-        println!("(solver) * Process quotes");
+        // println!("(solver) * Process quotes");
         if let Err(err) = self.process_more_quotes(timestamp) {
             eprintln!("(solver) Error while processing more quotes: {:?}", err);
         }
 
-        println!("(solver) End solve\n");
+        // println!("(solver) End solve\n");
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
@@ -971,7 +971,7 @@ impl Solver {
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
             PriceEvent::PriceChange { symbol } => {
-                println!("(solver) Handle Price Event {:5}", symbol)
+                //println!("(solver) Handle Price Event {:5}", symbol)
             }
         };
     }
@@ -980,10 +980,10 @@ impl Solver {
     pub fn handle_book_event(&self, notification: OrderBookEvent) {
         match notification {
             OrderBookEvent::BookUpdate { symbol } => {
-                println!("(solver) Handle Book Event {:5}", symbol);
+                //println!("(solver) Handle Book Event {:5}", symbol);
             }
             OrderBookEvent::UpdateError { symbol, error } => {
-                println!("(solver) Handle Book Event {:5}, Error: {}", symbol, error);
+                //println!("(solver) Handle Book Event {:5}, Error: {}", symbol, error);
             }
         }
     }

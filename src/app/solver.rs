@@ -1,3 +1,4 @@
+use core::time;
 use std::{
     sync::{Arc, RwLock as ComponentLock},
     thread,
@@ -26,13 +27,13 @@ use crate::{
 };
 
 use super::config::ConfigBuildError;
-use chrono::TimeDelta;
+use chrono::{TimeDelta, Utc};
 use crossbeam::{
     channel::{unbounded, Sender},
     select,
 };
 use derive_builder::Builder;
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use symm_core::{
     core::{
@@ -123,7 +124,7 @@ pub struct SolverConfig {
     pub client_quote_wait_period: TimeDelta,
 
     #[builder(setter(skip))]
-    pub(crate) solver: Option<Arc<ComponentLock<Solver>>>,
+    pub(crate) solver: Option<Solver>,
 
     #[builder(setter(skip))]
     pub(crate) stopping: Option<(Sender<()>, oneshot::Receiver<()>)>,
@@ -136,6 +137,8 @@ impl SolverConfig {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        let solver = self.solver.take().ok_or_eyre("Failed to get solver")?;
+
         let (stop_tx, stop_rx) = unbounded::<()>();
         let (stopped_tx, stopped_rx) = oneshot::channel();
 
@@ -409,6 +412,7 @@ impl SolverConfig {
                 recv(price_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Price event: {:?}", event);
+                        solver.handle_price_event(event);
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive price event: {:?}", err);
@@ -417,6 +421,7 @@ impl SolverConfig {
                 recv(book_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Book event: {:?}", event);
+                        solver.handle_book_event(event);
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive book event: {:?}", err);
@@ -425,6 +430,9 @@ impl SolverConfig {
                 recv(collateral_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Collateral event");
+                        if let Err(err) = solver.handle_collateral_event(event) {
+                            tracing::warn!("Failed to handle collateral event: {:?}", err);
+                        }
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive collateral event: {:?}", err);
@@ -433,6 +441,9 @@ impl SolverConfig {
                 recv(batch_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Batch event");
+                        if let Err(err) = solver.handle_batch_event(event) {
+                            tracing::warn!("Failed to handle batch event: {:?}", err);
+                        }
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive batch event: {:?}", err);
@@ -441,6 +452,9 @@ impl SolverConfig {
                 recv(inventory_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Inventory event: {:?}", event);
+                        if let Err(err) = solver.handle_inventory_event(event) {
+                            tracing::warn!("Failed to handle inventory event: {:?}", err);
+                        }
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive inventory event: {:?}", err);
@@ -448,7 +462,9 @@ impl SolverConfig {
                 },
                 recv(basket_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Basket event");
+                        if let Err(err) = solver.handle_basket_event(event) {
+                            tracing::warn!("Failed to handle basket event: {:?}", err);
+                        }
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive basket event: {:?}", err);
@@ -457,6 +473,9 @@ impl SolverConfig {
                 recv(index_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Index order event");
+                        if let Err(err) = solver.handle_index_order(event) {
+                            tracing::warn!("Failed to handle index order event: {:?}", err);
+                        }
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive index order event: {:?}", err);
@@ -465,6 +484,9 @@ impl SolverConfig {
                 recv(quote_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Quote request event");
+                        if let Err(err) = solver.handle_quote_request(event) {
+                            tracing::warn!("Failed to handle quote request event: {:?}", err);
+                        }
                     }
                     Err(err) => {
                         tracing::warn!("Failed to receive quote request event: {:?}", err);
@@ -473,11 +495,18 @@ impl SolverConfig {
                 recv(chain_event_rx) -> res => match res {
                     Ok(event) => {
                         tracing::debug!("Chain event");
+                        if let Err(err) = solver.handle_chain_event(event) {
+                            tracing::warn!("Failed to handle chain event: {:?}", err);
+                        }
                     },
                     Err(err) => {
                         tracing::warn!("Failed to receive chain event: {:?}", err);
                     }
                 },
+                default => {
+                    thread::sleep(time::Duration::from_secs(2));
+                    solver.solve(Utc::now());
+                }
             }
         });
 
@@ -588,25 +617,23 @@ impl SolverConfigBuilder {
                 ConfigBuildError::UninitializedField("with_chain_connector.chain_connector")
             })?;
 
-        config
-            .solver
-            .replace(Arc::new(ComponentLock::new(Solver::new(
-                strategy,
-                order_id_provider,
-                basket_manager,
-                price_tracker,
-                order_book_manager,
-                chain_connector,
-                batch_manager,
-                collateral_manager,
-                index_order_manager,
-                quote_request_manager,
-                inventory_manager,
-                config.max_batch_size,
-                config.zero_threshold,
-                config.client_order_wait_period,
-                config.client_quote_wait_period,
-            ))));
+        config.solver.replace(Solver::new(
+            strategy,
+            order_id_provider,
+            basket_manager,
+            price_tracker,
+            order_book_manager,
+            chain_connector,
+            batch_manager,
+            collateral_manager,
+            index_order_manager,
+            quote_request_manager,
+            inventory_manager,
+            config.max_batch_size,
+            config.zero_threshold,
+            config.client_order_wait_period,
+            config.client_quote_wait_period,
+        ));
 
         Ok(config)
     }
