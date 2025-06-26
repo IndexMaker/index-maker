@@ -9,6 +9,7 @@ use crate::{
     market_data::market_data_connector::MarketDataEvent,
 };
 
+#[derive(Debug)]
 pub enum PriceEvent {
     PriceChange { symbol: Symbol },
 }

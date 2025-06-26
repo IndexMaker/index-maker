@@ -61,7 +61,7 @@ impl SubAccounts {
             ))?;
         }
 
-        self.subaccounts.extend(successes.into_iter());
+        self.subaccounts.extend(successes);
         Ok(())
     }
 }

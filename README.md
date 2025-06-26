@@ -119,6 +119,9 @@
     - [ ] Investigate asset delisting
     - [ ] Investigate system to maintain the list of assets
     - [ ] Create Solver example with live market data
+* [ ] Additional Work for Binance Order Sending Connector 
+    - [x] Respect rate limits
+    - [ ] Respect price and quantity filters
 * [ ] Logging & Error handling
     - [x] Choose Rust package for logging (see `tracing` package)
     - [ ] Find out best way to handle runtime errors

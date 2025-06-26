@@ -246,17 +246,15 @@ impl From<Basket> for Vec<AssetWeight> {
 
 #[cfg(test)]
 mod tests {
+    use crate::index::basket::{AssetWeight, Basket, BasketDefinition};
+    use eyre::Result;
+    use rust_decimal::dec;
+    use std::{collections::HashMap, sync::Arc};
     use symm_core::{
         assert_decimal_approx_eq,
         assets::asset::Asset,
         core::bits::{Amount, Symbol},
     };
-    use crate::{
-        index::basket::{AssetWeight, Basket, BasketDefinition},
-    };
-    use eyre::Result;
-    use rust_decimal::dec;
-    use std::{collections::HashMap, sync::Arc};
 
     #[test]
     fn test_basket() -> Result<()> {

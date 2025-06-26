@@ -1,0 +1,259 @@
+use std::{env, sync::Arc};
+
+use binance_order_sending::credentials::Credentials;
+use chrono::{TimeDelta, Utc};
+use clap::Parser;
+use index_maker::{
+    app::{
+        basket_manager::BasketManagerConfig,
+        batch_manager::BatchManagerConfig,
+        collateral_manager::CollateralManagerConfig,
+        index_order_manager::IndexOrderManagerConfig,
+        market_data::MarketDataConfig,
+        order_sender::OrderSenderConfig,
+        quote_request_manager::QuoteRequestManagerConfig,
+        simple_chain::SimpleChainConnectorConfig,
+        simple_router::SimpleCollateralRouterConfig,
+        simple_server::{ServerConfig, SimpleServerConfig},
+        simple_solver::SimpleSolverConfig,
+        solver::{ChainConnectorConfig, OrderIdProviderConfig, SolverConfig, SolverStrategyConfig},
+        timestamp_ids::{util::make_timestamp_id, TimestampOrderIdsConfig},
+    },
+    blockchain::chain_connector::ChainNotification,
+    index::basket::{AssetWeight, BasketDefinition},
+    server::server::ServerEvent,
+};
+use itertools::Itertools;
+use rust_decimal::dec;
+use symm_core::{
+    assets::asset::Asset,
+    core::{
+        bits::{Amount, PriceType, Side, Symbol},
+        logging::log_init,
+        test_util::get_mock_address_1,
+    },
+    init_log,
+};
+use tokio::time::sleep;
+
+#[derive(Parser)]
+struct Cli {
+    symbol: Symbol,
+    side: Side,
+    collateral_amount: Amount,
+}
+
+#[tokio::main]
+async fn main() {
+    init_log!();
+
+    // ==== Command line input
+    // ----
+
+    let cli = Cli::parse();
+
+    tracing::info!(
+        "Index Order: {} {:?} {}",
+        cli.symbol,
+        cli.side,
+        cli.collateral_amount
+    );
+
+    // ==== Configuration parameters
+    // ----
+
+    let price_threshold = dec!(0.0001);
+    let fee_factor = dec!(1.001);
+    let max_order_volley_size = dec!(20.0);
+    let max_volley_size = dec!(100.0);
+
+    let fill_threshold = dec!(0.9999);
+    let mint_threshold = dec!(0.99);
+    let mint_wait_period = TimeDelta::seconds(10);
+
+    let max_batch_size = 4usize;
+    let zero_threshold = dec!(0.00001);
+    let client_order_wait_period = TimeDelta::seconds(5);
+    let client_quote_wait_period = TimeDelta::seconds(1);
+
+    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let credentials = Credentials::new(
+        api_key,
+        move || env::var("BINANCE_API_SECRET").ok(),
+        move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
+        move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
+    );
+
+    // ==== Fake stuff
+    // ----
+
+    // Fake index assets (btw: these should be assets and not markets)
+    let symbols = [
+        Symbol::from("BNBEUR"),
+        Symbol::from("BTCEUR"),
+        Symbol::from("ETHEUR"),
+        Symbol::from("LINKEUR"),
+    ];
+
+    let weights = [dec!(0.3), dec!(0.2), dec!(0.4), dec!(0.1)];
+    let index_symbol = Symbol::from("SO4");
+
+    let assets = symbols
+        .iter()
+        .map(|s| Arc::new(Asset::new(s.clone())))
+        .collect_vec();
+
+    let asset_weights = assets
+        .iter()
+        .zip(weights)
+        .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
+        .collect_vec();
+
+    let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
+        .expect("Failed to create basket definition");
+
+    let router_config = SimpleCollateralRouterConfig::builder()
+        .chain_id(1u32)
+        .source("SRC:BINANCE:EUR")
+        .destination("DST:BINANCE:EUR")
+        .build()
+        .expect("Failed to build collateral router");
+
+    let order_id_config = TimestampOrderIdsConfig::builder()
+        .build_arc()
+        .expect("Failed to build order ID provider");
+
+    let server_config = SimpleServerConfig::builder()
+        .build_arc()
+        .expect("Failed to build server");
+
+    let simple_server = server_config.expect_simple_server_cloned();
+
+    let chain_connector_config = SimpleChainConnectorConfig::builder()
+        .build_arc()
+        .expect("Failed to build chain connector");
+
+    let simple_chain = chain_connector_config.expect_chain_connector_cloned();
+
+    // ==== Real stuff
+    // ----
+
+    let market_data_config = MarketDataConfig::builder()
+        .zero_threshold(zero_threshold)
+        .symbols(&symbols)
+        .with_price_tracker(true)
+        .with_book_manager(true)
+        .build()
+        .expect("Failed to build market data");
+
+    let price_tracker = market_data_config.expect_price_tracker_cloned();
+
+    let order_sender_config = OrderSenderConfig::builder()
+        .credentials(vec![credentials])
+        .build()
+        .expect("Failed to build order sender");
+
+    let index_order_manager_config = IndexOrderManagerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .with_server(server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
+        .build()
+        .expect("Failed to build index order manager");
+
+    let quote_request_manager_config = QuoteRequestManagerConfig::builder()
+        .with_server(server_config as Arc<dyn ServerConfig + Send + Sync>)
+        .build()
+        .expect("Failed to build quote request manager");
+
+    let batch_manager_config = BatchManagerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .fill_threshold(fill_threshold)
+        .mint_threshold(mint_threshold)
+        .mint_wait_period(mint_wait_period)
+        .max_batch_size(max_batch_size)
+        .build()
+        .expect("Failed to build batch manager");
+
+    let basket_manager_config = BasketManagerConfig::builder()
+        .build()
+        .expect("Failed to build basket manager");
+
+    let collateral_manager_config = CollateralManagerConfig::builder()
+        .zero_threshold(zero_threshold)
+        .with_router(router_config)
+        .build()
+        .expect("Failed to build collateral manager");
+
+    let strategy_config = SimpleSolverConfig::builder()
+        .price_threshold(price_threshold)
+        .fee_factor(fee_factor)
+        .max_order_volley_size(max_order_volley_size)
+        .max_volley_size(max_volley_size)
+        .build_arc()
+        .expect("Failed to build simple solver");
+
+    let mut solver_config = SolverConfig::builder()
+        .zero_threshold(zero_threshold)
+        .max_batch_size(max_batch_size)
+        .client_order_wait_period(client_order_wait_period)
+        .client_quote_wait_period(client_quote_wait_period)
+        .with_basket_manager(basket_manager_config)
+        .with_batch_manager(batch_manager_config)
+        .with_collateral_manager(collateral_manager_config)
+        .with_market_data(market_data_config)
+        .with_order_sender(order_sender_config)
+        .with_index_order_manager(index_order_manager_config)
+        .with_quote_request_manager(quote_request_manager_config)
+        .with_strategy(strategy_config as Arc<dyn SolverStrategyConfig + Send + Sync>)
+        .with_order_ids(order_id_config as Arc<dyn OrderIdProviderConfig + Send + Sync>)
+        .with_chain_connector(chain_connector_config as Arc<dyn ChainConnectorConfig + Send + Sync>)
+        .build()
+        .expect("Failed to build solver");
+
+    solver_config.run().await.expect("Failed to run solver");
+
+    loop {
+        sleep(std::time::Duration::from_secs(1)).await;
+        let reslult = price_tracker.read().get_prices(PriceType::BestAsk, &symbols);
+        if reslult.missing_symbols.is_empty() {
+            break;
+        }
+    }
+
+    simple_chain
+        .write()
+        .expect("Failed to lock chain connector")
+        .publish_event(ChainNotification::CuratorWeightsSet(
+            index_symbol,
+            basket_definition,
+        ));
+
+    sleep(std::time::Duration::from_secs(2)).await;
+
+    simple_chain
+        .write()
+        .expect("Failed to lock chain connector")
+        .publish_event(ChainNotification::Deposit {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            amount: cli.collateral_amount,
+            timestamp: Utc::now(),
+        });
+
+    sleep(std::time::Duration::from_secs(2)).await;
+
+    simple_server
+        .read()
+        .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+            chain_id: 1,
+            address: get_mock_address_1(),
+            client_order_id: make_timestamp_id("C-"),
+            symbol: cli.symbol,
+            side: cli.side,
+            collateral_amount: cli.collateral_amount,
+            timestamp: Utc::now(),
+        }));
+
+    sleep(std::time::Duration::from_secs(10)).await;
+
+    solver_config.stop().await.expect("Failed to stop solver");
+}

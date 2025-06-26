@@ -509,15 +509,13 @@ mod test {
     use chrono::Utc;
     use rust_decimal::dec;
 
+    use crate::solver::index_order::UpdateIndexOrderOutcome;
     use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::{Amount, Side},
             test_util::{get_mock_address_1, get_mock_asset_name_1},
         },
-    };
-    use crate::{
-        solver::index_order::UpdateIndexOrderOutcome,
     };
 
     use super::IndexOrder;

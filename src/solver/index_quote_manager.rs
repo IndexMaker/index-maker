@@ -154,7 +154,7 @@ impl QuoteRequestManager {
     }
 
     pub fn quotes_solved(&mut self, solved_quotes: SolveQuotesResult) -> Result<()> {
-        println!("(index-order-manager) Quotes solved...");
+        //println!("(index-order-manager) Quotes solved...");
 
         // We need to remove solved (or failed) quotes first, before we send
         // response to FIX, because once user receives FIX response, they

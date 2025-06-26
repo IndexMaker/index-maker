@@ -9,16 +9,12 @@ use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
-use symm_core::{
-    core::{
-        bits::{Address, Amount, ClientOrderId, PaymentId, Side},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, PaymentId, Side},
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
-use crate::{
-    solver::solver::{CollateralManagement, SetSolverOrderStatus},
-};
+use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
 
 use super::{
     collateral_position::*,

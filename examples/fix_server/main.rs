@@ -13,7 +13,7 @@ mod requests;
 mod responses;
 mod solver;
 
-use example_plugin::CompositeServerPlugin;
+use example_plugin::ExamplePlugin;
 use requests::Request;
 use responses::Response;
 use solver::{Solver as MockSolver, SolverEvents};
@@ -26,7 +26,7 @@ pub async fn main() {
     let event_tx_clone = event_tx.clone();
 
     // Creating plugin that will consume server messages
-    let mut plugin = CompositeServerPlugin::<Request, Response>::new();
+    let mut plugin = ExamplePlugin::<Request, Response>::new();
     plugin.set_observer_plugin_callback(move |e: Request| {
         //handle_server_event(&e);
         event_tx.send(SolverEvents::Message(e)).unwrap();

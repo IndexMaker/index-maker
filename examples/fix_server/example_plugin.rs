@@ -10,7 +10,7 @@ use symm_core::core::functional::NotificationHandlerOnce;
 
 
 // A composite plugin that can wrap other plugins and delegate functionality.
-pub struct CompositeServerPlugin<R, Q> 
+pub struct ExamplePlugin<R, Q> 
 where
     R: ServerRequest,
     Q: ServerResponse,
@@ -20,7 +20,7 @@ where
     seq_num_plugin: SeqNumPlugin<R, Q>,
 }
 
-impl<R, Q> CompositeServerPlugin<R, Q> 
+impl<R, Q> ExamplePlugin<R, Q> 
 where
     R: ServerRequest + SeqNumPluginAux,
     Q: ServerResponse + SeqNumPluginAux,
@@ -36,9 +36,17 @@ where
     pub fn set_observer_plugin_callback(&mut self, closure: impl NotificationHandlerOnce<R> + 'static) {
         self.observer_plugin.set_observer_closure(closure);
     }
+
+    fn process_error(&self, error_msg: String, session_id: &SessionId) -> Result<String> {
+        let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
+        //let nak: Response = Response::create_nak(session_id, seq_num, error_msg);
+        let mut nak = Q::format_errors(session_id, error_msg, seq_num);
+        nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+        self.serde_plugin.process_outgoing(nak)
+    }
 }
 
-impl<R, Q> ServerPlugin<Q> for CompositeServerPlugin<R, Q>
+impl<R, Q> ServerPlugin<Q> for ExamplePlugin<R, Q>
 where
     R: ServerRequest + SeqNumPluginAux,
     Q: ServerResponse + SeqNumPluginAux,
@@ -62,14 +70,6 @@ where
         }
     }
         
-    }
-    
-    fn process_error(&self, error_msg: String, session_id: &SessionId) -> Result<String> {
-        let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
-        //let nak: Response = Response::create_nak(session_id, seq_num, error_msg);
-        let mut nak = Q::format_errors(session_id, error_msg, seq_num);
-        nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
-        self.serde_plugin.process_outgoing(nak)
     }
 
     fn process_outgoing(&self, response: Q) -> Result<String> {

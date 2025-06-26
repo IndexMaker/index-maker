@@ -4,6 +4,7 @@ use symm_core::{core::bits::SingleOrder, order_sender::order_connector::SessionI
 
 pub enum Command {
     NewOrder(Arc<SingleOrder>),
+    GetExchangeInfo(),
 }
 
 pub struct SessionCommand {

@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
-use symm_core::{
-    core::bits::{Address, Amount, Symbol},
+use symm_core::core::{
+    bits::{Address, Amount, Symbol},
+    functional::IntoObservableSingleVTable,
 };
 
-use crate::{
-    index::basket::{Basket, BasketDefinition},
-};
+use crate::index::basket::{Basket, BasketDefinition};
 
 /// call blockchain methods, receive blockchain events
 
@@ -30,7 +29,7 @@ pub enum ChainNotification {
 }
 
 /// Connects to some Blockchain
-pub trait ChainConnector {
+pub trait ChainConnector: IntoObservableSingleVTable<ChainNotification> {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>);
     fn mint_index(
         &self,
@@ -59,16 +58,15 @@ pub mod test_util {
 
     use chrono::{DateTime, Utc};
 
-    use symm_core::{
-        core::{
-            bits::{Address, Amount, Symbol},
-            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    use symm_core::core::{
+        bits::{Address, Amount, Symbol},
+        functional::{
+            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+            PublishSingle, SingleObserver,
         },
     };
 
-    use crate::{
-        index::basket::{Basket, BasketDefinition},
-    };
+    use crate::index::basket::{Basket, BasketDefinition};
 
     use super::{ChainConnector, ChainNotification};
 
@@ -174,6 +172,12 @@ pub mod test_util {
     impl IntoObservableSingle<ChainNotification> for MockChainConnector {
         fn get_single_observer_mut(&mut self) -> &mut SingleObserver<ChainNotification> {
             &mut self.observer
+        }
+    }
+
+    impl IntoObservableSingleVTable<ChainNotification> for MockChainConnector {
+        fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
+            self.get_single_observer_mut().set_observer(observer);
         }
     }
 

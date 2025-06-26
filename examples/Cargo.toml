@@ -12,6 +12,7 @@ binance-order-sending = { workspace = true }
 binance-sdk = { workspace = true, features = ["spot"] }
 chrono = { workspace = true }
 axum-fix-server = { path = "../libs/axum-fix-server" }
+clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }

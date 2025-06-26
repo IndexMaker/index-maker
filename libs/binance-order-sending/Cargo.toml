@@ -10,7 +10,6 @@ binance-sdk = { workspace = true }
 chrono = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
-index-maker = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }

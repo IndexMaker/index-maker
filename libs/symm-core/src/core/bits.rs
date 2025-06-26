@@ -1,4 +1,3 @@
-use std::{fmt::Display, ops::Deref};
 
 use crate::{core::decimal_ext::DecimalExt, string_id};
 use chrono::{DateTime, Utc};
@@ -68,7 +67,6 @@ string_id!(ClientOrderId);
 string_id!(ClientQuoteId);
 string_id!(PaymentId);
 
-
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
 pub enum Side {
     Buy,
@@ -80,6 +78,32 @@ impl Side {
         match self {
             Self::Buy => Self::Sell,
             Self::Sell => Self::Buy,
+        }
+    }
+}
+
+impl From<&str> for Side {
+    fn from(value: &str) -> Self {
+        match value {
+            "buy" => Side::Buy,
+            "Buy" => Side::Buy,
+            "BUY" => Side::Buy,
+            "bid" => Side::Buy,
+            "Bid" => Side::Buy,
+            "BID" => Side::Buy,
+            "B" => Side::Buy,
+            "b" => Side::Buy,
+            "sell" => Side::Sell,
+            "Sell" => Side::Sell,
+            "SELL" => Side::Sell,
+            "S" => Side::Sell,
+            "s" => Side::Sell,
+            "ask" => Side::Sell,
+            "Ask" => Side::Sell,
+            "ASK" => Side::Sell,
+            "A" => Side::Sell,
+            "a" => Side::Sell,
+            _ => panic!("Invalid side"),
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use eyre::{eyre, OptionExt, Result};
+use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
         bits::SingleOrder,
@@ -8,7 +9,6 @@ use symm_core::{
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };
-use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{

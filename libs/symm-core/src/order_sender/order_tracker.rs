@@ -21,6 +21,7 @@ use crate::{
 };
 
 /// track orders that we sent to
+#[derive(Debug)]
 pub enum OrderTrackerNotification {
     Fill {
         order_id: OrderId,
@@ -339,9 +340,12 @@ mod test {
                 get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
             },
         },
-        order_sender::{order_connector::{
-            test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
-        }, position::LotId},
+        order_sender::{
+            order_connector::{
+                test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
+            },
+            position::LotId,
+        },
     };
 
     use super::{OrderTracker, OrderTrackerNotification};
@@ -507,7 +511,9 @@ mod test {
                     .unwrap();
             });
 
-        order_connector.write().notify_logon("Session-01".into(), timestamp);
+        order_connector
+            .write()
+            .notify_logon("Session-01".into(), timestamp);
         run_mock_deferred(&deferred_actions);
 
         order_tracker
@@ -516,9 +522,11 @@ mod test {
             .expect("Failed to send order");
         run_mock_deferred(&deferred_actions);
 
-        order_connector
-            .write()
-            .notify_logout("Session-01".into(), "Session disconnected".to_owned(), timestamp);
+        order_connector.write().notify_logout(
+            "Session-01".into(),
+            "Session disconnected".to_owned(),
+            timestamp,
+        );
         run_mock_deferred(&deferred_actions);
 
         test_mock_atomic_bool(&flag_fill_1);
