@@ -504,7 +504,7 @@ impl SolverConfig {
                     }
                 },
                 default => {
-                    thread::sleep(time::Duration::from_secs(2));
+                    thread::sleep(time::Duration::from_secs(1));
                     solver.solve(Utc::now());
                 }
             }

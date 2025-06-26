@@ -28,7 +28,7 @@ use rust_decimal::dec;
 use symm_core::{
     assets::asset::Asset,
     core::{
-        bits::{Amount, Side, Symbol},
+        bits::{Amount, PriceType, Side, Symbol},
         logging::log_init,
         test_util::get_mock_address_1,
     },
@@ -62,7 +62,7 @@ async fn main() {
     // ==== Configuration parameters
     // ----
 
-    let price_threshold = dec!(0.01);
+    let price_threshold = dec!(0.0001);
     let fee_factor = dec!(1.001);
     let max_order_volley_size = dec!(20.0);
     let max_volley_size = dec!(100.0);
@@ -147,6 +147,8 @@ async fn main() {
         .build()
         .expect("Failed to build market data");
 
+    let price_tracker = market_data_config.expect_price_tracker_cloned();
+
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(vec![credentials])
         .build()
@@ -210,7 +212,13 @@ async fn main() {
 
     solver_config.run().await.expect("Failed to run solver");
 
-    sleep(std::time::Duration::from_secs(10)).await;
+    loop {
+        sleep(std::time::Duration::from_secs(1)).await;
+        let reslult = price_tracker.read().get_prices(PriceType::BestAsk, &symbols);
+        if reslult.missing_symbols.is_empty() {
+            break;
+        }
+    }
 
     simple_chain
         .write()
@@ -220,7 +228,7 @@ async fn main() {
             basket_definition,
         ));
 
-    sleep(std::time::Duration::from_secs(5)).await;
+    sleep(std::time::Duration::from_secs(2)).await;
 
     simple_chain
         .write()
@@ -232,7 +240,7 @@ async fn main() {
             timestamp: Utc::now(),
         });
 
-    sleep(std::time::Duration::from_secs(5)).await;
+    sleep(std::time::Duration::from_secs(2)).await;
 
     simple_server
         .read()
@@ -246,7 +254,7 @@ async fn main() {
             timestamp: Utc::now(),
         }));
 
-    sleep(std::time::Duration::from_secs(15)).await;
+    sleep(std::time::Duration::from_secs(10)).await;
 
     solver_config.stop().await.expect("Failed to stop solver");
 }

@@ -3,13 +3,13 @@ use std::sync::Arc;
 use binance_sdk::common::websocket::WebsocketStream;
 use binance_sdk::models::{self, WebsocketApiRateLimit};
 use binance_sdk::spot::websocket_api::{
-    OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum, UserDataStreamStartParams,
-    UserDataStreamSubscribeParams, WebsocketApi,
+    ExchangeInfoParams, OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum,
+    UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi,
 };
 use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use chrono::{Duration, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use rust_decimal::Decimal;
@@ -167,17 +167,25 @@ impl TradingSession {
     ) -> Result<()> {
         match command {
             Command::NewOrder(single_order) => {
+                let side = match single_order.side {
+                    Side::Buy => OrderPlaceSideEnum::Buy,
+                    Side::Sell => OrderPlaceSideEnum::Sell,
+                };
+
+                let mut price = single_order.price;
+                price.rescale(20);
+
+                let mut quantity = single_order.quantity;
+                quantity.rescale(20);
+
                 let params = OrderPlaceParams {
                     id: None,
-                    side: match single_order.side {
-                        Side::Buy => OrderPlaceSideEnum::Buy,
-                        Side::Sell => OrderPlaceSideEnum::Sell,
-                    },
+                    side,
                     symbol: single_order.symbol.to_string(),
                     r#type: websocket_api::OrderPlaceTypeEnum::Limit,
                     time_in_force: Some(OrderPlaceTimeInForceEnum::Ioc),
-                    price: Some(single_order.price),
-                    quantity: Some(single_order.quantity),
+                    price: Some(price),
+                    quantity: Some(quantity),
                     quote_order_qty: None,
                     new_client_order_id: Some(single_order.order_id.cloned()),
                     new_order_resp_type: None,
@@ -224,10 +232,26 @@ impl TradingSession {
                         });
                     Err(err)?
                 }
+            }
+            Command::GetExchangeInfo() => {
+                let params = ExchangeInfoParams::builder()
+                    .build()
+                    .map_err(|err| eyre!("Failed to build exchange info params: {}", err))?;
 
-                Ok(())
+                let res = self
+                    .wsapi
+                    .exchange_info(params)
+                    .await
+                    .map_err(|err| eyre!("Failed to obtain exchange info: {}", err))?;
+
+                let exchange_info = res
+                    .data()
+                    .map_err(|err| eyre!("Failed to obtain exchange info data: {}", err))?;
+
+                todo!("Use exchange info: symbols.filters where filter_type is PRICE_FILTER | LOT_SIZE")
             }
         }
+        Ok(())
     }
 
     pub async fn subscribe(
@@ -357,8 +381,7 @@ impl TradingUserData {
 
 #[cfg(test)]
 mod test {
-    
-    
+
     use serde_json::json;
 
     use crate::trading_session::ExecutionReport;
