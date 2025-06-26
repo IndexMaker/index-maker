@@ -5,7 +5,7 @@ use crate::solver::batch_manager::BatchManager;
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
-use eyre::Result;
+use eyre::{OptionExt, Result};
 use rust_decimal::dec;
 use symm_core::core::bits::Amount;
 
@@ -31,13 +31,21 @@ pub struct BatchManagerConfig {
     pub mint_wait_period: Option<TimeDelta>,
 
     #[builder(setter(skip))]
-    pub(crate) batch_manager: Option<Arc<ComponentLock<BatchManager>>>,
+    batch_manager: Option<Arc<ComponentLock<BatchManager>>>,
 }
 
 impl BatchManagerConfig {
     #[must_use]
     pub fn builder() -> BatchManagerConfigBuilder {
         BatchManagerConfigBuilder::default()
+    }
+
+    pub fn expect_batch_manager_cloned(&self) -> Arc<ComponentLock<BatchManager>> {
+        self.batch_manager.clone().ok_or(()).expect("Failed to get batch manager")
+    }
+
+    pub fn try_get_batch_manager_cloned(&self) -> Result<Arc<ComponentLock<BatchManager>>> {
+        self.batch_manager.clone().ok_or_eyre("Failed to get batch manager")
     }
 }
 

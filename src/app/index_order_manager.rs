@@ -4,7 +4,7 @@ use crate::{app::simple_server::ServerConfig, server::server::Server, solver::in
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
-use eyre::Result;
+use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::core::bits::Amount;
@@ -19,16 +19,24 @@ pub struct IndexOrderManagerConfig {
     pub zero_threshold: Option<Amount>,
 
     #[builder(setter(into, strip_option))]
-    pub with_server: ServerConfig,
+    pub with_server: Arc<dyn ServerConfig + Send + Sync>,
 
     #[builder(setter(skip))]
-    pub(crate) index_order_manager: Option<Arc<ComponentLock<IndexOrderManager>>>,
+    index_order_manager: Option<Arc<ComponentLock<IndexOrderManager>>>,
 }
 
 impl IndexOrderManagerConfig {
     #[must_use]
     pub fn builder() -> IndexOrderManagerConfigBuilder {
         IndexOrderManagerConfigBuilder::default()
+    }
+
+    pub fn expect_index_order_manager_cloned(&self) -> Arc<ComponentLock<IndexOrderManager>> {
+        self.index_order_manager.clone().ok_or(()).expect("Failed to get index order manager")
+    }
+
+    pub fn try_get_index_order_manager_cloned(&self) -> Result<Arc<ComponentLock<IndexOrderManager>>> {
+        self.index_order_manager.clone().ok_or_eyre("Failed to get index order manager")
     }
 }
 
@@ -38,9 +46,8 @@ impl IndexOrderManagerConfigBuilder {
 
         let server = config
             .with_server
-            .server
-            .clone()
-            .ok_or_else(|| ConfigBuildError::UninitializedField("with_server"))?;
+            .try_get_server_cloned()
+            .map_err(|_| ConfigBuildError::UninitializedField("with_server"))?;
 
         let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
             server,

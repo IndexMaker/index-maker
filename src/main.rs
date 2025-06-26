@@ -1,12 +1,8 @@
-use std::{
-    env,
-    sync::{Arc, RwLock as ComponentLock},
-};
+use std::{env, sync::Arc};
 
 use binance_order_sending::credentials::Credentials;
 use chrono::{TimeDelta, Utc};
 use clap::Parser;
-use crossbeam::channel::unbounded;
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -16,22 +12,18 @@ use index_maker::{
         market_data::MarketDataConfig,
         order_sender::OrderSenderConfig,
         quote_request_manager::QuoteRequestManagerConfig,
-        simple_chain::{self, ChainConnectorConfig, ChainConnectorHandoffEvent, ChainConnectorKind, SimpleChainConnector},
-        simple_router::build_collateral_router,
-        simple_server::{ServerConfig, ServerHandoffEvent, ServerKind, SimpleServer},
+        simple_chain::SimpleChainConnectorConfig,
+        simple_router::SimpleCollateralRouterConfig,
+        simple_server::{ServerConfig, SimpleServerConfig},
         simple_solver::SimpleSolverConfig,
-        solver::SolverConfig,
-        timestamp_ids::{
-            util::make_timestamp_id, OrderIdConfig, OrderIdProviderKind, TimestampOrderIds,
-        },
+        solver::{ChainConnectorConfig, OrderIdProviderConfig, SolverConfig, SolverStrategyConfig},
+        timestamp_ids::{util::make_timestamp_id, TimestampOrderIdsConfig},
     },
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
+    blockchain::chain_connector::ChainNotification,
     index::basket::{AssetWeight, BasketDefinition},
-    server::server::{Server, ServerEvent},
-    solver::solver::OrderIdProvider,
+    server::server::ServerEvent,
 };
 use itertools::Itertools;
-use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     assets::asset::Asset,
@@ -42,7 +34,7 @@ use symm_core::{
     },
     init_log,
 };
-use tokio::{sync::oneshot, time::sleep};
+use tokio::time::sleep;
 
 #[derive(Parser)]
 struct Cli {
@@ -121,40 +113,31 @@ async fn main() {
     let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
         .expect("Failed to create basket definition");
 
-    // Fake router
-    let router = build_collateral_router(1, "SRC:BINANCE:EUR", "DST:BINANCE:EUR");
-
     // ==== Real stuff
     // ----
 
-    let order_id_config = OrderIdConfig::builder()
-        .provider_kind(OrderIdProviderKind::Timestamp)
+    let router_config = SimpleCollateralRouterConfig::builder()
+        .chain_id(1u32)
+        .source("SRC:BINANCE:EUR")
+        .destination("DST:BINANCE:EUR")
         .build()
+        .expect("Failed to build collateral router");
+
+    let order_id_config = TimestampOrderIdsConfig::builder()
+        .build_arc()
         .expect("Failed to build order ID provider");
 
-    let (simple_server_tx, simple_server_rx) = unbounded();
-
-    let server_config = ServerConfig::builder()
-        .server_kind(ServerKind::Simple)
-        .build(simple_server_tx)
+    let server_config = SimpleServerConfig::builder()
+        .build_arc()
         .expect("Failed to build server");
 
-    let simple_server = match simple_server_rx.recv() {
-        Ok(ServerHandoffEvent::Simple(s)) => s,
-        _ => Err(()).expect("Failed to obtain server")
-    };
+    let simple_server = server_config.expect_simple_server_cloned();
 
-    let (simple_chain_tx, simple_chain_rx) = unbounded();
-
-    let chain_connector_config = ChainConnectorConfig::builder()
-        .chain_connector_kind(ChainConnectorKind::Simple)
-        .build(simple_chain_tx)
+    let chain_connector_config = SimpleChainConnectorConfig::builder()
+        .build_arc()
         .expect("Failed to build chain connector");
 
-    let simple_chain = match simple_chain_rx.recv() {
-        Ok(ChainConnectorHandoffEvent::Simple(c)) => c,
-        _ => Err(()).expect("Failed to obtain chain connector")
-    };
+    let simple_chain = chain_connector_config.expect_chain_connector_cloned();
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
@@ -171,12 +154,12 @@ async fn main() {
 
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
-        .with_server(server_config.clone())
+        .with_server(server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
         .build()
         .expect("Failed to build index order manager");
 
     let quote_request_manager_config = QuoteRequestManagerConfig::builder()
-        .with_server(server_config)
+        .with_server(server_config as Arc<dyn ServerConfig + Send + Sync>)
         .build()
         .expect("Failed to build quote request manager");
 
@@ -195,7 +178,7 @@ async fn main() {
 
     let collateral_manager_config = CollateralManagerConfig::builder()
         .zero_threshold(zero_threshold)
-        .with_router(router)
+        .with_router(router_config)
         .build()
         .expect("Failed to build collateral manager");
 
@@ -204,7 +187,7 @@ async fn main() {
         .fee_factor(fee_factor)
         .max_order_volley_size(max_order_volley_size)
         .max_volley_size(max_volley_size)
-        .build()
+        .build_arc()
         .expect("Failed to build simple solver");
 
     let mut solver_config = SolverConfig::builder()
@@ -219,9 +202,9 @@ async fn main() {
         .with_order_sender(order_sender_config)
         .with_index_order_manager(index_order_manager_config)
         .with_quote_request_manager(quote_request_manager_config)
-        .with_strategy(strategy_config)
-        .with_order_ids(order_id_config)
-        .with_chain_connector(chain_connector_config)
+        .with_strategy(strategy_config as Arc<dyn SolverStrategyConfig + Send + Sync>)
+        .with_order_ids(order_id_config as Arc<dyn OrderIdProviderConfig + Send + Sync>)
+        .with_chain_connector(chain_connector_config as Arc<dyn ChainConnectorConfig + Send + Sync>)
         .build()
         .expect("Failed to build solver");
 

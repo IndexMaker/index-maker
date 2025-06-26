@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 use symm_core::core::bits::{BatchOrderId, OrderId, PaymentId};
 
 use super::config::ConfigBuildError;
-use crate::{app::timestamp_ids::util::make_timestamp_id, solver::solver::OrderIdProvider};
+use crate::{app::{solver::OrderIdProviderConfig, timestamp_ids::util::make_timestamp_id}, solver::solver::OrderIdProvider};
 use derive_builder::Builder;
 
 pub mod util {
@@ -40,41 +41,58 @@ impl OrderIdProvider for TimestampOrderIds {
     }
 }
 
-pub enum OrderIdProviderKind {
-    Timestamp,
-}
-
 #[derive(Builder)]
 #[builder(
     pattern = "owned",
     build_fn(name = "try_build", error = "ConfigBuildError")
 )]
 
-pub struct OrderIdConfig {
-    #[builder(setter(into, strip_option))]
-    pub provider_kind: OrderIdProviderKind,
-
+pub struct TimestampOrderIdsConfig {
     #[builder(setter(skip))]
-    pub(crate) order_id_provider: Option<Arc<RwLock<dyn OrderIdProvider + Send + Sync>>>,
+    timestamp_ids: Option<Arc<RwLock<TimestampOrderIds>>>,
 }
 
-impl OrderIdConfig {
+impl TimestampOrderIdsConfig {
     #[must_use]
-    pub fn builder() -> OrderIdConfigBuilder {
-        OrderIdConfigBuilder::default()
+    pub fn builder() -> TimestampOrderIdsConfigBuilder {
+        TimestampOrderIdsConfigBuilder::default()
+    }
+
+    pub fn expect_timestamp_order_ids_cloned(&self) -> Arc<RwLock<TimestampOrderIds>> {
+        self.timestamp_ids
+            .clone()
+            .ok_or(())
+            .expect("Failed to get timestamp order ids")
+    }
+
+    pub fn try_get_timestamp_order_ids_cloned(&self) -> Result<Arc<RwLock<TimestampOrderIds>>> {
+        self.timestamp_ids
+            .clone()
+            .ok_or_eyre("Failed to get timestamp order ids")
     }
 }
 
-impl OrderIdConfigBuilder {
-    pub fn build(self) -> Result<OrderIdConfig, ConfigBuildError> {
+impl OrderIdProviderConfig for TimestampOrderIdsConfig {
+    fn expect_order_id_provider_cloned(&self) -> Arc<RwLock<dyn OrderIdProvider + Send + Sync>> {
+        self.expect_timestamp_order_ids_cloned()
+    }
+
+    fn try_get_order_id_provider_cloned(
+        &self,
+    ) -> Result<Arc<RwLock<dyn OrderIdProvider + Send + Sync>>> {
+        self.try_get_timestamp_order_ids_cloned()
+            .map(|x| x as Arc<RwLock<dyn OrderIdProvider + Send + Sync>>)
+    }
+}
+
+impl TimestampOrderIdsConfigBuilder {
+    pub fn build_arc(self) -> Result<Arc<TimestampOrderIdsConfig>, ConfigBuildError> {
         let mut config = self.try_build()?;
 
         config
-            .order_id_provider
-            .replace(match config.provider_kind {
-                OrderIdProviderKind::Timestamp => Arc::new(RwLock::new(TimestampOrderIds::new())),
-            });
+            .timestamp_ids
+            .replace(Arc::new(RwLock::new(TimestampOrderIds::new())));
 
-        Ok(config)
+        Ok(Arc::new(config))
     }
 }

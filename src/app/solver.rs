@@ -8,21 +8,20 @@ use crate::{
         basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig, index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig, order_sender::OrderSenderConfig,
-        quote_request_manager::QuoteRequestManagerConfig, simple_chain::ChainConnectorConfig,
-        simple_solver::SimpleSolverConfig, timestamp_ids::OrderIdConfig,
+        quote_request_manager::QuoteRequestManagerConfig,
     },
-    blockchain::chain_connector::{self, ChainConnector, ChainNotification},
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::{
         collateral_manager::CollateralEvent,
         collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
     },
     index::basket_manager::BasketNotification,
-    server::server::{Server, ServerEvent},
+    server::server::ServerEvent,
     solver::{
         batch_manager::BatchEvent,
         index_order_manager::IndexOrderEvent,
         index_quote_manager::QuoteRequestEvent,
-        solver::{OrderIdProvider, Solver},
+        solver::{OrderIdProvider, Solver, SolverStrategy},
     },
 };
 
@@ -54,6 +53,27 @@ use symm_core::{
 };
 use tokio::sync::oneshot;
 
+pub trait ChainConnectorConfig {
+    fn expect_chain_connector_cloned(&self)
+        -> Arc<ComponentLock<dyn ChainConnector + Send + Sync>>;
+
+    fn try_get_chain_connector_cloned(
+        &self,
+    ) -> Result<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>;
+}
+
+pub trait SolverStrategyConfig {
+    fn expect_solver_strategy_cloned(&self) -> Arc<dyn SolverStrategy + Send + Sync>;
+    fn try_get_solver_strategy_cloned(&self) -> Result<Arc<dyn SolverStrategy + Send + Sync>>;
+}
+
+pub trait OrderIdProviderConfig {
+    fn expect_order_id_provider_cloned(&self) -> Arc<RwLock<dyn OrderIdProvider + Send + Sync>>;
+    fn try_get_order_id_provider_cloned(
+        &self,
+    ) -> Result<Arc<RwLock<dyn OrderIdProvider + Send + Sync>>>;
+}
+
 #[derive(Builder)]
 #[builder(
     pattern = "owned",
@@ -61,10 +81,10 @@ use tokio::sync::oneshot;
 )]
 pub struct SolverConfig {
     #[builder(setter(into, strip_option))]
-    pub with_strategy: SimpleSolverConfig,
+    pub with_strategy: Arc<dyn SolverStrategyConfig + Send + Sync>,
 
     #[builder(setter(into, strip_option))]
-    pub with_order_ids: OrderIdConfig,
+    pub with_order_ids: Arc<dyn OrderIdProviderConfig + Send + Sync>,
 
     #[builder(setter(into, strip_option))]
     pub with_basket_manager: BasketManagerConfig,
@@ -73,7 +93,7 @@ pub struct SolverConfig {
     pub with_market_data: MarketDataConfig,
 
     #[builder(setter(into, strip_option))]
-    pub with_chain_connector: ChainConnectorConfig,
+    pub with_chain_connector: Arc<dyn ChainConnectorConfig + Send + Sync>,
 
     #[builder(setter(into, strip_option))]
     pub with_batch_manager: BatchManagerConfig,
@@ -140,54 +160,45 @@ impl SolverConfig {
         let (server_order_tx, server_order_rx) = unbounded::<Arc<ServerEvent>>();
         let (server_quote_tx, server_quote_rx) = unbounded::<Arc<ServerEvent>>();
 
-        let market_data = self.with_market_data.market_data.clone().unwrap();
-        let price_tracker = self.with_market_data.price_tracker.clone().unwrap();
-        let book_manager = self.with_market_data.book_manager.clone().unwrap();
+        let market_data = self.with_market_data.try_get_market_data_cloned()?;
+        let price_tracker = self.with_market_data.try_get_price_tracker_cloned()?;
+        let book_manager = self.with_market_data.try_get_book_manager_cloned()?;
 
-        let order_sender = self.with_order_sender.order_sender.clone().unwrap();
-        let order_tracker = self.with_order_sender.order_tracker.clone().unwrap();
-        let inventory_manager = self.with_order_sender.inventory_manager.clone().unwrap();
+        let order_sender = self.with_order_sender.try_get_order_sender_cloned()?;
+        let order_tracker = self.with_order_sender.try_get_order_tracker_cloned()?;
+        let inventory_manager = self.with_order_sender.try_get_inventory_manager_cloned()?;
 
-        let basket_manager = self.with_basket_manager.basket_manager.clone().unwrap();
-        let batch_manager = self.with_batch_manager.batch_manager.clone().unwrap();
+        let basket_manager = self.with_basket_manager.try_get_basket_manager_cloned()?;
+        let batch_manager = self.with_batch_manager.try_get_batch_manager_cloned()?;
 
-        let chain_connector = self.with_chain_connector.expect_chain_connector_cloned();
+        let chain_connector = self.with_chain_connector.try_get_chain_connector_cloned()?;
 
         let order_server = self
             .with_index_order_manager
             .with_server
-            .expect_server_cloned();
+            .try_get_server_cloned()?;
 
         let quote_server = self
             .with_quote_request_manager
             .with_server
-            .server
-            .clone()
-            .unwrap();
+            .try_get_server_cloned()?;
 
         let index_order_manager = self
             .with_index_order_manager
-            .index_order_manager
-            .clone()
-            .unwrap();
+            .try_get_index_order_manager_cloned()?;
 
         let quote_request_manager = self
             .with_quote_request_manager
-            .quote_request_manager
-            .clone()
-            .unwrap();
+            .try_get_quote_request_manager_cloned()?;
 
         let collateral_manager = self
             .with_collateral_manager
-            .collateral_manager
-            .clone()
-            .unwrap();
+            .try_get_collateral_manager_cloned()?;
 
         let collateral_router = self
             .with_collateral_manager
-            .collateral_router
-            .clone()
-            .unwrap();
+            .with_router
+            .try_get_collateral_router_cloned()?;
 
         let collateral_bridges = collateral_router
             .read()
@@ -485,8 +496,8 @@ impl SolverConfig {
 
     pub async fn stop(&mut self) -> Result<()> {
         if let Some((stop_tx, stopped_rx)) = self.stopping.take() {
-            let market_data = self.with_market_data.market_data.clone().unwrap();
-            let order_sender = self.with_order_sender.order_sender.clone().unwrap();
+            let market_data = self.with_market_data.try_get_market_data_cloned()?;
+            let order_sender = self.with_order_sender.try_get_order_sender_cloned()?;
 
             order_sender.write().stop().await.unwrap();
 
@@ -506,87 +517,74 @@ impl SolverConfigBuilder {
     pub fn build(self) -> Result<SolverConfig, ConfigBuildError> {
         let mut config = self.try_build()?;
 
-        let strategy =
-            config.with_strategy.simple_solver.clone().ok_or_else(|| {
-                ConfigBuildError::UninitializedField("with_strategy.simple_solver")
-            })?;
+        let strategy = config
+            .with_strategy
+            .try_get_solver_strategy_cloned()
+            .map_err(|_| ConfigBuildError::UninitializedField("with_strategy.simple_solver"))?;
 
-        let order_id_provider =
-            config
-                .with_order_ids
-                .order_id_provider
-                .clone()
-                .ok_or_else(|| {
-                    ConfigBuildError::UninitializedField("with_order_ids.order_id_provider")
-                })?;
+        let order_id_provider = config
+            .with_order_ids
+            .try_get_order_id_provider_cloned()
+            .map_err(|_| {
+                ConfigBuildError::UninitializedField("with_order_ids.order_id_provider")
+            })?;
 
         let basket_manager = config
             .with_basket_manager
-            .basket_manager
-            .clone()
-            .ok_or_else(|| {
+            .try_get_basket_manager_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_basket_manager.basket_manager")
             })?;
 
         let price_tracker = config
             .with_market_data
-            .price_tracker
-            .clone()
-            .ok_or_else(|| {
-                ConfigBuildError::UninitializedField("with_market_data.price_tracker")
-            })?;
+            .try_get_price_tracker_cloned()
+            .map_err(|_| ConfigBuildError::UninitializedField("with_market_data.price_tracker"))?;
 
         let order_book_manager = config
             .with_market_data
-            .book_manager
-            .clone()
-            .ok_or_else(|| ConfigBuildError::UninitializedField("with_market_data.book_manager"))?;
+            .try_get_book_manager_cloned()
+            .map_err(|_| ConfigBuildError::UninitializedField("with_market_data.book_manager"))?;
 
         let batch_manager = config
             .with_batch_manager
-            .batch_manager
-            .clone()
-            .ok_or_else(|| {
+            .try_get_batch_manager_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_batch_manager.batch_manager")
             })?;
 
         let collateral_manager = config
             .with_collateral_manager
-            .collateral_manager
-            .clone()
-            .ok_or_else(|| {
+            .try_get_collateral_manager_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_collateral_manager.collateral_manager")
             })?;
 
         let inventory_manager = config
             .with_order_sender
-            .inventory_manager
-            .clone()
-            .ok_or_else(|| {
+            .try_get_inventory_manager_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_order_sender.inventory_manager")
             })?;
 
         let index_order_manager = config
             .with_index_order_manager
-            .index_order_manager
-            .clone()
-            .ok_or_else(|| {
+            .try_get_index_order_manager_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_order_sender.index_order_manager")
             })?;
 
         let quote_request_manager = config
             .with_quote_request_manager
-            .quote_request_manager
-            .clone()
-            .ok_or_else(|| {
+            .try_get_quote_request_manager_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_order_sender.quote_request_manager")
             })?;
 
         let chain_connector = config
             .with_chain_connector
-            .chain_connector
-            .clone()
-            .ok_or_else(|| {
+            .try_get_chain_connector_cloned()
+            .map_err(|_| {
                 ConfigBuildError::UninitializedField("with_chain_connector.chain_connector")
             })?;
 

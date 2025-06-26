@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::config::ConfigBuildError;
 use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use derive_builder::Builder;
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
@@ -30,19 +30,43 @@ pub struct OrderSenderConfig {
     pub credentials: Vec<Credentials>,
 
     #[builder(setter(skip))]
-    pub(crate) order_sender: Option<Arc<RwLock<BinanceOrderSending>>>,
+    order_sender: Option<Arc<RwLock<BinanceOrderSending>>>,
 
     #[builder(setter(skip))]
-    pub(crate) order_tracker: Option<Arc<RwLock<OrderTracker>>>,
+    order_tracker: Option<Arc<RwLock<OrderTracker>>>,
 
     #[builder(setter(skip))]
-    pub(crate) inventory_manager: Option<Arc<RwLock<InventoryManager>>>,
+    inventory_manager: Option<Arc<RwLock<InventoryManager>>>,
 }
 
 impl OrderSenderConfig {
     #[must_use]
     pub fn builder() -> OrderSenderConfigBuilder {
         OrderSenderConfigBuilder::default()
+    }
+
+    pub fn expect_order_sender_cloned(&self) -> Arc<RwLock<BinanceOrderSending>> {
+        self.order_sender.clone().ok_or(()).expect("Failed to get order sender")
+    }
+
+    pub fn try_get_order_sender_cloned(&self) -> Result<Arc<RwLock<BinanceOrderSending>>> {
+        self.order_sender.clone().ok_or_eyre("Failed to get order sender")
+    }
+
+    pub fn expect_order_tracker_cloned(&self) -> Arc<RwLock<OrderTracker>> {
+        self.order_tracker.clone().ok_or(()).expect("Failed to get order tracker")
+    }
+
+    pub fn try_get_order_tracker_cloned(&self) -> Result<Arc<RwLock<OrderTracker>>> {
+        self.order_tracker.clone().ok_or_eyre("Failed to get order tracker")
+    }
+
+    pub fn expect_inventory_manager_cloned(&self) -> Arc<RwLock<InventoryManager>> {
+        self.inventory_manager.clone().ok_or(()).expect("Failed to get inventory manager")
+    }
+
+    pub fn try_get_inventory_manager_cloned(&self) -> Result<Arc<RwLock<InventoryManager>>> {
+        self.inventory_manager.clone().ok_or_eyre("Failed to get inventory manager")
     }
 
     pub fn start(&mut self) -> Result<()> {

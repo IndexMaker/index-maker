@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
+use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 
 use symm_core::core::functional::{
-    IntoObservableManyVTable,
-    MultiObserver, NotificationHandler, NotificationHandlerOnce, PublishMany,
+    IntoObservableManyVTable, MultiObserver, NotificationHandler, NotificationHandlerOnce,
+    PublishMany,
 };
 
 use crate::server::server::{Server, ServerEvent, ServerResponse};
@@ -39,55 +40,60 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for SimpleServer {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ServerKind {
-    Simple,
-}
-
-pub enum ServerHandoffEvent {
-    Simple(Arc<RwLock<SimpleServer>>),
-}
-
 #[derive(Clone, Builder)]
 #[builder(
     pattern = "owned",
     build_fn(name = "try_build", error = "ConfigBuildError")
 )]
-pub struct ServerConfig {
-    #[builder(setter(into, strip_option), default)]
-    pub server_kind: Option<ServerKind>,
-
+pub struct SimpleServerConfig {
     #[builder(setter(skip))]
-    pub(crate) server: Option<Arc<RwLock<dyn Server + Send + Sync>>>,
+    simple_server: Option<Arc<RwLock<SimpleServer>>>,
 }
 
-impl ServerConfig {
+pub trait ServerConfig {
+    fn expect_server_cloned(&self) -> Arc<RwLock<dyn Server + Send + Sync>>;
+    fn try_get_server_cloned(&self) -> Result<Arc<RwLock<dyn Server + Send + Sync>>>;
+}
+
+impl SimpleServerConfig {
     #[must_use]
-    pub fn builder() -> ServerConfigBuilder {
-        ServerConfigBuilder::default()
+    pub fn builder() -> SimpleServerConfigBuilder {
+        SimpleServerConfigBuilder::default()
     }
 
-    pub fn expect_server_cloned(&self) -> Arc<RwLock<dyn Server + Send + Sync>> {
-        self.server.clone().ok_or(()).expect("Failed to get server")
+    pub fn expect_simple_server_cloned(&self) -> Arc<RwLock<SimpleServer>> {
+        self.simple_server
+            .clone()
+            .ok_or(())
+            .expect("Failed to get simple server")
+    }
+
+    pub fn try_get_simple_server_cloned(&self) -> Result<Arc<RwLock<SimpleServer>>> {
+        self.simple_server
+            .clone()
+            .ok_or_eyre("Failed to get simple server")
     }
 }
 
-impl ServerConfigBuilder {
-    pub fn build(
-        self,
-        handoff: impl NotificationHandlerOnce<ServerHandoffEvent>,
-    ) -> Result<ServerConfig, ConfigBuildError> {
+impl ServerConfig for SimpleServerConfig {
+    fn expect_server_cloned(&self) -> Arc<RwLock<dyn Server + Send + Sync>> {
+        self.expect_simple_server_cloned()
+    }
+
+    fn try_get_server_cloned(&self) -> Result<Arc<RwLock<dyn Server + Send + Sync>>> {
+        self.try_get_simple_server_cloned()
+            .map(|x| x as Arc<RwLock<dyn Server + Send + Sync>>)
+    }
+}
+
+impl SimpleServerConfigBuilder {
+    pub fn build_arc(self) -> Result<Arc<SimpleServerConfig>, ConfigBuildError> {
         let mut config = self.try_build()?;
 
-        config.server.replace(match config.server_kind.take() {
-            Some(ServerKind::Simple) => {
-                let server = Arc::new(RwLock::new(SimpleServer::new()));
-                handoff.handle_notification(ServerHandoffEvent::Simple(server.clone()));
-                server
-            }
-            None => Err(ConfigBuildError::UninitializedField("server_kind"))?,
-        });
+        config
+            .simple_server
+            .replace(Arc::new(RwLock::new(SimpleServer::new())));
 
-        Ok(config)
+        Ok(Arc::new(config))
     }
 }

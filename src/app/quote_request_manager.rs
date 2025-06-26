@@ -7,7 +7,7 @@ use crate::{
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
-use eyre::Result;
+use eyre::{OptionExt, Result};
 
 #[derive(Builder)]
 #[builder(
@@ -16,16 +16,24 @@ use eyre::Result;
 )]
 pub struct QuoteRequestManagerConfig {
     #[builder(setter(into, strip_option))]
-    pub with_server: ServerConfig,
+    pub with_server: Arc<dyn ServerConfig + Send + Sync>,
 
     #[builder(setter(skip))]
-    pub(crate) quote_request_manager: Option<Arc<ComponentLock<QuoteRequestManager>>>,
+    quote_request_manager: Option<Arc<ComponentLock<QuoteRequestManager>>>,
 }
 
 impl QuoteRequestManagerConfig {
     #[must_use]
     pub fn builder() -> QuoteRequestManagerConfigBuilder {
         QuoteRequestManagerConfigBuilder::default()
+    }
+    
+    pub fn expect_quote_request_manager_cloned(&self) -> Arc<ComponentLock<QuoteRequestManager>> {
+        self.quote_request_manager.clone().ok_or(()).expect("Failed to get quote request manager")
+    }
+
+    pub fn try_get_quote_request_manager_cloned(&self) -> Result<Arc<ComponentLock<QuoteRequestManager>>> {
+        self.quote_request_manager.clone().ok_or_eyre("Failed to get quote request manager")
     }
 }
 
@@ -35,9 +43,8 @@ impl QuoteRequestManagerConfigBuilder {
 
         let server = config
             .with_server
-            .server
-            .clone()
-            .ok_or_else(|| ConfigBuildError::UninitializedField("with_server"))?;
+            .try_get_server_cloned()
+            .map_err(|_| ConfigBuildError::UninitializedField("with_server"))?;
 
         let quote_request_manager = Arc::new(ComponentLock::new(QuoteRequestManager::new(server)));
 

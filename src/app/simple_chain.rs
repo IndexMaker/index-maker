@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use chrono::{DateTime, Utc};
+use eyre::{OptionExt, Result};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
@@ -12,8 +13,7 @@ use symm_core::core::{
 };
 
 use crate::{
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
-    index::basket::Basket,
+    app::solver::ChainConnectorConfig, blockchain::chain_connector::{ChainConnector, ChainNotification}, index::basket::Basket
 };
 
 pub struct SimpleChainConnector {
@@ -83,57 +83,61 @@ impl ChainConnector for SimpleChainConnector {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ChainConnectorKind {
-    Simple,
-}
-
-pub enum ChainConnectorHandoffEvent {
-    Simple(Arc<ComponentLock<SimpleChainConnector>>),
-}
-
 #[derive(Clone, Builder)]
 #[builder(
     pattern = "owned",
     build_fn(name = "try_build", error = "ConfigBuildError")
 )]
-pub struct ChainConnectorConfig {
-    #[builder(setter(into, strip_option), default)]
-    pub chain_connector_kind: Option<ChainConnectorKind>,
-
+pub struct SimpleChainConnectorConfig {
     #[builder(setter(skip))]
-    pub(crate) chain_connector: Option<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>,
+    simple_chain_connector: Option<Arc<ComponentLock<SimpleChainConnector>>>,
 }
 
-impl ChainConnectorConfig {
+impl SimpleChainConnectorConfig {
     #[must_use]
-    pub fn builder() -> ChainConnectorConfigBuilder {
-        ChainConnectorConfigBuilder::default()
+    pub fn builder() -> SimpleChainConnectorConfigBuilder {
+        SimpleChainConnectorConfigBuilder::default()
     }
 
-    pub fn expect_chain_connector_cloned(
+    pub fn expect_chain_connector_cloned(&self) -> Arc<ComponentLock<SimpleChainConnector>> {
+        self.simple_chain_connector
+            .clone()
+            .ok_or(())
+            .expect("Failed to get simple chain connector")
+    }
+
+    pub fn try_get_chain_connector_cloned(
+        &self,
+    ) -> Result<Arc<ComponentLock<SimpleChainConnector>>> {
+        self.simple_chain_connector
+            .clone()
+            .ok_or_eyre("Failed to get simple chain connector")
+    }
+}
+
+impl ChainConnectorConfig for SimpleChainConnectorConfig {
+    fn expect_chain_connector_cloned(
         &self,
     ) -> Arc<ComponentLock<dyn ChainConnector + Send + Sync>> {
-        self.chain_connector.clone().ok_or(()).expect("Failed to get server")
+        self.expect_chain_connector_cloned()
+    }
+
+    fn try_get_chain_connector_cloned(
+        &self,
+    ) -> Result<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>> {
+        self.try_get_chain_connector_cloned()
+            .map(|x| x as Arc<ComponentLock<dyn ChainConnector + Send + Sync>>)
     }
 }
 
-impl ChainConnectorConfigBuilder {
-    pub fn build(
-        self,
-        handoff: impl NotificationHandlerOnce<ChainConnectorHandoffEvent>,
-    ) -> Result<ChainConnectorConfig, ConfigBuildError> {
+impl SimpleChainConnectorConfigBuilder {
+    pub fn build_arc(self) -> Result<Arc<SimpleChainConnectorConfig>, ConfigBuildError> {
         let mut config = self.try_build()?;
 
-        config.chain_connector.replace(match config.chain_connector_kind.take() {
-            Some(ChainConnectorKind::Simple) => {
-                let server = Arc::new(ComponentLock::new(SimpleChainConnector::new()));
-                handoff.handle_notification(ChainConnectorHandoffEvent::Simple(server.clone()));
-                server
-            }
-            None => Err(ConfigBuildError::UninitializedField("chain_connector_kind"))?,
-        });
+        config
+            .simple_chain_connector
+            .replace(Arc::new(ComponentLock::new(SimpleChainConnector::new())));
 
-        Ok(config)
+        Ok(Arc::new(config))
     }
 }

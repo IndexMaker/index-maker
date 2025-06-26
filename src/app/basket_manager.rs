@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
-use eyre::Result;
+use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 
 use crate::index::basket_manager::BasketManager;
@@ -14,13 +14,21 @@ use crate::index::basket_manager::BasketManager;
 )]
 pub struct BasketManagerConfig {
     #[builder(setter(skip))]
-    pub(crate) basket_manager: Option<Arc<RwLock<BasketManager>>>,
+    basket_manager: Option<Arc<RwLock<BasketManager>>>,
 }
 
 impl BasketManagerConfig {
     #[must_use]
     pub fn builder() -> BasketManagerConfigBuilder {
         BasketManagerConfigBuilder::default()
+    }
+
+    pub fn expect_basket_manager_cloned(&self) -> Arc<RwLock<BasketManager>> {
+        self.basket_manager.clone().ok_or(()).expect("Failed to get basket manager")
+    }
+
+    pub fn try_get_basket_manager_cloned(&self) -> Result<Arc<RwLock<BasketManager>>> {
+        self.basket_manager.clone().ok_or_eyre("Failed to get basket manager")
     }
 }
 
