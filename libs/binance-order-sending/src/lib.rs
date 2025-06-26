@@ -7,3 +7,4 @@ pub mod session;
 pub mod sessions;
 pub mod subaccounts;
 pub mod trading_session;
+pub mod trading_markets;
