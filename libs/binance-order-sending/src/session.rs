@@ -77,6 +77,11 @@ impl Session {
                 return credentials;
             }
 
+            if let Err(err) = trading_session.get_exchange_info().await {
+                on_error(format!("Failed to get exchange info: {:?}", err));
+                return credentials;
+            }
+
             let user_data = match trading_session.subscribe(observer.clone()).await {
                 Err(err) => {
                     on_error(format!("Failed to obtain user-data: {:?}", err));

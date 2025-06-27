@@ -1,3 +1,4 @@
 /target
 *.bkp
 .DS_Store
+.env

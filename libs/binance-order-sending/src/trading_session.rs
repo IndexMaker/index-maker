@@ -9,13 +9,14 @@ use binance_sdk::spot::websocket_api::{
 use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use chrono::{Duration, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Result};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use rust_decimal::Decimal;
 use safe_math::safe;
 use serde::Deserialize;
 use serde_json::Value;
+use symm_core::core::bits::SingleOrder;
 use symm_core::{
     core::{
         bits::{OrderId, Side, Symbol},
@@ -29,6 +30,7 @@ use tokio::time::sleep;
 
 use crate::command::Command;
 use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
+use crate::trading_markets::TradingMarkets;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,6 +90,7 @@ impl TradingSessionBuilder {
 pub struct TradingSession {
     session_id: SessionId,
     wsapi: WebsocketApi,
+    markets: TradingMarkets,
     order_limit: MultiLimiter,
 }
 
@@ -96,6 +99,7 @@ impl TradingSession {
         Self {
             session_id,
             wsapi,
+            markets: TradingMarkets::new(),
             order_limit: MultiLimiter::new(vec![]),
         }
     }
@@ -160,6 +164,81 @@ impl TradingSession {
         Ok(())
     }
 
+    pub async fn new_order_single(&mut self, single_order: Arc<SingleOrder>) -> Result<()> {
+        let side = match single_order.side {
+            Side::Buy => OrderPlaceSideEnum::Buy,
+            Side::Sell => OrderPlaceSideEnum::Sell,
+        };
+
+        let mut price = single_order.price;
+        let mut quantity = single_order.quantity;
+
+        self.markets
+            .treat_price_quantity(&single_order.symbol, &mut price, &mut quantity)?;
+
+        let params = OrderPlaceParams {
+            id: None,
+            side,
+            symbol: single_order.symbol.to_string(),
+            r#type: websocket_api::OrderPlaceTypeEnum::Limit,
+            time_in_force: Some(OrderPlaceTimeInForceEnum::Ioc),
+            price: Some(price),
+            quantity: Some(quantity),
+            quote_order_qty: None,
+            new_client_order_id: Some(single_order.order_id.cloned()),
+            new_order_resp_type: None,
+            stop_price: None,
+            trailing_delta: None,
+            iceberg_qty: None,
+            strategy_id: None,
+            strategy_type: None,
+            self_trade_prevention_mode: None,
+            recv_window: Some(10000),
+        };
+
+        tracing::debug!("PlaceOrder send: {:#?}", params);
+
+        self.will_send_order().await?;
+
+        let res = self
+            .wsapi
+            .order_place(params)
+            .await
+            .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
+
+        if let Some(limits) = &res.rate_limits {
+            self.update_limits(limits);
+        }
+
+        tracing::debug!("PlaceOrder returned: {:#?}", res);
+
+        Ok(())
+    }
+
+    pub async fn get_exchange_info(&mut self) -> Result<()> {
+        let params = ExchangeInfoParams::builder()
+            .build()
+            .map_err(|err| eyre!("Failed to build exchange info params: {}", err))?;
+
+        let res = self
+            .wsapi
+            .exchange_info(params)
+            .await
+            .map_err(|err| eyre!("Failed to obtain exchange info: {}", err))?;
+
+        if let Some(limits) = &res.rate_limits {
+            self.update_limits(limits);
+        }
+
+        let exchange_info = res
+            .data()
+            .map_err(|err| eyre!("Failed to obtain exchange info data: {}", err))?;
+
+        self.markets.ingest_exchange_info(exchange_info)?;
+
+        Ok(())
+    }
+
     pub async fn send_command(
         &mut self,
         command: Command,
@@ -167,58 +246,7 @@ impl TradingSession {
     ) -> Result<()> {
         match command {
             Command::NewOrder(single_order) => {
-                let side = match single_order.side {
-                    Side::Buy => OrderPlaceSideEnum::Buy,
-                    Side::Sell => OrderPlaceSideEnum::Sell,
-                };
-
-                let mut price = single_order.price;
-                price.rescale(20);
-
-                let mut quantity = single_order.quantity;
-                quantity.rescale(20);
-
-                let params = OrderPlaceParams {
-                    id: None,
-                    side,
-                    symbol: single_order.symbol.to_string(),
-                    r#type: websocket_api::OrderPlaceTypeEnum::Limit,
-                    time_in_force: Some(OrderPlaceTimeInForceEnum::Ioc),
-                    price: Some(price),
-                    quantity: Some(quantity),
-                    quote_order_qty: None,
-                    new_client_order_id: Some(single_order.order_id.cloned()),
-                    new_order_resp_type: None,
-                    stop_price: None,
-                    trailing_delta: None,
-                    iceberg_qty: None,
-                    strategy_id: None,
-                    strategy_type: None,
-                    self_trade_prevention_mode: None,
-                    recv_window: Some(10000),
-                };
-
-                let f = async || {
-                    tracing::debug!("PlaceOrder send: {:#?}", params);
-
-                    self.will_send_order().await?;
-
-                    let res = self
-                        .wsapi
-                        .order_place(params)
-                        .await
-                        .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
-
-                    if let Some(limits) = &res.rate_limits {
-                        self.update_limits(limits);
-                    }
-
-                    tracing::debug!("PlaceOrder returned: {:#?}", res);
-
-                    Result::<()>::Ok(())
-                };
-
-                if let Err(err) = f().await {
+                if let Err(err) = self.new_order_single(single_order.clone()).await {
                     observer
                         .read()
                         .publish_single(OrderConnectorNotification::Rejected {
@@ -230,28 +258,13 @@ impl TradingSession {
                             reason: format!("Failed to send order: {:?}", err),
                             timestamp: Utc::now(),
                         });
-                    Err(err)?
+
+                    Err(err)?;
                 }
+                Ok(())
             }
-            Command::GetExchangeInfo() => {
-                let params = ExchangeInfoParams::builder()
-                    .build()
-                    .map_err(|err| eyre!("Failed to build exchange info params: {}", err))?;
-
-                let res = self
-                    .wsapi
-                    .exchange_info(params)
-                    .await
-                    .map_err(|err| eyre!("Failed to obtain exchange info: {}", err))?;
-
-                let exchange_info = res
-                    .data()
-                    .map_err(|err| eyre!("Failed to obtain exchange info data: {}", err))?;
-
-                todo!("Use exchange info: symbols.filters where filter_type is PRICE_FILTER | LOT_SIZE")
-            }
+            Command::GetExchangeInfo() => self.get_exchange_info().await,
         }
-        Ok(())
     }
 
     pub async fn subscribe(
