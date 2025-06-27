@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use eyre::{Report, Result};
 use crate::messages::{ServerRequest, ServerResponse, SessionId};
 
-pub trait SeqNumPluginAux {
+pub trait WithSeqNumPlugin {
     fn get_seq_num(&self) -> u32;
     fn set_seq_num(&mut self, seq_num: u32);
 }
@@ -19,8 +19,8 @@ pub struct SeqNumPlugin<R, Q> {
 
 impl<R, Q> SeqNumPlugin<R, Q>
 where 
-    R: ServerRequest + SeqNumPluginAux,
-    Q: ServerResponse + SeqNumPluginAux,
+    R: ServerRequest + WithSeqNumPlugin,
+    Q: ServerResponse + WithSeqNumPlugin,
 {
     pub fn new() -> Self {
         //TODO: load a seqnum cache from memory on creation, and save on destruction

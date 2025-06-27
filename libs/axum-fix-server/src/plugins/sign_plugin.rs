@@ -28,21 +28,21 @@ where
     Q: ServerResponse,
     P: ServerPlugin<R, Q>,
 {
-    fn process_incoming(&self, message: String, session_id: SessionId) -> Result<R, Report> {
+    fn process_incoming(&self, message: String, session_id: SessionId) -> Result<R> {
         let de_message = self.inner_plugin.process_incoming(message, session_id)?;
         de_message.get_address();
         todo!();
     }
 
-    fn process_outgoing(&self, response: &Q) -> Result<String, Report> {
+    fn process_outgoing(&self, response: &Q) -> Result<String> {
         todo!();
     }
     
-    fn create_session(&mut self, session_id: SessionId) -> Result<(), Report> {
+    fn create_session(&mut self, session_id: SessionId) -> Result<()> {
         todo!()
     }
     
-    fn destroy_session(&mut self, session_id: SessionId) -> Result<(), Report> {
+    fn destroy_session(&mut self, session_id: SessionId) -> Result<()> {
         todo!()
     }
 }

@@ -1,5 +1,5 @@
 use std::fmt::Display;
-
+use symm_core::core::bits::Address;
 use eyre::{Report, Result};
 use serde::{Serialize, Deserialize};
 
@@ -71,11 +71,14 @@ pub trait ServerRequest
 where
     Self: Sized,
 {
-    fn deserialize_from_fix(message: FixMessage, session_id: &SessionId) -> Result<Self, Report>;
+    fn deserialize_from_fix(message: FixMessage, session_id: &SessionId) -> Result<Self>;
 }
+
 
 pub trait ServerResponse {
     fn get_session_id(&self) -> &SessionId;
-    fn serialize_into_fix(&self) -> Result<FixMessage, Report>;
-    fn format_errors(session_id: &SessionId, error_msg: String, ref_seq_num: u32) -> Self;
+
+    fn serialize_into_fix(&self) -> Result<FixMessage>;
+
+    fn format_errors(user_id: &(u32, Address), session_id: &SessionId, error_msg: String, ref_seq_num: u32) -> Self;
 }

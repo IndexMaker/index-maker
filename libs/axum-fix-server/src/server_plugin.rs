@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use eyre::{Result};
 use crate::messages::{ServerResponse, SessionId};
 
@@ -10,7 +12,7 @@ where
     
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()>;
 
-    fn process_outgoing(&self, response: Q) -> Result<String>;
+    fn process_outgoing(&self, response: Q) -> Result<HashSet<(SessionId, String)>>;
 
     fn create_session(&self, session_id: &SessionId) -> Result<()>;
 

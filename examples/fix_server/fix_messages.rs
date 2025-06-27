@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {
     pub MsgType: String,       // Type of message, e.g. "NewOrderSingle"
     pub SenderCompID: String,  // Public key of sender
@@ -36,7 +36,7 @@ impl FixHeader {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixTrailer {
     pub PublicKey: Vec<String>,  // Public key of sender
     pub Signature: Vec<String>,  // Public key of receiver
@@ -100,7 +100,7 @@ pub struct ExecReportBody {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Body {
     ACKBody {

@@ -25,7 +25,7 @@ where
         <R as ServerRequest>::deserialize_from_fix(fix_message, session_id)
     }
 
-    pub fn process_outgoing(&self, response: Q) -> Result<String, Report> {
+    pub fn process_outgoing(&self, response: Q) -> Result<String> {
         response.serialize_into_fix().map(|msg| msg.0)
     }
 }

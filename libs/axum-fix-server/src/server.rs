@@ -79,7 +79,7 @@ where
 
 impl<Q, P> Server<Q, P>
 where
-    Q: ServerResponse + Send + 'static,
+    Q: ServerResponse + Send + Clone + 'static,
     P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     /// new
@@ -190,15 +190,25 @@ where
     /// Sends a response to the appropriate client session based on the session ID in the response.
     /// Returns a `Result` indicating success or failure if the session is not found.
     pub fn send_response(&self, response: Q) -> Result<()> {
-        let session_id = response.get_session_id().clone();
-        let processed_response = self.plugin.process_outgoing(response);
-        match self.sessions.get(&session_id) {
-            Some(session) => session.send_response(processed_response?),
-            None => {
-                let error_msg = format!("Session not found: {}", &session_id);
-                tracing::warn!(error_msg);
-                Err(eyre!(error_msg))
+        //let session_id = response.get_session_id().clone();
+        if let Ok(session_responses) = self.plugin.process_outgoing(response) {
+            for session_response in session_responses {
+                match self.sessions.get(&session_response.0) {
+                    Some(session) => {
+                        if let Err(e) = session.send_response(session_response.1.clone()) {
+                            tracing::error!("Failed to send response to session {}: {:?}", session_response.0, e);
+                            return Err(e.into());
+                        }
+                    },
+                    None => {
+                        let error_msg = format!("Session not found: {}", &session_response.0);
+                        tracing::warn!(error_msg);
+                    }
+                }
             }
+            Ok(())
+        } else {
+            Err(eyre!("Unable to process response."))
         }
     }
 }
@@ -214,52 +224,52 @@ async fn ws_handler<Q, P>(
     State(server): State<Arc<RwLock<Server<Q, P>>>>,
 ) -> impl IntoResponse
 where
-    Q: ServerResponse + Send + 'static,
+    Q: ServerResponse + Send + Clone + 'static,
     P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     ws.on_upgrade(move |mut ws: WebSocket| async move {
         if server.read().await.accept_connections {
-            let (mut receiver, session_id) = server.write().await.create_session().unwrap();
-            loop {
-                select! {
-                    res = ws.recv() => {
-                        match res {
-                            Some(Ok(message)) => {
-                                if let axum::extract::ws::Message::Text(text) = message {
-                                    tracing::debug!("Received message on {}: {}", &session_id, &text);
-                                    // Server processes received message
-                                    if let Err(e) = server.read().await.receive_message(text.to_string(), &session_id) {
-                                        // Session sends error message back to the client
-                                        tracing::warn!("Failed to process incoming message: {}", e);
-                                        if let Err(e) = ws.send(Message::Text(e.to_string())).await {
-                                            tracing::warn!("Failed to send WebSocket message: {}", e);
-                                            break;
-                                        }
+        let (mut receiver, session_id) = server.write().await.create_session().unwrap();
+        loop {
+            select! {
+                res = ws.recv() => {
+                    match res {
+                        Some(Ok(message)) => {
+                            if let axum::extract::ws::Message::Text(text) = message {
+                                tracing::debug!("Received message on {}: {}", &session_id, &text);
+                                // Server processes received message
+                                if let Err(e) = server.read().await.receive_message(text.to_string(), &session_id) {
+                                    // Session sends error message back to the client
+                                    tracing::warn!("Failed to process incoming message: {}", e);
+                                    if let Err(e) = ws.send(Message::Text(e.to_string())).await {
+                                        tracing::warn!("Failed to send WebSocket message: {}", e);
+                                        break;
                                     }
                                 }
                             }
-                            Some(Err(e)) => {
-                                tracing::warn!("WebSocket error: {}", e);
-                                break;
-                            }
-                            None => {
-                                tracing::info!("WebSocket connection closed on session {}", &session_id);
-                                break;
-                            }
+                        }
+                        Some(Err(e)) => {
+                            tracing::warn!("WebSocket error: {}", e);
+                            break;
+                        }
+                        None => {
+                            tracing::info!("WebSocket connection closed on session {}", &session_id);
+                            break;
                         }
                     }
-                    Some(res) = receiver.recv() => {
-                        match ws.send(Message::Text(res)).await {
-                            Ok(()) => {},
-                            Err(e) => {
-                                tracing::warn!("WebSocket error: {}", e);
-                                break;
-                            }
+                }
+                Some(res) = receiver.recv() => {
+                    match ws.send(Message::Text(res)).await {
+                        Ok(()) => {},
+                        Err(e) => {
+                            tracing::warn!("WebSocket error: {}", e);
+                            break;
                         }
                     }
                 }
             }
-            server.write().await.close_session(&session_id);
         }
+        server.write().await.close_session(&session_id);
+    }
     })
 }

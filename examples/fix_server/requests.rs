@@ -1,10 +1,10 @@
-use alloy::transports::http::reqwest::header;
 use axum_fix_server::{
     messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
-    plugins::seq_num_plugin::SeqNumPluginAux,
+    plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
 };
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
+use symm_core::core::bits::Address;
 
 use crate::fix_messages::*;
 
@@ -14,6 +14,8 @@ pub struct Request {
     #[serde(skip)]
     pub session_id: SessionId,
     pub standard_header: FixHeader,
+    pub chain_id: u32,
+    pub address: Address,
     #[serde(flatten)]
     pub body: Body,
     pub standard_trailer: FixTrailer,
@@ -25,13 +27,19 @@ impl Request {
     }
 }
 
-impl SeqNumPluginAux for Request {
+impl WithSeqNumPlugin for Request {
     fn get_seq_num(&self) -> u32 {
         self.standard_header.SeqNum
     }
 
     fn set_seq_num(&mut self, seq_num: u32) {
         self.standard_header.SeqNum = seq_num;
+    }
+}
+
+impl WithUserPlugin for Request {
+    fn get_user_id(&self) -> (u32, Address) {
+        (self.chain_id, self.address)
     }
 }
 
