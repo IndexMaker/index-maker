@@ -20,12 +20,12 @@ async fn main() {
     let destination = Arc::new(ComponentLock::new(EvmCollateralDesignation {
         name: "BASE".into(),
         collateral_symbol: "USDC".into(),
-        full_name: "EVM:ARBITRUM:USDC".into(),
+        full_name: "EVM:BASE:USDC".into(),
     }));
 
     let bridge = EvmCollateralBridge::new_arc(source, destination);
 
-    let chain_id = 1;
+    let chain_id = 42161;
     let address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();

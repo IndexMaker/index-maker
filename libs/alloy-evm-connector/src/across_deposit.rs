@@ -107,7 +107,7 @@ pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
 /// - RPC_URL: RPC endpoint (optional, defaults to http://localhost:8545)
 pub async fn new_builder_from_env(
 ) -> Result<AcrossDepositBuilder<impl Provider + Clone>, Box<dyn std::error::Error>> {
-    // Load environment variables from .env file
+    // Load environment variables from .env file in the libs/alloy-evm-connector directory
     dotenv().ok();
 
     // Read private key from environment variable
