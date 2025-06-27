@@ -260,6 +260,14 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         origin_chain_id: u64,
         destination_chain_id: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Executing complete Across deposit flow");
+        println!("recipient: {:?}", recipient);
+        println!("input_token: {:?}", input_token);
+        println!("output_token: {:?}", output_token);
+        println!("deposit_amount: {:?}", deposit_amount);
+        println!("origin_chain_id: {:?}", origin_chain_id);
+        println!("destination_chain_id: {:?}", destination_chain_id);
+
         // Step 1: Approve input token for OTCCustody
         println!("Step 1: Approving input token for custody");
         self.approve_input_token_for_custody(deposit_amount).await?;
