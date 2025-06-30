@@ -466,7 +466,7 @@ impl IndexOrderManager {
                         safe!(update_upread.remaining_collateral - fees)?;
 
                     if update_remaining_collateral < safe!(collateral_amount - self.tolerance)? {
-                        eprintln!(
+                        tracing::warn!(
                             "(index-order-manager) Error updating collateral ready: {:0.5} < {:0.5}",
                             update_remaining_collateral, collateral_amount
                         );
@@ -528,7 +528,7 @@ impl IndexOrderManager {
                             Ok(index_order_write.order_updates.is_empty())
                         })()?;
                         if should_remove {
-                            println!(
+                            tracing::info!(
                                 "(index-order-manager) Removing entry for [{}:{}] {}",
                                 chain_id, address, symbol
                             );
@@ -543,7 +543,7 @@ impl IndexOrderManager {
                     )),
                 }?;
                 if entry.get().is_empty() {
-                    println!(
+                    tracing::info!(
                         "(index-order-manager) Removing entry for [{}:{}]",
                         chain_id, address
                     );
@@ -728,7 +728,7 @@ impl IndexOrderManager {
                     engage_order.collateral_amount,
                     self.tolerance,
                 )?;
-                println!(
+                tracing::info!(
                     "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
                     engage_order.client_order_id,
                     engage_order.collateral_amount,

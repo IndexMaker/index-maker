@@ -289,7 +289,7 @@ impl SolverClientOrders {
                 } else {
                     // This is rather unexpected, as we would remove queue from map
                     // when it becomes empty.
-                    eprintln!("(solver) Cancel order found empty index order queue for the user");
+                    tracing::warn!("(solver) Cancel order found empty index order queue for the user");
                     entry.remove();
                 }
                 notify
@@ -297,7 +297,7 @@ impl SolverClientOrders {
             Entry::Vacant(_) => {
                 // This is rather unexpected, as we would add any new index orders to
                 // a queue and cancelling should always find a match in the queue.
-                eprintln!("(solver) Cancel order cannot find any index orders for the user");
+                tracing::warn!("(solver) Cancel order cannot find any index orders for the user");
                 false
             }
         };

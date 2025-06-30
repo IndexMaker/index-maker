@@ -83,7 +83,9 @@ impl TradingSessionBuilder {
             .await
             .map_err(move |err| eyre!("Failed to connect to Binance: {:?}", err))?;
 
-        Ok(TradingSession::new(credentials.into_session_id(), wsapi))
+        let trading_enabled = credentials.should_enable_trading();
+
+        Ok(TradingSession::new(credentials.into_session_id(), wsapi, trading_enabled))
     }
 }
 
@@ -92,15 +94,17 @@ pub struct TradingSession {
     wsapi: WebsocketApi,
     markets: TradingMarkets,
     order_limit: MultiLimiter,
+    trading_enabled: bool,
 }
 
 impl TradingSession {
-    fn new(session_id: SessionId, wsapi: WebsocketApi) -> Self {
+    fn new(session_id: SessionId, wsapi: WebsocketApi, trading_enabled: bool) -> Self {
         Self {
             session_id,
             wsapi,
             markets: TradingMarkets::new(),
             order_limit: MultiLimiter::new(vec![]),
+            trading_enabled,
         }
     }
 
@@ -164,6 +168,19 @@ impl TradingSession {
         Ok(())
     }
 
+    pub async fn enable_trading(&mut self, enable: bool) -> Result<()> {
+        if self.trading_enabled == enable {
+            if self.trading_enabled {
+                Err(eyre!("Trading already enabled"))?;
+            } else {
+                Err(eyre!("Trading already disabled"))?;
+            }
+        }
+        // TODO: should we await any pending orders to complete, or cancel them?
+        self.trading_enabled = enable;
+        Ok(())
+    }
+
     pub async fn new_order_single(&mut self, single_order: Arc<SingleOrder>) -> Result<()> {
         let side = match single_order.side {
             Side::Buy => OrderPlaceSideEnum::Buy,
@@ -196,21 +213,25 @@ impl TradingSession {
             recv_window: Some(10000),
         };
 
-        tracing::debug!("PlaceOrder send: {:#?}", params);
+        tracing::debug!("PlaceOrder: {:#?}", params);
 
-        self.will_send_order().await?;
+        if self.trading_enabled {
+            self.will_send_order().await?;
 
-        let res = self
-            .wsapi
-            .order_place(params)
-            .await
-            .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
+            let res = self
+                .wsapi
+                .order_place(params)
+                .await
+                .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
 
-        if let Some(limits) = &res.rate_limits {
-            self.update_limits(limits);
+            if let Some(limits) = &res.rate_limits {
+                self.update_limits(limits);
+            }
+
+            tracing::debug!("PlaceOrder returned: {:#?}", res);
+        } else {
+            tracing::warn!("PlaceOrder: TRADING DISABLED: Must enable trading before sending orders");
         }
-
-        tracing::debug!("PlaceOrder returned: {:#?}", res);
 
         Ok(())
     }
@@ -245,6 +266,7 @@ impl TradingSession {
         observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) -> Result<()> {
         match command {
+            Command::EnableTrading(enable) => self.enable_trading(enable).await,
             Command::NewOrder(single_order) => {
                 if let Err(err) = self.new_order_single(single_order.clone()).await {
                     observer
@@ -440,7 +462,7 @@ mod test {
 
         let execution_report = serde_json::from_value::<ExecutionReport>(report);
         assert!(matches!(execution_report, Ok(_)));
-        println!("{:#?}", execution_report);
+        tracing::debug!("{:#?}", execution_report);
     }
 
     #[test]
@@ -484,7 +506,7 @@ mod test {
 
         let execution_report = serde_json::from_value::<ExecutionReport>(report);
         assert!(matches!(execution_report, Ok(_)));
-        println!("{:#?}", execution_report);
+        tracing::debug!("{:#?}", execution_report);
     }
 
     #[test]
@@ -528,6 +550,6 @@ mod test {
 
         let execution_report = serde_json::from_value::<ExecutionReport>(report);
         assert!(matches!(execution_report, Ok(_)));
-        println!("{:#?}", execution_report);
+        tracing::debug!("{:#?}", execution_report);
     }
 }

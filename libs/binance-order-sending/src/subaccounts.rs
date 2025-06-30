@@ -45,8 +45,8 @@ impl SubAccounts {
         Ok(())
     }
 
-    pub fn logon(&mut self, symbols: impl IntoIterator<Item = Credentials>) -> Result<()> {
-        let (successes, failures): (Vec<_>, Vec<_>) = symbols
+    pub fn logon(&mut self, multiple_credentials: impl IntoIterator<Item = Credentials>) -> Result<()> {
+        let (successes, failures): (Vec<_>, Vec<_>) = multiple_credentials
             .into_iter()
             .map(|credentials| {
                 let api_key = credentials.get_api_key();

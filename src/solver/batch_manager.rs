@@ -176,7 +176,7 @@ impl BatchAssetPosition {
             let asset_allocation = lot.build_solver_asset_lot(self.symbol.clone(), quantity)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
-            println!(
+            tracing::info!(
                 "(batch-asset-position) IndexOrder allocation for {} {} {} q={:0.5} p={:0.5} fee={:0.5}",
                 index_order.client_order_id,
                 asset_allocation.lot_id,
@@ -339,7 +339,7 @@ impl BatchOrderStatus {
         })()
         .ok_or_eyre("Math Problem")?;
 
-        println!(
+        tracing::info!(
             "(batch-manager) Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
             position.side,
             position.symbol,
@@ -350,7 +350,7 @@ impl BatchOrderStatus {
             position.fee
         );
 
-        println!(
+        tracing::info!(
             "(batch-manager) Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
             batch_order_id,
             self.volley_size,
@@ -386,7 +386,7 @@ impl BatchOrderStatus {
             .values()
             .all(|position| position.is_cancelled)
         {
-            println!(
+            tracing::info!(
                 "(batch-manager) Batch is all cancelled {}",
                 self.batch_order_id
             );
@@ -408,7 +408,7 @@ impl BatchOrderStatus {
                     carried_lots.extend(position.open_lots.drain(1..));
                     let carried_position =
                         carried_lots.iter().map(|lot| lot.remaining_quantity).sum();
-                    println!(
+                    tracing::info!(
                         "(batch-order-status) Carried over {} {:?} {:0.5}",
                         symbol, side, carried_position
                     );
@@ -603,7 +603,7 @@ impl BatchManager {
         let carried_positions = batch_order_status.carry_in(&mut self.carry_overs.lock())?;
         self.adjust_order_batch(&mut batch, carried_positions)?;
 
-        println!(
+        tracing::info!(
             "(batch-manager) Sending Batch: {}",
             batch
                 .asset_orders
@@ -679,7 +679,7 @@ impl BatchManager {
             fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
                 Some(x.min(avialable_fill_rate))
             });
-            println!(
+            tracing::info!(
                 "(batch-manager) Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
                 asset_symbol,
                 asset_quantity,
@@ -784,7 +784,7 @@ impl BatchManager {
         let order_fill_rate = safe!(index_order_write.collateral_spent / total_collateral)
             .ok_or_eyre("Math Problem")?;
 
-        println!(
+        tracing::info!(
             "(batch-manager) Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
             index_order_write.filled_quantity,
             index_order_write.remaining_collateral,
@@ -817,7 +817,7 @@ impl BatchManager {
         }
 
         if self.fill_threshold < order_fill_rate {
-            println!(
+            tracing::info!(
                 "(batch-manager) Index Order {} fill-rate {:0.5} is above fill threshold {:0.5}",
                 index_order_write.client_order_id, order_fill_rate, self.fill_threshold
             );
@@ -931,7 +931,7 @@ impl BatchManager {
         engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "\n(batch-manager) Handle Index Order EngageIndexOrder {}",
             batch_order_id
         );
@@ -1087,12 +1087,12 @@ impl BatchManager {
 
                 if self.zero_threshold < collateral_carried {
                     if let SolverOrderStatus::FullyMintable = index_order.status {
-                        println!(
+                        tracing::info!(
                             "(batch-manager) Index Order is Fully Mintable {} cc={:0.5}",
                             engaged_order.client_order_id, collateral_carried
                         );
                     } else {
-                        println!(
+                        tracing::info!(
                             "(batch-manager) Will continue Index Order {} cc={:0.5}",
                             engaged_order.client_order_id, collateral_carried
                         );
@@ -1413,7 +1413,7 @@ mod test {
 
     impl SetSolverOrderStatus for MockHost {
         fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
-            println!("Set order status: {:?}", status);
+            tracing::info!("Set order status: {:?}", status);
             order.status = status;
         }
 
@@ -1429,7 +1429,7 @@ mod test {
 
         fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
             let _ = batch_order;
-            println!("Send order batch");
+            tracing::info!("Send order batch");
             Ok(())
         }
 
@@ -1450,7 +1450,7 @@ mod test {
             let _ = client_order_id;
             let _ = address;
             let _ = chain_id;
-            println!("Fill order request");
+            tracing::info!("Fill order request");
             Ok(())
         }
     }

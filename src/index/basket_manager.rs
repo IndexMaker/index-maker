@@ -130,7 +130,7 @@ mod tests {
             AssetWeight::new(asset_eth.clone(), "0.75".try_into()?),
         ])?;
 
-        println!("basket_definition = {}", basket_definition);
+        tracing::info!("basket_definition = {}", basket_definition);
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices: HashMap<Symbol, Amount> = [

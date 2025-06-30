@@ -296,6 +296,7 @@ impl InventoryManager {
 
     /// receive new order requests from Solver
     pub fn new_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
+        tracing::debug!("New order batch: {}", batch_order.batch_order_id);
         // Start writing to Order Tracker
         let mut guard = self.order_tracker.write();
         // Send all orders out
@@ -310,12 +311,16 @@ impl InventoryManager {
                     quantity: asset_order.quantity,
                     created_timestamp: batch_order.created_timestamp,
                 }))
-                .or(Err(eyre!(
-                    "Failed to create new order for {} in basket {}",
-                    asset_order.symbol,
-                    batch_order.batch_order_id
-                )))?;
+                .map_err(|err| {
+                    eyre!(
+                        "Failed to create new order for {} in basket {}: {:?}",
+                        asset_order.symbol,
+                        batch_order.batch_order_id,
+                        err
+                    )
+                })?;
         }
+        tracing::debug!("No more asset orders");
         // All orders out
         Ok(())
     }
