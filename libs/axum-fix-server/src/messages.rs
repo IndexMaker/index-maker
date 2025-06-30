@@ -22,18 +22,6 @@ impl From<&str> for FixMessage {
     }
 }
 
-/// FixMessageBuilder
-///
-/// A utility struct for building FIX messages.
-pub struct FixMessageBuilder;
-
-impl FixMessageBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-
 
 #[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
 pub struct SessionId(pub String);
@@ -66,6 +54,7 @@ impl<'de> Deserialize<'de> for SessionId {
         Ok(SessionId(s))
     }
 }
+
 
 pub trait ServerRequest
 where

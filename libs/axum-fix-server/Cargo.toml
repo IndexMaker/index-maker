@@ -5,7 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-index-maker = { path = "../.." }
 eyre = { workspace = true }
 futures-util = "0.3.31"
 itertools = { workspace = true }

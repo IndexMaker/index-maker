@@ -121,6 +121,13 @@ pub enum Body {
         OrderQtyData: String,
         OrdType: String,        // "1" = MARKET, "2" = LIMIT
     },
+    NewIndexOrderBody{
+        ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
+        Symbol: String,
+        Side: String,           // "1" = BUY, "2" = SELL
+        timestamp: u64,      // Time this order request was initiated
+        Amount: String,
+    },
     ExecReportBody {
         ClOrdID: String,            // Order identifier
     //    ExecSeqNum: String,         // Execution identifier

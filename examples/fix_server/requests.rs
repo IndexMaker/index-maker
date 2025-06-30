@@ -21,12 +21,6 @@ pub struct Request {
     pub standard_trailer: FixTrailer,
 }
 
-impl Request {
-    pub fn msg_type(&self) -> String {
-        self.standard_header.MsgType.clone()
-    }
-}
-
 impl WithSeqNumPlugin for Request {
     fn get_seq_num(&self) -> u32 {
         self.standard_header.SeqNum

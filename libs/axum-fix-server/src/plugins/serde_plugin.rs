@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use eyre::{Report, Result};
+use eyre::Result;
 use crate::{messages::{FixMessage, ServerRequest, ServerResponse, SessionId}};
 
 pub struct SerdePlugin<R, Q> {
