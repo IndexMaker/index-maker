@@ -271,7 +271,7 @@ mod tests {
             AssetWeight::new(asset_eth.clone(), dec!(0.75)),
         ])?;
 
-        println!("basket_definition = {}", basket_definition);
+        tracing::info!("basket_definition = {}", basket_definition);
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices: HashMap<Symbol, Amount> = [
@@ -286,7 +286,7 @@ mod tests {
         // Create actual basket consuming the definition
         let basket = Basket::new_with_prices(basket_definition, &individual_prices, target_price)?;
 
-        println!("basket = {}", basket);
+        tracing::info!("basket = {}", basket);
 
         assert_decimal_approx_eq!(
             basket.get_current_price(&individual_prices)?,
@@ -312,7 +312,7 @@ mod tests {
             target_price_updated,
         )?;
 
-        println!("updated_basket = {}", updated_basket);
+        tracing::info!("updated_basket = {}", updated_basket);
 
         // Assert that quantites were calcualted so that total price of assets matches target price after update
         assert_decimal_approx_eq!(
@@ -327,7 +327,7 @@ mod tests {
 
         let basket_definition_updated = BasketDefinition::try_new(weights_updated)?;
 
-        println!("basket_definition_updated = {}", basket_definition_updated);
+        tracing::info!("basket_definition_updated = {}", basket_definition_updated);
 
         let updated_basket_2 = Basket::new_with_prices(
             basket_definition_updated,
@@ -335,7 +335,7 @@ mod tests {
             target_price_updated,
         )?;
 
-        println!("updated_basket_2 = {}", updated_basket_2);
+        tracing::info!("updated_basket_2 = {}", updated_basket_2);
 
         assert_decimal_approx_eq!(
             updated_basket_2.get_current_price(&individual_prices_updated)?,

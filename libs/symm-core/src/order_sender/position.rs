@@ -210,7 +210,7 @@ impl Position {
                         if remaining_quantity < -tolerance {
                             // there is some quantity left to continue matching
                             quantity_filled = -remaining_quantity;
-                            println!(
+                            tracing::debug!(
                                 "there is some quantity left to continue matching {}",
                                 quantity_filled
                             );
@@ -222,7 +222,7 @@ impl Position {
                         },
                     )
                 } else {
-                    println!("We matched whole quantity of fill {}", quantity_filled);
+                    tracing::debug!("We matched whole quantity of fill {}", quantity_filled);
                     // We matched whole quantity of fill
                     let matched_lot_quantity = quantity_filled;
 

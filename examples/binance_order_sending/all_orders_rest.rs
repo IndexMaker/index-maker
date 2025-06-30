@@ -22,5 +22,5 @@ async fn main() {
     let response = client.all_orders(params).await.unwrap();
 
     let data = response.data().await.unwrap();
-    println!("{:#?}", data);
+    tracing::debug!("{:#?}", data);
 }

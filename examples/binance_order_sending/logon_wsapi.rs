@@ -24,7 +24,7 @@ async fn main() {
     let response = connection.session_logon(params).await.unwrap();
 
     let data = response.data().unwrap();
-    println!("{:#?}", data);
+    tracing::debug!("{:#?}", data);
 
     let params = spot::websocket_api::SessionLogoutParamsBuilder::default()
         .build()
@@ -32,5 +32,5 @@ async fn main() {
     let response = connection.session_logout(params).await.unwrap();
 
     let data = response.data().unwrap();
-    println!("{:#?}", data);
+    tracing::debug!("{:#?}", data);
 }

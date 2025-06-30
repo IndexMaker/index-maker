@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::config::ConfigBuildError;
-use chrono::{TimeDelta, Utc};
+use chrono::{Duration, TimeDelta, Utc};
 use crossbeam::{
     channel::{unbounded, Sender},
     select,
@@ -136,7 +136,7 @@ impl SolverConfig {
         SolverConfigBuilder::default()
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self, tick_delta: Duration) -> Result<()> {
         let solver = self.solver.take().ok_or_eyre("Failed to get solver")?;
 
         let (stop_tx, stop_rx) = unbounded::<()>();
@@ -323,7 +323,7 @@ impl SolverConfig {
                 },
                 recv(order_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Order execution event: {:?}", event);
+                        tracing::trace!("Order execution event: {:?}", event);
                         if let Err(err) = order_tracker.write().handle_order_notification(event) {
                             tracing::warn!("Failed to handle order execution event: {:?}", err);
                         }
@@ -334,7 +334,7 @@ impl SolverConfig {
                 },
                 recv(tracking_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Order tracking event: {:?}", event);
+                        tracing::trace!("Order tracking event: {:?}", event);
                         if let Err(err) = inventory_manager.write().handle_fill_report(event) {
                             tracing::warn!("Failed to handle order tracking event: {:?}", err);
                         }
@@ -345,7 +345,7 @@ impl SolverConfig {
                 },
                 recv(router_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Router event");
+                        tracing::trace!("Router event");
                         match collateral_router.write() {
                             Ok(mut router) => if let Err(err) = router.handle_collateral_router_event(event) {
                                 tracing::warn!("Failed to handle collateral router event: {:?}", err);
@@ -361,7 +361,7 @@ impl SolverConfig {
                 },
                 recv(transfer_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Collateral transfer event");
+                        tracing::trace!("Collateral transfer event");
                         match collateral_manager.write() {
                             Ok(mut collateral_manager) => {
                                 if let Err(err) = collateral_manager.handle_collateral_transfer_event(event) {
@@ -379,7 +379,7 @@ impl SolverConfig {
                 },
                 recv(server_order_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Server order event");
+                        tracing::trace!("Server order event");
                         match index_order_manager.write() {
                             Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
                                     tracing::warn!("Failed to handle index order event: {:?}", err);
@@ -395,7 +395,7 @@ impl SolverConfig {
                 },
                 recv(server_quote_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Server quote event");
+                        tracing::trace!("Server quote event");
                         match quote_request_manager.write() {
                             Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
                                     tracing::warn!("Failed to handle index order event: {:?}", err);
@@ -411,7 +411,7 @@ impl SolverConfig {
                 },
                 recv(price_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Price event: {:?}", event);
+                        tracing::trace!("Price event: {:?}", event);
                         solver.handle_price_event(event);
                     }
                     Err(err) => {
@@ -420,7 +420,7 @@ impl SolverConfig {
                 },
                 recv(book_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Book event: {:?}", event);
+                        tracing::trace!("Book event: {:?}", event);
                         solver.handle_book_event(event);
                     }
                     Err(err) => {
@@ -429,7 +429,7 @@ impl SolverConfig {
                 },
                 recv(collateral_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Collateral event");
+                        tracing::trace!("Collateral event");
                         if let Err(err) = solver.handle_collateral_event(event) {
                             tracing::warn!("Failed to handle collateral event: {:?}", err);
                         }
@@ -440,7 +440,7 @@ impl SolverConfig {
                 },
                 recv(batch_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Batch event");
+                        tracing::trace!("Batch event");
                         if let Err(err) = solver.handle_batch_event(event) {
                             tracing::warn!("Failed to handle batch event: {:?}", err);
                         }
@@ -451,7 +451,7 @@ impl SolverConfig {
                 },
                 recv(inventory_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Inventory event: {:?}", event);
+                        tracing::trace!("Inventory event: {:?}", event);
                         if let Err(err) = solver.handle_inventory_event(event) {
                             tracing::warn!("Failed to handle inventory event: {:?}", err);
                         }
@@ -472,7 +472,7 @@ impl SolverConfig {
                 },
                 recv(index_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Index order event");
+                        tracing::trace!("Index order event");
                         if let Err(err) = solver.handle_index_order(event) {
                             tracing::warn!("Failed to handle index order event: {:?}", err);
                         }
@@ -483,7 +483,7 @@ impl SolverConfig {
                 },
                 recv(quote_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Quote request event");
+                        tracing::trace!("Quote request event");
                         if let Err(err) = solver.handle_quote_request(event) {
                             tracing::warn!("Failed to handle quote request event: {:?}", err);
                         }
@@ -494,7 +494,7 @@ impl SolverConfig {
                 },
                 recv(chain_event_rx) -> res => match res {
                     Ok(event) => {
-                        tracing::debug!("Chain event");
+                        tracing::trace!("Chain event");
                         if let Err(err) = solver.handle_chain_event(event) {
                             tracing::warn!("Failed to handle chain event: {:?}", err);
                         }
@@ -504,7 +504,7 @@ impl SolverConfig {
                     }
                 },
                 default => {
-                    thread::sleep(time::Duration::from_secs(1));
+                    thread::sleep(time::Duration::from_secs_f64(tick_delta.as_seconds_f64()));
                     solver.solve(Utc::now());
                 }
             }

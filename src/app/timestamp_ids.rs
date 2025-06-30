@@ -1,43 +1,51 @@
 use std::sync::Arc;
 
+use chrono::Utc;
 use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 use symm_core::core::bits::{BatchOrderId, OrderId, PaymentId};
 
 use super::config::ConfigBuildError;
-use crate::{app::{solver::OrderIdProviderConfig, timestamp_ids::util::make_timestamp_id}, solver::solver::OrderIdProvider};
+use crate::{
+    app::solver::OrderIdProviderConfig,
+    solver::solver::OrderIdProvider,
+};
 use derive_builder::Builder;
 
-pub mod util {
-    use chrono::Utc;
-
-    pub fn make_timestamp_id<T>(prefix: &str) -> T
-    where
-        T: From<String>,
-    {
-        T::from(format!("{}{}", prefix, Utc::now().timestamp_millis()))
-    }
+pub struct TimestampOrderIds {
+    last_id: i64,
 }
-
-pub struct TimestampOrderIds {}
 
 impl TimestampOrderIds {
     pub fn new() -> Self {
-        Self {}
+        Self { last_id: 0 }
+    }
+
+    pub fn make_timestamp_id<T>(&mut self, prefix: &str) -> T
+    where
+        T: From<String>,
+    {
+        let mut timestamp = Utc::now().timestamp_millis();
+        if timestamp == self.last_id {
+            timestamp = self.last_id + 1;
+        }
+        self.last_id = timestamp;
+
+        T::from(format!("{}{}", prefix, self.last_id))
     }
 }
 
 impl OrderIdProvider for TimestampOrderIds {
     fn next_order_id(&mut self) -> OrderId {
-        make_timestamp_id("O-")
+        self.make_timestamp_id("O-")
     }
 
     fn next_batch_order_id(&mut self) -> BatchOrderId {
-        make_timestamp_id("B-")
+        self.make_timestamp_id("B-")
     }
 
     fn next_payment_id(&mut self) -> PaymentId {
-        make_timestamp_id("P-")
+        self.make_timestamp_id("P-")
     }
 }
 

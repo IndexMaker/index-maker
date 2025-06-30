@@ -212,19 +212,19 @@ impl Book {
         match self.last_update_id {
             Some(last_id) => {
                 if diff_depth.first_update_id_in_event > last_id + 1 {
-                    tracing::debug!(
+                    if !self.snapshot_requested {
+                        tracing::debug!(
                             "DiffDepthUpdate for {} is ahead and snapshot is needed (U: {}, u: {} vs last_id: {})",
                             self.symbol,
                             diff_depth.first_update_id_in_event,
                             diff_depth.final_update_id_in_event,
                             last_id,
                         );
-                    if !self.snapshot_requested {
                         self.request_snapshot()?;
                     }
                     self.pending_updates.push_back(diff_depth);
                 } else if diff_depth.final_update_id_in_event < last_id {
-                    tracing::debug!(
+                    tracing::trace!(
                             "DiffDepthUpdate for {} is old and will be ignored (U: {}, u: {} vs last_id: {})",
                             self.symbol,
                             diff_depth.first_update_id_in_event,
@@ -232,7 +232,7 @@ impl Book {
                             last_id,
                         );
                 } else {
-                    tracing::debug!(
+                    tracing::trace!(
                         "DiffDepthUpdate for {} is new and will be applied (U: {}, u: {})",
                         self.symbol,
                         diff_depth.first_update_id_in_event,
@@ -264,13 +264,13 @@ impl Book {
                 }
             }
             None => {
-                tracing::debug!(
+                if !self.snapshot_requested {
+                    tracing::debug!(
                     "DiffDepthUpdate for {} empty book and snapshot is needed (U: {}, u: {} vs last_id: None)",
                     self.symbol,
                     diff_depth.first_update_id_in_event,
                     diff_depth.final_update_id_in_event,
                 );
-                if !self.snapshot_requested {
                     self.request_snapshot()?;
                 }
                 self.pending_updates.push_back(diff_depth);

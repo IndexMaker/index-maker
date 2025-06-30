@@ -34,7 +34,7 @@ mod tests {
 
         assert_decimal_approx_eq!(decimal1, decimal2, tolerance); // Should pass
 
-        println!("Approximate equality assertions passed!");
+        tracing::debug!("Approximate equality assertions passed!");
     }
 
     #[test]
@@ -45,6 +45,6 @@ mod tests {
         let tolerance2 = Decimal::from_str_exact("0.00001").unwrap();
         assert_decimal_approx_eq!(decimal1, decimal2, tolerance2); //should panic
 
-        println!("Approximate equality assertions passed!");
+        tracing::debug!("Approximate equality assertions passed!");
     }
 }

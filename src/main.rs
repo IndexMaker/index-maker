@@ -1,7 +1,7 @@
 use std::{env, sync::Arc};
 
 use binance_order_sending::credentials::Credentials;
-use chrono::{TimeDelta, Utc};
+use chrono::{Duration, TimeDelta, Utc};
 use clap::Parser;
 use index_maker::{
     app::{
@@ -17,7 +17,7 @@ use index_maker::{
         simple_server::{ServerConfig, SimpleServerConfig},
         simple_solver::SimpleSolverConfig,
         solver::{ChainConnectorConfig, OrderIdProviderConfig, SolverConfig, SolverStrategyConfig},
-        timestamp_ids::{util::make_timestamp_id, TimestampOrderIdsConfig},
+        timestamp_ids::TimestampOrderIdsConfig,
     },
     blockchain::chain_connector::ChainNotification,
     index::basket::{AssetWeight, BasketDefinition},
@@ -77,8 +77,16 @@ async fn main() {
     let client_quote_wait_period = TimeDelta::seconds(1);
 
     let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
+        .map(|s| {
+            1 == s
+                .parse::<i32>()
+                .expect("Failed to parse BINANCE_TRADING_ENABLED environment variable")
+        })
+        .unwrap_or_default();
     let credentials = Credentials::new(
         api_key,
+        trading_enabled,
         move || env::var("BINANCE_API_SECRET").ok(),
         move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
@@ -88,15 +96,10 @@ async fn main() {
     // ----
 
     // Fake index assets (btw: these should be assets and not markets)
-    let symbols = [
-        Symbol::from("BNBEUR"),
-        Symbol::from("BTCEUR"),
-        Symbol::from("ETHEUR"),
-        Symbol::from("LINKEUR"),
-    ];
+    let symbols = [Symbol::from("BNBEUR"), Symbol::from("ETHEUR")];
 
-    let weights = [dec!(0.3), dec!(0.2), dec!(0.4), dec!(0.1)];
-    let index_symbol = Symbol::from("SO4");
+    let weights = [dec!(0.6), dec!(0.4)];
+    let index_symbol = Symbol::from("SO2");
 
     let assets = symbols
         .iter()
@@ -122,6 +125,8 @@ async fn main() {
     let order_id_config = TimestampOrderIdsConfig::builder()
         .build_arc()
         .expect("Failed to build order ID provider");
+
+    let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
 
     let server_config = SimpleServerConfig::builder()
         .build_arc()
@@ -209,11 +214,16 @@ async fn main() {
         .build()
         .expect("Failed to build solver");
 
-    solver_config.run().await.expect("Failed to run solver");
+    solver_config
+        .run(Duration::milliseconds(100))
+        .await
+        .expect("Failed to run solver");
 
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
-        let reslult = price_tracker.read().get_prices(PriceType::BestAsk, &symbols);
+        let reslult = price_tracker
+            .read()
+            .get_prices(PriceType::BestAsk, &symbols);
         if reslult.missing_symbols.is_empty() {
             break;
         }
@@ -246,14 +256,14 @@ async fn main() {
         .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
             chain_id: 1,
             address: get_mock_address_1(),
-            client_order_id: make_timestamp_id("C-"),
+            client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
             symbol: cli.symbol,
             side: cli.side,
             collateral_amount: cli.collateral_amount,
             timestamp: Utc::now(),
         }));
 
-    sleep(std::time::Duration::from_secs(10)).await;
+    sleep(std::time::Duration::from_secs(30)).await;
 
     solver_config.stop().await.expect("Failed to stop solver");
 }

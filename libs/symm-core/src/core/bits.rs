@@ -9,7 +9,7 @@ pub type Address = alloy::primitives::Address; // address (EVM)
 
 // add things like (de)serialization of Amount from string (...when required)
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum PriceType {
     BestBid,
     BestAsk,
@@ -18,7 +18,7 @@ pub enum PriceType {
     VolumeWeighted,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LastPriceEntry {
     pub sequence_number: u64,
     pub best_bid_price: Option<Amount>,
@@ -55,7 +55,7 @@ impl LastPriceEntry {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PricePointEntry {
     pub price: Amount,
     pub quantity: Amount,
@@ -109,6 +109,7 @@ impl From<&str> for Side {
 }
 
 /// Single leg of a Batch Order
+#[derive(Debug)]
 pub struct AssetOrder {
     /// An internal ID we assign to order
     pub order_id: OrderId,
@@ -133,6 +134,7 @@ pub struct AssetOrder {
 /// quantites of Asset Orders are sent as Single Orders into -> Order Tracker, which
 /// then gets them send to exchange using Order Connector (-> Binance).
 ///
+#[derive(Debug)]
 pub struct BatchOrder {
     /// An order ID from FIX message, one per IndexOrder
     pub batch_order_id: BatchOrderId,
@@ -144,6 +146,7 @@ pub struct BatchOrder {
     pub created_timestamp: DateTime<Utc>,
 }
 
+#[derive(Debug)]
 pub struct SingleOrder {
     /// An internal ID we assign to order
     pub order_id: OrderId,

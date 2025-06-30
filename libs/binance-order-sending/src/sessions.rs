@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Result};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
@@ -13,7 +13,7 @@ use symm_core::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{command::SessionCommand, credentials::Credentials, session::Session};
+use crate::{credentials::Credentials, session::Session};
 
 pub struct Sessions {
     sessions: HashMap<SessionId, Session>,
@@ -45,20 +45,12 @@ impl Sessions {
         self.sessions.remove(session_id)
     }
 
-    pub fn send_command(&self, command: SessionCommand) -> Result<()> {
-        let session = self
-            .sessions
-            .get(&command.session_id)
-            .ok_or_eyre("Failed to find session")?;
-
-        session.send_command(command.command)
+    pub fn get_session(&self, session_id: &SessionId) -> Option<&Session> {
+        self.sessions.get(session_id)
     }
 
     pub fn drain_all_sessions(&mut self) -> Vec<Session> {
-        self.sessions
-            .drain()
-            .map(|(k, v)| v)
-            .collect_vec()
+        self.sessions.drain().map(|(k, v)| v).collect_vec()
     }
 
     pub async fn stop_all(mut sessions: Vec<Session>) -> Result<()> {
