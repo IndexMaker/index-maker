@@ -15,6 +15,7 @@ use index_maker::{
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
         simple_server::{ServerConfig, SimpleServerConfig},
+        axum_server::{ServerConfig as NewServerConfig, AxumServerConfig},
         simple_solver::SimpleSolverConfig,
         solver::{ChainConnectorConfig, OrderIdProviderConfig, SolverConfig, SolverStrategyConfig},
         timestamp_ids::{util::make_timestamp_id, TimestampOrderIdsConfig},
@@ -76,7 +77,7 @@ async fn main() {
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
-    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let api_key = "1UaTvpzopfaQ1qxDkoolFm2t7qveaLPA5mquFfk1RqgoKl6PLePyxDXzQ02GZxe6".to_string();//env::var("BINANCE_API_KEY").expect("No API key in env");
     let credentials = Credentials::new(
         api_key,
         move || env::var("BINANCE_API_SECRET").ok(),
@@ -127,7 +128,15 @@ async fn main() {
         .build_arc()
         .expect("Failed to build server");
 
-    let simple_server = server_config.expect_simple_server_cloned();
+    let simple_server = server_config.expect_server_cloned();
+
+    let axum_server_config = AxumServerConfig::builder()
+        .build_arc()
+        .expect("Failed to build server");
+
+    let axum_server = axum_server_config.expect_server_cloned();
+
+    
 
     let chain_connector_config = SimpleChainConnectorConfig::builder()
         .build_arc()
@@ -191,6 +200,9 @@ async fn main() {
         .build_arc()
         .expect("Failed to build simple solver");
 
+
+    axum_server.read().await.start_server("127.0.0.1:3000").await;
+
     let mut solver_config = SolverConfig::builder()
         .zero_threshold(zero_threshold)
         .max_batch_size(max_batch_size)
@@ -241,19 +253,20 @@ async fn main() {
 
     sleep(std::time::Duration::from_secs(2)).await;
 
-    simple_server
-        .read()
-        .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
-            chain_id: 1,
-            address: get_mock_address_1(),
-            client_order_id: make_timestamp_id("C-"),
-            symbol: cli.symbol,
-            side: cli.side,
-            collateral_amount: cli.collateral_amount,
-            timestamp: Utc::now(),
-        }));
 
-    sleep(std::time::Duration::from_secs(10)).await;
+    // simple_server
+    //     .read()
+    //     .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+    //         chain_id: 1,
+    //         address: get_mock_address_1(),
+    //         client_order_id: make_timestamp_id("C-"),
+    //         symbol: cli.symbol,
+    //         side: cli.side,
+    //         collateral_amount: cli.collateral_amount,
+    //         timestamp: Utc::now(),
+    //     }));
+
+    sleep(std::time::Duration::from_secs(30)).await;
 
     solver_config.stop().await.expect("Failed to stop solver");
 }

@@ -514,9 +514,9 @@ impl SolverConfig {
             .start()
             .expect("Failed to start market data");
 
-        self.with_order_sender
-            .start()
-            .expect("Failed to start order sender");
+        // self.with_order_sender
+        //     .start()
+        //     .expect("Failed to start order sender");
 
         self.stopping.replace((stop_tx, stopped_rx));
 
