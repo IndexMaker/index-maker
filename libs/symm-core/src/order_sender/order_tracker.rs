@@ -146,7 +146,9 @@ impl OrderTracker {
             Entry::Occupied(entry) => {
                 let order_entry = entry.get();
                 match order_entry.get_status() {
-                    OrderStatus::Sent { quantity_remaining: _ } => {
+                    OrderStatus::Sent {
+                        quantity_remaining: _,
+                    } => {
                         if !is_cancel {
                             Err(eyre!("Invalid order state for applying fill"))
                         } else {
@@ -438,6 +440,14 @@ mod test {
                 assert_eq!(sid, SessionId::from("Session-01"));
                 defer_1
                     .send(Box::new(move || {
+                        order_connector.read().nofity_new(
+                            e.order_id.clone(),
+                            e.symbol.clone(),
+                            e.side,
+                            e.price,
+                            e.quantity,
+                            timestamp,
+                        );
                         order_connector.read().notify_fill(
                             e.order_id.clone(),
                             lot_id_1.clone(),

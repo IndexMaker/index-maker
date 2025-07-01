@@ -127,6 +127,24 @@ pub async fn main() {
                 timestamp
             );
         }
+        OrderConnectorNotification::NewOrder {
+            order_id,
+            symbol,
+            side,
+            price,
+            quantity,
+            timestamp,
+        } => {
+            tracing::info!(
+                "New {} {} {:?} {} {} {}",
+                order_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                timestamp
+            );
+        }
         OrderConnectorNotification::Cancel {
             order_id,
             symbol,

@@ -1608,6 +1608,14 @@ mod test {
                 // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
                     .send(Box::new(move || {
+                        order_connector.read().nofity_new(
+                            e.order_id.clone(),
+                            e.symbol.clone(),
+                            e.side,
+                            e.price,
+                            e.quantity,
+                            e.created_timestamp,
+                        );
                         order_connector.write().notify_fill(
                             e.order_id.clone(),
                             lot_id_1.clone(),
