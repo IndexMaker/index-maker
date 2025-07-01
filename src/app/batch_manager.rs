@@ -41,11 +41,16 @@ impl BatchManagerConfig {
     }
 
     pub fn expect_batch_manager_cloned(&self) -> Arc<ComponentLock<BatchManager>> {
-        self.batch_manager.clone().ok_or(()).expect("Failed to get batch manager")
+        self.batch_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get batch manager")
     }
 
     pub fn try_get_batch_manager_cloned(&self) -> Result<Arc<ComponentLock<BatchManager>>> {
-        self.batch_manager.clone().ok_or_eyre("Failed to get batch manager")
+        self.batch_manager
+            .clone()
+            .ok_or_eyre("Failed to get batch manager")
     }
 }
 

@@ -1,9 +1,9 @@
 use binance_order_sending::config::ConfigureBinanceAccess;
 use binance_sdk::config::ConfigurationRestApi;
 use binance_sdk::spot;
+use std::env;
 use symm_core::core::logging::log_init;
 use symm_core::init_log;
-use std::env;
 
 #[tokio::main]
 async fn main() {

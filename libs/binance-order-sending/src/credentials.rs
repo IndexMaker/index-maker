@@ -31,7 +31,7 @@ impl Credentials {
         self.api_key.clone()
     }
 
-    pub (crate) fn should_enable_trading(&self) -> bool {
+    pub(crate) fn should_enable_trading(&self) -> bool {
         self.enable_trading
     }
 

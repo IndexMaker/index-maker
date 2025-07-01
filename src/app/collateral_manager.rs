@@ -1,8 +1,7 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use crate::{
-    app::simple_router::CollateralRouterConfig,
-    collateral::collateral_manager::CollateralManager,
+    app::simple_router::CollateralRouterConfig, collateral::collateral_manager::CollateralManager,
 };
 
 use super::config::ConfigBuildError;
@@ -34,11 +33,18 @@ impl CollateralManagerConfig {
     }
 
     pub fn expect_collateral_manager_cloned(&self) -> Arc<ComponentLock<CollateralManager>> {
-        self.collateral_manager.clone().ok_or(()).expect("Failed to get collateral manager")
+        self.collateral_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get collateral manager")
     }
 
-    pub fn try_get_collateral_manager_cloned(&self) -> Result<Arc<ComponentLock<CollateralManager>>> {
-        self.collateral_manager.clone().ok_or_eyre("Failed to get collateral manager")
+    pub fn try_get_collateral_manager_cloned(
+        &self,
+    ) -> Result<Arc<ComponentLock<CollateralManager>>> {
+        self.collateral_manager
+            .clone()
+            .ok_or_eyre("Failed to get collateral manager")
     }
 }
 

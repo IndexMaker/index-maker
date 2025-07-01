@@ -172,7 +172,8 @@ impl OrderTracker {
             } => {
                 tracing::debug!(
                     "(order-tracker) Session diconnected: {}, Reason: {}",
-                    session_id, reason
+                    session_id,
+                    reason
                 );
                 self.session = None;
                 Ok(())

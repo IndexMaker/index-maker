@@ -1,4 +1,3 @@
-use core::time;
 use std::{env, sync::Arc};
 
 use binance_order_sending::credentials::Credentials;

@@ -85,7 +85,11 @@ impl TradingSessionBuilder {
 
         let trading_enabled = credentials.should_enable_trading();
 
-        Ok(TradingSession::new(credentials.into_session_id(), wsapi, trading_enabled))
+        Ok(TradingSession::new(
+            credentials.into_session_id(),
+            wsapi,
+            trading_enabled,
+        ))
     }
 }
 
@@ -230,7 +234,9 @@ impl TradingSession {
 
             tracing::debug!("PlaceOrder returned: {:#?}", res);
         } else {
-            tracing::warn!("PlaceOrder: TRADING DISABLED: Must enable trading before sending orders");
+            tracing::warn!(
+                "PlaceOrder: TRADING DISABLED: Must enable trading before sending orders"
+            );
         }
 
         Ok(())

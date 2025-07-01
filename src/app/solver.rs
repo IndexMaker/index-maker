@@ -20,7 +20,6 @@ use crate::{
     server::server::ServerEvent,
     solver::{
         batch_manager::BatchEvent,
-        index_order::IndexOrder,
         index_order_manager::IndexOrderEvent,
         index_quote_manager::QuoteRequestEvent,
         solver::{OrderIdProvider, Solver, SolverStrategy},

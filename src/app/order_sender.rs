@@ -46,27 +46,42 @@ impl OrderSenderConfig {
     }
 
     pub fn expect_order_sender_cloned(&self) -> Arc<RwLock<BinanceOrderSending>> {
-        self.order_sender.clone().ok_or(()).expect("Failed to get order sender")
+        self.order_sender
+            .clone()
+            .ok_or(())
+            .expect("Failed to get order sender")
     }
 
     pub fn try_get_order_sender_cloned(&self) -> Result<Arc<RwLock<BinanceOrderSending>>> {
-        self.order_sender.clone().ok_or_eyre("Failed to get order sender")
+        self.order_sender
+            .clone()
+            .ok_or_eyre("Failed to get order sender")
     }
 
     pub fn expect_order_tracker_cloned(&self) -> Arc<RwLock<OrderTracker>> {
-        self.order_tracker.clone().ok_or(()).expect("Failed to get order tracker")
+        self.order_tracker
+            .clone()
+            .ok_or(())
+            .expect("Failed to get order tracker")
     }
 
     pub fn try_get_order_tracker_cloned(&self) -> Result<Arc<RwLock<OrderTracker>>> {
-        self.order_tracker.clone().ok_or_eyre("Failed to get order tracker")
+        self.order_tracker
+            .clone()
+            .ok_or_eyre("Failed to get order tracker")
     }
 
     pub fn expect_inventory_manager_cloned(&self) -> Arc<RwLock<InventoryManager>> {
-        self.inventory_manager.clone().ok_or(()).expect("Failed to get inventory manager")
+        self.inventory_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get inventory manager")
     }
 
     pub fn try_get_inventory_manager_cloned(&self) -> Result<Arc<RwLock<InventoryManager>>> {
-        self.inventory_manager.clone().ok_or_eyre("Failed to get inventory manager")
+        self.inventory_manager
+            .clone()
+            .ok_or_eyre("Failed to get inventory manager")
     }
 
     pub fn start(&mut self) -> Result<()> {

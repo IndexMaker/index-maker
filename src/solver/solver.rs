@@ -220,7 +220,10 @@ impl Solver {
                     (|o: &SolverOrder| {
                         tracing::warn!(
                             "(solver) Missing prices for order [{}:{}] {} {}",
-                            o.chain_id, o.address, o.client_order_id, o.symbol
+                            o.chain_id,
+                            o.address,
+                            o.client_order_id,
+                            o.symbol
                         );
                     })(&failed_order.read());
                     self.client_orders.write().put_back(failed_order);
@@ -229,7 +232,11 @@ impl Solver {
                     let o = failed_order.read();
                     tracing::warn!(
                         "(solver) Failed order [{}:{}] {} {} Reason: {:?}",
-                        o.chain_id, o.address, o.client_order_id, o.symbol, failed_status
+                        o.chain_id,
+                        o.address,
+                        o.client_order_id,
+                        o.symbol,
+                        failed_status
                     );
                     self.index_order_manager
                         .write()
@@ -456,10 +463,10 @@ impl Solver {
 
         tracing::trace!("(solver) End solve\n");
     }
-    
+
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
         tracing::trace!("\n(solver) Begin solve quotes");
-        
+
         if let Err(err) = self.process_more_quotes(timestamp) {
             tracing::warn!("(solver) Error while processing more quotes: {:?}", err);
         }
@@ -554,7 +561,10 @@ impl Solver {
             } => {
                 tracing::info!(
                     "(solver) CollateralReady for {} {} {:0.5} {:0.5}",
-                    chain_id, address, collateral_amount, fee
+                    chain_id,
+                    address,
+                    collateral_amount,
+                    fee
                 );
 
                 let order = self.client_orders.read().get_client_order(
@@ -635,13 +645,19 @@ impl Solver {
                                 self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
                             }
                         } else {
-                            tracing::warn!("(solver) PreAuth approved handling failed: {}", payment_id)
+                            tracing::warn!(
+                                "(solver) PreAuth approved handling failed: {}",
+                                payment_id
+                            )
                         }
                     }
                     PreAuthStatus::NotEnoughFunds => {
                         tracing::warn!(
                             "(solver) PreAuth failed: Not enough funds to pay [{}:{}] {} {:0.5}",
-                            chain_id, address, client_order_id, amount_payable
+                            chain_id,
+                            address,
+                            client_order_id,
+                            amount_payable
                         )
                     }
                 }
@@ -703,7 +719,10 @@ impl Solver {
                 ConfirmStatus::NotEnoughFunds => {
                     tracing::warn!(
                         "(solver) Payment failed: Not enough funds to pay [{}:{}] {} {}",
-                        chain_id, address, client_order_id, payment_id
+                        chain_id,
+                        address,
+                        client_order_id,
+                        payment_id
                     )
                 }
             },
@@ -725,7 +744,10 @@ impl Solver {
             } => {
                 tracing::info!(
                     "\n(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
-                    symbol, client_order_id, client_order_id, address
+                    symbol,
+                    client_order_id,
+                    client_order_id,
+                    address
                 );
                 self.client_orders.write().add_client_order(
                     chain_id,
@@ -745,7 +767,9 @@ impl Solver {
             } => {
                 tracing::info!(
                     "\n(solver) Handle Cancel Index Order [{}:{}] {}",
-                    chain_id, address, client_order_id
+                    chain_id,
+                    address,
+                    client_order_id
                 );
                 self.client_orders
                     .write()
@@ -761,7 +785,9 @@ impl Solver {
             } => {
                 tracing::info!(
                     "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
-                    client_order_id, client_order_id, address
+                    client_order_id,
+                    client_order_id,
+                    address
                 );
                 self.client_orders.write().update_client_order(
                     chain_id,
@@ -791,7 +817,11 @@ impl Solver {
             } => {
                 tracing::info!(
                     "\n(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
-                    chain_id, client_order_id, address, collateral_remaining, collateral_spent
+                    chain_id,
+                    client_order_id,
+                    address,
+                    collateral_remaining,
+                    collateral_spent
                 );
                 if let Some(order) =
                     self.client_orders
@@ -959,7 +989,9 @@ impl Solver {
             } => {
                 tracing::info!(
                     "(solver) Handle Inventory Event Cancel {} {} {}",
-                    order_id, batch_order_id, symbol
+                    order_id,
+                    batch_order_id,
+                    symbol
                 );
                 self.batch_manager
                     .read()
@@ -1036,7 +1068,8 @@ impl SetSolverOrderStatus for Solver {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
         tracing::info!(
             "(solver) Set Index Order Status: {} {:?}",
-            order.client_order_id, status
+            order.client_order_id,
+            status
         );
         order.status = status;
     }
@@ -1044,7 +1077,8 @@ impl SetSolverOrderStatus for Solver {
     fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
         tracing::info!(
             "(solver) Set Index Quote Status: {} {:?}",
-            order.client_quote_id, status
+            order.client_quote_id,
+            status
         );
         order.status = status;
     }
@@ -1127,23 +1161,30 @@ mod test {
     use rust_decimal::dec;
 
     use symm_core::{
-        assert_decimal_approx_eq, core::{
-            bits::{PricePointEntry, SingleOrder}, functional::{IntoObservableMany, IntoObservableSingle}, logging::log_init, test_util::{
+        assert_decimal_approx_eq,
+        core::{
+            bits::{PricePointEntry, SingleOrder},
+            functional::{IntoObservableMany, IntoObservableSingle},
+            logging::log_init,
+            test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_name_1, get_mock_asset_name_2, get_mock_index_name_1,
-            }
-        }, init_log, market_data::{
+            },
+        },
+        init_log,
+        market_data::{
             market_data_connector::{
                 test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
             },
             order_book::order_book_manager::PricePointBookManager,
-        }, order_sender::{
+        },
+        order_sender::{
             order_connector::{
                 test_util::MockOrderConnector, OrderConnectorNotification, SessionId,
             },
             order_tracker::{OrderTracker, OrderTrackerNotification},
             position::LotId,
-        }
+        },
     };
 
     use crate::{
@@ -1558,7 +1599,11 @@ mod test {
                 let defer = defer_1.clone();
                 tracing::info!(
                     "(mock) SingleOrder {} {:0.5} @ {:0.5} {:0.5} @ {:0.5}",
-                    e.symbol, q1, p1, q2, p2
+                    e.symbol,
+                    q1,
+                    p1,
+                    q2,
+                    p2
                 );
                 // Note we defer first fill to make sure we don't get dead-lock
                 defer_1
@@ -1631,7 +1676,12 @@ mod test {
                     } => {
                         tracing::info!(
                             "(mock) MintedIndex: {} {:5} Quantity: {:0.5} User: {} @{:0.5} {}",
-                            chain_id, symbol, quantity, receipient, execution_price, execution_time
+                            chain_id,
+                            symbol,
+                            quantity,
+                            receipient,
+                            execution_price,
+                            execution_time
                         );
                     }
                     MockChainInternalNotification::BurnIndex {
@@ -1671,7 +1721,10 @@ mod test {
                     } => {
                         tracing::info!(
                             "(mock) FIX Order Response: ACK [{}:{}] {} {}",
-                            chain_id, address, client_order_id, timestamp
+                            chain_id,
+                            address,
+                            client_order_id,
+                            timestamp
                         );
                     }
                     ServerResponse::IndexOrderFill {
@@ -1702,7 +1755,10 @@ mod test {
                     } => {
                         tracing::info!(
                             "(mock) FIX Quote Response: ACK [{}:{}] {} {}",
-                            chain_id, address, client_quote_id, timestamp
+                            chain_id,
+                            address,
+                            client_quote_id,
+                            timestamp
                         );
                     }
                     ServerResponse::IndexQuoteResponse {
@@ -1714,7 +1770,11 @@ mod test {
                     } => {
                         tracing::info!(
                             "(mock) FIX Quote Response: EXE [{}:{}] {} {:0.5} {}",
-                            chain_id, address, client_quote_id, quantity_possible, timestamp
+                            chain_id,
+                            address,
+                            client_quote_id,
+                            quantity_possible,
+                            timestamp
                         );
                     }
                     response => {
@@ -1750,7 +1810,10 @@ mod test {
                             } => {
                                 tracing::info!(
                                     "(mock) TransferFunds: from {} {} {} for {:0.5}",
-                                    chain_id, address, client_order_id, amount
+                                    chain_id,
+                                    address,
+                                    client_order_id,
+                                    amount
                                 );
                                 let chain_id = *chain_id;
                                 let address = *address;

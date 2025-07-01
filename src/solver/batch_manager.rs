@@ -410,7 +410,9 @@ impl BatchOrderStatus {
                         carried_lots.iter().map(|lot| lot.remaining_quantity).sum();
                     tracing::info!(
                         "(batch-order-status) Carried over {} {:?} {:0.5}",
-                        symbol, side, carried_position
+                        symbol,
+                        side,
+                        carried_position
                     );
 
                     match carry_overs.entry((symbol.clone(), *side)) {
@@ -819,7 +821,9 @@ impl BatchManager {
         if self.fill_threshold < order_fill_rate {
             tracing::info!(
                 "(batch-manager) Index Order {} fill-rate {:0.5} is above fill threshold {:0.5}",
-                index_order_write.client_order_id, order_fill_rate, self.fill_threshold
+                index_order_write.client_order_id,
+                order_fill_rate,
+                self.fill_threshold
             );
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
         }
@@ -1089,12 +1093,14 @@ impl BatchManager {
                     if let SolverOrderStatus::FullyMintable = index_order.status {
                         tracing::info!(
                             "(batch-manager) Index Order is Fully Mintable {} cc={:0.5}",
-                            engaged_order.client_order_id, collateral_carried
+                            engaged_order.client_order_id,
+                            collateral_carried
                         );
                     } else {
                         tracing::info!(
                             "(batch-manager) Will continue Index Order {} cc={:0.5}",
-                            engaged_order.client_order_id, collateral_carried
+                            engaged_order.client_order_id,
+                            collateral_carried
                         );
                         index_order.with_upgraded(|index_order_write| {
                             index_order_write.collateral_carried = collateral_carried;
