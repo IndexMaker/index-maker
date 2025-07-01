@@ -122,7 +122,7 @@ impl CollateralManager {
             .collect_vec();
 
         if !failures.is_empty() {
-            eprintln!(
+            tracing::warn!(
                 "(collateral-manager) Errors in processing: {}",
                 failures
                     .into_iter()
@@ -143,7 +143,7 @@ impl CollateralManager {
     }
 
     pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
-        println!(
+        tracing::info!(
             "(collateral-manager) ManageCollateral for {} {}",
             collateral_management.address, collateral_management.client_order_id
         );
@@ -159,7 +159,7 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) Deposit from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
@@ -177,7 +177,7 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
             chain_id, address, amount
         );
@@ -202,7 +202,7 @@ impl CollateralManager {
         side: Side,
         amount_payable: Amount,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) PreAuth Payment for {} {:0.5}",
             address, amount_payable
         );
@@ -253,7 +253,7 @@ impl CollateralManager {
         side: Side,
         amount_paid: Amount,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) Confirm Payment for {} {:0.5}",
             address, amount_paid
         );
@@ -326,7 +326,7 @@ impl CollateralManager {
                 amount,
                 fee,
             } => {
-                println!(
+                tracing::info!(
                     "(collateral-manager) Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
                     chain_id, address, client_order_id, transfer_from, transfer_to, amount, fee
                 );
@@ -535,27 +535,27 @@ mod test {
                     fee,
                     ..
                 } => {
-                    println!(
+                    tracing::info!(
                         "Collateral Ready Event {:0.5} {:0.5}",
                         collateral_amount, fee
                     );
                 }
                 CollateralEvent::PreAuthResponse { status, .. } => match status {
                     PreAuthStatus::Approved { .. } => {
-                        println!("PreAuthResponse Event: Approved");
+                        tracing::info!("PreAuthResponse Event: Approved");
                         flag_mock_atomic_bool(&preauth_approved_set);
                     }
                     PreAuthStatus::NotEnoughFunds => {
-                        println!("PreAuthResponse Event: NotEnoughFunds");
+                        tracing::info!("PreAuthResponse Event: NotEnoughFunds");
                     }
                 },
                 CollateralEvent::ConfirmResponse { status, .. } => match status {
                     ConfirmStatus::Authorized => {
-                        println!("ConfirmRespnse Event: Authorized");
+                        tracing::info!("ConfirmRespnse Event: Authorized");
                         flag_mock_atomic_bool(&confirm_auth_set);
                     }
                     ConfirmStatus::NotEnoughFunds => {
-                        println!("ConfirmRespnse Event: NotEnoughFunds");
+                        tracing::info!("ConfirmRespnse Event: NotEnoughFunds");
                     }
                 },
             });

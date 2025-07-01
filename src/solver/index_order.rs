@@ -305,7 +305,7 @@ impl IndexOrder {
     pub fn solver_cancel(&mut self, client_order_id: ClientOrderId, reason: &str) {
         self.closed_updates.extend(self.order_updates.drain(..));
         //todo!("figure this one out - solver didn't like this order")
-        eprintln!("Error in Order: {} {}", client_order_id, reason);
+        tracing::warn!("Error in Order: {} {}", client_order_id, reason);
     }
 
     /// Drain
@@ -421,7 +421,7 @@ impl IndexOrder {
             if future_remaining_collateral < tolerance {
                 // We can engage with whole remaining collateral on this update
                 let remaining_collateral = update.remaining_collateral;
-                println!("Should update!");
+                tracing::info!("Should update!");
                 safe!(update.engaged_collateral += remaining_collateral)
                     .ok_or_eyre("Math Problem")?;
 

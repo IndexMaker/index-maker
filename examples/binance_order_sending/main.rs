@@ -34,8 +34,16 @@ pub async fn main() {
     let cli = Cli::parse();
 
     let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
+        .map(|s| {
+            1 == s
+                .parse::<i32>()
+                .expect("Failed to parse BINANCE_TRADING_ENABLED environment variable")
+        })
+        .unwrap_or_default();
     let credentials = Credentials::new(
         api_key,
+        trading_enabled,
         move || env::var("BINANCE_API_SECRET").ok(),
         move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),

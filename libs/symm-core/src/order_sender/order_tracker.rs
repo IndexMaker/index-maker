@@ -159,9 +159,9 @@ impl OrderTracker {
                 // account status then new_order() could chose which session to
                 // send order.
             } => {
-                println!("(order-tracker) Session connected: {}", session_id);
+                tracing::debug!("(order-tracker) Session connected: {}", session_id);
                 if let Some(prev_sid) = self.session.replace(session_id) {
-                    eprintln!("(order-tracker) Dropping previous session: {}", prev_sid);
+                    tracing::warn!("(order-tracker) Dropping previous session: {}", prev_sid);
                 }
                 Ok(())
             }
@@ -170,7 +170,7 @@ impl OrderTracker {
                 reason,
                 timestamp,
             } => {
-                println!(
+                tracing::debug!(
                     "(order-tracker) Session diconnected: {}, Reason: {}",
                     session_id, reason
                 );
@@ -186,7 +186,7 @@ impl OrderTracker {
                 reason,
                 timestamp,
             } => {
-                println!("Order {} was rejected: {}", order_id, reason);
+                tracing::debug!("Order {} was rejected: {}", order_id, reason);
                 match self.update_order_status(order_id.clone(), quantity, true) {
                     Ok((order_entry, quantity_remaining, was_live, is_cancelled)) => {
                         // Notify about fills sending notification to subscriber (-> Inventory Manager)
@@ -278,6 +278,7 @@ impl OrderTracker {
 
     /// Receive new order requests from InventoryManager
     pub fn new_order(&mut self, order: Arc<SingleOrder>) -> Result<()> {
+        tracing::debug!("NewOrder: {}", order.order_id);
         let session_id = self
             .session
             .clone()

@@ -90,7 +90,7 @@ impl SimpleSolver {
                 true
             }
             Err(err) => {
-                eprintln!(
+                tracing::warn!(
                     "(simple-solver) Error while {} for IndexOrder {}: {:?}",
                     error_action, order_upread.client_order_id, err
                 );
@@ -246,7 +246,7 @@ impl SimpleSolver {
         let prices_len = get_prices.prices.len();
 
         for (k, v) in &get_prices.prices {
-            println!("(simple-solver) Price: {:?} {} {}", side, k, v);
+            tracing::info!("(simple-solver) Price: {:?} {} {}", side, k, v);
         }
 
         let price_limits: HashMap<_, _> = get_prices
@@ -260,7 +260,7 @@ impl SimpleSolver {
         }
 
         for (k, v) in &price_limits {
-            println!("(simple-solver) Price Limit: {} {}", k, v);
+            tracing::info!("(simple-solver) Price Limit: {} {}", k, v);
         }
 
         Ok((price_limits, get_prices.missing_symbols))
@@ -281,11 +281,11 @@ impl SimpleSolver {
             .map(|(symbol, basket)| (symbol.clone(), basket.get_current_price(asset_prices)))
             .partition_map(|(symbol, index_price_result)| match index_price_result {
                 Ok(price) => {
-                    println!("(simple-solver) Index Price: {} {}", symbol, price);
+                    tracing::info!("(simple-solver) Index Price: {} {}", symbol, price);
                     Either::Left((symbol, price))
                 }
                 Err(err) => {
-                    eprintln!(
+                    tracing::warn!(
                         "(simple-solver) Failed to compute index price for {}: {:?}",
                         symbol, err
                     );
@@ -339,7 +339,7 @@ impl SimpleSolver {
         let index_order_quantity = safe!(collateral_usable / index_price)
             .ok_or_eyre("Index order quantity computation error")?;
 
-        println!(
+        tracing::info!(
             "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} cc={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
             client_order_id,
             collateral_amount,
@@ -357,7 +357,7 @@ impl SimpleSolver {
             .map_while(|basket_asset| {
                 let asset_symbol = &basket_asset.weight.asset.name;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
-                println!(
+                tracing::info!(
                     "(simple-solver) Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
                     client_order_id,
                     asset_symbol,
@@ -399,7 +399,7 @@ impl SimpleSolver {
         let capped_order_quantity = safe!(order_quantity * volley_fraction)
             .ok_or_eyre("Cannot calculate capped order quantity")?;
 
-        println!(
+        tracing::info!(
             "(simple-solver) Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
             client_order_id, order_quantity, capped_order_quantity
         );
@@ -413,7 +413,7 @@ impl SimpleSolver {
 
             capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
                 asset_symbol, asset_quantity, capped_asset_quantity
             );
@@ -580,7 +580,7 @@ impl SimpleSolver {
             // on price threshold, so that we don't wipe too many levels.
             fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",
                 client_order_id,
                 asset_symbol,
@@ -694,7 +694,7 @@ impl SimpleSolver {
 
             asset_contribution_fractions.insert(asset_symbol.clone(), asset_contribution_fraction);
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
                 client_order_id, asset_symbol, total_asset_quantity, asset_contribution_fraction,
             );
@@ -1288,7 +1288,7 @@ impl SolverStrategy for SimpleSolver {
                 filled_quantity: Amount::ZERO,
             };
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Solver Order Engagement: {} {} eq={:0.5} ep={:0.5} ec={:0.5}",
                 engagement.client_order_id,
                 engagement.symbol,
@@ -1634,7 +1634,7 @@ mod test {
         expected_quotes: Vec<Amount>,
         expected: Vec<(Amount, Amount, Amount)>,
     ) {
-        println!("Test Case: {}", title);
+        tracing::info!("Test Case: {}", title);
 
         let timestamp = Utc::now();
 
@@ -1707,7 +1707,7 @@ mod test {
 
         for n in 0..expected_quotes.len() {
             let quote_read = solved_quotes.solved_quotes[n].read();
-            println!(
+            tracing::info!(
                 "for {} {} <> {}",
                 n, quote_read.quantity_possible, expected_quotes[n]
             );

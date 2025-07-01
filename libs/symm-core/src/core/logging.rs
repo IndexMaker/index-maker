@@ -11,28 +11,28 @@ pub fn log_init(filter: String) {
 
 /// Default initialize tracing log.
 ///
-/// Must also import [`index_maker::core::logging::log_init`] function.
+/// Must also import [`symm_core::core::logging::log_init`] function.
 ///
 /// ## Using
-/// ```
-/// use index_maker::{core::logging::log_init, init_log}
+/// ```rust
+/// use symm_core::{core::logging::log_init, init_log};
 ///
 /// init_log!();
 /// tracing::info!("New order from: {}", "Bob");
-/// tracing::debug!("Order details: {} @ {}", quantity, price);
-/// tracing::warn!("Cannot find order: {}", order_id);
-/// tracing::error!("Connection lost: {}", reason);
+/// tracing::debug!("Order details: {} @ {}", 100.0, 200.0);
+/// tracing::warn!("Cannot find order: {}", "O-123456");
+/// tracing::error!("Connection lost: {}", "Failed to connect");
 /// ```
 ///
 /// # Configuring
 /// Standard `RUST_LOG` environment variable can be used to configure, e.g.:
 ///
-/// ```
+/// ```bash
 /// export RUST_LOG="info"
 /// ```
 ///
 /// or more detailed:
-/// ```
+/// ```bash
 /// export RUST_LOG="my_module_name=debug"
 /// ```
 ///
