@@ -412,9 +412,9 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        // tracing::info!("\n(solver) Begin solve");
+        tracing::trace!("\n(solver) Begin solve");
 
-        // tracing::info!("(solver) * Process collateral");
+        tracing::trace!("(solver) * Process collateral");
         if let Err(err) = self
             .collateral_manager
             .write()
@@ -424,22 +424,22 @@ impl Solver {
             tracing::warn!("(solver) Error while processing credits: {:?}", err);
         }
 
-        // tracing::info!("(solver) * Mint indexes");
+        tracing::trace!("(solver) * Mint indexes");
         if let Err(err) = self.mint_indexes(timestamp) {
             tracing::warn!("(solver) Error while processing mints: {:?}", err);
         }
 
-        // tracing::info!("(solver) * Serve more clients");
+        tracing::trace!("(solver) * Serve more clients");
         if let Err(err) = self.serve_more_clients(timestamp) {
             tracing::warn!("(solver) Error while serving more clients: {:?}", err);
         }
 
-        // tracing::info!("(solver) * Engage more orders");
+        tracing::trace!("(solver) * Engage more orders");
         if let Err(err) = self.engage_more_orders(timestamp) {
             tracing::warn!("Error while engaging more orders: {:?}", err);
         }
 
-        // tracing::info!("(solver) * Process batches");
+        tracing::trace!("(solver) * Process batches");
         if let Err(err) = self
             .batch_manager
             .write()
@@ -449,12 +449,22 @@ impl Solver {
             tracing::warn!("(solver) Error while sending more batches: {:?}", err);
         }
 
-        // tracing::info!("(solver) * Process quotes");
+        tracing::trace!("(solver) * Process quotes");
         if let Err(err) = self.process_more_quotes(timestamp) {
             tracing::warn!("(solver) Error while processing more quotes: {:?}", err);
         }
 
-        // tracing::info!("(solver) End solve\n");
+        tracing::trace!("(solver) End solve\n");
+    }
+    
+    pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
+        tracing::trace!("\n(solver) Begin solve quotes");
+        
+        if let Err(err) = self.process_more_quotes(timestamp) {
+            tracing::warn!("(solver) Error while processing more quotes: {:?}", err);
+        }
+
+        tracing::trace!("(solver) End solve quotes\n");
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
