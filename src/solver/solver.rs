@@ -1626,7 +1626,6 @@ mod test {
                             dec!(0.001) * p1 * q1,
                             e.created_timestamp,
                         );
-                        let defer_ = defer.clone();
                         // We defer second fill, so that fills of different orders
                         // will be interleaved. We do that to test progressive fill-rate
                         // of the Index Order in our simulation.
@@ -1642,17 +1641,13 @@ mod test {
                                     dec!(0.001) * p2 * q2,
                                     e.created_timestamp,
                                 );
-                                defer_
-                                    .send(Box::new(move || {
-                                        order_connector.write().notify_cancel(
-                                            e.order_id.clone(),
-                                            e.symbol.clone(),
-                                            e.side,
-                                            q3,
-                                            e.created_timestamp,
-                                        );
-                                    }))
-                                    .unwrap();
+                                order_connector.write().notify_cancel(
+                                    e.order_id.clone(),
+                                    e.symbol.clone(),
+                                    e.side,
+                                    q3,
+                                    e.created_timestamp,
+                                );
                             }))
                             .unwrap();
                     }))
