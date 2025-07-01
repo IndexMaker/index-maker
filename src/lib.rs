@@ -36,7 +36,7 @@ pub mod server {
     pub mod fix_messages;
     pub mod requests;
     pub mod responses;
-    pub mod example_plugin;
+    pub mod server_plugin;
 }
 
 pub mod solver {

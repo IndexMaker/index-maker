@@ -66,20 +66,17 @@ impl Session {
 /// The `Plugin` consumes the message and is responsible for deserialization,
 /// message validation (fields, seqnum, signatures), publishing to application, etc.
 pub struct Server<Q, P>
-where
-    Q: ServerResponse,
-    P: ServerPlugin<Q>,
 {
     me: Weak<RwLock<Self>>,
     sessions: HashMap<SessionId, Arc<Session>>,
     session_id_counter: AtomicUsize,
-    plugin: P,
+    pub plugin: P,
     pub accept_connections: bool,
 }
 
 impl<Q, P> Server<Q, P>
 where
-    Q: ServerResponse + Send + Clone + 'static,
+    Q: Send + 'static,
     P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     /// new
@@ -101,7 +98,7 @@ where
     /// start_server
     ///
     /// Initializes the server, spawining it on a thread using `ws_handler` logic.
-    pub fn start_server(&self, address: &'static str) {
+    pub fn start_server(&self, address: String) {
         let my_clone = self.me.upgrade().unwrap();
         tokio::spawn(async move {
             let addr: SocketAddr = address.parse().expect(&format!(
@@ -224,7 +221,7 @@ async fn ws_handler<Q, P>(
     State(server): State<Arc<RwLock<Server<Q, P>>>>,
 ) -> impl IntoResponse
 where
-    Q: ServerResponse + Send + Clone + 'static,
+    Q: Send + 'static,
     P: ServerPlugin<Q> + Send + Sync + 'static,
 {
     ws.on_upgrade(move |mut ws: WebSocket| async move {

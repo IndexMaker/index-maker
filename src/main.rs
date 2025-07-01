@@ -5,6 +5,7 @@ use chrono::{TimeDelta, Utc};
 use clap::Parser;
 use index_maker::{
     app::{
+        axum_server::AxumServerConfig,
         basket_manager::BasketManagerConfig,
         batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig,
@@ -14,10 +15,12 @@ use index_maker::{
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
-        simple_server::{ServerConfig, SimpleServerConfig},
-        axum_server::{ServerConfig as NewServerConfig, AxumServerConfig},
+        simple_server::SimpleServerConfig,
         simple_solver::SimpleSolverConfig,
-        solver::{ChainConnectorConfig, OrderIdProviderConfig, SolverConfig, SolverStrategyConfig},
+        solver::{
+            ChainConnectorConfig, OrderIdProviderConfig, ServerConfig, SolverConfig,
+            SolverStrategyConfig,
+        },
         timestamp_ids::{util::make_timestamp_id, TimestampOrderIdsConfig},
     },
     blockchain::chain_connector::ChainNotification,
@@ -39,8 +42,8 @@ use tokio::time::sleep;
 
 #[derive(Parser)]
 struct Cli {
-    symbol: Symbol,
-    side: Side,
+    // symbol: Symbol,
+    // side: Side,
     collateral_amount: Amount,
 }
 
@@ -53,12 +56,12 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    tracing::info!(
-        "Index Order: {} {:?} {}",
-        cli.symbol,
-        cli.side,
-        cli.collateral_amount
-    );
+    //tracing::info!(
+    //    "Index Order: {} {:?} {}",
+    //cli.symbol,
+    //cli.side,
+    //    cli.collateral_amount
+    //);
 
     // ==== Configuration parameters
     // ----
@@ -77,7 +80,7 @@ async fn main() {
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
-    let api_key = "1UaTvpzopfaQ1qxDkoolFm2t7qveaLPA5mquFfk1RqgoKl6PLePyxDXzQ02GZxe6".to_string();//env::var("BINANCE_API_KEY").expect("No API key in env");
+    let api_key = "1UaTvpzopfaQ1qxDkoolFm2t7qveaLPA5mquFfk1RqgoKl6PLePyxDXzQ02GZxe6".to_string(); //env::var("BINANCE_API_KEY").expect("No API key in env");
     let credentials = Credentials::new(
         api_key,
         move || env::var("BINANCE_API_SECRET").ok(),
@@ -124,19 +127,16 @@ async fn main() {
         .build_arc()
         .expect("Failed to build order ID provider");
 
-    let server_config = SimpleServerConfig::builder()
+    // let server_config = SimpleServerConfig::builder()
+    //     .build_arc()
+    //     .expect("Failed to build server");
+
+    // let simple_server = server_config.expect_server_cloned();
+
+    let server_config = AxumServerConfig::builder()
+        .address("127.0.0.1:3000")
         .build_arc()
         .expect("Failed to build server");
-
-    let simple_server = server_config.expect_server_cloned();
-
-    let axum_server_config = AxumServerConfig::builder()
-        .build_arc()
-        .expect("Failed to build server");
-
-    let axum_server = axum_server_config.expect_server_cloned();
-
-    
 
     let chain_connector_config = SimpleChainConnectorConfig::builder()
         .build_arc()
@@ -169,7 +169,7 @@ async fn main() {
         .expect("Failed to build index order manager");
 
     let quote_request_manager_config = QuoteRequestManagerConfig::builder()
-        .with_server(server_config as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
         .build()
         .expect("Failed to build quote request manager");
 
@@ -200,9 +200,6 @@ async fn main() {
         .build_arc()
         .expect("Failed to build simple solver");
 
-
-    axum_server.read().await.start_server("127.0.0.1:3000").await;
-
     let mut solver_config = SolverConfig::builder()
         .zero_threshold(zero_threshold)
         .max_batch_size(max_batch_size)
@@ -223,9 +220,16 @@ async fn main() {
 
     solver_config.run().await.expect("Failed to run solver");
 
+    server_config
+        .start()
+        .await
+        .expect("Failed to start FIX Server");
+
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
-        let reslult = price_tracker.read().get_prices(PriceType::BestAsk, &symbols);
+        let reslult = price_tracker
+            .read()
+            .get_prices(PriceType::BestAsk, &symbols);
         if reslult.missing_symbols.is_empty() {
             break;
         }
@@ -253,7 +257,6 @@ async fn main() {
 
     sleep(std::time::Duration::from_secs(2)).await;
 
-
     // simple_server
     //     .read()
     //     .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
@@ -269,4 +272,9 @@ async fn main() {
     sleep(std::time::Duration::from_secs(30)).await;
 
     solver_config.stop().await.expect("Failed to stop solver");
+
+    server_config
+        .stop()
+        .await
+        .expect("Failed to start FIX Server");
 }

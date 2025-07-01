@@ -17,7 +17,7 @@ use crate::{
         collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
     },
     index::basket_manager::BasketNotification,
-    server::server::ServerEvent,
+    server::server::{Server, ServerEvent},
     solver::{
         batch_manager::BatchEvent,
         index_order_manager::IndexOrderEvent,
@@ -61,6 +61,11 @@ pub trait ChainConnectorConfig {
     fn try_get_chain_connector_cloned(
         &self,
     ) -> Result<Arc<ComponentLock<dyn ChainConnector + Send + Sync>>>;
+}
+
+pub trait ServerConfig {
+    fn expect_server_cloned(&self) -> Arc<RwLock<dyn Server + Send + Sync>>;
+    fn try_get_server_cloned(&self) -> Result<Arc<RwLock<dyn Server + Send + Sync>>>;
 }
 
 pub trait SolverStrategyConfig {

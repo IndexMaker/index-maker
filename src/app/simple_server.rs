@@ -4,6 +4,7 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
+use crate::app::solver::ServerConfig;
 
 use symm_core::core::functional::{
     IntoObservableManyVTable, MultiObserver, NotificationHandler,
@@ -48,11 +49,6 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for SimpleServer {
 pub struct SimpleServerConfig {
     #[builder(setter(skip))]
     simple_server: Option<Arc<RwLock<SimpleServer>>>,
-}
-
-pub trait ServerConfig {
-    fn expect_server_cloned(&self) -> Arc<RwLock<dyn Server + Send + Sync>>;
-    fn try_get_server_cloned(&self) -> Result<Arc<RwLock<dyn Server + Send + Sync>>>;
 }
 
 impl SimpleServerConfig {

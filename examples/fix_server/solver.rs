@@ -49,7 +49,6 @@ impl Solver {
                         SolverEvents::Message(req) => {
                             // Reimplement handle_event logic here without referencing self
                             thread::sleep(Duration::from_secs(5));
-                            let fix_server = fix_server_weak.upgrade().unwrap();
                             let response = Response {
                                 session_id:req.session_id.clone(),
                                 standard_header:FixHeader{
@@ -69,6 +68,7 @@ impl Solver {
                                 },
                             };
 
+                            let fix_server = fix_server_weak.upgrade().unwrap();
                             let server_lock = fix_server.blocking_read();
                             if let Err(e) = server_lock.send_response(response) {
                                 tracing::error!("Failed to send response: {}", e);

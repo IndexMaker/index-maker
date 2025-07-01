@@ -1,30 +1,28 @@
-use symm_core::core::functional::{NotificationHandlerOnce, PublishSingle, SingleObserver};
+use symm_core::core::functional::{
+    IntoObservableManyVTable, MultiObserver, NotificationHandler, PublishMany,
+};
 
 pub struct ObserverPlugin<R> {
-    observer: SingleObserver<R>,
+    observer: MultiObserver<R>,
 }
 
 impl<R> ObserverPlugin<R> {
     pub fn new() -> Self {
         Self {
-            observer: SingleObserver::new(),
+            observer: MultiObserver::new(),
         }
     }
-
-    pub fn set_observer_closure(&mut self, closure: impl NotificationHandlerOnce<R> + 'static) {
-        self.observer.set_observer_fn(closure);
-    }
-
-    // pub fn get_multi_observer_mut(&mut self) -> &mut SingleObserver<R> {
-    //     &mut self.observer
-    // }
-
+    
     /// handle_server_message
     ///
     /// Processes an incoming server request by publishing it to all registered observers for processing.
-    pub fn publish_request(&self, request: R) {
-        self.observer.publish_single(request);
+    pub fn publish_request(&self, request: &R) {
+        self.observer.publish_many(request);
     }
+}
 
-
+impl<R> IntoObservableManyVTable<R> for ObserverPlugin<R> {
+    fn add_observer(&mut self, observer: Box<dyn NotificationHandler<R>>) {
+        self.observer.add_observer(observer);
+    }
 }

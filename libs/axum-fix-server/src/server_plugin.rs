@@ -1,13 +1,11 @@
 use std::collections::HashSet;
 
 use eyre::{Result};
-use crate::messages::{ServerResponse, SessionId};
+use crate::messages::{SessionId};
 
 /// Base trait for server plugins, defining core functionality for processing messages
 /// and managing sessions.
 pub trait ServerPlugin<Q>
-where
-    Q: ServerResponse,
 {
     /// process_incoming
     /// 
