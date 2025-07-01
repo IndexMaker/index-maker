@@ -48,7 +48,7 @@ impl Filter {
                     tick_size
                 );
                 let x = safe!(*price / *tick_size).ok_or_eyre("Math error")?;
-                *price = safe!(x.ceil() * *tick_size).ok_or_eyre("Math error")?;
+                *price = safe!(x.floor() * *tick_size).ok_or_eyre("Math error")?;
                 if *price < *min_price {
                     Err(eyre!(
                         "Too small price {} (min_price = {})",
@@ -73,7 +73,7 @@ impl Filter {
                     step_size
                 );
                 let x = safe!(*quantity / *step_size).ok_or_eyre("Math error")?;
-                *quantity = safe!(x.ceil() * *step_size).ok_or_eyre("Math error")?;
+                *quantity = safe!(x.floor() * *step_size).ok_or_eyre("Math error")?;
                 if *quantity < *min_quantity {
                     Err(eyre!(
                         "Too small quantity {} (min_quantity = {})",

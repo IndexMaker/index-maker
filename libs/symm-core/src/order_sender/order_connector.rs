@@ -41,6 +41,14 @@ pub enum OrderConnectorNotification {
         fee: Amount,
         timestamp: DateTime<Utc>,
     },
+    NewOrder {
+        order_id: OrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>,
+    },
     Cancel {
         order_id: OrderId,
         symbol: Symbol,
@@ -304,6 +312,14 @@ pub mod test {
                             assert_decimal_approx_eq!(quantity, fill_quantity, tolerance);
                             assert_decimal_approx_eq!(fee, fee_2, tolerance);
                         }
+                        OrderConnectorNotification::NewOrder {
+                            order_id: _,
+                            symbol: _,
+                            side: _,
+                            price: _,
+                            quantity: _,
+                            timestamp: _,
+                        } => todo!(),
                         OrderConnectorNotification::Cancel {
                             order_id,
                             symbol,

@@ -52,6 +52,7 @@ pub enum OrderTrackerNotification {
 
 #[derive(Clone, Copy)]
 pub enum OrderStatus {
+    Sent { quantity_remaining: Amount },
     Live { quantity_remaining: Amount },
     Cancelled { quantity_remaining: Amount },
     SendFailed,
@@ -68,7 +69,7 @@ impl OrderEntry {
         Self {
             session_id,
             order: order.clone(),
-            status: AtomicCell::new(OrderStatus::Live {
+            status: AtomicCell::new(OrderStatus::Sent {
                 quantity_remaining: order.quantity,
             }),
         }
@@ -102,6 +103,38 @@ impl OrderTracker {
         }
     }
 
+    fn update_order_new(
+        &mut self,
+        order_id: OrderId,
+        price: Amount,
+        quantity: Amount,
+    ) -> Result<()> {
+        match self.orders.entry(order_id.clone()) {
+            // We're receiving a NewOrder for an order, so we should be able to find it our records
+            Entry::Occupied(entry) => {
+                let order_entry = entry.get();
+                match order_entry.get_status() {
+                    OrderStatus::Sent { quantity_remaining } => {
+                        tracing::info!(
+                            "Order Status {}: Sent({} @ {}) => Ack({} @ {})",
+                            order_id,
+                            quantity_remaining,
+                            order_entry.order.price,
+                            quantity,
+                            price
+                        );
+                        order_entry.set_status(OrderStatus::Live {
+                            quantity_remaining: quantity,
+                        });
+                        Ok(())
+                    }
+                    _ => Err(eyre!("Invalid order state for applying new")),
+                }
+            }
+            Entry::Vacant(_) => Err(eyre!("Untracked order")),
+        }
+    }
+
     fn update_order_status(
         &mut self,
         order_id: OrderId,
@@ -113,6 +146,13 @@ impl OrderTracker {
             Entry::Occupied(entry) => {
                 let order_entry = entry.get();
                 match order_entry.get_status() {
+                    OrderStatus::Sent { quantity_remaining: _ } => {
+                        if !is_cancel {
+                            Err(eyre!("Invalid order state for applying fill"))
+                        } else {
+                            Ok((order_entry.clone(), Amount::ZERO, true, true))
+                        }
+                    }
                     // It makes sense that only live orders can be filled or cancelled
                     OrderStatus::Live { quantity_remaining } => {
                         if let Some(quantity_remaining) = safe!(quantity_remaining - quantity) {
@@ -244,6 +284,14 @@ impl OrderTracker {
                     Err(err) => Err(eyre!("Error for {} {}", order_id, err)),
                 }
             }
+            OrderConnectorNotification::NewOrder {
+                order_id,
+                symbol,
+                side,
+                price,
+                quantity,
+                timestamp,
+            } => self.update_order_new(order_id, price, quantity),
             OrderConnectorNotification::Cancel {
                 order_id,
                 symbol,
@@ -288,13 +336,7 @@ impl OrderTracker {
             Entry::Occupied(_) => Err(eyre!("Order already sent with ID {}", order.order_id)),
             Entry::Vacant(entry) => {
                 // We create an entry in our records to book keeping
-                let order_entry = Arc::new(OrderEntry {
-                    session_id: session_id.clone(),
-                    order: order.clone(),
-                    status: AtomicCell::new(OrderStatus::Live {
-                        quantity_remaining: order.quantity,
-                    }),
-                });
+                let order_entry = Arc::new(OrderEntry::new(session_id.clone(), &order));
                 entry.insert(order_entry.clone());
                 // ...and then we send the order after the entry added to our records
                 match self.order_connector.write().send_order(session_id, &order) {
