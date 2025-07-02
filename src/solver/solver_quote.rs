@@ -184,7 +184,9 @@ impl SolverClientQuotes {
                         queue.retain(|x| !x.eq(&client_quote_id));
                     }
                 } else {
-                    tracing::warn!("(solver) Cancel order found empty index order queue for the user");
+                    tracing::warn!(
+                        "(solver) Cancel order found empty index order queue for the user"
+                    );
                     entry.remove();
                 }
                 notify

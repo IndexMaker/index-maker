@@ -6,10 +6,7 @@ use parking_lot::RwLock;
 use symm_core::core::bits::{BatchOrderId, OrderId, PaymentId};
 
 use super::config::ConfigBuildError;
-use crate::{
-    app::solver::OrderIdProviderConfig,
-    solver::solver::OrderIdProvider,
-};
+use crate::{app::solver::OrderIdProviderConfig, solver::solver::OrderIdProvider};
 use derive_builder::Builder;
 
 pub struct TimestampOrderIds {

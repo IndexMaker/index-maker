@@ -17,7 +17,7 @@ impl From<UninitializedFieldError> for ConfigBuildError {
 }
 
 impl From<Report> for ConfigBuildError {
-    fn from(report : Report) -> Self {
+    fn from(report: Report) -> Self {
         ConfigBuildError::Other(format!("{:?}", report))
     }
 }

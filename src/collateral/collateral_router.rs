@@ -269,7 +269,13 @@ impl CollateralRouter {
                 if route_to.eq(&destination) {
                     tracing::info!(
                         "(collateral-router) Route Complete for [{}:{}] {}: {} => {} {:0.5} {:0.5}",
-                        chain_id, address, client_order_id, route_from, route_to, amount, fee
+                        chain_id,
+                        address,
+                        client_order_id,
+                        route_from,
+                        route_to,
+                        amount,
+                        fee
                     );
                     self.observer
                         .publish_single(CollateralTransferEvent::TransferComplete {

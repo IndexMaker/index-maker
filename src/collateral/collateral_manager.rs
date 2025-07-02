@@ -145,7 +145,8 @@ impl CollateralManager {
     pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
         tracing::info!(
             "(collateral-manager) ManageCollateral for {} {}",
-            collateral_management.address, collateral_management.client_order_id
+            collateral_management.address,
+            collateral_management.client_order_id
         );
         self.collateral_management_requests
             .push_back(collateral_management);
@@ -161,7 +162,9 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(
             "(collateral-manager) Deposit from [{}:{}] {:0.5}",
-            chain_id, address, amount
+            chain_id,
+            address,
+            amount
         );
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
@@ -179,7 +182,9 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(
             "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
-            chain_id, address, amount
+            chain_id,
+            address,
+            amount
         );
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
@@ -204,7 +209,8 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(
             "(collateral-manager) PreAuth Payment for {} {:0.5}",
-            address, amount_payable
+            address,
+            amount_payable
         );
 
         let funds = self
@@ -255,7 +261,8 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(
             "(collateral-manager) Confirm Payment for {} {:0.5}",
-            address, amount_paid
+            address,
+            amount_paid
         );
 
         let funds = self
@@ -328,7 +335,13 @@ impl CollateralManager {
             } => {
                 tracing::info!(
                     "(collateral-manager) Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
-                    chain_id, address, client_order_id, transfer_from, transfer_to, amount, fee
+                    chain_id,
+                    address,
+                    client_order_id,
+                    transfer_from,
+                    transfer_to,
+                    amount,
+                    fee
                 );
                 let funds = self
                     .get_position(chain_id, &address)
@@ -537,7 +550,8 @@ mod test {
                 } => {
                     tracing::info!(
                         "Collateral Ready Event {:0.5} {:0.5}",
-                        collateral_amount, fee
+                        collateral_amount,
+                        fee
                     );
                 }
                 CollateralEvent::PreAuthResponse { status, .. } => match status {

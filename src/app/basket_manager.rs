@@ -24,11 +24,16 @@ impl BasketManagerConfig {
     }
 
     pub fn expect_basket_manager_cloned(&self) -> Arc<RwLock<BasketManager>> {
-        self.basket_manager.clone().ok_or(()).expect("Failed to get basket manager")
+        self.basket_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get basket manager")
     }
 
     pub fn try_get_basket_manager_cloned(&self) -> Result<Arc<RwLock<BasketManager>>> {
-        self.basket_manager.clone().ok_or_eyre("Failed to get basket manager")
+        self.basket_manager
+            .clone()
+            .ok_or_eyre("Failed to get basket manager")
     }
 }
 

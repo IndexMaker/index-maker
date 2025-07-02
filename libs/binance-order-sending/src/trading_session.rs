@@ -16,7 +16,7 @@ use rust_decimal::Decimal;
 use safe_math::safe;
 use serde::Deserialize;
 use serde_json::Value;
-use symm_core::core::bits::SingleOrder;
+use symm_core::core::bits::{Amount, SingleOrder};
 use symm_core::{
     core::{
         bits::{OrderId, Side, Symbol},
@@ -85,7 +85,11 @@ impl TradingSessionBuilder {
 
         let trading_enabled = credentials.should_enable_trading();
 
-        Ok(TradingSession::new(credentials.into_session_id(), wsapi, trading_enabled))
+        Ok(TradingSession::new(
+            credentials.into_session_id(),
+            wsapi,
+            trading_enabled,
+        ))
     }
 }
 
@@ -230,7 +234,9 @@ impl TradingSession {
 
             tracing::debug!("PlaceOrder returned: {:#?}", res);
         } else {
-            tracing::warn!("PlaceOrder: TRADING DISABLED: Must enable trading before sending orders");
+            tracing::warn!(
+                "PlaceOrder: TRADING DISABLED: Must enable trading before sending orders"
+            );
         }
 
         Ok(())
@@ -361,15 +367,29 @@ impl TradingSession {
                 "FILLED" => observer
                     .read()
                     .publish_single(OrderConnectorNotification::Fill {
-                        order_id,
+                        order_id: order_id.clone(),
                         lot_id: execution_report.trade_id.to_string().into(),
-                        symbol,
+                        symbol: symbol.clone(),
                         side,
                         price: execution_report.executed_price,
                         quantity: execution_report.executed_quantity,
                         fee: execution_report.commission_amount,
                         timestamp: Utc::now(),
                     }),
+                "PARTIALLY_FILLED" => {
+                    observer
+                        .read()
+                        .publish_single(OrderConnectorNotification::Fill {
+                            order_id,
+                            lot_id: execution_report.trade_id.to_string().into(),
+                            symbol,
+                            side,
+                            price: execution_report.executed_price,
+                            quantity: execution_report.executed_quantity,
+                            fee: execution_report.commission_amount,
+                            timestamp: Utc::now(),
+                        })
+                }
                 "EXPIRED" => observer
                     .read()
                     .publish_single(OrderConnectorNotification::Cancel {
@@ -379,16 +399,16 @@ impl TradingSession {
                         quantity: remaining_quantity,
                         timestamp: Utc::now(),
                     }),
-                "NEW" => {
-                    tracing::debug!(
-                        "New order: {} {:?} {}: {} @ {}",
+                "NEW" => observer
+                    .read()
+                    .publish_single(OrderConnectorNotification::NewOrder {
                         order_id,
-                        side,
                         symbol,
-                        execution_report.order_quantity,
-                        execution_report.order_price
-                    );
-                }
+                        side,
+                        price: execution_report.order_price,
+                        quantity: execution_report.order_quantity,
+                        timestamp: Utc::now(),
+                    }),
                 other => {
                     // Note: We're firing IOC, so we can either get Fill or Cancel
                     tracing::warn!("Unsupported execution report type: {:#?}", other);

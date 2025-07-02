@@ -92,7 +92,9 @@ impl SimpleSolver {
             Err(err) => {
                 tracing::warn!(
                     "(simple-solver) Error while {} for IndexOrder {}: {:?}",
-                    error_action, order_upread.client_order_id, err
+                    error_action,
+                    order_upread.client_order_id,
+                    err
                 );
                 set_order_status(order_upread, error_status);
                 bad.push(order_ptr.clone());
@@ -287,7 +289,8 @@ impl SimpleSolver {
                 Err(err) => {
                     tracing::warn!(
                         "(simple-solver) Failed to compute index price for {}: {:?}",
-                        symbol, err
+                        symbol,
+                        err
                     );
                     Either::Right(symbol)
                 }
@@ -401,7 +404,9 @@ impl SimpleSolver {
 
         tracing::info!(
             "(simple-solver) Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
-            client_order_id, order_quantity, capped_order_quantity
+            client_order_id,
+            order_quantity,
+            capped_order_quantity
         );
 
         let mut capped_asset_quantities = HashMap::new();
@@ -415,7 +420,9 @@ impl SimpleSolver {
 
             tracing::info!(
                 "(simple-solver) Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
-                asset_symbol, asset_quantity, capped_asset_quantity
+                asset_symbol,
+                asset_quantity,
+                capped_asset_quantity
             );
         }
 
@@ -696,7 +703,10 @@ impl SimpleSolver {
 
             tracing::info!(
                 "(simple-solver) Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
-                client_order_id, asset_symbol, total_asset_quantity, asset_contribution_fraction,
+                client_order_id,
+                asset_symbol,
+                total_asset_quantity,
+                asset_contribution_fraction,
             );
         }
 
@@ -1709,7 +1719,9 @@ mod test {
             let quote_read = solved_quotes.solved_quotes[n].read();
             tracing::info!(
                 "for {} {} <> {}",
-                n, quote_read.quantity_possible, expected_quotes[n]
+                n,
+                quote_read.quantity_possible,
+                expected_quotes[n]
             );
             assert!(matches!(quote_read.status, SolverQuoteStatus::Ready));
             assert_decimal_approx_eq!(

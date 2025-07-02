@@ -29,7 +29,9 @@ impl IndexOrderUpdateReport {
         let update_read = update.read();
         tracing::info!(
             "(report) Closing Index Order [{}:{}] {}",
-            self.chain_id, self.address, update_read.client_order_id,
+            self.chain_id,
+            self.address,
+            update_read.client_order_id,
         );
         tracing::info!(
             "(report) {} {} rc={:0.5} cs={:0.5} ec={:0.5} fill={:0.5} fee={:0.5} (closed)",
@@ -56,7 +58,8 @@ fn print_heading(
     tracing::info!("(report) Date:  {} ", timestamp);
     tracing::info!(
         "(report) To:    [{}:{}]",
-        index_order_read.chain_id, index_order_read.address
+        index_order_read.chain_id,
+        index_order_read.address
     );
     tracing::info!("(report) Order: {}", update_read.client_order_id);
     tracing::info!("(report) Index: {}", index_order_read.symbol);
@@ -82,16 +85,22 @@ pub fn print_fill_report(
     print_heading("Fill Report", index_order_read, update_read, timestamp);
     tracing::info!(
         "(report) {: ^22}| {: ^10} |{: ^10}",
-        "Item", "Qty", "Amount"
+        "Item",
+        "Qty",
+        "Amount"
     );
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <22}| {: >10.5} |{: ^10}",
-        "Filled", fill_amount, ""
+        "Filled",
+        fill_amount,
+        ""
     );
     tracing::info!(
         "(report) {: <22}| {: >10.5} |{: >10.5}",
-        "Total Filled", update_read.filled_quantity, update_read.collateral_spent
+        "Total Filled",
+        update_read.filled_quantity,
+        update_read.collateral_spent
     );
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
@@ -109,7 +118,9 @@ pub fn print_fill_report(
     );
     tracing::info!(
         "(report) {: <22}  {: <10} |{: >10.5}",
-        " ", "Unengaged", update_read.remaining_collateral,
+        " ",
+        "Unengaged",
+        update_read.remaining_collateral,
     );
 
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
@@ -119,14 +130,17 @@ pub fn print_fill_report(
     tracing::info!("(report)");
     tracing::info!(
         "(report) To:    [{}:{}]",
-        index_order_read.chain_id, index_order_read.address
+        index_order_read.chain_id,
+        index_order_read.address
     );
     tracing::info!("(report) Index: {}", index_order_read.symbol);
     tracing::info!("(report)");
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <22}| {: >10.5} |{: >10.5}",
-        "Total Filled", index_order_read.filled_quantity, index_order_read.collateral_spent
+        "Total Filled",
+        index_order_read.filled_quantity,
+        index_order_read.collateral_spent
     );
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
@@ -153,7 +167,12 @@ pub fn print_mint_invoice(
     print_heading("Mint Invoice", index_order_read, update_read, timestamp);
     tracing::info!(
         "(report) {: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
-        "Lot", "Symbol", "Qty", "Price", "Fee", "Amount"
+        "Lot",
+        "Symbol",
+        "Qty",
+        "Price",
+        "Fee",
+        "Amount"
     );
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     let lots = lots
@@ -207,13 +226,19 @@ pub fn print_mint_invoice(
         let average_price = (sub_total.3 - sub_total.2) / sub_total.1;
         tracing::info!(
             "(report) {: <12}| {: <10} |{: >10.5} |~{: >9.4} |{: >10.5} |{: >10.5}",
-            "Sub-Total", sub_total.0, sub_total.1, average_price, sub_total.2, sub_total.3
+            "Sub-Total",
+            sub_total.0,
+            sub_total.1,
+            average_price,
+            sub_total.2,
+            sub_total.3
         )
     }
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <46} Sub Total     |{: >10.5}",
-        " ", total_amount,
+        " ",
+        total_amount,
     );
     tracing::info!(
         "(report) {: <46} Paid          |{: >10.5}",
@@ -232,11 +257,13 @@ pub fn print_mint_invoice(
     let total_paid = amount_paid + update_read.update_fee;
     tracing::info!(
         "(report) {: <46} Deposited     |{: >10.5}",
-        "Collateral", total_collateral,
+        "Collateral",
+        total_collateral,
     );
     tracing::info!(
         "(report) {: <46} Paid          |{: >10.5}",
-        "Management Fee", update_read.update_fee,
+        "Management Fee",
+        update_read.update_fee,
     );
     tracing::info!("(report) {: <46} Total Paid    |{: >10.5}", " ", total_paid,);
     tracing::info!(

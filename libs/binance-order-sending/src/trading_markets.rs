@@ -41,8 +41,14 @@ impl Filter {
                 max_price,
                 tick_size,
             } => {
+                tracing::debug!(
+                    "Applying PriceFilter: min={}, max={}, tick={}",
+                    min_price,
+                    max_price,
+                    tick_size
+                );
                 let x = safe!(*price / *tick_size).ok_or_eyre("Math error")?;
-                *price = safe!(x.ceil() * *tick_size).ok_or_eyre("Math error")?;
+                *price = safe!(x.floor() * *tick_size).ok_or_eyre("Math error")?;
                 if *price < *min_price {
                     Err(eyre!(
                         "Too small price {} (min_price = {})",
@@ -60,8 +66,14 @@ impl Filter {
                 max_quantity,
                 step_size,
             } => {
+                tracing::debug!(
+                    "Applying LotSize: min={}, max={}, step={}",
+                    min_quantity,
+                    max_quantity,
+                    step_size
+                );
                 let x = safe!(*quantity / *step_size).ok_or_eyre("Math error")?;
-                *quantity = safe!(x.ceil() * *step_size).ok_or_eyre("Math error")?;
+                *quantity = safe!(x.floor() * *step_size).ok_or_eyre("Math error")?;
                 if *quantity < *min_quantity {
                     Err(eyre!(
                         "Too small quantity {} (min_quantity = {})",
@@ -78,6 +90,7 @@ impl Filter {
                 }
             }
             Filter::MinNotional { min_notional } => {
+                tracing::debug!("Applying MinNotional: min={}", min_notional);
                 let min_quantity = safe!(*min_notional / *price).ok_or_eyre("Math error")?;
                 if *quantity < min_quantity {
                     Err(eyre!(
@@ -92,6 +105,11 @@ impl Filter {
                 min_notional,
                 max_notional,
             } => {
+                tracing::debug!(
+                    "Applying Notional: min={}, max={}",
+                    min_notional,
+                    max_notional
+                );
                 let min_quantity = safe!(*min_notional / *price).ok_or_eyre("Math error")?;
                 let max_quantity = safe!(*max_notional / *price).ok_or_eyre("Math error")?;
                 if *quantity < min_quantity {
@@ -191,6 +209,13 @@ impl MarketInfo {
     pub fn treat_price_quantity(&self, price: &mut Amount, quantity: &mut Amount) -> Result<()> {
         price.rescale(self.quote.precision);
         quantity.rescale(self.base.precision);
+
+        tracing::debug!(
+            "Applying filters to: sybol={}, price={}, quantity={}",
+            self.symbol,
+            price,
+            quantity
+        );
 
         let (_, bad): ((), Vec<_>) = self
             .filters
@@ -297,7 +322,7 @@ impl TradingMarkets {
             markets: HashMap::new(),
         }
     }
-    
+
     pub fn get_markets(&self) -> &HashMap<Symbol, MarketInfo> {
         &self.markets
     }

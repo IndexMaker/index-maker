@@ -6,8 +6,7 @@ use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 
 use symm_core::core::functional::{
-    IntoObservableManyVTable, MultiObserver, NotificationHandler,
-    PublishMany,
+    IntoObservableManyVTable, MultiObserver, NotificationHandler, PublishMany,
 };
 
 use crate::server::server::{Server, ServerEvent, ServerResponse};
