@@ -1,12 +1,11 @@
 use std::{
-    sync::Weak,
+    sync::{Arc, Weak},
     thread::{self, spawn, JoinHandle},
     time::Duration,
 };
 
 use axum_fix_server::server::Server;
 use crossbeam::channel::{select, Receiver};
-use tokio::sync::RwLock;
 
 use crate::{
     example_plugin::ExamplePlugin,
@@ -22,18 +21,18 @@ pub enum SolverEvents {
 }
 
 pub struct Solver {
-    fix_server_weak: Weak<RwLock<Server<Response, ExamplePlugin<Request, Response>>>>,
+    fix_server: Arc<Server<Response, ExamplePlugin<Request, Response>>>,
     event_rx: Receiver<SolverEvents>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl Solver {
     pub fn new(
-        fix_server_weak: Weak<RwLock<Server<Response, ExamplePlugin<Request, Response>>>>,
+        fix_server: Arc<Server<Response, ExamplePlugin<Request, Response>>>,
         event_rx: Receiver<SolverEvents>,
     ) -> Self {
         Solver {
-            fix_server_weak,
+            fix_server,
             event_rx,
             handle: None,
         }
@@ -41,7 +40,7 @@ impl Solver {
 
     pub fn start(&mut self) {
         let event_rx = self.event_rx.clone();
-        let fix_server_weak = self.fix_server_weak.clone();
+        let fix_server = self.fix_server.clone();
         self.handle = Some(spawn(move || loop {
             select!(
                 recv(event_rx) -> res => {
@@ -68,9 +67,7 @@ impl Solver {
                                 },
                             };
 
-                            let fix_server = fix_server_weak.upgrade().unwrap();
-                            let server_lock = fix_server.blocking_read();
-                            if let Err(e) = server_lock.send_response(response) {
+                            if let Err(e) = fix_server.send_response(response) {
                                 tracing::error!("Failed to send response: {}", e);
                             }
                         }

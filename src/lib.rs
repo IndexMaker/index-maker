@@ -1,4 +1,5 @@
 pub mod app {
+    pub mod axum_server;
     pub mod basket_manager;
     pub mod batch_manager;
     pub mod collateral_manager;
@@ -10,7 +11,6 @@ pub mod app {
     pub mod simple_chain;
     pub mod simple_router;
     pub mod simple_server;
-    pub mod axum_server;
     pub mod simple_solver;
     pub mod solver;
     pub mod timestamp_ids;
@@ -33,10 +33,13 @@ pub mod index {
 
 pub mod server {
     pub mod server;
-    pub mod fix_messages;
-    pub mod requests;
-    pub mod responses;
-    pub mod server_plugin;
+    pub mod fix {
+        pub mod messages;
+        pub mod requests;
+        pub mod responses;
+        pub mod server;
+        pub mod server_plugin;
+    }
 }
 
 pub mod solver {

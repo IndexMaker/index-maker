@@ -32,21 +32,20 @@ pub async fn main() {
      }));
 
     //Creating server
-    let fix_server = Server::new_arc(plugin);
-    let fix_server_weak = Arc::downgrade(&fix_server);
+    let fix_server = Arc::new(Server::new(plugin));
 
     // Creating and starting a mock solver, to simulate some work being done and respond to messages
-    let mut solver = MockSolver::new(fix_server_weak, event_rx);
+    let mut solver = MockSolver::new(fix_server.clone(), event_rx);
     solver.start();
 
     // Starting the server and wainting connections
-    fix_server.read().await.start_server("127.0.0.1:3000".to_string());
+    fix_server.start_server("127.0.0.1:3000".to_string());
 
     // Sleeping on main thread, server thread and solver thread are working
     sleep(Duration::from_secs(600));
 
     // Stops theserver from accepting new connections
-    fix_server.write().await.close_server();
+    fix_server.close_server();
 
     // Send quit message to solver, for gracious shutdow
     // stop wil await for solver to stop processing
@@ -55,5 +54,5 @@ pub async fn main() {
     solver.stop();
 
     // Closes all server sessions
-    fix_server.write().await.stop_server();
+    fix_server.stop_server().await.expect("Failed to stop server");
 }

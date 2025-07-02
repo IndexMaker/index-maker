@@ -1,6 +1,6 @@
 use std::fmt::Display;
-use symm_core::core::bits::Address;
-use eyre::{Report, Result};
+use symm_core::{core::bits::Address, string_id};
+use eyre::Result;
 use serde::{Serialize, Deserialize};
 
 /// FixMessage
@@ -22,39 +22,7 @@ impl From<&str> for FixMessage {
     }
 }
 
-
-#[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
-pub struct SessionId(pub String);
-
-impl Display for SessionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SessionId({})", self.0)
-    }
-}
-
-impl From<&str> for SessionId {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-impl Serialize for SessionId {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        serializer.serialize_str(&format!("{:?}", self.0))
-    }
-}
-
-impl<'de> Deserialize<'de> for SessionId {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de> {
-        let s = String::deserialize(deserializer)?;
-        Ok(SessionId(s))
-    }
-}
-
+string_id!(SessionId);
 
 pub trait ServerRequest
 where

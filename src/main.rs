@@ -130,13 +130,13 @@ async fn main() {
         .build_arc()
         .expect("Failed to build order ID provider");
 
-    let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
+    // let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
     
-    let simple_server_config = SimpleServerConfig::builder()
-         .build_arc()
-         .expect("Failed to build server");
+    // let simple_server_config = SimpleServerConfig::builder()
+    //      .build_arc()
+    //      .expect("Failed to build server");
 
-     let simple_server = simple_server_config.expect_server_cloned();
+    // let simple_server = simple_server_config.expect_server_cloned();
 
     let server_config = AxumServerConfig::builder()
         .address("127.0.0.1:3000")

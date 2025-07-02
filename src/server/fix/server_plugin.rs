@@ -18,9 +18,11 @@ use symm_core::core::{
 };
 
 use crate::server::{
-    fix_messages::{Body, FixHeader, FixTrailer},
-    requests::FixRequest,
-    responses::FixResponse,
+    fix::{
+        messages::{Body, FixHeader, FixTrailer},
+        requests::FixRequest,
+        responses::FixResponse,
+    },
     server::{ServerEvent, ServerResponse},
 };
 
@@ -190,7 +192,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "ACK".to_string(),
                 Body::OrderACKBody {
                     client_order_id: client_order_id.as_str().to_string(),
@@ -205,7 +207,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "NAK".to_string(),
                 Body::OrderNAKBody {
                     client_order_id: client_order_id.as_str().to_string(),
@@ -220,7 +222,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "ACK".to_string(),
                 Body::OrderACKBody {
                     client_order_id: client_order_id.as_str().to_string(),
@@ -235,7 +237,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "NAK".to_string(),
                 Body::OrderNAKBody {
                     client_order_id: client_order_id.as_str().to_string(),
@@ -253,7 +255,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "IndexOrderFill".to_string(),
                 Body::IndexOrderFillBody {
                     client_order_id: client_order_id.as_str().to_string(),
@@ -270,7 +272,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "ACK".to_string(),
                 Body::QuoteACKBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
@@ -285,7 +287,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "NAK".to_string(),
                 Body::QuoteNAKBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
@@ -301,7 +303,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "NAK".to_string(),
                 Body::IndexQuoteResponseBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
@@ -316,7 +318,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "ACK".to_string(),
                 Body::QuoteACKBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
@@ -331,7 +333,7 @@ impl ServerPlugin {
             } => (
                 chain_id,
                 address,
-                SessionId("placeholder".to_string()),
+                SessionId::from("S-1"),
                 "NAK".to_string(),
                 Body::QuoteNAKBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
@@ -384,7 +386,9 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                     // Convert FixRequest to ServerEvent
                     let event = self.fix_request_to_server_event(result).map_err(|e| {
                         let error_msg = self.process_error(user_id, e.to_string(), session_id);
-                        eyre::eyre!(error_msg.unwrap_or_else(|_| "Failed to process error".to_string()))
+                        eyre::eyre!(
+                            error_msg.unwrap_or_else(|_| "Failed to process error".to_string())
+                        )
                     })?;
                     self.observer_plugin.publish_request(&Arc::new(event));
                     Ok(())

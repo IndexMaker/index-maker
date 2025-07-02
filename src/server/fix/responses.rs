@@ -7,7 +7,7 @@ use symm_core::core::bits::Address;
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::server::fix_messages::*;
+use crate::server::fix::messages::*;
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

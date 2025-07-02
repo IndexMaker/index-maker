@@ -8,7 +8,7 @@ use eyre::{eyre, Result};
 use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize};
 use symm_core::core::bits::Address;
 
-use crate::server::fix_messages::*;
+use crate::server::fix::messages::*;
 
 
 #[derive(Serialize, Debug)]
@@ -178,7 +178,7 @@ impl<'de> Deserialize<'de> for FixRequest {
                 };
 
                 Ok(FixRequest {
-                    session_id: SessionId("".to_string()), // Set later
+                    session_id: SessionId::from("S-1"),
                     standard_header,
                     chain_id,
                     address,
