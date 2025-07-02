@@ -41,6 +41,14 @@ pub enum OrderConnectorNotification {
         fee: Amount,
         timestamp: DateTime<Utc>,
     },
+    NewOrder {
+        order_id: OrderId,
+        symbol: Symbol,
+        side: Side,
+        price: Amount,
+        quantity: Amount,
+        timestamp: DateTime<Utc>,
+    },
     Cancel {
         order_id: OrderId,
         symbol: Symbol,
@@ -107,6 +115,26 @@ pub mod test_util {
                 .publish_single(OrderConnectorNotification::SessionLogout {
                     session_id,
                     reason,
+                    timestamp,
+                });
+        }
+
+        pub fn nofity_new(
+            &self,
+            order_id: OrderId,
+            symbol: Symbol,
+            side: Side,
+            price: Amount,
+            quantity: Amount,
+            timestamp: DateTime<Utc>,
+        ) {
+            self.observer
+                .publish_single(OrderConnectorNotification::NewOrder {
+                    order_id,
+                    symbol,
+                    side,
+                    price,
+                    quantity,
                     timestamp,
                 });
         }
@@ -224,6 +252,14 @@ pub mod test {
                 let lot_id = lot_id_1.clone();
                 let order_connector = order_connector_2.upgrade().unwrap();
                 tx_1.send(Box::new(move || {
+                    order_connector.read().nofity_new(
+                        e.order_id.clone(),
+                        e.symbol.clone(),
+                        Side::Buy,
+                        e.price,
+                        e.quantity,
+                        timestamp,
+                    );
                     order_connector.read().notify_fill(
                         e.order_id.clone(),
                         lot_id,
@@ -304,6 +340,21 @@ pub mod test {
                             assert_decimal_approx_eq!(quantity, fill_quantity, tolerance);
                             assert_decimal_approx_eq!(fee, fee_2, tolerance);
                         }
+                        OrderConnectorNotification::NewOrder {
+                            order_id,
+                            symbol,
+                            side,
+                            price,
+                            quantity,
+                            timestamp,
+                        } => {
+                            assert_eq!(symbol, get_mock_asset_name_1());
+                            assert_eq!(side, Side::Buy);
+                            assert_eq!(order_id, order_id_2);
+                            assert_eq!(timestamp, timestamp_2);
+                            assert_decimal_approx_eq!(price, order_price, tolerance);
+                            assert_decimal_approx_eq!(quantity, order_quantity, tolerance);
+                        },
                         OrderConnectorNotification::Cancel {
                             order_id,
                             symbol,

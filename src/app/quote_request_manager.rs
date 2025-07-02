@@ -1,9 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use crate::{
-    app::solver::ServerConfig,
-    solver::index_quote_manager::QuoteRequestManager,
-};
+use crate::{app::solver::ServerConfig, solver::index_quote_manager::QuoteRequestManager};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
@@ -27,13 +24,20 @@ impl QuoteRequestManagerConfig {
     pub fn builder() -> QuoteRequestManagerConfigBuilder {
         QuoteRequestManagerConfigBuilder::default()
     }
-    
+
     pub fn expect_quote_request_manager_cloned(&self) -> Arc<ComponentLock<QuoteRequestManager>> {
-        self.quote_request_manager.clone().ok_or(()).expect("Failed to get quote request manager")
+        self.quote_request_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get quote request manager")
     }
 
-    pub fn try_get_quote_request_manager_cloned(&self) -> Result<Arc<ComponentLock<QuoteRequestManager>>> {
-        self.quote_request_manager.clone().ok_or_eyre("Failed to get quote request manager")
+    pub fn try_get_quote_request_manager_cloned(
+        &self,
+    ) -> Result<Arc<ComponentLock<QuoteRequestManager>>> {
+        self.quote_request_manager
+            .clone()
+            .ok_or_eyre("Failed to get quote request manager")
     }
 }
 

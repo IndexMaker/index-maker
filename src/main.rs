@@ -131,7 +131,7 @@ async fn main() {
         .expect("Failed to build order ID provider");
 
     // let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
-    
+
     // let simple_server_config = SimpleServerConfig::builder()
     //      .build_arc()
     //      .expect("Failed to build server");
@@ -151,6 +151,8 @@ async fn main() {
 
     // ==== Real stuff
     // ----
+
+    tracing::info!("Configuring solver...");
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
@@ -208,6 +210,8 @@ async fn main() {
     let mut solver_config = SolverConfig::builder()
         .zero_threshold(zero_threshold)
         .max_batch_size(max_batch_size)
+        .solver_tick_interval(Duration::milliseconds(100))
+        .quotes_tick_interval(Duration::milliseconds(10))
         .client_order_wait_period(client_order_wait_period)
         .client_quote_wait_period(client_quote_wait_period)
         .with_basket_manager(basket_manager_config)
@@ -223,16 +227,14 @@ async fn main() {
         .build()
         .expect("Failed to build solver");
 
-    solver_config
-        .run(Duration::milliseconds(100))
-        .await
-        .expect("Failed to run solver");
+    solver_config.run().await.expect("Failed to run solver");
 
     server_config
         .start()
         .await
         .expect("Failed to start FIX Server");
 
+    tracing::info!("Awaiting market data...");
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
         let reslult = price_tracker
@@ -243,6 +245,8 @@ async fn main() {
         }
     }
 
+    tracing::info!("Sending index weights...");
+
     simple_chain
         .write()
         .expect("Failed to lock chain connector")
@@ -252,6 +256,8 @@ async fn main() {
         ));
 
     sleep(std::time::Duration::from_secs(2)).await;
+
+    tracing::info!("Sending deposit...");
 
     simple_chain
         .write()
@@ -265,19 +271,26 @@ async fn main() {
 
     sleep(std::time::Duration::from_secs(2)).await;
 
-    // simple_server
-    //     .read()
-    //     .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
-    //         chain_id: 1,
-    //         address: get_mock_address_1(),
-    //         client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
-    //         symbol: cli.symbol,
-    //         side: cli.side,
-    //         collateral_amount: cli.collateral_amount,
-    //         timestamp: Utc::now(),
-    //     }));
+    tracing::info!("Awaiting index order... (Please, send NewOrderSingle message to FIX server running at: {})",
+        server_config.address.as_ref().unwrap());
 
-    sleep(std::time::Duration::from_secs(30)).await;
+    //tracing::info!("Sending index order...");
+
+    //simple_server
+    //    .read()
+    //    .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+    //        chain_id: 1,
+    //        address: get_mock_address_1(),
+    //        client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
+    //        symbol: cli.symbol,
+    //        side: cli.side,
+    //        collateral_amount: cli.collateral_amount,
+    //        timestamp: Utc::now(),
+    //    }));
+
+    sleep(std::time::Duration::from_secs(60)).await;
+
+    tracing::info!("Stopping solver...");
 
     solver_config.stop().await.expect("Failed to stop solver");
 
@@ -285,4 +298,6 @@ async fn main() {
         .stop()
         .await
         .expect("Failed to start FIX Server");
+
+    tracing::info!("Done.");
 }

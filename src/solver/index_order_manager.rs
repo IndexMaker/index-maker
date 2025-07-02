@@ -530,7 +530,9 @@ impl IndexOrderManager {
                         if should_remove {
                             tracing::info!(
                                 "(index-order-manager) Removing entry for [{}:{}] {}",
-                                chain_id, address, symbol
+                                chain_id,
+                                address,
+                                symbol
                             );
                             inner_entry.remove();
                         }
@@ -545,7 +547,8 @@ impl IndexOrderManager {
                 if entry.get().is_empty() {
                     tracing::info!(
                         "(index-order-manager) Removing entry for [{}:{}]",
-                        chain_id, address
+                        chain_id,
+                        address
                     );
                     entry.remove();
                 }

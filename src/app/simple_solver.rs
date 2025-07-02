@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{app::solver::SolverStrategyConfig, solver::{solver::SolverStrategy, solvers::simple_solver::SimpleSolver}};
+use crate::{
+    app::solver::SolverStrategyConfig,
+    solver::{solver::SolverStrategy, solvers::simple_solver::SimpleSolver},
+};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;

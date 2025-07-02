@@ -527,6 +527,14 @@ mod test {
                     let order_connector = order_connector_1.upgrade().unwrap();
                     defer_3
                         .send(Box::new(move || {
+                            order_connector.read().nofity_new(
+                                e.order_id.clone(),
+                                get_mock_asset_name_1(),
+                                Side::Buy,
+                                e.price,
+                                e.quantity,
+                                timestamp,
+                            );
                             order_connector.read().notify_fill(
                                 e.order_id.clone(),
                                 lot1_id,
@@ -724,6 +732,14 @@ mod test {
                     let order_connector = order_connector_1.upgrade().unwrap();
                     defer_5
                         .send(Box::new(move || {
+                            order_connector.read().nofity_new(
+                                e.order_id.clone(),
+                                get_mock_asset_name_1(),
+                                Side::Sell,
+                                e.price,
+                                e.quantity,
+                                timestamp,
+                            );
                             order_connector.read().notify_fill(
                                 e.order_id.clone(),
                                 lot1_id,

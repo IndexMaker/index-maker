@@ -31,11 +31,18 @@ impl IndexOrderManagerConfig {
     }
 
     pub fn expect_index_order_manager_cloned(&self) -> Arc<ComponentLock<IndexOrderManager>> {
-        self.index_order_manager.clone().ok_or(()).expect("Failed to get index order manager")
+        self.index_order_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get index order manager")
     }
 
-    pub fn try_get_index_order_manager_cloned(&self) -> Result<Arc<ComponentLock<IndexOrderManager>>> {
-        self.index_order_manager.clone().ok_or_eyre("Failed to get index order manager")
+    pub fn try_get_index_order_manager_cloned(
+        &self,
+    ) -> Result<Arc<ComponentLock<IndexOrderManager>>> {
+        self.index_order_manager
+            .clone()
+            .ok_or_eyre("Failed to get index order manager")
     }
 }
 

@@ -52,27 +52,42 @@ impl MarketDataConfig {
     }
 
     pub fn expect_market_data_cloned(&self) -> Arc<RwLock<BinanceMarketData>> {
-        self.market_data.clone().ok_or(()).expect("Failed to get market data")
+        self.market_data
+            .clone()
+            .ok_or(())
+            .expect("Failed to get market data")
     }
 
     pub fn try_get_market_data_cloned(&self) -> Result<Arc<RwLock<BinanceMarketData>>> {
-        self.market_data.clone().ok_or_eyre("Failed to get market data")
+        self.market_data
+            .clone()
+            .ok_or_eyre("Failed to get market data")
     }
 
     pub fn expect_price_tracker_cloned(&self) -> Arc<RwLock<PriceTracker>> {
-        self.price_tracker.clone().ok_or(()).expect("Failed to get price tracker")
+        self.price_tracker
+            .clone()
+            .ok_or(())
+            .expect("Failed to get price tracker")
     }
 
     pub fn try_get_price_tracker_cloned(&self) -> Result<Arc<RwLock<PriceTracker>>> {
-        self.price_tracker.clone().ok_or_eyre("Failed to get price tracker")
+        self.price_tracker
+            .clone()
+            .ok_or_eyre("Failed to get price tracker")
     }
 
     pub fn expect_book_manager_cloned(&self) -> Arc<RwLock<PricePointBookManager>> {
-        self.book_manager.clone().ok_or(()).expect("Failed to get order book manager")
+        self.book_manager
+            .clone()
+            .ok_or(())
+            .expect("Failed to get order book manager")
     }
 
     pub fn try_get_book_manager_cloned(&self) -> Result<Arc<RwLock<PricePointBookManager>>> {
-        self.book_manager.clone().ok_or_eyre("Failed to get order book manager")
+        self.book_manager
+            .clone()
+            .ok_or_eyre("Failed to get order book manager")
     }
 
     pub fn start(&self) -> Result<()> {

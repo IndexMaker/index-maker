@@ -13,7 +13,9 @@ use symm_core::core::{
 };
 
 use crate::{
-    app::solver::ChainConnectorConfig, blockchain::chain_connector::{ChainConnector, ChainNotification}, index::basket::Basket
+    app::solver::ChainConnectorConfig,
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
+    index::basket::Basket,
 };
 
 pub struct SimpleChainConnector {

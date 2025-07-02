@@ -7,8 +7,7 @@ use parking_lot::RwLock;
 use crate::app::solver::ServerConfig;
 
 use symm_core::core::functional::{
-    IntoObservableManyVTable, MultiObserver, NotificationHandler,
-    PublishMany,
+    IntoObservableManyVTable, MultiObserver, NotificationHandler, PublishMany,
 };
 
 use crate::server::server::{Server, ServerEvent, ServerResponse};
