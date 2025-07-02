@@ -80,7 +80,7 @@ async fn main() {
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
-    let api_key = "1UaTvpzopfaQ1qxDkoolFm2t7qveaLPA5mquFfk1RqgoKl6PLePyxDXzQ02GZxe6".to_string(); //env::var("BINANCE_API_KEY").expect("No API key in env");
+    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
     let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
         .map(|s| {
             1 == s
@@ -132,11 +132,11 @@ async fn main() {
 
     let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
     
-    // let server_config = SimpleServerConfig::builder()
-    //     .build_arc()
-    //     .expect("Failed to build server");
+    let simple_server_config = SimpleServerConfig::builder()
+         .build_arc()
+         .expect("Failed to build server");
 
-    // let simple_server = server_config.expect_server_cloned();
+     let simple_server = simple_server_config.expect_server_cloned();
 
     let server_config = AxumServerConfig::builder()
         .address("127.0.0.1:3000")

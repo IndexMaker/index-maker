@@ -11,13 +11,18 @@ use axum_fix_server::{
     },
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
-use eyre::Result;
+use eyre::{eyre, Result};
 use symm_core::core::{
-    bits::Address,
+    bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
     functional::{IntoObservableManyVTable, NotificationHandler},
 };
 
-use crate::server::{requests::FixRequest, responses::FixResponse, server::{ServerEvent, ServerResponse}};
+use crate::server::{
+    fix_messages::{Body, FixHeader, FixTrailer},
+    requests::FixRequest,
+    responses::FixResponse,
+    server::{ServerEvent, ServerResponse},
+};
 
 // A composite plugin that can wrap other plugins and delegate functionality.
 pub struct ServerPlugin {
@@ -49,6 +54,316 @@ impl ServerPlugin {
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
         self.serde_plugin.process_outgoing(nak)
     }
+
+    /// fix_request_to_server_event
+    ///
+    /// Converts a FixRequest into a ServerEvent
+    fn fix_request_to_server_event(&self, request: FixRequest) -> Result<ServerEvent> {
+        let chain_id = request.chain_id;
+        let address = request.address;
+        let timestamp = request.standard_header.timestamp;
+
+        match request.standard_header.msg_type.as_str() {
+            "NewIndexOrder" => {
+                if let Body::NewIndexOrderBody {
+                    client_order_id,
+                    symbol,
+                    side,
+                    amount,
+                } = request.body
+                {
+                    let side = if side == "1" { Side::Buy } else { Side::Sell };
+                    let collateral_amount = amount
+                        .parse()
+                        .ok()
+                        .and_then(Amount::from_f64_retain)
+                        .unwrap_or(Amount::ZERO);
+                    Ok(ServerEvent::NewIndexOrder {
+                        chain_id,
+                        address,
+                        client_order_id: ClientOrderId::from(client_order_id),
+                        symbol: Symbol::from(symbol),
+                        side,
+                        collateral_amount,
+                        timestamp,
+                    })
+                } else {
+                    Err(eyre!("Invalid body for NewIndexOrder message type"))
+                }
+            }
+            "CancelIndexOrder" => {
+                if let Body::CancelIndexOrderBody {
+                    client_order_id,
+                    symbol,
+                    amount,
+                } = request.body
+                {
+                    let collateral_amount = amount
+                        .parse()
+                        .ok()
+                        .and_then(Amount::from_f64_retain)
+                        .unwrap_or(Amount::ZERO);
+                    Ok(ServerEvent::CancelIndexOrder {
+                        chain_id,
+                        address,
+                        client_order_id: ClientOrderId::from(client_order_id),
+                        symbol: Symbol::from(symbol),
+                        collateral_amount,
+                        timestamp,
+                    })
+                } else {
+                    Err(eyre!("Invalid body for CancelIndexOrder message type"))
+                }
+            }
+            "NewQuoteRequest" => {
+                if let Body::NewQuoteRequestBody {
+                    client_quote_id,
+                    symbol,
+                    side,
+                    amount,
+                } = request.body
+                {
+                    let side = if side == "1" { Side::Buy } else { Side::Sell };
+                    let collateral_amount = amount
+                        .parse()
+                        .ok()
+                        .and_then(Amount::from_f64_retain)
+                        .unwrap_or(Amount::ZERO);
+                    Ok(ServerEvent::NewQuoteRequest {
+                        chain_id,
+                        address,
+                        symbol: Symbol::from(symbol),
+                        side,
+                        collateral_amount,
+                        timestamp,
+                        client_quote_id: ClientQuoteId::from(client_quote_id),
+                    })
+                } else {
+                    Err(eyre!("Invalid body for NewQuoteRequest message type"))
+                }
+            }
+            "CancelQuoteRequest" => {
+                if let Body::CancelQuoteRequestBody {
+                    client_quote_id,
+                    symbol,
+                } = request.body
+                {
+                    Ok(ServerEvent::CancelQuoteRequest {
+                        chain_id,
+                        address,
+                        symbol: Symbol::from(symbol),
+                        timestamp,
+                        client_quote_id: ClientQuoteId::from(client_quote_id),
+                    })
+                } else {
+                    Err(eyre!("Invalid body for CancelQuoteRequest message type"))
+                }
+            }
+            "AccountToCustody" => {
+                if let Body::AccountToCustodyBody { .. } = request.body {
+                    Ok(ServerEvent::AccountToCustody)
+                } else {
+                    Err(eyre!("Invalid body for AccountToCustody message type"))
+                }
+            }
+            "CustodyToAccount" => {
+                if let Body::CustodyToAccountBody { .. } = request.body {
+                    Ok(ServerEvent::CustodyToAccount)
+                } else {
+                    Err(eyre!("Invalid body for CustodyToAccount message type"))
+                }
+            }
+            _ => Err(eyre!("Unsupported message type for ServerEvent conversion")),
+        }
+    }
+
+    /// server_response_to_fix_response
+    ///
+    /// Converts a ServerResponse into a FixResponse
+    fn server_response_to_fix_response(&self, response: ServerResponse) -> Result<FixResponse> {
+        let (chain_id, address, session_id, msg_type, body) = match response {
+            ServerResponse::NewIndexOrderAck {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "ACK".to_string(),
+                Body::OrderACKBody {
+                    client_order_id: client_order_id.as_str().to_string(),
+                },
+            ),
+            ServerResponse::NewIndexOrderNak {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+                reason,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "NAK".to_string(),
+                Body::OrderNAKBody {
+                    client_order_id: client_order_id.as_str().to_string(),
+                    reason: reason.to_string(),
+                },
+            ),
+            ServerResponse::CancelIndexOrderAck {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "ACK".to_string(),
+                Body::OrderACKBody {
+                    client_order_id: client_order_id.as_str().to_string(),
+                },
+            ),
+            ServerResponse::CancelIndexOrderNak {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+                reason,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "NAK".to_string(),
+                Body::OrderNAKBody {
+                    client_order_id: client_order_id.as_str().to_string(),
+                    reason: reason.to_string(),
+                },
+            ),
+            ServerResponse::IndexOrderFill {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+                filled_quantity,
+                collateral_spent,
+                collateral_remaining,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "IndexOrderFill".to_string(),
+                Body::IndexOrderFillBody {
+                    client_order_id: client_order_id.as_str().to_string(),
+                    filled_quantity: filled_quantity.to_string(),
+                    collateral_spent: collateral_spent.to_string(),
+                    collateral_remaining: collateral_remaining.to_string(),
+                },
+            ),
+            ServerResponse::NewIndexQuoteAck {
+                chain_id,
+                address,
+                client_quote_id,
+                timestamp,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "ACK".to_string(),
+                Body::QuoteACKBody {
+                    client_quote_id: client_quote_id.as_str().to_string(),
+                },
+            ),
+            ServerResponse::NewIndexQuoteNak {
+                chain_id,
+                address,
+                client_quote_id,
+                timestamp,
+                reason,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "NAK".to_string(),
+                Body::QuoteNAKBody {
+                    client_quote_id: client_quote_id.as_str().to_string(),
+                    reason: reason.to_string(),
+                },
+            ),
+            ServerResponse::IndexQuoteResponse {
+                chain_id,
+                address,
+                client_quote_id,
+                quantity_possible,
+                timestamp,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "NAK".to_string(),
+                Body::IndexQuoteResponseBody {
+                    client_quote_id: client_quote_id.as_str().to_string(),
+                    quantity_possible: quantity_possible.to_string(),
+                },
+            ),
+            ServerResponse::CancelIndexQuoteAck {
+                chain_id,
+                address,
+                client_quote_id,
+                timestamp,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "ACK".to_string(),
+                Body::QuoteACKBody {
+                    client_quote_id: client_quote_id.as_str().to_string(),
+                },
+            ),
+            ServerResponse::CancelIndexQuoteNak {
+                chain_id,
+                address,
+                client_quote_id,
+                timestamp,
+                reason,
+            } => (
+                chain_id,
+                address,
+                SessionId("placeholder".to_string()),
+                "NAK".to_string(),
+                Body::QuoteNAKBody {
+                    client_quote_id: client_quote_id.as_str().to_string(),
+                    reason: reason.to_string(),
+                },
+            ),
+            _ => {
+                return Err(eyre!(
+                    "Unsupported ServerResponse type for FixResponse conversion"
+                ))
+            }
+        };
+
+        let mut header = FixHeader::new(msg_type);
+        header.add_sender("SERVER".to_string()); // Adjust sender ID as per your logic
+        header.add_target("CLIENT".to_string()); // Adjust target ID as per your logic
+                                                 // SeqNum will be set later in process_outgoing or elsewhere if needed
+
+        let mut trailer = FixTrailer::new();
+        // Add public key and signature if required
+        trailer.add_public("SERVER_PUBLIC_KEY".to_string()); // Placeholder
+        trailer.add_signature("SERVER_SIGNATURE".to_string()); // Placeholder
+
+        Ok(FixResponse {
+            session_id,
+            standard_header: header,
+            chain_id,
+            address,
+            body,
+            standard_trailer: trailer,
+        })
+    }
 }
 
 impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
@@ -57,17 +372,21 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
     }
 }
 
-impl AxumFixServerPlugin <ServerResponse> for ServerPlugin {
+impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()> {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
                 let user_id = &result.get_user_id();
                 self.user_plugin.add_add_user_session(&user_id, session_id);
 
-                let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
+                let seq_num = result.get_seq_num();
                 if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
-                    todo!();
-                    //self.observer_plugin.publish_request(&result);
+                    // Convert FixRequest to ServerEvent
+                    let event = self.fix_request_to_server_event(result).map_err(|e| {
+                        let error_msg = self.process_error(user_id, e.to_string(), session_id);
+                        eyre::eyre!(error_msg.unwrap_or_else(|_| "Failed to process error".to_string()))
+                    })?;
+                    self.observer_plugin.publish_request(&Arc::new(event));
                     Ok(())
                 } else {
                     let error_msg = format!(
@@ -91,15 +410,12 @@ impl AxumFixServerPlugin <ServerResponse> for ServerPlugin {
         let mut result: HashSet<(SessionId, String)>;
         result = HashSet::new();
 
-        todo!("ServerResponse to FixResponse");
+        let fix_response = self.server_response_to_fix_response(response)?;
+        let user_id = fix_response.get_user_id();
 
-        let cloned_response: FixResponse = todo!();
-        let user_id = cloned_response.get_user_id();
-
-        let mut response = response;
         if let Ok(sessions) = self.user_plugin.get_user_sessions(&user_id) {
             for session in sessions {
-                let mut response: FixResponse = todo!();
+                let mut response = fix_response.clone();
                 response.set_seq_num(self.seq_num_plugin.next_seq_num(&session));
 
                 if let Ok(message) = self.serde_plugin.process_outgoing(response) {
@@ -109,8 +425,8 @@ impl AxumFixServerPlugin <ServerResponse> for ServerPlugin {
                 }
             }
         } else {
-            let session_id = cloned_response.get_session_id();
-            let mut response: FixResponse = todo!();
+            let session_id = fix_response.get_session_id();
+            let mut response = fix_response.clone();
             response.set_seq_num(self.seq_num_plugin.next_seq_num(&session_id.clone()));
 
             if let Ok(message) = self.serde_plugin.process_outgoing(response) {
@@ -119,7 +435,6 @@ impl AxumFixServerPlugin <ServerResponse> for ServerPlugin {
                 return Err(eyre::eyre!("Cannot serialize response."));
             }
         }
-
         return Ok(result);
     }
 

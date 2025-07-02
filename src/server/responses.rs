@@ -31,8 +31,8 @@ impl FixResponse {
             chain_id: user_id.0,
             address: user_id.1,
             body: Body::NAKBody {
-                RefSeqNum: seq_num,
-                Text: error_reason,
+                ref_seq_num: seq_num,
+                text: error_reason,
             },
             standard_trailer: FixTrailer::new(),
         }
@@ -41,11 +41,11 @@ impl FixResponse {
 
 impl WithSeqNumPlugin for FixResponse {
     fn get_seq_num(&self) -> u32 {
-        self.standard_header.SeqNum
+        self.standard_header.seq_num
     }
 
     fn set_seq_num(&mut self, seq_num: u32) {
-        self.standard_header.SeqNum = seq_num;
+        self.standard_header.seq_num = seq_num;
     }
 }
 
@@ -63,8 +63,7 @@ impl AxumServerResponse for FixResponse {
     fn serialize_into_fix(&self) -> Result<FixMessage> {
         // Serialize the response to JSON
         let json_str = serde_json::to_string(self)
-            .map_err(|e| eyre!("Failed to serialize ExampleResponse: {}", e))?;
-        // Construct a FixMessage with the serialized data in the body
+            .map_err(|e| eyre!("Failed to serialize message: {}", e))?;
         println!("serialize_into_fix: {}", json_str);
         Ok(FixMessage(json_str.to_owned()))
     }

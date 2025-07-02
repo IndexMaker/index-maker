@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use alloy::primitives::address;
 use eyre::Result;
@@ -9,7 +9,7 @@ use axum_fix_server::{
         },
         server_plugin::ServerPlugin,
     };
-use symm_core::core::{bits::Address, functional::NotificationHandlerOnce};
+use symm_core::core::{bits::Address, functional::{NotificationHandler, IntoObservableManyVTable}};
 
 
 // A composite plugin that can wrap other plugins and delegate functionality.
@@ -38,8 +38,8 @@ where
         }
     }
 
-    pub fn set_observer_plugin_callback(&mut self, closure: impl NotificationHandlerOnce<R> + 'static) {
-        self.observer_plugin.set_observer_closure(closure);
+    pub fn set_observer_plugin_callback(&mut self, closure: Box<dyn NotificationHandler<R>>) {
+        self.observer_plugin.add_observer(closure);
     }
 
     fn process_error(&self, user_id: &(u32, Address), error_msg: String, session_id: &SessionId) -> Result<String> {
@@ -64,7 +64,7 @@ where
 
                 let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
                 if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
-                    self.observer_plugin.publish_request(result);
+                    self.observer_plugin.publish_request(&result);
                     Ok(())
                 } else {
                     let error_msg = format!("Invalid sequence number: {}; Last valid: {}", seq_num, self.seq_num_plugin.last_received_seq_num(session_id)); 

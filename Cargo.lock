@@ -4084,6 +4084,8 @@ dependencies = [
  "paste",
  "rust_decimal",
  "safe-math",
+ "serde",
+ "serde_json",
  "string_cache",
  "test-case",
  "thiserror 2.0.12",

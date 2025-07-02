@@ -54,11 +54,11 @@ impl Solver {
                                 standard_header:FixHeader{
                                     MsgType:"ACK".to_string(),
                                     SenderCompID:"server".to_string(),
-                                    TargetCompID:req.standard_header.SenderCompID,
+                                    TargetCompID:req.standard_header.SenderCompID.clone(),
                                     SeqNum:1,
                                 },
                                 chain_id: req.chain_id,
-                                address: req.address, 
+                                address: req.address,
                                 body:Body::ACKBody{
                                     RefSeqNum:req.standard_header.SeqNum,
                                 },

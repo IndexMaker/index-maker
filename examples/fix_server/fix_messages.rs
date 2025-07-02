@@ -1,6 +1,4 @@
-
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {
@@ -73,6 +71,7 @@ pub struct NAKBody {
 //    ErrorID: u32,
     pub Text: String,
 }
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NewOrderBody{

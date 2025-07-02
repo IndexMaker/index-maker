@@ -27,10 +27,9 @@ pub async fn main() {
 
     // Creating plugin that will consume server messages
     let mut plugin = ExamplePlugin::<Request, Response>::new();
-    plugin.set_observer_plugin_callback(move |e: Request| {
-        //handle_server_event(&e);
-        event_tx.send(SolverEvents::Message(e)).unwrap();
-    });
+     plugin.set_observer_plugin_callback(Box::new(move |e: &Request| {
+         event_tx.send(SolverEvents::Message(e.clone()));
+     }));
 
     //Creating server
     let fix_server = Server::new_arc(plugin);
@@ -41,7 +40,7 @@ pub async fn main() {
     solver.start();
 
     // Starting the server and wainting connections
-    fix_server.read().await.start_server("127.0.0.1:3000");
+    fix_server.read().await.start_server("127.0.0.1:3000".to_string());
 
     // Sleeping on main thread, server thread and solver thread are working
     sleep(Duration::from_secs(600));

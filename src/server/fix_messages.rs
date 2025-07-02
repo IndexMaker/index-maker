@@ -1,44 +1,46 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {
-    pub MsgType: String,       // Type of message, e.g. "NewOrderSingle"
-    pub SenderCompID: String,  // Public key of sender
-    pub TargetCompID: String,  // Public key of receiver
-    pub SeqNum: u32,           // Message sequence number
+    pub msg_type: String,       // Type of message, e.g. "NewOrderSingle"
+    pub sender_comp_id: String,  // Public key of sender
+    pub target_comp_id: String,  // Public key of receiver
+    pub seq_num: u32,           // Message sequence number
 //    ResetSeqNum: u8,       // Boolean that determines if SeqNum must be ignored (this will invalidate Disputes)
-//    SendingTime: u64,      // Unix timestamp of sending time
+    pub timestamp: DateTime<Utc>,
 //    CustodyId: String,
 }
 
 impl FixHeader {
-    pub fn new(MsgType: String) -> Self{
+    pub fn new(msg_type: String) -> Self{
         Self {
-            MsgType,
-            SenderCompID: "".to_string(),
-            TargetCompID: "".to_string(),
-            SeqNum: 0,
+            msg_type: msg_type,
+            sender_comp_id: "".to_string(),
+            target_comp_id: "".to_string(),
+            timestamp: Utc::now(),
+            seq_num: 0,
         }
     }
 
     pub fn add_sender(&mut self, sender: String) {
-        self.SenderCompID = sender;
+        self.sender_comp_id = sender;
     }
 
     pub fn add_target(&mut self, target: String) {
-        self.TargetCompID = target;
+        self.target_comp_id = target;
     }
 
-    pub fn add_seq_num(&mut self, SeqNum: u32) {
-        self.SeqNum = SeqNum;
+    pub fn add_seq_num(&mut self, seq_num: u32) {
+        self.seq_num = seq_num;
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixTrailer {
-    pub PublicKey: Vec<String>,  // Public key of sender
-    pub Signature: Vec<String>,  // Public key of receiver
+    pub public_key: Vec<String>,  // Public key of sender
+    pub signature: Vec<String>,  // Public key of receiver
 //    RateLimitInterval: u32,           // Message sequence number
 //    RateLimitCount: u32,
 }
@@ -46,96 +48,92 @@ pub struct FixTrailer {
 impl FixTrailer {
     pub fn new() -> Self{
         Self {
-            PublicKey: Vec::new(),
-            Signature: Vec::new(),
+            public_key: Vec::new(),
+            signature: Vec::new(),
         }
     }
 
     pub fn add_public(&mut self, public_key: String) {
-        self.PublicKey.push(public_key);
+        self.public_key.push(public_key);
     }
 
     pub fn add_signature(&mut self, signature: String) {
-        self.Signature.push(signature);
+        self.signature.push(signature);
     }
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct ACKBody {
-    pub RefSeqNum: u32,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct NAKBody {
-    pub RefSeqNum: u32,
-//    ErrorID: u32,
-    pub Text: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct NewOrderBody{
-    pub ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
-    pub Instrument: String,
-    //Instrument: Instrument, // All instrument parameters
-    pub Side: String,           // "1" = BUY, "2" = SELL
-    pub Price: String,          // Limit price
-//    TransactTime: u64,      // Time this order request was initiated
-    pub OrderQtyData: String,
-    pub OrdType: String,        // "1" = MARKET, "2" = LIMIT
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ExecReportBody {
-    ClOrdID: String,            // Order identifier
-//    ExecSeqNum: String,         // Execution identifier
-    ExecType: String,           // "0" = NEW, "4" = CANCELED, "F" = TRADE, "B" = EXPIRED
-    OrdStatus: String,          // "0" = NEW, "1" = PARTIALLY FILLED, "2" = FILLED, "4" = CANCELED, "8" = REJECTED
-    Side: String,               // "1" = BUY, "2" = SELL
-//    TransactTime: u64,          // Time this order request was initiated
-    OrderQtyData: String,
-    Price: String,              // Execution price
-    CumQty: String,             // Cumulative executed quantity
-}
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Body {
     ACKBody {
-        RefSeqNum: u32,
+        ref_seq_num: u32,
+    },
+    OrderACKBody {
+        client_order_id: String,
+    },
+    QuoteACKBody {
+        client_quote_id: String,
     },
     NAKBody {
-        RefSeqNum: u32,
-        //    ErrorID: u32,
-        Text: String,
+        ref_seq_num: u32,
+        text: String,
     },
-    NewOrderBody{
-        ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
-        Instrument: String,
-        //Instrument: Instrument, // All instrument parameters
-        Side: String,           // "1" = BUY, "2" = SELL
-        Price: String,          // Limit price
-        //    TransactTime: u64,      // Time this order request was initiated
-        OrderQtyData: String,
-        OrdType: String,        // "1" = MARKET, "2" = LIMIT
+    OrderNAKBody {
+        client_order_id: String,
+        reason: String,
     },
-    NewIndexOrderBody{
-        ClOrdID: String,        // Order identifier. Created by the combinantion of SeqNum and CustodyID
-        Symbol: String,
-        Side: String,           // "1" = BUY, "2" = SELL
-        timestamp: u64,      // Time this order request was initiated
-        Amount: String,
+    QuoteNAKBody {
+        client_quote_id: String,
+        reason: String,
     },
-    ExecReportBody {
-        ClOrdID: String,            // Order identifier
-    //    ExecSeqNum: String,         // Execution identifier
-        ExecType: String,           // "0" = NEW, "4" = CANCELED, "F" = TRADE, "B" = EXPIRED
-        OrdStatus: String,          // "0" = NEW, "1" = PARTIALLY FILLED, "2" = FILLED, "4" = CANCELED, "8" = REJECTED
-        Side: String,               // "1" = BUY, "2" = SELL
-    //    TransactTime: u64,          // Time this order request was initiated
-        OrderQtyData: String,
-        Price: String,              // Execution price
-        CumQty: String,             // Cumulative executed quantity
-    }
+    // NewOrderBody {
+    //     client_order_id: String,
+    //     symbol: String,
+    //     side: String,
+    //     price: String,
+    //     order_quantity: String,
+    //     order_type: String,
+    // },
+    NewIndexOrderBody {
+        client_order_id: String,
+        symbol: String,
+        side: String,
+        amount: String,
+    },
+    CancelIndexOrderBody {
+        client_order_id: String,
+        symbol: String,
+        amount: String,
+    },
+    IndexOrderFillBody {
+        client_order_id: String,
+        filled_quantity: String,
+        collateral_spent: String,
+        collateral_remaining: String,
+    },
+    NewQuoteRequestBody {
+        client_quote_id: String,
+        symbol: String,
+        side: String,
+        amount: String,
+    },
+    CancelQuoteRequestBody {
+        client_quote_id: String,
+        symbol: String,
+    },
+    IndexQuoteResponseBody {
+        client_quote_id: String,
+        quantity_possible: String,
+    },
+    AccountToCustodyBody,
+    CustodyToAccountBody,
+    // ExecReportBody {
+    //     client_order_id: String,
+    //     execution_type: String,
+    //     order_status: String,
+    //     side: String,
+    //     order_quantity: String,
+    //     price: String,
+    //     cummulative_quantity: String,
+    // },
 }
