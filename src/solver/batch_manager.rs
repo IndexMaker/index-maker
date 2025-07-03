@@ -678,7 +678,7 @@ impl BatchManager {
             // We're finding lowest fill-rate for this Index Order across all assets, because
             // we cannot fill this Index Order more than least available asset fill-rate.
             fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
-                Some(x.min(avialable_fill_rate))
+                Some(x.min(avialable_fill_rate).min(Amount::ONE))
             });
             tracing::info!(
                 "(batch-manager) Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
