@@ -304,7 +304,7 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "NAK".to_string(),
+                "IndexQuoteResponse".to_string(),
                 Body::IndexQuoteResponseBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
                     quantity_possible: quantity_possible.to_string(),
