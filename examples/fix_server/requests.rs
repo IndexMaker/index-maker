@@ -42,14 +42,13 @@ impl AxumServerRequest for Request {
         message: FixMessage,
         this_session_id: &SessionId,
     ) -> Result<Self, eyre::Error> {
-        println!("{}: {}", this_session_id, message);
+        tracing::info!("{}: {}", this_session_id, message);
 
         let mut request: Request = serde_json::from_str(&message.to_string())
             .map_err(|e| eyre!("Failed to deserialize FixMessage into Request: {}", e))?;
 
         // Set the session_id
         request.session_id = this_session_id.clone();
-        println!("deserialize_from_fix: Session ID set to {}", this_session_id);
         Ok(request)
     }
 }
