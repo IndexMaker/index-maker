@@ -42,4 +42,8 @@ impl ServerInterface for Server {
             tracing::warn!("Failed to respond with: {:?}", err);
         }
     }
+
+    fn publish_event(&mut self, event: &Arc<ServerEvent>) {
+        tracing::warn!("publish_event is not supported for this Server implementation");
+    }
 }

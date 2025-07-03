@@ -47,8 +47,7 @@ use super::{
 pub struct SolverOrderEngagement {
     pub index_order: Arc<RwLock<SolverOrder>>,
     pub asset_contribution_fractions: HashMap<Symbol, Amount>,
-    pub asset_quantities: HashMap<Symbol, Amount>,
-    pub asset_price_limits: HashMap<Symbol, Amount>,
+    pub asset_quantity_contributions: HashMap<Symbol, Amount>,
     pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
@@ -62,9 +61,15 @@ pub struct SolverOrderEngagement {
     pub filled_quantity: Amount,
 }
 
+pub struct EngagedSolverOrdersSide {
+    pub asset_price_limits: HashMap<Symbol, Amount>,
+    pub asset_quantities: HashMap<Symbol, Amount>,
+    pub engaged_orders: Vec<SolverOrderEngagement>,
+}
+
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
-    pub engaged_orders: Vec<SolverOrderEngagement>,
+    pub engaged_buys: EngagedSolverOrdersSide, // TODO: sells we don't currently support
 }
 
 pub struct SolveEngagementsResult {
@@ -267,6 +272,7 @@ impl Solver {
 
         if !solve_engagements_result
             .engaged_orders
+            .engaged_buys
             .engaged_orders
             .is_empty()
         {
@@ -274,10 +280,12 @@ impl Solver {
 
             // We filter any engagement of negligible size
             engaged_orders
+                .engaged_buys
                 .engaged_orders
                 .retain(|order| self.zero_threshold < order.new_engaged_collateral);
 
             let send_engage = engaged_orders
+                .engaged_buys
                 .engaged_orders
                 .iter()
                 .map(|order| {
@@ -743,7 +751,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
+                    "(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
                     symbol,
                     client_order_id,
                     client_order_id,
@@ -766,7 +774,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
+                    "(solver) Handle Cancel Index Order [{}:{}] {}",
                     chain_id,
                     address,
                     client_order_id
@@ -784,7 +792,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
+                    "(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
                     client_order_id,
                     client_order_id,
                     address
@@ -816,7 +824,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
+                    "(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
                     chain_id,
                     client_order_id,
                     address,
@@ -853,7 +861,7 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, notification: QuoteRequestEvent) -> Result<()> {
-        tracing::info!("\n(solver) Handle Quote Request");
+        tracing::info!("(solver) Handle Quote Request");
         match notification {
             QuoteRequestEvent::NewQuoteRequest {
                 chain_id,
@@ -901,7 +909,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    "(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
                     lot_id,
                     side,
                     symbol,
@@ -948,7 +956,7 @@ impl Solver {
                 closing_timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
                     original_lot_id,
                     closing_lot_id,
                     side,
@@ -1442,6 +1450,8 @@ mod test {
             dec!(1.001),
             dec!(3000.0),
             dec!(2000.0),
+            dec!(5.00),
+            dec!(0.2),
         ));
 
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
@@ -2246,23 +2256,27 @@ mod test {
             }
         ));
 
-        let order1 = order_tracker_2.read().get_order(&"O-01".into());
-        let order2 = order_tracker_2.read().get_order(&"O-02".into());
+        for order_id in [OrderId::from("O-01"), OrderId::from("O-02")] {
+            let order = order_tracker_2.read().get_order(&order_id);
+            assert!(matches!(order, Some(_)));
 
-        assert!(matches!(order1, Some(_)));
-        assert!(matches!(order2, Some(_)));
-        let order1 = order1.unwrap();
-        let order2 = order2.unwrap();
+            let order = order.unwrap();
+            assert_eq!(order.side, Side::Buy);
 
-        assert_eq!(order1.symbol, get_mock_asset_name_1());
-        assert_eq!(order2.symbol, get_mock_asset_name_2());
-        assert_eq!(order1.side, Side::Buy);
-        assert_eq!(order2.side, Side::Buy);
+            if (order.symbol == get_mock_asset_name_1()) {
+                assert_eq!(order.symbol, get_mock_asset_name_1());
 
-        assert_decimal_approx_eq!(order1.price, dec!(101.00), tolerance);
-        assert_decimal_approx_eq!(order1.quantity, dec!(15.9158), tolerance);
-        assert_decimal_approx_eq!(order2.price, dec!(303.00), tolerance);
-        assert_decimal_approx_eq!(order2.quantity, dec!(1.2954), tolerance);
+                assert_decimal_approx_eq!(order.price, dec!(101.00), tolerance);
+                assert_decimal_approx_eq!(order.quantity, dec!(20.0), tolerance);
+            } else if order.symbol == get_mock_asset_name_2() {
+                assert_eq!(order.symbol, get_mock_asset_name_2());
+
+                assert_decimal_approx_eq!(order.price, dec!(303.00), tolerance);
+                assert_decimal_approx_eq!(order.quantity, dec!(1.62838), tolerance);
+            } else {
+                panic!("Expected one of the two assets");
+            }
+        }
 
         for _ in 0..2 {
             let fix_response = mock_fix_receiver

@@ -10,7 +10,7 @@ use symm_core::init_log;
 async fn main() {
     init_log!();
 
-    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
+    let api_key = env::var("BINANCE_API_KEY").ok();
     let api_secret = env::var("BINANCE_API_SECRET").ok();
     let private_key_file = env::var("BINANCE_PRIVATE_KEY_FILE").ok();
 

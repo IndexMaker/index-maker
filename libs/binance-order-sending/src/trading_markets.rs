@@ -34,7 +34,12 @@ pub enum Filter {
 }
 
 impl Filter {
-    fn apply_filter(&self, price: &mut Amount, quantity: &mut Amount) -> Result<()> {
+    fn apply_filter(
+        &self,
+        price: &mut Amount,
+        quantity: &mut Amount,
+        allow_pad: bool,
+    ) -> Result<()> {
         match self {
             Filter::PriceFilter {
                 min_price,
@@ -48,13 +53,22 @@ impl Filter {
                     tick_size
                 );
                 let x = safe!(*price / *tick_size).ok_or_eyre("Math error")?;
-                *price = safe!(x.floor() * *tick_size).ok_or_eyre("Math error")?;
+                *price = if allow_pad {
+                    safe!(x.ceil() * *tick_size).ok_or_eyre("Math error")?
+                } else {
+                    safe!(x.floor() * *tick_size).ok_or_eyre("Math error")?
+                };
                 if *price < *min_price {
-                    Err(eyre!(
-                        "Too small price {} (min_price = {})",
-                        price,
-                        min_price
-                    ))?
+                    if allow_pad {
+                        warn!("Padding price to minimum price: {} => {}", price, min_price);
+                        *price = *min_price;
+                    } else {
+                        Err(eyre!(
+                            "Too small price {} (min_price = {})",
+                            price,
+                            min_price
+                        ))?
+                    }
                 }
                 if *price > *max_price {
                     warn!("Trimming price {} (max_price = {})", price, max_price);
@@ -73,13 +87,25 @@ impl Filter {
                     step_size
                 );
                 let x = safe!(*quantity / *step_size).ok_or_eyre("Math error")?;
-                *quantity = safe!(x.floor() * *step_size).ok_or_eyre("Math error")?;
+                *quantity = if allow_pad {
+                    safe!(x.ceil() * *step_size).ok_or_eyre("Math error")?
+                } else {
+                    safe!(x.floor() * *step_size).ok_or_eyre("Math error")?
+                };
                 if *quantity < *min_quantity {
-                    Err(eyre!(
-                        "Too small quantity {} (min_quantity = {})",
-                        quantity,
-                        min_quantity
-                    ))?
+                    if allow_pad {
+                        warn!(
+                            "Padding quantity to minimum quantity: {} => {}",
+                            quantity, min_quantity
+                        );
+                    } else {
+                        *quantity = *min_quantity;
+                        Err(eyre!(
+                            "Too small quantity {} (min_quantity = {})",
+                            quantity,
+                            min_quantity
+                        ))?
+                    }
                 }
                 if *quantity > *max_quantity {
                     warn!(
@@ -92,13 +118,21 @@ impl Filter {
             Filter::MinNotional { min_notional } => {
                 tracing::debug!("Applying MinNotional: min={}", min_notional);
                 let min_quantity = safe!(*min_notional / *price).ok_or_eyre("Math error")?;
-                if *quantity < min_quantity {
-                    Err(eyre!(
-                        "Too small quantity {} for price {} (min_notional = {})",
-                        quantity,
-                        price,
-                        min_notional
-                    ))?
+                if allow_pad {
+                    warn!(
+                        "Padding quantity to match minimum notional: {} => {} (min_notional = {})",
+                        quantity, min_quantity, min_notional
+                    );
+                    *quantity = min_quantity;
+                } else {
+                    if *quantity < min_quantity {
+                        Err(eyre!(
+                            "Too small quantity {} for price {} (min_notional = {})",
+                            quantity,
+                            price,
+                            min_notional
+                        ))?
+                    }
                 }
             }
             Filter::Notional {
@@ -113,12 +147,20 @@ impl Filter {
                 let min_quantity = safe!(*min_notional / *price).ok_or_eyre("Math error")?;
                 let max_quantity = safe!(*max_notional / *price).ok_or_eyre("Math error")?;
                 if *quantity < min_quantity {
-                    Err(eyre!(
-                        "Too small quantity {} for price {} (min_notional = {})",
-                        quantity,
-                        price,
-                        min_notional
-                    ))?
+                    if allow_pad {
+                        warn!(
+                        "Padding quantity to match minimum notional: {} => {} (min_notional = {})",
+                        quantity, min_quantity, min_notional
+                    );
+                        *quantity = min_quantity;
+                    } else {
+                        Err(eyre!(
+                            "Too small quantity {} for price {} (min_notional = {})",
+                            quantity,
+                            price,
+                            min_notional
+                        ))?
+                    }
                 }
                 if *quantity > max_quantity {
                     warn!(
@@ -206,7 +248,12 @@ impl MarketInfo {
         &self.symbol
     }
 
-    pub fn treat_price_quantity(&self, price: &mut Amount, quantity: &mut Amount) -> Result<()> {
+    pub fn treat_price_quantity(
+        &self,
+        price: &mut Amount,
+        quantity: &mut Amount,
+        allow_pad: bool,
+    ) -> Result<()> {
         price.rescale(self.quote.precision);
         quantity.rescale(self.base.precision);
 
@@ -220,7 +267,7 @@ impl MarketInfo {
         let (_, bad): ((), Vec<_>) = self
             .filters
             .iter()
-            .map(|f| f.apply_filter(price, quantity))
+            .map(|f| f.apply_filter(price, quantity, allow_pad))
             .partition_result();
 
         if !bad.is_empty() {
@@ -332,13 +379,17 @@ impl TradingMarkets {
         symbol: &Symbol,
         price: &mut Amount,
         quantity: &mut Amount,
+        allow_pad: bool,
     ) -> Result<()> {
         let market_info = self
             .markets
             .get(symbol)
             .ok_or_else(|| eyre!("Cannot find market info for {}", symbol))?;
 
-        market_info.treat_price_quantity(price, quantity)
+        market_info.treat_price_quantity(price, quantity, allow_pad)?;
+
+        // Do second round of treating to ensure all filters are happy
+        market_info.treat_price_quantity(price, quantity, allow_pad)
     }
 
     pub fn ingest_exchange_info(

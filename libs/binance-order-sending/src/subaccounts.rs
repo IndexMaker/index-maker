@@ -33,13 +33,13 @@ impl SubAccounts {
         self.subaccounts_taken.len()
     }
 
-    pub fn add_subaccount_taken(&mut self, api_key: String) -> Result<()> {
+    pub fn add_subaccount_taken(&mut self, account_name: String) -> Result<()> {
         self.subaccounts
-            .contains(&api_key)
+            .contains(&account_name)
             .then_some(())
             .ok_or_eyre("subaccount not found")?;
         self.subaccounts_taken
-            .insert(api_key)
+            .insert(account_name)
             .then_some(())
             .ok_or_eyre("subaccount already taken")?;
         Ok(())
@@ -52,8 +52,8 @@ impl SubAccounts {
         let (successes, failures): (Vec<_>, Vec<_>) = multiple_credentials
             .into_iter()
             .map(|credentials| {
-                let api_key = credentials.get_api_key();
-                self.subaccount_sender.send(credentials).map(|_| api_key)
+                let account_name = credentials.get_account_name();
+                self.subaccount_sender.send(credentials).map(|_| account_name)
             })
             .partition_result();
 

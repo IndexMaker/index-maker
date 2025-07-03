@@ -6,8 +6,7 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
-        async_loop::AsyncLoop,
-        functional::{PublishSingle, SingleObserver},
+        async_loop::AsyncLoop, bits::Symbol, functional::{PublishSingle, SingleObserver}
     },
     order_sender::order_connector::OrderConnectorNotification,
 };
@@ -49,6 +48,7 @@ impl Session {
         mut command_rx: UnboundedReceiver<Command>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         credentials: Credentials,
+        symbols: Vec<Symbol>,
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
             tracing::info!("Session loop started");
@@ -77,7 +77,7 @@ impl Session {
                 return credentials;
             }
 
-            if let Err(err) = trading_session.get_exchange_info().await {
+            if let Err(err) = trading_session.get_exchange_info(symbols).await {
                 on_error(format!("Failed to get exchange info: {:?}", err));
                 return credentials;
             }
