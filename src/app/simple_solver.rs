@@ -28,6 +28,12 @@ pub struct SimpleSolverConfig {
     #[builder(setter(into, strip_option), default)]
     pub max_volley_size: Amount,
 
+    #[builder(setter(into, strip_option), default)]
+    pub min_asset_volley_size: Amount,
+    
+    #[builder(setter(into, strip_option), default)]
+    pub asset_volley_step_size: Amount,
+
     #[builder(setter(skip))]
     simple_solver: Option<Arc<SimpleSolver>>,
 }
@@ -72,6 +78,8 @@ impl SimpleSolverConfigBuilder {
             config.fee_factor,
             config.max_order_volley_size,
             config.max_volley_size,
+            config.min_asset_volley_size,
+            config.asset_volley_step_size,
         ));
 
         config.simple_solver.replace(simple_solver);
