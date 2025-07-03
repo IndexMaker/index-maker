@@ -193,9 +193,16 @@ impl TradingSession {
 
         let mut price = single_order.price;
         let mut quantity = single_order.quantity;
+        
+        // Ensure that price, quantity, and nominal are meeting the required minimum
+        let allow_pad = true;
 
-        self.markets
-            .treat_price_quantity(&single_order.symbol, &mut price, &mut quantity)?;
+        self.markets.treat_price_quantity(
+            &single_order.symbol,
+            &mut price,
+            &mut quantity,
+            allow_pad,
+        )?;
 
         let params = OrderPlaceParams {
             id: None,
