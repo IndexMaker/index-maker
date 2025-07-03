@@ -5,7 +5,7 @@ use chrono::{Duration, TimeDelta, Utc};
 use clap::Parser;
 use index_maker::{
     app::{
-        axum_server::AxumServerConfig,
+        fix_server::FixServerConfig,
         basket_manager::BasketManagerConfig,
         batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig,
@@ -138,7 +138,7 @@ async fn main() {
 
     // let simple_server = simple_server_config.expect_server_cloned();
 
-    let server_config = AxumServerConfig::builder()
+    let server_config = FixServerConfig::builder()
         .address("127.0.0.1:3000")
         .build_arc()
         .expect("Failed to build server");

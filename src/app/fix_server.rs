@@ -15,7 +15,7 @@ use crate::server::server::Server;
     build_fn(name = "try_build", error = "ConfigBuildError")
 )]
 
-pub struct AxumServerConfig {
+pub struct FixServerConfig {
     #[builder(setter(into, strip_option), default)]
     pub address: Option<String>,
 
@@ -23,17 +23,17 @@ pub struct AxumServerConfig {
     pub fix_server: Option<Arc<RwLock<FixServer>>>,
 }
 
-impl AxumServerConfig {
+impl FixServerConfig {
     #[must_use]
-    pub fn builder() -> AxumServerConfigBuilder {
-        AxumServerConfigBuilder::default()
+    pub fn builder() -> FixServerConfigBuilder {
+        FixServerConfigBuilder::default()
     }
 
     pub fn expect_server_cloned(&self) -> Arc<RwLock<FixServer>> {
         self.fix_server
             .clone()
             .ok_or(())
-            .expect("Failed to get axum server")
+            .expect("Failed to get fix server")
     }
 
     pub fn try_get_server_cloned(&self) -> Result<Arc<RwLock<FixServer>>> {
@@ -65,7 +65,7 @@ impl AxumServerConfig {
     }
 }
 
-impl ServerConfig for AxumServerConfig {
+impl ServerConfig for FixServerConfig {
     fn expect_server_cloned(&self) -> Arc<RwLock<dyn Server + Send + Sync>> {
         self.expect_server_cloned()
     }
@@ -76,8 +76,8 @@ impl ServerConfig for AxumServerConfig {
     }
 }
 
-impl AxumServerConfigBuilder {
-    pub fn build_arc(self) -> Result<Arc<AxumServerConfig>, ConfigBuildError> {
+impl FixServerConfigBuilder {
+    pub fn build_arc(self) -> Result<Arc<FixServerConfig>, ConfigBuildError> {
         let mut config = self.try_build()?;
 
         config
