@@ -4,7 +4,7 @@ use eyre::Report;
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
-    core::{async_loop::AsyncLoop, functional::SingleObserver},
+    core::{async_loop::AsyncLoop, bits::Symbol, functional::SingleObserver},
     order_sender::order_connector::OrderConnectorNotification,
 };
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
@@ -38,6 +38,7 @@ impl Arbiter {
         &mut self,
         subaccounts: Arc<AtomicLock<SubAccounts>>,
         mut subaccount_rx: UnboundedReceiver<Credentials>,
+        symbols: Vec<Symbol>,
         sessions: Arc<AtomicLock<Sessions>>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
@@ -49,11 +50,11 @@ impl Arbiter {
                         break
                     },
                     Some(credentials) = subaccount_rx.recv() => {
-                        let api_key = credentials.get_api_key();
-                        match sessions.write().add_session(credentials, observer.clone()) {
+                        let account_name = credentials.get_account_name();
+                        match sessions.write().add_session(credentials, symbols.clone(), observer.clone()) {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
-                                if let Err(err) = suba.add_subaccount_taken(api_key) {
+                                if let Err(err) = suba.add_subaccount_taken(account_name) {
                                     tracing::warn!("Error storing taken session {:?}", err);
                                 }
                             }

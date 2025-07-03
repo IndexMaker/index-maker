@@ -87,6 +87,7 @@ async fn main() {
         })
         .unwrap_or_default();
     let credentials = Credentials::new(
+        String::from("BinanceAccount-1"),
         api_key,
         trading_enabled,
         move || env::var("BINANCE_API_SECRET").ok(),
@@ -159,6 +160,7 @@ async fn main() {
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(vec![credentials])
+        .symbols(&symbols)
         .build()
         .expect("Failed to build order sender");
 

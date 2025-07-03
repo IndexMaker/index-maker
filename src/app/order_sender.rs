@@ -7,7 +7,7 @@ use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::bits::Amount,
+    core::bits::{Amount, Symbol},
     order_sender::{inventory_manager::InventoryManager, order_tracker::OrderTracker},
 };
 
@@ -28,6 +28,9 @@ pub struct OrderSenderConfig {
 
     #[builder(setter(into, strip_option), default)]
     pub credentials: Vec<Credentials>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub symbols: Vec<Symbol>,
 
     #[builder(setter(skip))]
     order_sender: Option<Arc<RwLock<BinanceOrderSending>>>,
@@ -88,7 +91,7 @@ impl OrderSenderConfig {
         if let Some(order_sender) = &self.order_sender {
             order_sender
                 .write()
-                .start()
+                .start(self.symbols.clone())
                 .map_err(|err| eyre!("Failed to start order sender: {:?}", err))?;
 
             order_sender

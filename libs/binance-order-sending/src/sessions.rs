@@ -8,7 +8,7 @@ use futures_util::future::join_all;
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
-    core::functional::SingleObserver,
+    core::{bits::Symbol, functional::SingleObserver},
     order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
 use tokio::sync::mpsc::unbounded_channel;
@@ -29,13 +29,14 @@ impl Sessions {
     pub fn add_session(
         &mut self,
         credentials: Credentials,
+        symbols: Vec<Symbol>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) -> Result<()> {
         match self.sessions.entry(credentials.into_session_id()) {
             Entry::Vacant(entry) => {
                 let (tx, rx) = unbounded_channel();
                 let session = entry.insert(Session::new(tx));
-                session.start(rx, observer, credentials)
+                session.start(rx, observer, credentials, symbols)
             }
             Entry::Occupied(_) => Err(eyre!("Session already started")),
         }

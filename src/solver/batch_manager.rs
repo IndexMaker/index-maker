@@ -935,7 +935,7 @@ impl BatchManager {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         tracing::info!(
-            "\n(batch-manager) Handle Index Order EngageIndexOrder {}",
+            "(batch-manager) Handle Index Order EngageIndexOrder {}",
             batch_order_id
         );
         match self.engagements.get(&batch_order_id) {

@@ -751,7 +751,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
+                    "(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
                     symbol,
                     client_order_id,
                     client_order_id,
@@ -774,7 +774,7 @@ impl Solver {
                 timestamp: _,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Cancel Index Order [{}:{}] {}",
+                    "(solver) Handle Cancel Index Order [{}:{}] {}",
                     chain_id,
                     address,
                     client_order_id
@@ -792,7 +792,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
+                    "(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
                     client_order_id,
                     client_order_id,
                     address
@@ -824,7 +824,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
+                    "(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
                     chain_id,
                     client_order_id,
                     address,
@@ -861,7 +861,7 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, notification: QuoteRequestEvent) -> Result<()> {
-        tracing::info!("\n(solver) Handle Quote Request");
+        tracing::info!("(solver) Handle Quote Request");
         match notification {
             QuoteRequestEvent::NewQuoteRequest {
                 chain_id,
@@ -909,7 +909,7 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
+                    "(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
                     lot_id,
                     side,
                     symbol,
@@ -956,7 +956,7 @@ impl Solver {
                 closing_timestamp,
             } => {
                 tracing::info!(
-                    "\n(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
+                    "(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
                     original_lot_id,
                     closing_lot_id,
                     side,
