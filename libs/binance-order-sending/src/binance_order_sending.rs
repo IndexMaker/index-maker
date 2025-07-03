@@ -4,7 +4,7 @@ use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
-        bits::SingleOrder,
+        bits::{SingleOrder, Symbol},
         functional::{IntoObservableSingleArc, SingleObserver},
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
@@ -36,7 +36,7 @@ impl BinanceOrderSending {
         }
     }
 
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start(&mut self, symbols: Vec<Symbol>) -> Result<()> {
         let subaccount_rx = self
             .subaccount_rx
             .take()
@@ -45,6 +45,7 @@ impl BinanceOrderSending {
         self.arbiter.start(
             self.subaccounts.clone(),
             subaccount_rx,
+            symbols,
             self.sessions.clone(),
             self.observer.clone(),
         );

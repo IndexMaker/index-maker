@@ -356,12 +356,16 @@ impl CollateralManager {
                     .add_ready(side, amount, timestamp, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;
 
-                // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
+                // Note: We must charge the collateral routing fee otherwise
+                // we'll have dangling unconfirmed amount, while that amount was
+                // in fact used already when routing collateral.
                 let get_payment_id = || "Charges".into();
                 let payment_id = get_payment_id();
+
                 funds_write
                     .add_ready(side, fee, timestamp, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;
+
                 funds_write
                     .preauth_payment(
                         &client_order_id,
@@ -372,16 +376,7 @@ impl CollateralManager {
                         get_payment_id,
                     )
                     .ok_or_eyre("Math Problem")?;
-                //funds_write
-                //    .preauth_payment(
-                //        &client_order_id,
-                //        timestamp,
-                //        side,
-                //        amount,
-                //        self.zero_threshold,
-                //        get_payment_id,
-                //    )
-                //    .ok_or_eyre("Math Problem")?;
+
                 funds_write
                     .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;

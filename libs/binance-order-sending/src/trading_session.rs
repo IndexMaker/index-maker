@@ -27,6 +27,7 @@ use symm_core::{
     order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
 use tokio::time::sleep;
+use tracing::info;
 
 use crate::command::Command;
 use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
@@ -194,8 +195,15 @@ impl TradingSession {
         let mut price = single_order.price;
         let mut quantity = single_order.quantity;
 
-        self.markets
-            .treat_price_quantity(&single_order.symbol, &mut price, &mut quantity)?;
+        // Ensure that price, quantity, and nominal are meeting the required minimum
+        let allow_pad = true;
+
+        self.markets.treat_price_quantity(
+            &single_order.symbol,
+            &mut price,
+            &mut quantity,
+            allow_pad,
+        )?;
 
         let params = OrderPlaceParams {
             id: None,
@@ -242,8 +250,13 @@ impl TradingSession {
         Ok(())
     }
 
-    pub async fn get_exchange_info(&mut self) -> Result<()> {
+    pub async fn get_exchange_info(&mut self, symbols: Vec<Symbol>) -> Result<()> {
+        let symbols = symbols.into_iter().map(|x| x.to_string()).collect_vec();
+
+        info!("Requesting exchange information for: {}", symbols.join(", "));
+
         let params = ExchangeInfoParams::builder()
+            .symbols(symbols)
             .build()
             .map_err(|err| eyre!("Failed to build exchange info params: {}", err))?;
 
@@ -291,7 +304,7 @@ impl TradingSession {
                 }
                 Ok(())
             }
-            Command::GetExchangeInfo() => self.get_exchange_info().await,
+            Command::GetExchangeInfo(symbols) => self.get_exchange_info(symbols).await,
         }
     }
 

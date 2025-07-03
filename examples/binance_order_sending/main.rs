@@ -42,6 +42,7 @@ pub async fn main() {
         })
         .unwrap_or_default();
     let credentials = Credentials::new(
+        String::from("BinanceAccount-1"),
         api_key,
         trading_enabled,
         move || env::var("BINANCE_API_SECRET").ok(),
@@ -180,7 +181,7 @@ pub async fn main() {
 
     order_sender
         .write()
-        .start()
+        .start(vec![cli.symbol.clone()])
         .expect("Failed to start order sender");
 
     order_sender

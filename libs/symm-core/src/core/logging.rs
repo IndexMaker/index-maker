@@ -1,12 +1,19 @@
+use std::sync::Once;
+
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+static INIT_LOG: Once = Once::new();
+
 pub fn log_init(filter: String) {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    INIT_LOG.call_once(|| {
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| filter.into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    });
 }
 
 /// Default initialize tracing log.

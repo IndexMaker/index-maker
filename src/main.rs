@@ -66,6 +66,8 @@ async fn main() {
     let fee_factor = dec!(1.001);
     let max_order_volley_size = dec!(20.0);
     let max_volley_size = dec!(100.0);
+    let min_asset_volley_size = dec!(5.0);
+    let asset_volley_step_size = dec!(0.2);
 
     let fill_threshold = dec!(0.9999);
     let mint_threshold = dec!(0.99);
@@ -85,6 +87,7 @@ async fn main() {
         })
         .unwrap_or_default();
     let credentials = Credentials::new(
+        String::from("BinanceAccount-1"),
         api_key,
         trading_enabled,
         move || env::var("BINANCE_API_SECRET").ok(),
@@ -157,6 +160,7 @@ async fn main() {
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(vec![credentials])
+        .symbols(&symbols)
         .build()
         .expect("Failed to build order sender");
 
@@ -195,6 +199,8 @@ async fn main() {
         .fee_factor(fee_factor)
         .max_order_volley_size(max_order_volley_size)
         .max_volley_size(max_volley_size)
+        .min_asset_volley_size(min_asset_volley_size)
+        .asset_volley_step_size(asset_volley_step_size)
         .build_arc()
         .expect("Failed to build simple solver");
 

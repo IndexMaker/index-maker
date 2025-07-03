@@ -528,28 +528,27 @@ impl BatchManager {
         let batch_order_id = &engaged_orders.batch_order_id;
         let mut batch_data = HashMap::new();
 
-        for engage_order in engaged_orders.engaged_orders.iter() {
-            for basket_asset in engage_order.basket.basket_assets.iter() {
-                let asset_symbol = &basket_asset.weight.asset.name;
-                let price = *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
-                let quantity = *engage_order.asset_quantities.get(&asset_symbol).unwrap();
-                match batch_data.entry(asset_symbol.clone()) {
-                    Entry::Vacant(entry) => {
-                        entry.insert(AssetOrder {
-                            order_id: host.get_next_order_id(),
-                            price,
-                            quantity,
-                            side: engage_order.engaged_side,
-                            symbol: basket_asset.weight.asset.name.clone(),
-                        });
-                    }
-                    Entry::Occupied(mut entry) => {
-                        let asset_order = entry.get_mut();
-                        asset_order.quantity =
-                            safe!(asset_order.quantity + quantity).ok_or_eyre("Math Problem")?;
-                    }
-                }
-            }
+        for (asset_symbol, quantity) in &engaged_orders.engaged_buys.asset_quantities {
+            let price = *engaged_orders
+                .engaged_buys
+                .asset_price_limits
+                .get(&asset_symbol)
+                .ok_or_else(|| eyre!("Cannot find expected price for asset {}", asset_symbol))?;
+
+            batch_data
+                .insert(
+                    asset_symbol.clone(),
+                    AssetOrder {
+                        order_id: host.get_next_order_id(),
+                        price,
+                        quantity: *quantity,
+                        side: Side::Buy,
+                        symbol: asset_symbol.clone(),
+                    },
+                )
+                .is_none()
+                .then_some(())
+                .ok_or_else(|| eyre!("Cannot insert asset order for {}", asset_symbol))?;
         }
 
         let batch = BatchOrder {
@@ -679,7 +678,7 @@ impl BatchManager {
             // We're finding lowest fill-rate for this Index Order across all assets, because
             // we cannot fill this Index Order more than least available asset fill-rate.
             fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
-                Some(x.min(avialable_fill_rate))
+                Some(x.min(avialable_fill_rate).min(Amount::ONE))
             });
             tracing::info!(
                 "(batch-manager) Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
@@ -842,7 +841,7 @@ impl BatchManager {
             .get(&batch_order_id)
             .ok_or_else(|| eyre!("Engagement not found {}", batch_order_id))?;
 
-        for engaged_order in engagement.write().engaged_orders.iter_mut() {
+        for engaged_order in engagement.write().engaged_buys.engaged_orders.iter_mut() {
             self.fill_index_order(host, &mut batch.write(), engaged_order)?
         }
 
@@ -936,13 +935,14 @@ impl BatchManager {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         tracing::info!(
-            "\n(batch-manager) Handle Index Order EngageIndexOrder {}",
+            "(batch-manager) Handle Index Order EngageIndexOrder {}",
             batch_order_id
         );
         match self.engagements.get(&batch_order_id) {
             Some(engaged_orders_stored) => {
                 engaged_orders_stored
                     .write()
+                    .engaged_buys
                     .engaged_orders
                     .iter_mut()
                     .for_each(|engaged_order_stored| {
@@ -1085,7 +1085,7 @@ impl BatchManager {
 
             let mut continued_orders = Vec::new();
 
-            for engaged_order in engagement.read().engaged_orders.iter() {
+            for engaged_order in engagement.read().engaged_buys.engaged_orders.iter() {
                 let mut index_order = engaged_order.index_order.upgradable_read();
                 let collateral_carried = index_order.engaged_collateral;
 
@@ -1161,7 +1161,10 @@ mod test {
         solver::{
             batch_manager::BatchEvent,
             index_order_manager::EngagedIndexOrder,
-            solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
+            solver::{
+                EngagedSolverOrders, EngagedSolverOrdersSide, SetSolverOrderStatus,
+                SolverOrderEngagement,
+            },
             solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
             solver_quote::{SolverQuote, SolverQuoteStatus},
         },
@@ -1552,23 +1555,32 @@ mod test {
         // Engagement definition would be built be SolverStrategy (e.g. SimpleSolver)
         let engagement_definition = Arc::new(RwLock::new(EngagedSolverOrders {
             batch_order_id: "B-1".into(),
-            engaged_orders: vec![SolverOrderEngagement {
-                index_order,
-                asset_contribution_fractions: HashMap::from([(get_mock_asset_name_1(), dec!(1.0))]),
-                asset_quantities: HashMap::from([(get_mock_asset_name_1(), dec!(10.0))]),
+            engaged_buys: EngagedSolverOrdersSide {
                 asset_price_limits,
-                chain_id: 1,
-                address: get_mock_address_1(),
-                client_order_id: "C-1".into(),
-                symbol: get_mock_asset_name_1(),
-                basket,
-                engaged_side: Side::Buy,
-                engaged_collateral: dec!(1200.0),
-                new_engaged_collateral: dec!(1200.0),
-                engaged_quantity: dec!(1.0),
-                engaged_price: dec!(1200.0),
-                filled_quantity: dec!(0.0),
-            }],
+                asset_quantities: HashMap::from([(get_mock_asset_name_1(), dec!(10.0))]),
+                engaged_orders: vec![SolverOrderEngagement {
+                    index_order,
+                    asset_contribution_fractions: HashMap::from([(
+                        get_mock_asset_name_1(),
+                        dec!(1.0),
+                    )]),
+                    asset_quantity_contributions: HashMap::from([(
+                        get_mock_asset_name_1(),
+                        dec!(10.0),
+                    )]),
+                    chain_id: 1,
+                    address: get_mock_address_1(),
+                    client_order_id: "C-1".into(),
+                    symbol: get_mock_asset_name_1(),
+                    basket,
+                    engaged_side: Side::Buy,
+                    engaged_collateral: dec!(1200.0),
+                    new_engaged_collateral: dec!(1200.0),
+                    engaged_quantity: dec!(1.0),
+                    engaged_price: dec!(1200.0),
+                    filled_quantity: dec!(0.0),
+                }],
+            },
         }));
 
         // Engagement confirmation would be built by Index Order Manager
