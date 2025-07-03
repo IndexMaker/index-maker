@@ -53,7 +53,11 @@ impl Filter {
                     tick_size
                 );
                 let x = safe!(*price / *tick_size).ok_or_eyre("Math error")?;
-                *price = safe!(x.floor() * *tick_size).ok_or_eyre("Math error")?;
+                *price = if allow_pad {
+                    safe!(x.ceil() * *tick_size).ok_or_eyre("Math error")?
+                } else {
+                    safe!(x.floor() * *tick_size).ok_or_eyre("Math error")?
+                };
                 if *price < *min_price {
                     if allow_pad {
                         warn!("Padding price to minimum price: {} => {}", price, min_price);
@@ -83,7 +87,11 @@ impl Filter {
                     step_size
                 );
                 let x = safe!(*quantity / *step_size).ok_or_eyre("Math error")?;
-                *quantity = safe!(x.floor() * *step_size).ok_or_eyre("Math error")?;
+                *quantity = if allow_pad {
+                    safe!(x.ceil() * *step_size).ok_or_eyre("Math error")?
+                } else {
+                    safe!(x.floor() * *step_size).ok_or_eyre("Math error")?
+                };
                 if *quantity < *min_quantity {
                     if allow_pad {
                         warn!(
@@ -240,7 +248,12 @@ impl MarketInfo {
         &self.symbol
     }
 
-    pub fn treat_price_quantity(&self, price: &mut Amount, quantity: &mut Amount, allow_pad: bool) -> Result<()> {
+    pub fn treat_price_quantity(
+        &self,
+        price: &mut Amount,
+        quantity: &mut Amount,
+        allow_pad: bool,
+    ) -> Result<()> {
         price.rescale(self.quote.precision);
         quantity.rescale(self.base.precision);
 
@@ -373,6 +386,9 @@ impl TradingMarkets {
             .get(symbol)
             .ok_or_else(|| eyre!("Cannot find market info for {}", symbol))?;
 
+        market_info.treat_price_quantity(price, quantity, allow_pad)?;
+
+        // Do second round of treating to ensure all filters are happy
         market_info.treat_price_quantity(price, quantity, allow_pad)
     }
 
