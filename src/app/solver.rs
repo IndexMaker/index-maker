@@ -261,7 +261,7 @@ impl SolverConfig {
         }
     }
 
-    async fn run_backend(&mut self) -> Result<()> {
+    async fn run_orders_backend(&mut self) -> Result<()> {
         let (stop_backend_tx, stop_backend_rx) = unbounded::<()>();
         let (backend_stopped_tx, backend_stopped_rx) = oneshot::channel();
 
@@ -455,7 +455,7 @@ impl SolverConfig {
         Ok(())
     }
 
-    async fn stop_backend(&mut self) -> Result<()> {
+    async fn stop_orders_backend(&mut self) -> Result<()> {
         if let Some((stop_backend_tx, backend_stopped_rx)) = self.stopping_backend.take() {
             let order_sender = self.with_order_sender.try_get_order_sender_cloned()?;
             order_sender.write().stop().await.unwrap();
@@ -469,7 +469,7 @@ impl SolverConfig {
         }
     }
 
-    pub async fn run_quotes(&mut self) -> Result<()> {
+    pub async fn run_quotes_backend(&mut self) -> Result<()> {
         let solver_quotes_clone = self.solver.clone().ok_or_eyre("Failed to get solver")?;
 
         let (stop_quotes_tx, stop_quotes_rx) = unbounded::<()>();
@@ -552,7 +552,7 @@ impl SolverConfig {
         Ok(())
     }
 
-    async fn stop_quotes(&mut self) -> Result<()> {
+    async fn stop_quotes_backend(&mut self) -> Result<()> {
         if let Some((stop_quotes_tx, quotes_stopped_rx)) = self.stopping_quotes.take() {
             stop_quotes_tx.send(()).unwrap();
             quotes_stopped_rx.await.unwrap();
@@ -596,7 +596,7 @@ impl SolverConfig {
             .set_observer_from(chain_event_tx);
 
         let tick_delta = time::Duration::from_millis(
-            self.quotes_tick_interval
+            self.solver_tick_interval
                 .map(|d| d.num_milliseconds())
                 .unwrap_or_default() as u64,
         );
@@ -704,6 +704,80 @@ impl SolverConfig {
 
         Ok(())
     }
+    
+    pub async fn run_quotes_solver(&mut self) -> Result<()> {
+        let solver = self.solver.clone().ok_or_eyre("Failed to get solver")?;
+
+        let (stop_solver_tx, stop_solver_rx) = unbounded::<()>();
+        let (solver_stopped_tx, solver_stopped_rx) = oneshot::channel();
+
+        let (basket_event_tx, basket_event_rx) = unbounded::<BasketNotification>();
+        let (chain_event_tx, chain_event_rx) = unbounded::<ChainNotification>();
+
+        let basket_manager = self.with_basket_manager.try_get_basket_manager_cloned()?;
+        let chain_connector = self.with_chain_connector.try_get_chain_connector_cloned()?;
+
+        basket_manager
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(basket_event_tx);
+
+        chain_connector
+            .write()
+            .map_err(|err| eyre!("Failed to obtain lock on chain connector: {:?}", err))?
+            .set_observer_from(chain_event_tx);
+
+        let tick_delta = time::Duration::from_millis(
+            self.solver_tick_interval
+                .map(|d| d.num_milliseconds())
+                .unwrap_or_default() as u64,
+        );
+
+        thread::spawn(move || {
+            tracing::info!("Solver started");
+            loop {
+                select! {
+                    recv(stop_solver_rx) -> _ => {
+                        if let Err(err) = solver_stopped_tx.send(()) {
+                            tracing::warn!("Failed to send solver stopped event: {:?}", err);
+                        }
+                        break;
+                    },
+                    recv(basket_event_rx) -> res => match res {
+                        Ok(event) => {
+                            if let Err(err) = solver.handle_basket_event(event) {
+                                tracing::warn!("Failed to handle basket event: {:?}", err);
+                            }
+                        }
+                        Err(err) => {
+                            tracing::warn!("Failed to receive basket event: {:?}", err);
+                        }
+                    },
+                    recv(chain_event_rx) -> res => match res {
+                        Ok(event) => {
+                            tracing::trace!("Chain event");
+                            if let Err(err) = solver.handle_chain_event(event) {
+                                tracing::warn!("Failed to handle chain event: {:?}", err);
+                            }
+                        },
+                        Err(err) => {
+                            tracing::warn!("Failed to receive chain event: {:?}", err);
+                        }
+                    },
+                    default(tick_delta) => {
+                        solver.solve(Utc::now());
+                    }
+                }
+            }
+            tracing::info!("Solver exited");
+        });
+
+        self.stopping_solver
+            .replace((stop_solver_tx, solver_stopped_rx));
+
+        Ok(())
+    }
+
 
     async fn stop_solver(&mut self) -> Result<()> {
         if let Some((stop_solver_tx, solver_stopped_rx)) = self.stopping_solver.take() {
@@ -717,16 +791,30 @@ impl SolverConfig {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        self.run_backend().await?;
+        self.run_orders_backend().await?;
+        self.run_quotes_backend().await?;
         self.run_market_data().await?;
-        self.run_quotes().await?;
         self.run_solver().await?;
         Ok(())
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        self.stop_backend().await?;
-        self.stop_quotes().await?;
+        self.stop_orders_backend().await?;
+        self.stop_quotes_backend().await?;
+        self.stop_solver().await?;
+        self.stop_market_data().await?;
+        Ok(())
+    }
+    
+    pub async fn run_quotes(&mut self) -> Result<()> {
+        self.run_quotes_backend().await?;
+        self.run_market_data().await?;
+        self.run_quotes_solver().await?;
+        Ok(())
+    }
+
+    pub async fn stop_quotes(&mut self) -> Result<()> {
+        self.stop_quotes_backend().await?;
         self.stop_solver().await?;
         self.stop_market_data().await?;
         Ok(())

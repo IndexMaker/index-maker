@@ -2,7 +2,7 @@ use std::{env, sync::Arc};
 
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -36,11 +36,24 @@ use symm_core::{
 };
 use tokio::time::sleep;
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
 struct Cli {
-    symbol: Symbol,
-    side: Side,
-    collateral_amount: Amount,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    SendOrder {
+        side: Side,
+        symbol: Symbol,
+        collateral_amount: Amount,
+    },
+    FixServer {
+        collateral_amount: Amount,
+    },
+    QuoteServer {},
 }
 
 #[tokio::main]
@@ -52,12 +65,17 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    tracing::info!(
-        "Index Order: {} {:?} {}",
-        cli.symbol,
-        cli.side,
-        cli.collateral_amount
-    );
+    match &cli.command {
+        Commands::SendOrder {
+            side,
+            symbol,
+            collateral_amount,
+        } => tracing::info!("Index Order: {} {:?} {}", symbol, side, collateral_amount),
+        Commands::FixServer { collateral_amount } => {
+            tracing::info!("FIX Server: {}", collateral_amount)
+        }
+        Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
+    }
 
     // ==== Configuration parameters
     // ----
@@ -78,7 +96,6 @@ async fn main() {
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
-    let api_key = env::var("BINANCE_API_KEY").expect("No API key in env");
     let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
         .map(|s| {
             1 == s
@@ -86,10 +103,11 @@ async fn main() {
                 .expect("Failed to parse BINANCE_TRADING_ENABLED environment variable")
         })
         .unwrap_or_default();
+
     let credentials = Credentials::new(
         String::from("BinanceAccount-1"),
-        api_key,
         trading_enabled,
+        move || env::var("BINANCE_API_KEY").ok(),
         move || env::var("BINANCE_API_SECRET").ok(),
         move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
@@ -224,7 +242,19 @@ async fn main() {
         .build()
         .expect("Failed to build solver");
 
-    solver_config.run().await.expect("Failed to run solver");
+    let is_running_quotes = match &cli.command {
+        Commands::QuoteServer {} => {
+            solver_config
+                .run_quotes()
+                .await
+                .expect("Failed to run quotes solver");
+            true
+        }
+        _ => {
+            solver_config.run().await.expect("Failed to run solver");
+            false
+        }
+    };
 
     tracing::info!("Awaiting market data...");
     loop {
@@ -249,39 +279,72 @@ async fn main() {
 
     sleep(std::time::Duration::from_secs(2)).await;
 
-    tracing::info!("Sending deposit...");
+    match &cli.command {
+        Commands::SendOrder {
+            side,
+            symbol,
+            collateral_amount,
+        } => {
+            tracing::info!("Sending deposit...");
 
-    simple_chain
-        .write()
-        .expect("Failed to lock chain connector")
-        .publish_event(ChainNotification::Deposit {
-            chain_id: 1,
-            address: get_mock_address_1(),
-            amount: cli.collateral_amount,
-            timestamp: Utc::now(),
-        });
+            simple_chain
+                .write()
+                .expect("Failed to lock chain connector")
+                .publish_event(ChainNotification::Deposit {
+                    chain_id: 1,
+                    address: get_mock_address_1(),
+                    amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                });
 
-    sleep(std::time::Duration::from_secs(2)).await;
+            sleep(std::time::Duration::from_secs(2)).await;
 
-    tracing::info!("Sending index order...");
+            tracing::info!("Sending index order...");
 
-    simple_server
-        .read()
-        .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
-            chain_id: 1,
-            address: get_mock_address_1(),
-            client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
-            symbol: cli.symbol,
-            side: cli.side,
-            collateral_amount: cli.collateral_amount,
-            timestamp: Utc::now(),
-        }));
+            simple_server
+                .read()
+                .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+                    chain_id: 1,
+                    address: get_mock_address_1(),
+                    client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
+                    symbol: symbol.clone(),
+                    side: *side,
+                    collateral_amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                }));
+        }
+        Commands::FixServer { collateral_amount } => {
+            tracing::info!("Sending deposit...");
+
+            simple_chain
+                .write()
+                .expect("Failed to lock chain connector")
+                .publish_event(ChainNotification::Deposit {
+                    chain_id: 1,
+                    address: get_mock_address_1(),
+                    amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                });
+
+            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {})", "[TBD...]");
+        }
+        Commands::QuoteServer {} => {
+            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {})", "[TBD...]");
+        }
+    };
 
     sleep(std::time::Duration::from_secs(60)).await;
 
     tracing::info!("Stopping solver...");
 
-    solver_config.stop().await.expect("Failed to stop solver");
+    if is_running_quotes {
+        solver_config
+            .stop_quotes()
+            .await
+            .expect("Failed to stop quote solver");
+    } else {
+        solver_config.stop().await.expect("Failed to stop solver");
+    }
 
     tracing::info!("Done.");
 }
