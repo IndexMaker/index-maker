@@ -63,8 +63,6 @@ impl AxumServerResponse for Response {
         // Serialize the response to JSON
         let json_str = serde_json::to_string(self)
             .map_err(|e| eyre!("Failed to serialize ExampleResponse: {}", e))?;
-        // Construct a FixMessage with the serialized data in the body
-        println!("serialize_into_fix: {}", json_str);
         Ok(FixMessage(json_str.to_owned()))
     }
     

@@ -23,6 +23,7 @@ pub struct Session {
 
 impl Session {
     pub fn new(session_id: SessionId, tx: UnboundedSender<String>) -> Self {
+        tracing::info!("Session created: {}", session_id);
         Self {
             session_id,
             response_tx: tx,

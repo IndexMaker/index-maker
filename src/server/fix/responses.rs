@@ -1,4 +1,3 @@
-use alloy::{primitives::address};
 use axum_fix_server::{
     messages::{FixMessage, ServerResponse as AxumServerResponse, SessionId},
     plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
@@ -32,7 +31,7 @@ impl FixResponse {
             address: user_id.1,
             body: Body::NAKBody {
                 ref_seq_num: seq_num,
-                text: error_reason,
+                reason: error_reason,
             },
             standard_trailer: FixTrailer::new(),
         }

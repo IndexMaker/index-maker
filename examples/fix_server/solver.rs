@@ -72,7 +72,7 @@ impl Solver {
                             }
                         }
                         SolverEvents::Quit => {
-                            println!("Received Quit signal, terminating event loop thread.");
+                            tracing::info!("Received Quit signal, terminating event loop thread.");
                             break;
                         }
                     }
@@ -82,10 +82,9 @@ impl Solver {
     }
 
     pub fn stop(&mut self) {
-        println!("Sent Quit signal to event loop thread.");
+        tracing::info!("Sent Quit signal to event loop thread.");
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
-            println!("Event loop thread has terminated.");
         }
     }
 }

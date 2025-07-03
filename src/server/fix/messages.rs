@@ -76,7 +76,7 @@ pub enum Body {
     },
     NAKBody {
         ref_seq_num: u32,
-        text: String,
+        reason: String,
     },
     OrderNAKBody {
         client_order_id: String,
