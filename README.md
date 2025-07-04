@@ -212,8 +212,6 @@ The resulting MVP should be able to demonstrate following:
 ### Binance Market Data
 
 The goal is to integrate market data from Binance, and observe system behavior and accuracy dependant on changing market conditions.
-We would be sending orders into mock connector, yet using real market data. This is to confirm that orders look as expected and system
-works correctly.
 
 We will use Binance SDK provided directly by Binance to receive market data and track asset prices, and build books.
 
