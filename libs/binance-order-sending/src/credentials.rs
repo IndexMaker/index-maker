@@ -4,8 +4,8 @@ use symm_core::order_sender::order_connector::SessionId;
 
 pub struct Credentials {
     account_name: String,
-    api_key: String,
     enable_trading: bool,
+    get_api_key_fn: Box<dyn Fn() -> Option<String> + Send + Sync>,
     get_secret_fn: Box<dyn Fn() -> Option<String> + Send + Sync>,
     get_private_key_file_fn: Box<dyn Fn() -> Option<String> + Send + Sync>,
     get_private_key_passphrase_fn: Box<dyn Fn() -> Option<String> + Send + Sync>,
@@ -14,16 +14,16 @@ pub struct Credentials {
 impl Credentials {
     pub fn new(
         account_name: String,
-        api_key: String,
         enable_trading: bool,
+        get_api_key_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
         get_secret_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
         get_private_key_file_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
         get_private_key_passphrase_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
     ) -> Self {
         Self {
             account_name,
-            api_key,
             enable_trading,
+            get_api_key_fn: Box::new(get_api_key_fn),
             get_secret_fn: Box::new(get_secret_fn),
             get_private_key_file_fn: Box::new(get_private_key_file_fn),
             get_private_key_passphrase_fn: Box::new(get_private_key_passphrase_fn),
@@ -42,8 +42,8 @@ impl Credentials {
         SessionId::from(self.get_account_name())
     }
 
-    fn get_api_key(&self) -> String {
-        self.api_key.clone()
+    fn get_api_key(&self) -> Option<String> {
+        (*self.get_api_key_fn)()
     }
 
     fn get_api_secret(&self) -> Option<String> {
