@@ -217,11 +217,11 @@ We will use Binance SDK provided directly by Binance to receive market data and 
 
 ### Binance Orders
 
-The goal is to integrate order sending with Binance, and to conrifm that orders are sent, they don't exceed limits, they get
+The goal is to integrate order sending with Binance, and to confirm that orders are sent, they don't exceed limits, they get
 executed, we track them correctly all the way up until minting.
 
 We will use Binance SDK to log onto Binance account, obtain exchange information about traded assets, and to send orders.
-The order sender will respect order rate limits and will apply priec & quantity filters to orders before sending to Binance.
+The order sender will respect order rate limits and will apply price & quantity filters to orders before sending to Binance.
 
 ### FIX/Json over Web Sockets
 
