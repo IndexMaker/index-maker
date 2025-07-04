@@ -121,7 +121,7 @@ async fn main() {
     // ----
 
     // Fake index assets (btw: these should be assets and not markets)
-    let symbols = [Symbol::from("BNBEUR"), Symbol::from("ETHEUR")];
+    let symbols = [Symbol::from("BNBUSDT"), Symbol::from("ETHUSDT")];
 
     let weights = [dec!(0.6), dec!(0.4)];
     let index_symbol = Symbol::from("SO2");
@@ -142,8 +142,8 @@ async fn main() {
 
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
-        .source("SRC:BINANCE:EUR")
-        .destination("DST:BINANCE:EUR")
+        .source("SRC:BINANCE:USDT")
+        .destination("DST:BINANCE:USDT")
         .build()
         .expect("Failed to build collateral router");
 
@@ -193,12 +193,12 @@ async fn main() {
 
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
-        .with_server(server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(simple_server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
         .build()
         .expect("Failed to build index order manager");
 
     let quote_request_manager_config = QuoteRequestManagerConfig::builder()
-        .with_server(server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(simple_server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
         .build()
         .expect("Failed to build quote request manager");
 

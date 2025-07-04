@@ -111,6 +111,9 @@ pub enum Body {
         collateral_spent: String,
         collateral_remaining: String,
     },
+    MintInvoiceBody {
+        client_order_id: String,
+    },
     NewQuoteRequestBody {
         client_quote_id: String,
         symbol: String,

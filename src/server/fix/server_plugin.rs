@@ -264,6 +264,20 @@ impl ServerPlugin {
                     collateral_remaining: collateral_remaining.to_string(),
                 },
             ),
+            ServerResponse::MintInvoice {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+            } => (
+                chain_id,
+                address,
+                SessionId::from("S-1"),
+                "MintInvoice".to_string(),
+                Body::MintInvoiceBody {
+                    client_order_id: client_order_id.as_str().to_string(),
+                },
+            ),
             ServerResponse::NewIndexQuoteAck {
                 chain_id,
                 address,

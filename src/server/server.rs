@@ -142,6 +142,13 @@ pub enum ServerResponse {
         collateral_remaining: Amount,
         timestamp: DateTime<Utc>,
     },
+    #[error("MintInvoice: NAK [{chain_id}:{address}] {client_order_id} {timestamp}")]
+    MintInvoice {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        timestamp: DateTime<Utc>,
+    },
     #[error("NewIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
     NewIndexQuoteAck {
         chain_id: u32,
