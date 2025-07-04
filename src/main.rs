@@ -25,9 +25,10 @@ use index_maker::{
     },
     blockchain::chain_connector::ChainNotification,
     index::basket::{AssetWeight, BasketDefinition},
-    server::server::ServerEvent,
+    server::server::{Server, ServerEvent},
 };
 use itertools::Itertools;
+use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     assets::asset::Asset,
@@ -60,6 +61,131 @@ enum Commands {
     QuoteServer {},
 }
 
+enum AppMode {
+    SendOrder {
+        side: Side,
+        symbol: Symbol,
+        collateral_amount: Amount,
+        simple_server_config: Arc<dyn ServerConfig + Send + Sync>,
+        simple_server: Arc<RwLock<dyn Server + Send + Sync>>,
+    },
+    FixServer {
+        collateral_amount: Amount,
+        fix_server_config: Arc<FixServerConfig>,
+    },
+    QuoteServer {
+        fix_server_config: Arc<FixServerConfig>,
+    },
+}
+
+impl AppMode {
+    fn new(command: &Commands, address: Option<String>) -> Self {
+        match command {
+            Commands::SendOrder {
+                side,
+                symbol,
+                collateral_amount,
+            } => {
+                let config = SimpleServerConfig::builder()
+                    .build_arc()
+                    .expect("Failed to build server");
+                let server = config.expect_server_cloned();
+
+                AppMode::SendOrder {
+                    side: *side,
+                    symbol: symbol.clone(),
+                    collateral_amount: *collateral_amount,
+                    simple_server_config: config,
+                    simple_server: server,
+                }
+            }
+            Commands::FixServer { collateral_amount } => {
+                let config = FixServerConfig::builder()
+                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .build_arc()
+                    .expect("Failed to build server");
+
+                AppMode::FixServer {
+                    collateral_amount: *collateral_amount,
+                    fix_server_config: config,
+                }
+            }
+            Commands::QuoteServer {} => {
+                let config = FixServerConfig::builder()
+                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .build_arc()
+                    .expect("Failed to build server");
+
+                AppMode::QuoteServer {
+                    fix_server_config: config,
+                }
+            }
+        }
+    }
+
+    fn get_server_config(&self) -> Arc<dyn ServerConfig + Send + Sync> {
+        match self {
+            Self::SendOrder {
+                simple_server_config,
+                ..
+            } => simple_server_config.clone(),
+            Self::FixServer {
+                fix_server_config, ..
+            } => fix_server_config.clone(),
+            Self::QuoteServer { fix_server_config } => fix_server_config.clone(),
+        }
+    }
+
+    async fn run(&self) {
+        match self {
+            Self::SendOrder {..} => {}
+            Self::FixServer {
+                fix_server_config, ..
+            } => {
+                fix_server_config
+                    .start()
+                    .await
+                    .expect("Failed to start FIX Server");
+            }
+            Self::QuoteServer { fix_server_config } => {
+                fix_server_config
+                    .start()
+                    .await
+                    .expect("Failed to start FIX Server");
+            }
+        }
+    }
+
+    async fn stop(&self) {
+        match self {
+            Self::SendOrder {..} => {}
+            Self::FixServer {
+                fix_server_config, ..
+            } => {
+                fix_server_config
+                    .stop()
+                    .await
+                    .expect("Failed to stop FIX Server");
+            }
+            Self::QuoteServer { fix_server_config } => {
+                fix_server_config
+                    .stop()
+                    .await
+                    .expect("Failed to stop FIX Server");
+            }
+        }
+    }
+
+    async fn publish_event(&self, event: ServerEvent) {
+        match self {
+            Self::SendOrder { simple_server, .. } => {
+                simple_server.write().publish_event(&Arc::new(event));
+            }
+            _ => {}
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     init_log!();
@@ -80,6 +206,8 @@ async fn main() {
         }
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
+
+    let app_mode = AppMode::new(&cli.command, None);
 
     // ==== Configuration parameters
     // ----
@@ -153,17 +281,6 @@ async fn main() {
 
     let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
 
-    let simple_server_config = SimpleServerConfig::builder()
-         .build_arc()
-         .expect("Failed to build server");
-
-    let simple_server = simple_server_config.expect_server_cloned();
-
-    let server_config = FixServerConfig::builder()
-        .address("127.0.0.1:3000")
-        .build_arc()
-        .expect("Failed to build server");
-
     let chain_connector_config = SimpleChainConnectorConfig::builder()
         .build_arc()
         .expect("Failed to build chain connector");
@@ -193,12 +310,12 @@ async fn main() {
 
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
-        .with_server(simple_server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(app_mode.get_server_config())
         .build()
         .expect("Failed to build index order manager");
 
     let quote_request_manager_config = QuoteRequestManagerConfig::builder()
-        .with_server(simple_server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(app_mode.get_server_config())
         .build()
         .expect("Failed to build quote request manager");
 
@@ -265,10 +382,7 @@ async fn main() {
         }
     };
 
-    server_config
-        .start()
-        .await
-        .expect("Failed to start FIX Server");
+    app_mode.run().await;
 
     tracing::info!("Awaiting market data...");
     loop {
@@ -293,11 +407,12 @@ async fn main() {
 
     sleep(std::time::Duration::from_secs(2)).await;
 
-    match &cli.command {
-        Commands::SendOrder {
+    match &app_mode {
+        AppMode::SendOrder {
             side,
             symbol,
             collateral_amount,
+            ..
         } => {
             tracing::info!("Sending deposit...");
 
@@ -315,19 +430,17 @@ async fn main() {
 
             tracing::info!("Sending index order...");
 
-            simple_server
-                .write()
-                .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
-                    chain_id: 1,
-                    address: get_mock_address_1(),
-                    client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
-                    symbol: symbol.clone(),
-                    side: *side,
-                    collateral_amount: *collateral_amount,
-                    timestamp: Utc::now(),
-                }));
+            app_mode.publish_event(ServerEvent::NewIndexOrder {
+                chain_id: 1,
+                address: get_mock_address_1(),
+                client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
+                symbol: symbol.clone(),
+                side: *side,
+                collateral_amount: *collateral_amount,
+                timestamp: Utc::now(),
+            }).await;
         }
-        Commands::FixServer { collateral_amount } => {
+        AppMode::FixServer { collateral_amount, .. } => {
             tracing::info!("Sending deposit...");
 
             simple_chain
@@ -342,7 +455,7 @@ async fn main() {
 
             tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {})", "[TBD...]");
         }
-        Commands::QuoteServer {} => {
+        AppMode::QuoteServer {..} => {
             tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {})", "[TBD...]");
         }
     };
@@ -360,10 +473,7 @@ async fn main() {
         solver_config.stop().await.expect("Failed to stop solver");
     }
 
-    server_config
-        .stop()
-        .await
-        .expect("Failed to start FIX Server");
+    app_mode.stop().await;
 
     tracing::info!("Done.");
 }
