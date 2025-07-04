@@ -52,7 +52,7 @@ pub enum OrderTrackerNotification {
 
 #[derive(Clone, Copy)]
 pub enum OrderStatus {
-    Sent { quantity_remaining: Amount },
+    Sent { order_quantity: Amount },
     Live { quantity_remaining: Amount },
     Cancelled { quantity_remaining: Amount },
     SendFailed,
@@ -70,7 +70,7 @@ impl OrderEntry {
             session_id,
             order: order.clone(),
             status: AtomicCell::new(OrderStatus::Sent {
-                quantity_remaining: order.quantity,
+                order_quantity: order.quantity,
             }),
         }
     }
@@ -114,11 +114,11 @@ impl OrderTracker {
             Entry::Occupied(entry) => {
                 let order_entry = entry.get();
                 match order_entry.get_status() {
-                    OrderStatus::Sent { quantity_remaining } => {
+                    OrderStatus::Sent { order_quantity } => {
                         tracing::info!(
                             "Order Status {}: Sent({} @ {}) => Ack({} @ {})",
                             order_id,
-                            quantity_remaining,
+                            order_quantity,
                             order_entry.order.price,
                             quantity,
                             price
@@ -147,7 +147,7 @@ impl OrderTracker {
                 let order_entry = entry.get();
                 match order_entry.get_status() {
                     OrderStatus::Sent {
-                        quantity_remaining: _,
+                        order_quantity: _,
                     } => {
                         if !is_cancel {
                             Err(eyre!("Invalid order state for applying fill"))

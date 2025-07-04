@@ -82,7 +82,7 @@ impl Session {
                 return credentials;
             }
 
-            let user_data = match trading_session.subscribe(observer.clone()).await {
+            let user_data = match trading_session.get_user_data().await {
                 Err(err) => {
                     on_error(format!("Failed to obtain user-data: {:?}", err));
                     return credentials;
@@ -96,6 +96,8 @@ impl Session {
                     session_id: session_id.clone(),
                     timestamp: Utc::now(),
                 });
+
+            user_data.subscribe(observer.clone());
 
             loop {
                 select! {

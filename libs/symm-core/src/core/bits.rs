@@ -81,9 +81,12 @@ impl Side {
     }
 }
 
-impl From<&str> for Side {
-    fn from(value: &str) -> Self {
-        match value {
+impl<T> From<T> for Side
+where
+    T: AsRef<str>,
+{
+    fn from(value: T) -> Self {
+        match value.as_ref() {
             "buy" => Side::Buy,
             "Buy" => Side::Buy,
             "BUY" => Side::Buy,
