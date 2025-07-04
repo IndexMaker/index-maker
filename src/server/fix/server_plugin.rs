@@ -74,7 +74,20 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let side = if side == "1" { Side::Buy } else { Side::Sell };
+                    let side = if (side == "1"
+                        || side == "b"
+                        || side == "B"
+                        || side == "buy"
+                        || side == "Buy"
+                        || side == "BUY"
+                        || side == "bid"
+                        || side == "Bid"
+                        || side == "BID")
+                    {
+                        Side::Buy
+                    } else {
+                        Side::Sell
+                    };
                     let collateral_amount = amount
                         .parse()
                         .ok()
