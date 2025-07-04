@@ -5,10 +5,10 @@ use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
 use index_maker::{
     app::{
-        fix_server::FixServerConfig,
         basket_manager::BasketManagerConfig,
         batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig,
+        fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
         order_sender::OrderSenderConfig,
@@ -138,7 +138,7 @@ impl AppMode {
 
     async fn run(&self) {
         match self {
-            Self::SendOrder {..} => {}
+            Self::SendOrder { .. } => {}
             Self::FixServer {
                 fix_server_config, ..
             } => {
@@ -158,7 +158,7 @@ impl AppMode {
 
     async fn stop(&self) {
         match self {
-            Self::SendOrder {..} => {}
+            Self::SendOrder { .. } => {}
             Self::FixServer {
                 fix_server_config, ..
             } => {
@@ -173,15 +173,6 @@ impl AppMode {
                     .await
                     .expect("Failed to stop FIX Server");
             }
-        }
-    }
-
-    async fn publish_event(&self, event: ServerEvent) {
-        match self {
-            Self::SendOrder { simple_server, .. } => {
-                simple_server.write().publish_event(&Arc::new(event));
-            }
-            _ => {}
         }
     }
 }
@@ -412,6 +403,7 @@ async fn main() {
             side,
             symbol,
             collateral_amount,
+            simple_server,
             ..
         } => {
             tracing::info!("Sending deposit...");
@@ -430,17 +422,23 @@ async fn main() {
 
             tracing::info!("Sending index order...");
 
-            app_mode.publish_event(ServerEvent::NewIndexOrder {
-                chain_id: 1,
-                address: get_mock_address_1(),
-                client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
-                symbol: symbol.clone(),
-                side: *side,
-                collateral_amount: *collateral_amount,
-                timestamp: Utc::now(),
-            }).await;
+            simple_server
+                .write()
+                .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+                    chain_id: 1,
+                    address: get_mock_address_1(),
+                    client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
+                    symbol: symbol.clone(),
+                    side: *side,
+                    collateral_amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                }));
         }
-        AppMode::FixServer { collateral_amount, .. } => {
+        AppMode::FixServer {
+            collateral_amount,
+            fix_server_config,
+            ..
+        } => {
             tracing::info!("Sending deposit...");
 
             simple_chain
@@ -453,10 +451,10 @@ async fn main() {
                     timestamp: Utc::now(),
                 });
 
-            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {})", "[TBD...]");
+            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {:?})", fix_server_config.address);
         }
-        AppMode::QuoteServer {..} => {
-            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {})", "[TBD...]");
+        AppMode::QuoteServer { fix_server_config } => {
+            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {:?})", fix_server_config.address);
         }
     };
 
