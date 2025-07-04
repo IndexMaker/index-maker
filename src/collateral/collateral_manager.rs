@@ -88,9 +88,25 @@ impl CollateralManager {
                         Side::Sell => position_read.side_dr.unconfirmed_balance,
                     };
                     if unconfirmed_balance < request.collateral_amount {
+                        tracing::debug!(
+                            "(collateral-manager) Awaiting deposit [{}:{}] {}: ca={} ub={}",
+                            request.chain_id,
+                            request.address,
+                            request.client_order_id,
+                            request.collateral_amount,
+                            unconfirmed_balance
+                        );
                         Either::Right(request)
                     } else {
-                        Either::Left((request, unconfirmed_balance))
+                        tracing::debug!(
+                            "(collateral-manager) Ready to route [{}:{}] {}: ca={} ub={}",
+                            request.chain_id,
+                            request.address,
+                            request.client_order_id,
+                            request.collateral_amount,
+                            unconfirmed_balance
+                        );
+                        Either::Left(request)
                     }
                 } else {
                     Either::Right(request)
@@ -101,7 +117,7 @@ impl CollateralManager {
 
         let failures = ready_to_route
             .into_iter()
-            .filter_map(|(request, unconfirmed_balance)| {
+            .filter_map(|request| {
                 match self
                     .router
                     .write()
@@ -112,7 +128,7 @@ impl CollateralManager {
                             request.address,
                             request.client_order_id.clone(),
                             request.side,
-                            unconfirmed_balance,
+                            request.collateral_amount,
                         )
                     }) {
                     Ok(()) => None,
