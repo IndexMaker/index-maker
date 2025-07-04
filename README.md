@@ -93,15 +93,14 @@
     - [ ] Create Bitget Order Connector implementation
     - [ ] Create Bitget Order Connector integration example
     - [ ] Send small order to Bitget using limit price X% away from TOB
-* [ ] Alloy Integration Investigation
+* [ ] Alloy Integration
     - [x] Calling contract methods
     - [x] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
-* [ ] Collateral Router Bridges Investigation
-    - [ ] Investigate how do we transfer collateral from EVM to EVM
-    - [ ] Investigate how do we transfer collateral from EVM to Ceffu
-    - [ ] Investigate how do we transfer collateral from Ceffu to Binance
-    - [ ] Investigate how do we transfer collateral from Binance to Binance
+* [ ] Collateral Router Bridges
+    - [ ] Create Collateral Bridge between two EVM chains using Across
+    - [ ] Create Collateral Bridge between two EVM wallets within same network 
+    - [ ] Create Collateral Designation for Binance account
     - [ ] Send small amount of collateral from EVM to Binance via Ceffu
 * [ ] Sell side implementation
     - [ ] Wait for index token collateral before selling assets
