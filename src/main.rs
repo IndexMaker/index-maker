@@ -46,6 +46,9 @@ use tokio::time::sleep;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    #[arg(long, short)]
+    main_quote_currency: Option<Symbol>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -198,6 +201,8 @@ async fn main() {
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
 
+    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDC".into());
+
     let app_mode = AppMode::new(&cli.command, None);
 
     // ==== Configuration parameters
@@ -239,8 +244,14 @@ async fn main() {
     // ==== Fake stuff
     // ----
 
+    let symbols = ["BNB", "ETH"];
+
     // Fake index assets (btw: these should be assets and not markets)
-    let symbols = [Symbol::from("BNBUSDT"), Symbol::from("ETHUSDT")];
+    let symbols = symbols
+        .into_iter()
+        .map(|s| format!("{}{}", s, main_quote_currency))
+        .map(Symbol::from)
+        .collect_vec();
 
     let weights = [dec!(0.6), dec!(0.4)];
     let index_symbol = Symbol::from("SO2");
@@ -261,8 +272,8 @@ async fn main() {
 
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
-        .source("SRC:BINANCE:USDT")
-        .destination("DST:BINANCE:USDT")
+        .source(format!("SRC:BINANCE:{}", main_quote_currency))
+        .destination(format!("DST:BINANCE:{}", main_quote_currency))
         .build()
         .expect("Failed to build collateral router");
 
@@ -285,7 +296,7 @@ async fn main() {
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
-        .symbols(&symbols)
+        .symbols(symbols.clone())
         .with_price_tracker(true)
         .with_book_manager(true)
         .build()
@@ -295,7 +306,7 @@ async fn main() {
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(vec![credentials])
-        .symbols(&symbols)
+        .symbols(symbols.clone())
         .build()
         .expect("Failed to build order sender");
 
