@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use crate::{app::simple_server::ServerConfig, solver::index_quote_manager::QuoteRequestManager};
+use crate::{app::solver::ServerConfig, solver::index_quote_manager::QuoteRequestManager};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;

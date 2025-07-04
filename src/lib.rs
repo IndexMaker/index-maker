@@ -1,4 +1,5 @@
 pub mod app {
+    pub mod fix_server;
     pub mod basket_manager;
     pub mod batch_manager;
     pub mod collateral_manager;
@@ -32,6 +33,13 @@ pub mod index {
 
 pub mod server {
     pub mod server;
+    pub mod fix {
+        pub mod messages;
+        pub mod requests;
+        pub mod responses;
+        pub mod server;
+        pub mod server_plugin;
+    }
 }
 
 pub mod solver {

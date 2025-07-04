@@ -8,22 +8,27 @@ use index_maker::{
         basket_manager::BasketManagerConfig,
         batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig,
+        fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
         order_sender::OrderSenderConfig,
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
-        simple_server::{ServerConfig, SimpleServerConfig},
+        simple_server::SimpleServerConfig,
         simple_solver::SimpleSolverConfig,
-        solver::{ChainConnectorConfig, OrderIdProviderConfig, SolverConfig, SolverStrategyConfig},
+        solver::{
+            ChainConnectorConfig, OrderIdProviderConfig, ServerConfig, SolverConfig,
+            SolverStrategyConfig,
+        },
         timestamp_ids::TimestampOrderIdsConfig,
     },
     blockchain::chain_connector::ChainNotification,
     index::basket::{AssetWeight, BasketDefinition},
-    server::server::ServerEvent,
+    server::server::{Server, ServerEvent},
 };
 use itertools::Itertools;
+use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     assets::asset::Asset,
@@ -41,6 +46,9 @@ use tokio::time::sleep;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    #[arg(long, short)]
+    main_quote_currency: Option<Symbol>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -54,6 +62,122 @@ enum Commands {
         collateral_amount: Amount,
     },
     QuoteServer {},
+}
+
+enum AppMode {
+    SendOrder {
+        side: Side,
+        symbol: Symbol,
+        collateral_amount: Amount,
+        simple_server_config: Arc<dyn ServerConfig + Send + Sync>,
+        simple_server: Arc<RwLock<dyn Server + Send + Sync>>,
+    },
+    FixServer {
+        collateral_amount: Amount,
+        fix_server_config: Arc<FixServerConfig>,
+    },
+    QuoteServer {
+        fix_server_config: Arc<FixServerConfig>,
+    },
+}
+
+impl AppMode {
+    fn new(command: &Commands, address: Option<String>) -> Self {
+        match command {
+            Commands::SendOrder {
+                side,
+                symbol,
+                collateral_amount,
+            } => {
+                let config = SimpleServerConfig::builder()
+                    .build_arc()
+                    .expect("Failed to build server");
+                let server = config.expect_server_cloned();
+
+                AppMode::SendOrder {
+                    side: *side,
+                    symbol: symbol.clone(),
+                    collateral_amount: *collateral_amount,
+                    simple_server_config: config,
+                    simple_server: server,
+                }
+            }
+            Commands::FixServer { collateral_amount } => {
+                let config = FixServerConfig::builder()
+                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .build_arc()
+                    .expect("Failed to build server");
+
+                AppMode::FixServer {
+                    collateral_amount: *collateral_amount,
+                    fix_server_config: config,
+                }
+            }
+            Commands::QuoteServer {} => {
+                let config = FixServerConfig::builder()
+                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .build_arc()
+                    .expect("Failed to build server");
+
+                AppMode::QuoteServer {
+                    fix_server_config: config,
+                }
+            }
+        }
+    }
+
+    fn get_server_config(&self) -> Arc<dyn ServerConfig + Send + Sync> {
+        match self {
+            Self::SendOrder {
+                simple_server_config,
+                ..
+            } => simple_server_config.clone(),
+            Self::FixServer {
+                fix_server_config, ..
+            } => fix_server_config.clone(),
+            Self::QuoteServer { fix_server_config } => fix_server_config.clone(),
+        }
+    }
+
+    async fn run(&self) {
+        match self {
+            Self::SendOrder { .. } => {}
+            Self::FixServer {
+                fix_server_config, ..
+            } => {
+                fix_server_config
+                    .start()
+                    .await
+                    .expect("Failed to start FIX Server");
+            }
+            Self::QuoteServer { fix_server_config } => {
+                fix_server_config
+                    .start()
+                    .await
+                    .expect("Failed to start FIX Server");
+            }
+        }
+    }
+
+    async fn stop(&self) {
+        match self {
+            Self::SendOrder { .. } => {}
+            Self::FixServer {
+                fix_server_config, ..
+            } => {
+                fix_server_config
+                    .stop()
+                    .await
+                    .expect("Failed to stop FIX Server");
+            }
+            Self::QuoteServer { fix_server_config } => {
+                fix_server_config
+                    .stop()
+                    .await
+                    .expect("Failed to stop FIX Server");
+            }
+        }
+    }
 }
 
 #[tokio::main]
@@ -76,6 +200,10 @@ async fn main() {
         }
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
+
+    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDC".into());
+
+    let app_mode = AppMode::new(&cli.command, None);
 
     // ==== Configuration parameters
     // ----
@@ -116,8 +244,14 @@ async fn main() {
     // ==== Fake stuff
     // ----
 
+    let symbols = ["BNB", "ETH"];
+
     // Fake index assets (btw: these should be assets and not markets)
-    let symbols = [Symbol::from("BNBEUR"), Symbol::from("ETHEUR")];
+    let symbols = symbols
+        .into_iter()
+        .map(|s| format!("{}{}", s, main_quote_currency))
+        .map(Symbol::from)
+        .collect_vec();
 
     let weights = [dec!(0.6), dec!(0.4)];
     let index_symbol = Symbol::from("SO2");
@@ -138,8 +272,8 @@ async fn main() {
 
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
-        .source("SRC:BINANCE:EUR")
-        .destination("DST:BINANCE:EUR")
+        .source(format!("SRC:BINANCE:{}", main_quote_currency))
+        .destination(format!("DST:BINANCE:{}", main_quote_currency))
         .build()
         .expect("Failed to build collateral router");
 
@@ -148,12 +282,6 @@ async fn main() {
         .expect("Failed to build order ID provider");
 
     let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
-
-    let server_config = SimpleServerConfig::builder()
-        .build_arc()
-        .expect("Failed to build server");
-
-    let simple_server = server_config.expect_simple_server_cloned();
 
     let chain_connector_config = SimpleChainConnectorConfig::builder()
         .build_arc()
@@ -168,7 +296,7 @@ async fn main() {
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
-        .symbols(&symbols)
+        .symbols(symbols.clone())
         .with_price_tracker(true)
         .with_book_manager(true)
         .build()
@@ -178,18 +306,18 @@ async fn main() {
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(vec![credentials])
-        .symbols(&symbols)
+        .symbols(symbols.clone())
         .build()
         .expect("Failed to build order sender");
 
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
-        .with_server(server_config.clone() as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(app_mode.get_server_config())
         .build()
         .expect("Failed to build index order manager");
 
     let quote_request_manager_config = QuoteRequestManagerConfig::builder()
-        .with_server(server_config as Arc<dyn ServerConfig + Send + Sync>)
+        .with_server(app_mode.get_server_config())
         .build()
         .expect("Failed to build quote request manager");
 
@@ -256,6 +384,8 @@ async fn main() {
         }
     };
 
+    app_mode.run().await;
+
     tracing::info!("Awaiting market data...");
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
@@ -279,11 +409,13 @@ async fn main() {
 
     sleep(std::time::Duration::from_secs(2)).await;
 
-    match &cli.command {
-        Commands::SendOrder {
+    match &app_mode {
+        AppMode::SendOrder {
             side,
             symbol,
             collateral_amount,
+            simple_server,
+            ..
         } => {
             tracing::info!("Sending deposit...");
 
@@ -302,7 +434,7 @@ async fn main() {
             tracing::info!("Sending index order...");
 
             simple_server
-                .read()
+                .write()
                 .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
                     chain_id: 1,
                     address: get_mock_address_1(),
@@ -313,7 +445,11 @@ async fn main() {
                     timestamp: Utc::now(),
                 }));
         }
-        Commands::FixServer { collateral_amount } => {
+        AppMode::FixServer {
+            collateral_amount,
+            fix_server_config,
+            ..
+        } => {
             tracing::info!("Sending deposit...");
 
             simple_chain
@@ -326,10 +462,10 @@ async fn main() {
                     timestamp: Utc::now(),
                 });
 
-            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {})", "[TBD...]");
+            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {:?})", fix_server_config.address);
         }
-        Commands::QuoteServer {} => {
-            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {})", "[TBD...]");
+        AppMode::QuoteServer { fix_server_config } => {
+            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {:?})", fix_server_config.address);
         }
     };
 
@@ -345,6 +481,8 @@ async fn main() {
     } else {
         solver_config.stop().await.expect("Failed to stop solver");
     }
+
+    app_mode.stop().await;
 
     tracing::info!("Done.");
 }

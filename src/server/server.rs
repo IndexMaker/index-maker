@@ -124,9 +124,7 @@ pub enum ServerResponse {
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
-    #[error(
-        "CancelIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}"
-    )]
+    #[error("CancelIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}")]
     CancelIndexOrderNak {
         chain_id: u32,
         address: Address,
@@ -142,6 +140,13 @@ pub enum ServerResponse {
         filled_quantity: Amount,
         collateral_spent: Amount,
         collateral_remaining: Amount,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("MintInvoice: NAK [{chain_id}:{address}] {client_order_id} {timestamp}")]
+    MintInvoice {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
     #[error("NewIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
@@ -174,9 +179,7 @@ pub enum ServerResponse {
         client_quote_id: ClientQuoteId,
         timestamp: DateTime<Utc>,
     },
-    #[error(
-        "CancelIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}"
-    )]
+    #[error("CancelIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}")]
     CancelIndexQuoteNak {
         chain_id: u32,
         address: Address,
@@ -187,8 +190,11 @@ pub enum ServerResponse {
 }
 
 pub trait Server: IntoObservableManyVTable<Arc<ServerEvent>> + Send + Sync {
-    /// provide methods for sending FIX responses
+    /// Provide methods for sending FIX responses
     fn respond_with(&mut self, response: ServerResponse);
+
+    /// Publish a server event
+    fn publish_event(&mut self, event: &Arc<ServerEvent>);
 }
 
 pub mod test_util {
@@ -232,6 +238,10 @@ pub mod test_util {
         /// provide methods for sending FIX responses
         fn respond_with(&mut self, response: ServerResponse) {
             self.implementor.publish_single(response);
+        }
+
+        fn publish_event(&mut self, event: &Arc<ServerEvent>) {
+            self.observer.publish_many(event);
         }
     }
 

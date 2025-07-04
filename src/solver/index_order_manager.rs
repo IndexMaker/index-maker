@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use axum_fix_server::server;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
@@ -461,17 +462,21 @@ impl IndexOrderManager {
                     let mut update_upread = update.upgradable_read();
 
                     let update_collateral_spent = safe!(update_upread.collateral_spent + fees)?;
+                    tracing::debug!("(index-order-manager) update_collateral_spent: {:0.5}", update_collateral_spent);
+                    tracing::debug!("(index-order-manager) fees: {:0.5}", fees);
                     let update_fee = safe!(update_upread.update_fee + fees)?;
+                    tracing::debug!("(index-order-manager) update_fee: {:0.5}", update_fee);
                     let update_remaining_collateral =
                         safe!(update_upread.remaining_collateral - fees)?;
-
+                    tracing::debug!("(index-order-manager) update_remaining_collateral: {:0.5}", update_remaining_collateral);
+                    tracing::debug!("(index-order-manager) collateral_amount: {:0.5}", collateral_amount);
                     if update_remaining_collateral < safe!(collateral_amount - self.tolerance)? {
                         tracing::warn!(
                             "(index-order-manager) Error updating collateral ready: {:0.5} < {:0.5}",
                             update_remaining_collateral, collateral_amount
                         );
                         return None;
-                    }
+                    }                  
 
                     update_upread.with_upgraded(|update_write| {
                         update_write.collateral_spent = update_collateral_spent;
@@ -618,6 +623,15 @@ impl IndexOrderManager {
             lots,
             timestamp,
         )?;
+
+        self.server.write().respond_with({
+            ServerResponse::MintInvoice {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                timestamp,
+            }
+        });
 
         Ok(())
     }

@@ -5,10 +5,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
+alloy = { workspace = true }
+index-maker = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 binance-sdk = { workspace = true, features = ["spot"] }
 chrono = { workspace = true }
+axum-fix-server = { path = "../libs/axum-fix-server" }
 clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
@@ -19,7 +22,7 @@ rand = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-symm-core = { workspace = true }
+symm-core = { workspace = true, path = "../libs/symm-core" }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -51,4 +54,4 @@ path="binance_order_sending/main.rs"
 
 [[example]]
 name="fix-server"
-path="fix_server/fix_server.rs"
+path="fix_server/main.rs"
