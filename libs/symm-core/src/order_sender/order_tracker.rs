@@ -116,7 +116,7 @@ impl OrderTracker {
                 match order_entry.get_status() {
                     OrderStatus::Sent { order_quantity } => {
                         tracing::info!(
-                            "Order Status {}: Sent({} @ {}) => Ack({} @ {})",
+                            "Order Status {}: Sent({} @ {}) => Live({} @ {})",
                             order_id,
                             order_quantity,
                             order_entry.order.price,
