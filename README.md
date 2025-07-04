@@ -101,7 +101,7 @@
     - [ ] Create Collateral Bridge between two EVM chains using Across
     - [ ] Create Collateral Bridge between two EVM wallets within same network 
     - [ ] Create Collateral Designation for Binance account
-    - [ ] Send small amount of collateral from EVM to Binance via Ceffu
+    - [ ] Send small amount of collateral from EVM to Binance
 * [ ] Sell side implementation
     - [ ] Wait for index token collateral before selling assets
     - [ ] Obtain USD cash management details after filling index order
