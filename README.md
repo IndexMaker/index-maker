@@ -234,7 +234,7 @@ be provided by application, i.e. Solver (Index Maker).
 
 ### EVM Network
 
-The goal is to have fully functiona chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
+The goal is to have fully functional chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
 
 We will use Alloy framework to provide interop with EVM chains, and on top of that we will provide
 Chain Connector implementation that will emit application events, and will provide application level methods, that will translate
@@ -242,7 +242,7 @@ into chain specific smart-contract method calls.
 
 ### Collateral Routing
 
-The goal is to have fully functionaly collateral routing implemented, so that collateral can be routed
+The goal is to have fully functional collateral routing implemented, so that collateral can be routed
 from Arbitrum to Binance via Base. The routing between Arbitrum and Base is to be done via Across bridge, while
 the routing from Base to Binance should happend between two EVM wallets. The wallet address for Binance account
 need to be obtained via Binance API call.
