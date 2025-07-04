@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use binance_sdk::common::websocket::WebsocketStream;
@@ -38,32 +39,46 @@ use crate::trading_markets::TradingMarkets;
 struct ExecutionReport {
     #[serde(rename = "E")]
     event_time: i64,
+
     #[serde(rename = "t")]
     trade_id: i64,
+
     #[serde(rename = "c")]
     client_order_id: String,
+
     #[serde(rename = "x")]
     execution_type: String,
+
     #[serde(rename = "r")]
     order_reject_reason: String,
+
     #[serde(rename = "X")]
     order_status: String,
+
     #[serde(rename = "s")]
     symbol: String,
+
     #[serde(rename = "S")]
     side: String,
+
     #[serde(rename = "q")]
     order_quantity: Decimal,
+
     #[serde(rename = "p")]
     order_price: Decimal,
+
     #[serde(rename = "l")]
     executed_quantity: Decimal,
+
     #[serde(rename = "L")]
     executed_price: Decimal,
+
     #[serde(rename = "z")]
     cumulative_quantity: Decimal,
+
     #[serde(rename = "n")]
     commission_amount: Decimal,
+
     #[serde(rename = "N")]
     commission_asset: Option<String>,
 }
@@ -186,7 +201,11 @@ impl TradingSession {
         Ok(())
     }
 
-    pub async fn new_order_single(&mut self, single_order: Arc<SingleOrder>) -> Result<()> {
+    pub async fn new_order_single(
+        &mut self,
+        single_order: Arc<SingleOrder>,
+        observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
+    ) -> Result<()> {
         let side = match single_order.side {
             Side::Buy => OrderPlaceSideEnum::Buy,
             Side::Sell => OrderPlaceSideEnum::Sell,
@@ -204,6 +223,17 @@ impl TradingSession {
             &mut quantity,
             allow_pad,
         )?;
+
+        observer
+            .read()
+            .publish_single(OrderConnectorNotification::NewOrder {
+                order_id: single_order.order_id.clone(),
+                symbol: single_order.symbol.clone(),
+                side: single_order.side,
+                price,
+                quantity,
+                timestamp: Utc::now(),
+            });
 
         let params = OrderPlaceParams {
             id: None,
@@ -240,6 +270,10 @@ impl TradingSession {
                 self.update_limits(limits);
             }
 
+            let res = res
+                .data()
+                .map_err(|err| eyre!("Failed to place order: {:?}", err))?;
+
             tracing::debug!("PlaceOrder returned: {:#?}", res);
         } else {
             tracing::warn!(
@@ -253,7 +287,10 @@ impl TradingSession {
     pub async fn get_exchange_info(&mut self, symbols: Vec<Symbol>) -> Result<()> {
         let symbols = symbols.into_iter().map(|x| x.to_string()).collect_vec();
 
-        info!("Requesting exchange information for: {}", symbols.join(", "));
+        info!(
+            "Requesting exchange information for: {}",
+            symbols.join(", ")
+        );
 
         let params = ExchangeInfoParams::builder()
             .symbols(symbols)
@@ -287,7 +324,7 @@ impl TradingSession {
         match command {
             Command::EnableTrading(enable) => self.enable_trading(enable).await,
             Command::NewOrder(single_order) => {
-                if let Err(err) = self.new_order_single(single_order.clone()).await {
+                if let Err(err) = self.new_order_single(single_order.clone(), observer).await {
                     observer
                         .read()
                         .publish_single(OrderConnectorNotification::Rejected {
@@ -308,10 +345,7 @@ impl TradingSession {
         }
     }
 
-    pub async fn subscribe(
-        &mut self,
-        observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
-    ) -> Result<TradingUserData> {
+    pub async fn get_user_data(&mut self) -> Result<TradingUserData> {
         let user_data_stream_start_params = UserDataStreamStartParams::builder()
             .build()
             .map_err(|err| eyre!("Failed to configure user data stream: {}", err))?;
@@ -344,8 +378,31 @@ impl TradingSession {
 
         tracing::debug!("Subscribe user data: {:#?}", res.data());
 
-        stream.on_message(move |data| {
+        Ok(TradingUserData::new(stream))
+    }
+}
+
+pub struct TradingUserData {
+    stream: Arc<WebsocketStream<Value>>,
+}
+
+impl TradingUserData {
+    fn new(stream: Arc<WebsocketStream<Value>>) -> Self {
+        Self { stream }
+    }
+
+    pub async fn unsubscribe(&self) {
+        self.stream.unsubscribe().await;
+    }
+
+    pub fn subscribe(&self, observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>) {
+        self.stream.on_message(move |data| {
             tracing::debug!("User data: {:#?}", data);
+
+            if !data.get("e").map_or(false, |e| e == "executionReport") {
+                tracing::debug!("Skipping user data: Not an execution report");
+                return;
+            }
 
             let execution_report = match serde_json::from_value::<ExecutionReport>(data) {
                 Ok(x) => x,
@@ -377,6 +434,7 @@ impl TradingSession {
                 };
 
             match execution_report.order_status.as_str() {
+                "NEW" => {}
                 "FILLED" => observer
                     .read()
                     .publish_single(OrderConnectorNotification::Fill {
@@ -412,38 +470,12 @@ impl TradingSession {
                         quantity: remaining_quantity,
                         timestamp: Utc::now(),
                     }),
-                "NEW" => observer
-                    .read()
-                    .publish_single(OrderConnectorNotification::NewOrder {
-                        order_id,
-                        symbol,
-                        side,
-                        price: execution_report.order_price,
-                        quantity: execution_report.order_quantity,
-                        timestamp: Utc::now(),
-                    }),
                 other => {
                     // Note: We're firing IOC, so we can either get Fill or Cancel
                     tracing::warn!("Unsupported execution report type: {:#?}", other);
                 }
             }
         });
-
-        Ok(TradingUserData::new(stream))
-    }
-}
-
-pub struct TradingUserData {
-    stream: Arc<WebsocketStream<Value>>,
-}
-
-impl TradingUserData {
-    fn new(stream: Arc<WebsocketStream<Value>>) -> Self {
-        Self { stream }
-    }
-
-    pub async fn unsubscribe(&self) {
-        self.stream.unsubscribe().await;
     }
 }
 
