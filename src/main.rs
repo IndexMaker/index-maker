@@ -1,5 +1,3 @@
-use std::{env, sync::Arc};
-
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
@@ -30,6 +28,7 @@ use index_maker::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
+use std::{env, sync::Arc};
 use symm_core::{
     assets::asset::Asset,
     core::{
