@@ -5,7 +5,7 @@ use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, util::SubscriberInitE
 static INIT_LOG: Once = Once::new();
 static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
-pub fn log_init(filter: String, log_path: Option<String>) {
+pub fn log_init(filter: String, log_path: Option<String>, disable_terminal_log: bool) {
     INIT_LOG.call_once(|| {
         // Generate a unique ID for the log filename
         let unique_id = SystemTime::now()
@@ -42,11 +42,15 @@ pub fn log_init(filter: String, log_path: Option<String>) {
             .unwrap_or_else(|_| filter.into());
 
         // Combine the layers into a subscriber
-        tracing_subscriber::registry()
+        let registry = tracing_subscriber::registry()
             .with(env_filter) // Apply the filter globally to both layers
-            .with(file_layer)
-            .with(terminal_layer)
-            .init();
+            .with(file_layer);
+
+        if (disable_terminal_log){
+            registry.init();
+        } else {
+            registry.with(terminal_layer).init();
+        }
     });
 }
 
@@ -82,9 +86,15 @@ pub fn log_init(filter: String, log_path: Option<String>) {
 #[macro_export]
 macro_rules! init_log {
     () => {
-        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), None);
+        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), None, false);
     };
     ($log_path:expr) => {
-        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), $log_path);
+        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), $log_path, false);
+    };
+    ($disable_terminal_log:expr) => {
+        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), None, $disable_terminal_log);
+    };
+    ($log_path:expr, $disable_terminal_log:expr) => {
+        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), $log_path, $disable_terminal_log);
     };
 }
