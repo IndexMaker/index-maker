@@ -5,7 +5,7 @@ use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, util::SubscriberInitE
 static INIT_LOG: Once = Once::new();
 static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
-pub fn log_init(filter: String) {
+pub fn log_init(filter: String, log_path: Option<String>) {
     INIT_LOG.call_once(|| {
         // Generate a unique ID for the log filename
         let unique_id = SystemTime::now()
@@ -14,12 +14,13 @@ pub fn log_init(filter: String) {
             .as_secs();
 
         // Set file rotation in tracing_appender
+        let log_directory = log_path.as_deref().unwrap_or("logs");
         let filename_suffix = format!("{}.log", unique_id);
         let file_appender = Builder::new()
             .rotation(rolling::Rotation::DAILY)
             .filename_prefix("index-maker")
             .filename_suffix(&filename_suffix)
-            .build("logs")
+            .build(log_directory)
             .expect("Failed to build rolling file appender");
         let (non_blocking_file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
@@ -81,6 +82,9 @@ pub fn log_init(filter: String) {
 #[macro_export]
 macro_rules! init_log {
     () => {
-        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")));
+        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), None);
+    };
+    ($log_path:expr) => {
+        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), $log_path);
     };
 }

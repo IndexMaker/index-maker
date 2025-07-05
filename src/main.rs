@@ -48,6 +48,9 @@ struct Cli {
 
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
+
+    #[arg(long, short)]
+    log_path: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -181,12 +184,13 @@ impl AppMode {
 
 #[tokio::main]
 async fn main() {
-    init_log!();
-
     // ==== Command line input
     // ----
 
     let cli = Cli::parse();
+
+
+    init_log!(cli.log_path.clone());
 
     match &cli.command {
         Commands::SendOrder {
