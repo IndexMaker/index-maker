@@ -9,6 +9,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
+use serde::{Deserialize, Serialize};
 use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
@@ -80,6 +81,7 @@ pub struct SolverOrder {
 /// When we fill Index Orders from executed batches, we need to allocate some
 /// portion of what was executed to each index order in the batch using
 /// contribution factor.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SolverOrderAssetLot {
     /// Associated Inventory lot ID
     pub lot_id: LotId,

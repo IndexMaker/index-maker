@@ -4,9 +4,10 @@ use chrono::{DateTime, Utc};
 use eyre::Result;
 use itertools::Itertools;
 use parking_lot::RwLock;
+use rust_decimal::Decimal;
 
 use crate::solver::solver_order::SolverOrderAssetLot;
-use symm_core::core::bits::{Address, Amount, PaymentId, Symbol};
+use symm_core::core::bits::{Address, Amount, ClientOrderId, PaymentId, Symbol};
 
 use super::index_order::{IndexOrder, IndexOrderUpdate};
 
@@ -174,6 +175,7 @@ pub fn print_mint_invoice(
         "Fee",
         "Amount"
     );
+
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     let lots = lots
         .into_iter()
@@ -221,6 +223,7 @@ pub fn print_mint_invoice(
             lot.quantity * lot.price + lot.fee
         )
     }
+
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     for sub_total in sub_totals {
         let average_price = (sub_total.3 - sub_total.2) / sub_total.1;
@@ -234,6 +237,7 @@ pub fn print_mint_invoice(
             sub_total.3
         )
     }
+
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <46} Sub Total     |{: >10.5}",
@@ -250,6 +254,7 @@ pub fn print_mint_invoice(
         " ",
         (total_amount - amount_paid),
     );
+
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     let total_collateral = total_amount
         + update_read.update_fee
@@ -271,6 +276,7 @@ pub fn print_mint_invoice(
         "Reached minting threshold before full spend",
         index_order_read.engaged_collateral.unwrap_or_default()
     );
+
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <46} Fill Rate     |{: >9.5}%",
@@ -284,4 +290,47 @@ pub fn print_mint_invoice(
     );
     tracing::info!("(report)");
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct MintInvoice {
+    pub timestamp: DateTime<Utc>,
+    pub order_id: ClientOrderId,
+    pub index_id: Symbol,
+    pub collateral_spent: Decimal,
+    pub total_collateral: Decimal,
+    pub engaged_collateral: Decimal,
+    pub management_fee: Decimal,
+    pub payment_id: PaymentId,
+    pub amount_paid: Amount,
+    pub lots: Vec<SolverOrderAssetLot>,
+}
+
+impl MintInvoice {
+    pub fn try_new(
+        index_order_read: &IndexOrder,
+        update_read: &IndexOrderUpdate,
+        payment_id: &PaymentId,
+        amount_paid: Amount,
+        lots: Vec<SolverOrderAssetLot>,
+        timestamp: DateTime<Utc>,
+    ) -> Result<Self> {
+        let lots_clone = lots.clone();
+
+        print_mint_invoice(index_order_read, update_read, payment_id, amount_paid, lots, timestamp)?;
+        
+        let total_amount: Amount = lots_clone.iter().map(|x| x.quantity * x.price + x.fee).sum();
+        Ok(Self{
+            timestamp,
+            order_id: update_read.client_order_id.clone(),
+            index_id: index_order_read.symbol.clone(),
+            collateral_spent: index_order_read.collateral_spent,
+            total_collateral: total_amount + update_read.update_fee + index_order_read.engaged_collateral.unwrap_or_default(),
+            engaged_collateral: index_order_read.engaged_collateral.unwrap_or_default(),
+            management_fee: update_read.update_fee,
+            payment_id: payment_id.clone(),
+            amount_paid,
+            lots: lots_clone,
+        })
+    }
 }
