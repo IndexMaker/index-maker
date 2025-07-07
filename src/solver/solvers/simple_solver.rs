@@ -38,7 +38,6 @@ struct SimpleSolverEngagements {
 }
 
 pub struct SimpleSolver {
-    zero_threshold: Amount,
     /// When testing for liquidity, this sets the limit as to how far from top
     /// of the book we want to go, e.g. 0.01 (max price move = 1%)
     price_threshold: Amount,
@@ -55,11 +54,12 @@ pub struct SimpleSolver {
     asset_volley_step_size: Amount,
     /// Cap the total amount of collateral all order batches can potentially consume
     max_total_volley_size: Amount,
+    /// Minimum total amount of volley available
+    min_total_volley_available: Amount,
 }
 
 impl SimpleSolver {
     pub fn new(
-        zero_threshold: Amount,
         price_threshold: Amount,
         fee_factor: Amount,
         max_order_volley_size: Amount,
@@ -67,9 +67,9 @@ impl SimpleSolver {
         min_asset_volley_size: Amount,
         asset_volley_step_size: Amount,
         max_total_volley_size: Amount,
+        min_total_volley_available: Amount,
     ) -> Self {
         Self {
-            zero_threshold,
             price_threshold,
             fee_factor,
             max_order_volley_size,
@@ -77,6 +77,7 @@ impl SimpleSolver {
             min_asset_volley_size,
             asset_volley_step_size,
             max_total_volley_size,
+            min_total_volley_available,
         }
     }
 
@@ -1323,7 +1324,7 @@ impl SolverStrategy for SimpleSolver {
         let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
             .ok_or_eyre("Math error while calculating remaining volley size")?;
 
-        if max_volley_size < self.zero_threshold {
+        if max_volley_size < self.min_total_volley_available {
             return Ok(None);
         }
 
@@ -1854,13 +1855,12 @@ mod test {
             ),
         ];
 
-        let zero_threshold = dec!(0.000001);
         let min_asset_volley_size = dec!(5.0);
         let asset_volley_step_size = dec!(0.2);
         let max_total_volley_size = dec!(1000000.0);
+        let min_total_volley_available = dec!(1.0);
 
         let simple_solver = SimpleSolver::new(
-            zero_threshold,
             params.0,
             params.1,
             params.2,
@@ -1868,6 +1868,7 @@ mod test {
             min_asset_volley_size,
             asset_volley_step_size,
             max_total_volley_size,
+            min_total_volley_available,
         );
 
         let solved_quotes = simple_solver

@@ -220,6 +220,7 @@ async fn main() {
     let min_asset_volley_size = dec!(5.0);
     let asset_volley_step_size = dec!(0.2);
     let max_total_volley_size = dec!(1000.0);
+    let min_total_volley_available = dec!(100.0);
 
     let fill_threshold = dec!(0.9999);
     let mint_threshold = dec!(0.99);
@@ -347,7 +348,6 @@ async fn main() {
         .expect("Failed to build collateral manager");
 
     let strategy_config = SimpleSolverConfig::builder()
-        .zero_threshold(zero_threshold)
         .price_threshold(price_threshold)
         .fee_factor(fee_factor)
         .max_order_volley_size(max_order_volley_size)
@@ -355,6 +355,7 @@ async fn main() {
         .min_asset_volley_size(min_asset_volley_size)
         .asset_volley_step_size(asset_volley_step_size)
         .max_total_volley_size(max_total_volley_size)
+        .min_total_volley_available(min_total_volley_available)
         .build_arc()
         .expect("Failed to build simple solver");
 

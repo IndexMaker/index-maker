@@ -1461,7 +1461,6 @@ mod test {
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
-            tolerance,
             dec!(0.01),
             dec!(1.001),
             dec!(3000.0),
@@ -1469,6 +1468,7 @@ mod test {
             dec!(5.00),
             dec!(0.2),
             dec!(1000000.0),
+            dec!(1.0),
         ));
 
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
@@ -1804,6 +1804,20 @@ mod test {
                             address,
                             client_quote_id,
                             quantity_possible,
+                            timestamp
+                        );
+                    }
+                    ServerResponse::MintInvoice {
+                        chain_id,
+                        address,
+                        client_order_id,
+                        timestamp,
+                    } => {
+                        tracing::info!(
+                            "(mock) FIX Mint Invoice: {} {} {} {}",
+                            chain_id,
+                            address,
+                            client_order_id,
                             timestamp
                         );
                     }
