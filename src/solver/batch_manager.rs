@@ -4,7 +4,6 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use crossbeam::atomic::AtomicCell;
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -490,9 +489,8 @@ pub struct BatchManager {
     ready_batches: VecDeque<BatchOrderId>,
     carry_overs: Mutex<HashMap<(Symbol, Side), BatchCarryOver>>,
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
-    total_volley_size: AtomicCell<Amount>,
+    total_volley_size: RwLock<Amount>,
     max_batch_size: usize,
-    max_total_volley_size: Amount,
     zero_threshold: Amount,
     fill_threshold: Amount,
     mint_threshold: Amount,
@@ -502,7 +500,6 @@ pub struct BatchManager {
 impl BatchManager {
     pub fn new(
         max_batch_size: usize,
-        max_total_volley_size: Amount,
         zero_threshold: Amount,
         fill_threshold: Amount,
         mint_threshold: Amount,
@@ -515,9 +512,8 @@ impl BatchManager {
             ready_batches: VecDeque::new(),
             carry_overs: Mutex::new(HashMap::new()),
             ready_mints: Mutex::new(VecDeque::new()),
-            total_volley_size: AtomicCell::new(Amount::ZERO),
+            total_volley_size: RwLock::new(Amount::ZERO),
             max_batch_size,
-            max_total_volley_size,
             zero_threshold,
             fill_threshold,
             mint_threshold,
@@ -621,6 +617,8 @@ impl BatchManager {
                 ))
                 .join("; ")
         );
+
+        *self.total_volley_size.write() += batch_order_status.volley_size;
 
         self.batches
             .insert(
@@ -908,6 +906,10 @@ impl BatchManager {
         Ok(())
     }
 
+    pub fn get_total_volley_size(&self) -> Amount {
+        *self.total_volley_size.read()
+    }
+
     fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.mint_wait_period;
         let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
@@ -1119,6 +1121,8 @@ impl BatchManager {
                     }
                 }
             }
+
+            *self.total_volley_size.write() -= batch.read().volley_size;
 
             self.observer.publish_single(BatchEvent::BatchComplete {
                 batch_order_id,
@@ -1498,7 +1502,6 @@ mod test {
     fn test_batch_manager() {
         let timestamp = Utc::now();
         let max_batch_size = 4;
-        let max_total_volley_size = dec!(10000.0);
         let zero_threshold = dec!(0.001);
         let fill_threshold = dec!(0.999);
         let mint_threshold = dec!(0.990);
@@ -1508,7 +1511,6 @@ mod test {
 
         let mut batch_manager = BatchManager::new(
             max_batch_size,
-            max_total_volley_size,
             zero_threshold,
             fill_threshold,
             mint_threshold,

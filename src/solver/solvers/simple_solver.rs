@@ -38,6 +38,7 @@ struct SimpleSolverEngagements {
 }
 
 pub struct SimpleSolver {
+    zero_threshold: Amount,
     /// When testing for liquidity, this sets the limit as to how far from top
     /// of the book we want to go, e.g. 0.01 (max price move = 1%)
     price_threshold: Amount,
@@ -52,24 +53,30 @@ pub struct SimpleSolver {
     min_asset_volley_size: Amount,
     /// Align asset order size
     asset_volley_step_size: Amount,
+    /// Cap the total amount of collateral all order batches can potentially consume
+    max_total_volley_size: Amount,
 }
 
 impl SimpleSolver {
     pub fn new(
+        zero_threshold: Amount,
         price_threshold: Amount,
         fee_factor: Amount,
         max_order_volley_size: Amount,
         max_volley_size: Amount,
         min_asset_volley_size: Amount,
         asset_volley_step_size: Amount,
+        max_total_volley_size: Amount,
     ) -> Self {
         Self {
+            zero_threshold,
             price_threshold,
             fee_factor,
             max_order_volley_size,
             max_volley_size,
             min_asset_volley_size,
             asset_volley_step_size,
+            max_total_volley_size,
         }
     }
 
@@ -782,6 +789,7 @@ impl SimpleSolver {
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
         total_volley_size: Amount,
+        max_volley_size: Amount,
         order_quantities: HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
     ) -> Result<(
         HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
@@ -792,11 +800,11 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        if total_volley_size < self.max_volley_size {
+        if total_volley_size < max_volley_size {
             return Ok((order_quantities, Vec::new()));
         }
 
-        let volley_fraction = safe!(self.max_volley_size / total_volley_size)
+        let volley_fraction = safe!(max_volley_size / total_volley_size)
             .ok_or_eyre("Failed to compute volley fraction")?;
 
         Ok(self.scan_order_batch(
@@ -1015,6 +1023,7 @@ impl SimpleSolver {
         &self,
         strategy_host: &dyn SolverStrategyHost,
         side: Side,
+        max_volley_size: Amount,
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
     ) -> Result<(SimpleSolverEngagements, Vec<OrderPtr>)>
@@ -1116,6 +1125,7 @@ impl SimpleSolver {
             locked_order_batch,
             &set_order_status,
             total_volley_size,
+            max_volley_size,
             order_asset_contributions,
         )?;
 
@@ -1307,7 +1317,18 @@ impl SolverStrategy for SimpleSolver {
         &self,
         strategy_host: &dyn SolverStrategyHost,
         order_batch: Vec<Arc<RwLock<SolverOrder>>>,
-    ) -> Result<SolveEngagementsResult> {
+    ) -> Result<Option<SolveEngagementsResult>> {
+        let total_volley_size = strategy_host.get_total_volley_size()?;
+
+        let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
+            .ok_or_eyre("Math error while calculating remaining volley size")?;
+
+        if max_volley_size < self.zero_threshold {
+            return Ok(None);
+        }
+
+        let max_volley_size = self.max_volley_size.min(max_volley_size);
+
         let locked_order_batch = order_batch
             .iter()
             .map(|order| (order, order.upgradable_read()));
@@ -1324,11 +1345,21 @@ impl SolverStrategy for SimpleSolver {
             upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
         };
 
-        let (mut engaged_buys, failed_buys) =
-            self.solve_engagements_for(strategy_host, Side::Buy, &mut buys, set_order_status)?;
+        let (mut engaged_buys, failed_buys) = self.solve_engagements_for(
+            strategy_host,
+            Side::Buy,
+            max_volley_size,
+            &mut buys,
+            set_order_status,
+        )?;
 
-        let (engaged_sells, failed_sells) =
-            self.solve_engagements_for(strategy_host, Side::Sell, &mut sells, set_order_status)?;
+        let (engaged_sells, failed_sells) = self.solve_engagements_for(
+            strategy_host,
+            Side::Sell,
+            max_volley_size,
+            &mut sells,
+            set_order_status,
+        )?;
 
         if !engaged_sells.baskets.is_empty() {
             todo!("Selling isn't fully supported yet")
@@ -1408,13 +1439,13 @@ impl SolverStrategy for SimpleSolver {
         let failed_buys = failed_buys.into_iter().cloned().collect_vec();
         let failed_sells = failed_sells.into_iter().cloned().collect_vec();
 
-        Ok(SolveEngagementsResult {
+        Ok(Some(SolveEngagementsResult {
             engaged_orders: EngagedSolverOrders {
                 batch_order_id,
                 engaged_buys: engagenments,
             },
             failed_orders: [failed_buys, failed_sells].concat(),
-        })
+        }))
     }
 }
 
@@ -1519,6 +1550,10 @@ mod test {
                 ]),
                 missing_symbols: Vec::new(),
             }
+        }
+
+        fn get_total_volley_size(&self) -> Result<Amount> {
+            Ok(Amount::ZERO)
         }
     }
 
@@ -1819,16 +1854,20 @@ mod test {
             ),
         ];
 
+        let zero_threshold = dec!(0.000001);
         let min_asset_volley_size = dec!(5.0);
         let asset_volley_step_size = dec!(0.2);
+        let max_total_volley_size = dec!(1000000.0);
 
         let simple_solver = SimpleSolver::new(
+            zero_threshold,
             params.0,
             params.1,
             params.2,
             params.3,
             min_asset_volley_size,
             asset_volley_step_size,
+            max_total_volley_size,
         );
 
         let solved_quotes = simple_solver
@@ -1855,9 +1894,13 @@ mod test {
 
         let batch = simple_solver
             .solve_engagements(&strategy_host, order_batch)
-            .expect("Failed to solve engagements");
+            .expect("Failed to solve engagements")
+            .expect("Expected some engagements");
 
-        assert_eq!(batch.engaged_orders.engaged_buys.engaged_orders.len(), expected.len());
+        assert_eq!(
+            batch.engaged_orders.engaged_buys.engaged_orders.len(),
+            expected.len()
+        );
         for n in 0..expected.len() {
             assert_decimal_approx_eq!(
                 batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_quantity,

@@ -1,0 +1,26 @@
+2025-07-07T17:54:00.976910Z  INFO index_maker: Quote FIX Server
+2025-07-07T17:54:00.978599Z  INFO index_maker: Configuring solver...
+2025-07-07T17:54:00.979521Z  INFO index_maker::app::solver: Quotes started
+2025-07-07T17:54:00.979669Z  INFO index_maker::app::solver: Market data started
+2025-07-07T17:54:00.980429Z  INFO index_maker::app::solver: Solver started
+2025-07-07T17:54:00.980729Z  INFO index_maker: Awaiting market data...
+2025-07-07T17:54:03.985716Z  INFO index_maker: Sending index weights...
+2025-07-07T17:54:03.985985Z  INFO index_maker::solver::solver: (solver) Handle Chain Event CuratorWeigthsSet SO2
+2025-07-07T17:54:03.986247Z  INFO index_maker::solver::solver: (solver) Handle Basket Notification BasketAdded SO2
+2025-07-07T17:54:03.986288Z  INFO index_maker::app::simple_chain: SolverWeightsSet: SO2
+2025-07-07T17:54:05.988033Z  INFO index_maker: Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: Some("127.0.0.1:3000"))
+2025-07-07T17:54:12.114901Z  INFO index_maker::server::fix::requests: FIX server request received from S-1: NewQuoteRequest
+2025-07-07T17:54:12.115543Z  INFO index_maker::server::fix::responses: FIX server response sent to S-1: ACK
+2025-07-07T17:54:12.115716Z  INFO index_maker::solver::solver: (solver) Handle Quote Request
+2025-07-07T17:54:12.128464Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy BNBUSDC 658.72000000
+2025-07-07T17:54:12.128561Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy ETHUSDC 2531.63000000
+2025-07-07T17:54:12.128643Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: BNBUSDC 658.785872000000
+2025-07-07T17:54:12.128713Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: ETHUSDC 2531.883163000000
+2025-07-07T17:54:12.128880Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Index Price: SO2 1000.0495047162354160072786075
+2025-07-07T17:54:12.129008Z  INFO index_maker::solver::solver: (solver) Set Index Quote Status: Q-2 Ready
+2025-07-07T17:54:12.129277Z  INFO index_maker::server::fix::responses: FIX server response sent to S-1: IndexQuoteResponse
+2025-07-07T17:55:05.991090Z  INFO index_maker: Stopping solver...
+2025-07-07T17:55:05.991345Z  INFO index_maker::app::solver: Quotes exited
+2025-07-07T17:55:05.991589Z  INFO index_maker::app::solver: Solver exited
+2025-07-07T17:55:05.991729Z  INFO index_maker::app::solver: Market data exited
+2025-07-07T17:55:05.992940Z  INFO index_maker: Done.

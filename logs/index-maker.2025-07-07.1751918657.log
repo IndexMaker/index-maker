@@ -1,0 +1,682 @@
+2025-07-07T20:04:17.836781Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^  -> Scenario begins |==
+2025-07-07T20:04:17.836838Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.836923Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.836932Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Market data sent |==
+2025-07-07T20:04:17.836957Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.836970Z  INFO index_maker::solver::solver: (solver) Handle Chain Event CuratorWeigthsSet IX
+2025-07-07T20:04:17.837005Z  INFO index_maker::solver::solver: (solver) Handle Basket Notification BasketAdded IX
+2025-07-07T20:04:17.837019Z  INFO index_maker::solver::solver::test: (mock) SolverWeightsSet: IX
+2025-07-07T20:04:17.837029Z  INFO index_maker::solver::solver::test: (mock) Chain response sent
+2025-07-07T20:04:17.837039Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837047Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Solver weights sent |==
+2025-07-07T20:04:17.837058Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837080Z  INFO index_maker::solver::solver::test: (mock) FIX Quote Response: ACK [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] Q-01 2025-07-07 20:04:17.836810 UTC
+2025-07-07T20:04:17.837150Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.837202Z  INFO index_maker::solver::solver: (solver) Handle Quote Request
+2025-07-07T20:04:17.837225Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837233Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Sent FIX message: NewQuoteRequest |==
+2025-07-07T20:04:17.837239Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837267Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AZ 300.0
+2025-07-07T20:04:17.837280Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AX 100.0
+2025-07-07T20:04:17.837291Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AX 101.000
+2025-07-07T20:04:17.837298Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AZ 303.000
+2025-07-07T20:04:17.837311Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Index Price: IX 1039.9553332142219045917455780
+2025-07-07T20:04:17.837335Z  INFO index_maker::solver::solver: (solver) Set Index Quote Status: Q-01 Ready
+2025-07-07T20:04:17.837355Z  INFO index_maker::solver::solver::test: (mock) FIX Quote Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] Q-01 3.38235 2025-07-07 20:04:18.836810 UTC
+2025-07-07T20:04:17.837420Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.837434Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837443Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Clock moved forward 1.0s |==
+2025-07-07T20:04:17.837450Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837461Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837466Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837484Z  INFO index_maker::collateral::collateral_manager: (collateral-manager) Deposit from [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] 3521.01750
+2025-07-07T20:04:17.837554Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837561Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Deposit sent |==
+2025-07-07T20:04:17.837569Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837587Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: ACK [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 2025-07-07 20:04:18.836810 UTC
+2025-07-07T20:04:17.837639Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.837653Z  INFO index_maker::solver::solver: (solver) Handle Index Order NewIndexOrder IX C-01 < C-01 from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+2025-07-07T20:04:17.837720Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837728Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Sent FIX message: NewIndexOrder |==
+2025-07-07T20:04:17.837734Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837749Z  INFO index_maker::solver::solver: (solver) Set Index Order Status: C-01 ManageCollateral
+2025-07-07T20:04:17.837763Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AX 100.0
+2025-07-07T20:04:17.837769Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AZ 300.0
+2025-07-07T20:04:17.837776Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AZ 303.000
+2025-07-07T20:04:17.837783Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AX 101.000
+2025-07-07T20:04:17.837796Z  INFO index_maker::collateral::collateral_manager: (collateral-manager) ManageCollateral for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 C-01
+2025-07-07T20:04:17.837863Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.837872Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Clock moved forward 10.0s |==
+2025-07-07T20:04:17.837878Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.837897Z  INFO index_maker::collateral::collateral_router: (collateral-router) Found route: T1:D1:C1, T2:D2:C2, T3:D3:C3
+2025-07-07T20:04:17.837908Z  INFO index_maker::solver::solver::test: (mock) TransferFunds: from 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 C-01 for 3521.01750
+2025-07-07T20:04:17.837974Z  INFO index_maker::solver::solver::test: (mock) Bridge event sent
+2025-07-07T20:04:17.838004Z  INFO index_maker::collateral::collateral_router: (collateral-router) Found route: T1:D1:C1, T2:D2:C2, T3:D3:C3
+2025-07-07T20:04:17.838016Z  INFO index_maker::collateral::collateral_router: (collateral-router) Route Hop for [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01: (T1:D1:C1) T1:D1:C1 .. [T2:D2:C2] => T3:D3:C3 (T3:D3:C3) 3485.80732 35.21017
+2025-07-07T20:04:17.838078Z  INFO index_maker::solver::solver::test: (mock) TransferFunds: from 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 C-01 for 3485.80732
+2025-07-07T20:04:17.838131Z  INFO index_maker::solver::solver::test: (mock) Bridge event sent
+2025-07-07T20:04:17.838148Z  INFO index_maker::collateral::collateral_router: (collateral-router) Route Complete for [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01: T1:D1:C1 => T3:D3:C3 3450.94925 70.06824
+2025-07-07T20:04:17.838205Z  INFO index_maker::collateral::collateral_manager: (collateral-manager) Transfer Complete for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 C-01: T1:D1:C1 => T3:D3:C3 3450.94925 70.06824
+2025-07-07T20:04:17.838269Z  INFO index_maker::collateral::collateral_position: (colateral-side) AddReady for P-01 3450.94925 ua=70.06824 ra=3450.94925 pa=0.00000 sa=0.00000 (partial confirm)
+2025-07-07T20:04:17.838291Z  INFO index_maker::collateral::collateral_position: (colateral-side) AddReady for P-01 70.06824 ua=0.00000 ra=3521.01750 pa=0.00000 sa=0.00000 (full confirm)
+2025-07-07T20:04:17.838310Z  INFO index_maker::collateral::collateral_position: (colateral-side) PreAuth for P-01 [Charges] C-01 70.06824 ua=0.00000 ra=3450.94925 pa=70.06824 sa=0.00000 (partial preauth)
+2025-07-07T20:04:17.838333Z  INFO index_maker::collateral::collateral_position: (colateral-side) Spend for P-01 [Charges] 70.06824 ua=0.00000 ra=3450.94925 pa=0.00000 sa=70.06824 (partial spend)
+2025-07-07T20:04:17.838360Z  INFO index_maker::solver::solver: (solver) CollateralReady for 1 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3450.94925 70.06824
+2025-07-07T20:04:17.838421Z  INFO index_maker::collateral::collateral_manager: (collateral-manager) PreAuth Payment for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3450.94925
+2025-07-07T20:04:17.838483Z  INFO index_maker::collateral::collateral_position: (colateral-side) PreAuth for P-01 [P-02] C-01 3450.94925 ua=0.00000 ra=0.00000 pa=3450.94925 sa=70.06824 (full preauth)
+2025-07-07T20:04:17.838517Z  INFO index_maker::solver::solver: (solver) Handle Index Order CollateralReady 1 < C-01 from 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045: 3450.94925 70.06824
+2025-07-07T20:04:17.838576Z  INFO index_maker::solver::solver: (solver) Set Index Order Status: C-01 Ready
+2025-07-07T20:04:17.838589Z  INFO index_maker::solver::solver: (solver) PreAuth approved: P-02
+2025-07-07T20:04:17.838602Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.838607Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Awaiting collateral |==
+2025-07-07T20:04:17.838613Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.838632Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AX 100.0
+2025-07-07T20:04:17.838643Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AZ 300.0
+2025-07-07T20:04:17.838652Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AZ 303.000
+2025-07-07T20:04:17.838660Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AX 101.000
+2025-07-07T20:04:17.838671Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Index Price: IX 1039.9553332142219045917455780
+2025-07-07T20:04:17.838690Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Collateral to Quantity for Index Order: C-01 c=3450.94925 cc=0.00000 ca=3447.50175 cu=3000.00000 p=1039.95533 q=2.88473 ff=1.00100
+2025-07-07T20:04:17.838722Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Quantity for Index Order: C-01 AX q=23.87370 baq=8.27586 oq=2.88473
+2025-07-07T20:04:17.838744Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Quantity for Index Order: C-01 AZ q=1.94308 baq=0.67357 oq=2.88473
+2025-07-07T20:04:17.838779Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Fitting Quantity for Index Order: C-01 AZ 2.88473 tal=50.00000 taq=1.94308 acf=1.00000 alc=50.00000 poq=74.23076
+2025-07-07T20:04:17.838809Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Fitting Quantity for Index Order: C-01 AX 2.41666 tal=20.00000 taq=23.87370 acf=1.00000 alc=20.00000 poq=2.41666
+2025-07-07T20:04:17.838855Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Capping Volley Size for Index Order: C-01 oq=2.41666 coq=1.92315
+2025-07-07T20:04:17.838880Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Capping Volley Size for Asset: AX aq=20.00000 caq=15.91580
+2025-07-07T20:04:17.838901Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Capping Volley Size for Asset: AZ aq=1.62780 caq=1.29539
+2025-07-07T20:04:17.838927Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Padding AX: 2020.0000000000000000000000000 => 2020.0, 20.0000000000000000000000 => 20 (+0.0000000000000000000000)
+2025-07-07T20:04:17.838952Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Padding AZ: 493.22538860103626943005181344 => 493.4, 1.6278065630397236614853195163 => 1.6283828382838283828382838284 (+0.0005762752441047213529643121)
+2025-07-07T20:04:17.838989Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Fractions for Index Order: C-01 AZ taq=1.62838 acf=0.79550
+2025-07-07T20:04:17.839009Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Fractions for Index Order: C-01 AX taq=20.00000 acf=0.79579
+2025-07-07T20:04:17.839041Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Solver Order Engagement: C-01 IX eq=1.92315 ep=1039.95533 ec=2002.00000
+2025-07-07T20:04:17.839078Z  INFO index_maker::solver::index_order_manager: (index-order-manager) Engage C-01 eca=+2002.00000 iec=2002.00000 irc=1448.94925
+2025-07-07T20:04:17.839121Z  INFO index_maker::solver::batch_manager: (batch-manager) Handle Index Order EngageIndexOrder B-01
+2025-07-07T20:04:17.839134Z  INFO index_maker::solver::solver: (solver) Set Index Order Status: C-01 Engaged
+2025-07-07T20:04:17.839147Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.839154Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ First order batch engaged |==
+2025-07-07T20:04:17.839160Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.839189Z  INFO index_maker::solver::batch_manager: (batch-manager) Sending Batch: Buy AX: 20.00000 @ 101.00000; Buy AZ: 1.62838 @ 303.00000
+2025-07-07T20:04:17.839205Z  INFO index_maker::solver::solver::test: (mock) SingleOrder AX 12.00000 @ 100.49500 6.00000 @ 100.79800
+2025-07-07T20:04:17.839225Z  INFO index_maker::solver::solver::test: (mock) SingleOrder AZ 0.97702 @ 301.48500 0.16283 @ 302.39400
+2025-07-07T20:04:17.839294Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-01 Buy AX    12.00000 @ 100.49500 + fee 1.20594 (0.100%)
+2025-07-07T20:04:17.839314Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AX    total=20.00000 volley=2020.00000 pos=12.00000 real=1205.94000 + fee=1.20594
+2025-07-07T20:04:17.839335Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-01 volley=2513.40000 fill=1212.00000 frac=0.48221 real=1205.94000 fee=1.20594
+2025-07-07T20:04:17.839361Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=12.00000 aq=9.54948 cf=0.79579 afr=0.60000
+2025-07-07T20:04:17.839393Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.00000 aq=0.00000 cf=0.79550 afr=0.00000
+2025-07-07T20:04:17.839429Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-03 Buy AZ    0.97702 @ 301.48500 + fee 0.29455 (0.100%)
+2025-07-07T20:04:17.839460Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AZ    total=1.62838 volley=493.40000 pos=0.97702 real=294.55979 + fee=0.29455
+2025-07-07T20:04:17.839490Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-01 volley=2513.40000 fill=1508.04000 frac=0.60000 real=1500.49980 fee=1.50049
+2025-07-07T20:04:17.839525Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=12.00000 aq=9.54948 cf=0.79579 afr=0.60000
+2025-07-07T20:04:17.839557Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.97702 aq=0.77723 cf=0.79550 afr=0.60000
+2025-07-07T20:04:17.839596Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-01 AX q=9.54948 p=100.49500 fee=0.95967
+2025-07-07T20:04:17.839620Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-03 AZ q=0.77723 p=301.48500 fee=0.23432
+2025-07-07T20:04:17.839641Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=1.15389 irc=1448.94925 iec=806.80600 ics=1265.26224 cs=1195.19399 rc=2255.75525 bfr=60.000% ofr=35.934%
+2025-07-07T20:04:17.839691Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 1.15389 3450.94925 1265.26224 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.839759Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.839768Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.839774Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.839780Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.839787Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.839842Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.839850Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.839857Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.839862Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 1265.26224
+2025-07-07T20:04:17.839876Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 1.15389
+2025-07-07T20:04:17.839886Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.839892Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.839897Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.839905Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.839913Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    1.15389 |          
+2025-07-07T20:04:17.839926Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    1.15389 |1265.26224
+2025-07-07T20:04:17.839949Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.839954Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |2255.75525
+2025-07-07T20:04:17.839967Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.839974Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    | 806.80600
+2025-07-07T20:04:17.839986Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |1448.94925
+2025-07-07T20:04:17.840003Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840009Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840013Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.840018Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840022Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.840074Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.840082Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840091Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840099Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    1.15389 |1265.26224
+2025-07-07T20:04:17.840121Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840128Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |2255.75525
+2025-07-07T20:04:17.840141Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840163Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-02 Buy AX    6.00000 @ 100.79800 + fee 0.60478 (0.100%)
+2025-07-07T20:04:17.840182Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AX    total=20.00000 volley=2020.00000 pos=18.00000 real=1810.72800 + fee=1.81072
+2025-07-07T20:04:17.840200Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-01 volley=2513.40000 fill=2114.04000 frac=0.84110 real=2105.28780 fee=2.10528
+2025-07-07T20:04:17.840242Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=18.00000 aq=14.32422 cf=0.79579 afr=0.90000
+2025-07-07T20:04:17.840274Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.97702 aq=0.77723 cf=0.79550 afr=0.60000
+2025-07-07T20:04:17.840317Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event Cancel O-01 B-01 AX
+2025-07-07T20:04:17.840339Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-04 Buy AZ    0.16283 @ 302.39400 + fee 0.04924 (0.100%)
+2025-07-07T20:04:17.840367Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AZ    total=1.62838 volley=493.40000 pos=1.13986 real=343.80111 + fee=0.34380
+2025-07-07T20:04:17.840398Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-01 volley=2513.40000 fill=2163.38000 frac=0.86073 real=2154.52912 fee=2.15452
+2025-07-07T20:04:17.840437Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=18.00000 aq=14.32422 cf=0.79579 afr=0.90000
+2025-07-07T20:04:17.840465Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=1.13986 aq=0.90677 cf=0.79550 afr=0.70000
+2025-07-07T20:04:17.840502Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-01 AX q=1.59158 p=100.49500 fee=0.15994
+2025-07-07T20:04:17.840526Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-03 AZ q=0.12953 p=301.48500 fee=0.03905
+2025-07-07T20:04:17.840548Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=1.34621 irc=1448.94925 iec=607.60700 ics=1464.46124 cs=199.19900 rc=2056.55625 bfr=70.000% ofr=41.591%
+2025-07-07T20:04:17.840600Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 1.34621 2255.75525 1464.46124 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.840665Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.840672Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.840677Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840682Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.840688Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.840740Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.840747Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.840752Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840756Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 1464.46124
+2025-07-07T20:04:17.840765Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 1.34621
+2025-07-07T20:04:17.840775Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840779Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840783Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.840790Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840794Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.19231 |          
+2025-07-07T20:04:17.840803Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    1.34621 |1464.46124
+2025-07-07T20:04:17.840821Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840828Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |2056.55625
+2025-07-07T20:04:17.840844Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840850Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    | 607.60700
+2025-07-07T20:04:17.840858Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |1448.94925
+2025-07-07T20:04:17.840872Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840877Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840882Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.840888Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840893Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.840947Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.840954Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.840962Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840968Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    1.34621 |1464.46124
+2025-07-07T20:04:17.840986Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.840990Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |2056.55625
+2025-07-07T20:04:17.840999Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.841009Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event Cancel O-02 B-01 AZ
+2025-07-07T20:04:17.841016Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch is all cancelled B-01
+2025-07-07T20:04:17.841024Z  INFO index_maker::solver::batch_manager: (batch-order-status) Carried over AX Buy 6.85893
+2025-07-07T20:04:17.841038Z  INFO index_maker::solver::batch_manager: (batch-order-status) Carried over AZ Buy 0.23309
+2025-07-07T20:04:17.841052Z  INFO index_maker::solver::batch_manager: (batch-manager) Will continue Index Order C-01 cc=607.60700
+2025-07-07T20:04:17.841071Z  INFO index_maker::solver::solver: (solver) Handle Batch Complete B-01
+2025-07-07T20:04:17.841085Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.841090Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ First order batch filled |==
+2025-07-07T20:04:17.841100Z  INFO index_maker::solver::solver::test:  -> FIX response received
+2025-07-07T20:04:17.841105Z  INFO index_maker::solver::solver::test:  -> FIX response received
+2025-07-07T20:04:17.841109Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.841125Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AZ 300.0
+2025-07-07T20:04:17.841134Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AX 100.0
+2025-07-07T20:04:17.841144Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AZ 303.000
+2025-07-07T20:04:17.841152Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AX 101.000
+2025-07-07T20:04:17.841163Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Index Price: IX 1039.9553332142219045917455780
+2025-07-07T20:04:17.841185Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Collateral to Quantity for Index Order: C-01 c=1448.94925 cc=607.60700 ca=2054.50175 cu=2054.50175 p=1039.95533 q=1.97556 ff=1.00100
+2025-07-07T20:04:17.841223Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Quantity for Index Order: C-01 AX q=16.34952 baq=8.27586 oq=1.97556
+2025-07-07T20:04:17.841245Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Quantity for Index Order: C-01 AZ q=1.33069 baq=0.67357 oq=1.97556
+2025-07-07T20:04:17.841274Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Fitting Quantity for Index Order: C-01 AZ 1.97556 tal=50.00000 taq=1.33069 acf=1.00000 alc=50.00000 poq=74.23076
+2025-07-07T20:04:17.841301Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Fitting Quantity for Index Order: C-01 AX 1.97556 tal=20.00000 taq=16.34952 acf=1.00000 alc=20.00000 poq=2.41666
+2025-07-07T20:04:17.841338Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Capping Volley Size for Index Order: C-01 oq=1.97556 coq=1.92315
+2025-07-07T20:04:17.841357Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Capping Volley Size for Asset: AX aq=16.34952 caq=15.91580
+2025-07-07T20:04:17.841389Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Capping Volley Size for Asset: AZ aq=1.33069 caq=1.29539
+2025-07-07T20:04:17.841424Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Padding AX: 1651.3017709526288391462779804 => 1651.4, 16.34952248467949345689384139 => 16.35049504950495049504950495 (+0.00097256482545703815566356)
+2025-07-07T20:04:17.841459Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Padding AZ: 403.19997904737116085372201979 => 403.2, 1.3306930001563404648637690422 => 1.3306930693069306930693069307 (+0.0000000691505902282055378885)
+2025-07-07T20:04:17.841497Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Fractions for Index Order: C-01 AZ taq=1.33069 acf=0.97347
+2025-07-07T20:04:17.841516Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Fractions for Index Order: C-01 AX taq=16.35049 acf=0.97341
+2025-07-07T20:04:17.841552Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Solver Order Engagement: C-01 IX eq=1.92315 ep=1039.95533 ec=2001.99999
+2025-07-07T20:04:17.841585Z  INFO index_maker::solver::index_order_manager: (index-order-manager) Engage C-01 eca=+1394.39299 iec=2001.99999 irc=54.55625
+2025-07-07T20:04:17.841634Z  INFO index_maker::solver::batch_manager: (batch-manager) Handle Index Order EngageIndexOrder B-02
+2025-07-07T20:04:17.841655Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.841664Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Next order batch engaged |==
+2025-07-07T20:04:17.841670Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.841705Z  INFO index_maker::solver::batch_manager: (batch-manager) Sending Batch: Buy AX: 9.49155 @ 101.00000; Buy AZ: 1.09759 @ 303.00000
+2025-07-07T20:04:17.841720Z  INFO index_maker::solver::solver::test: (mock) SingleOrder AX 5.69493 @ 100.49500 3.79662 @ 100.79800
+2025-07-07T20:04:17.841746Z  INFO index_maker::solver::solver::test: (mock) SingleOrder AZ 0.65855 @ 301.48500 0.43903 @ 302.39400
+2025-07-07T20:04:17.841814Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-05 Buy AX    5.69493 @ 100.49500 + fee 0.57231 (0.100%)
+2025-07-07T20:04:17.841842Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AX    total=16.35049 volley=1651.40000 pos=12.55387 real=572.31241 + fee=0.57231
+2025-07-07T20:04:17.841875Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-02 volley=2054.60000 fill=575.18836 frac=0.27995 real=572.31241 fee=0.57231
+2025-07-07T20:04:17.841914Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=12.55387 aq=12.22011 cf=0.97341 afr=0.76779
+2025-07-07T20:04:17.841950Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.23309 aq=0.22690 cf=0.97347 afr=0.17516
+2025-07-07T20:04:17.841989Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-01 AX q=0.85893 p=100.49500 fee=0.08631
+2025-07-07T20:04:17.842013Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-02 AX q=1.92898 p=100.79800 fee=0.19443
+2025-07-07T20:04:17.842038Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-03 AZ q=0.07025 p=301.48500 fee=0.02118
+2025-07-07T20:04:17.842059Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-04 AZ q=0.15665 p=302.39400 fee=0.04737
+2025-07-07T20:04:17.842083Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=1.68308 irc=54.55625 iec=1652.34181 ics=1814.11943 cs=349.65818 rc=1706.89806 bfr=17.516% ofr=51.522%
+2025-07-07T20:04:17.842134Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 1.68308 2056.55625 1814.11943 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.842207Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.842214Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.842220Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842225Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.842231Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.842287Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.842294Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.842300Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842305Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 1814.11943
+2025-07-07T20:04:17.842319Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 1.68308
+2025-07-07T20:04:17.842329Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842333Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842337Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.842344Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.842350Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.33687 |          
+2025-07-07T20:04:17.842358Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    1.68308 |1814.11943
+2025-07-07T20:04:17.842377Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.842385Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |1706.89806
+2025-07-07T20:04:17.842399Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.842406Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    |1652.34181
+2025-07-07T20:04:17.842414Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |  54.55625
+2025-07-07T20:04:17.842430Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.842435Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842441Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.842446Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842451Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.842507Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.842514Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842522Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.842528Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    1.68308 |1814.11943
+2025-07-07T20:04:17.842547Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.842551Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |1706.89806
+2025-07-07T20:04:17.842560Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842577Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-07 Buy AZ    0.65855 @ 301.48500 + fee 0.19854 (0.100%)
+2025-07-07T20:04:17.842602Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AZ    total=1.33069 volley=403.20000 pos=0.89165 real=198.54592 + fee=0.19854
+2025-07-07T20:04:17.842636Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-02 volley=2054.60000 fill=774.73200 frac=0.37707 real=770.85834 fee=0.77085
+2025-07-07T20:04:17.842669Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=12.55387 aq=12.22011 cf=0.97341 afr=0.76779
+2025-07-07T20:04:17.842696Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.89165 aq=0.86799 cf=0.97347 afr=0.67006
+2025-07-07T20:04:17.842733Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-02 AX q=4.07101 p=100.79800 fee=0.41035
+2025-07-07T20:04:17.842756Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-05 AX q=3.80571 p=100.49500 fee=0.38245
+2025-07-07T20:04:17.842779Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-04 AZ q=0.00618 p=302.39400 fee=0.00186
+2025-07-07T20:04:17.842800Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-07 AZ q=0.63490 p=301.48500 fee=0.19141
+2025-07-07T20:04:17.842823Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=2.63485 irc=54.55625 iec=665.26578 ics=2801.19546 cs=987.07603 rc=719.82203 bfr=67.006% ofr=79.556%
+2025-07-07T20:04:17.842875Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 2.63485 1706.89806 2801.19546 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.842939Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.842946Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.842951Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.842956Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.842963Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.843017Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.843024Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.843029Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843033Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 2801.19546
+2025-07-07T20:04:17.843042Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 2.63485
+2025-07-07T20:04:17.843051Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843055Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843059Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.843065Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.843071Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.95177 |          
+2025-07-07T20:04:17.843079Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    2.63485 |2801.19546
+2025-07-07T20:04:17.843098Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.843104Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  | 719.82203
+2025-07-07T20:04:17.843120Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.843126Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    | 665.26578
+2025-07-07T20:04:17.843134Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |  54.55625
+2025-07-07T20:04:17.843148Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.843153Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843159Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.843164Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843169Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.843224Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.843231Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843239Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.843245Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    2.63485 |2801.19546
+2025-07-07T20:04:17.843263Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.843268Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  | 719.82203
+2025-07-07T20:04:17.843276Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843307Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-06 Buy AX    3.79662 @ 100.79800 + fee 0.38269 (0.100%)
+2025-07-07T20:04:17.843335Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AX    total=16.35049 volley=1651.40000 pos=16.35049 real=955.00440 + fee=0.95500
+2025-07-07T20:04:17.843366Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-02 volley=2054.60000 fill=1158.19090 frac=0.56370 real=1153.55032 fee=1.15355
+2025-07-07T20:04:17.843400Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=16.35049 aq=15.91580 cf=0.97341 afr=1.00000
+2025-07-07T20:04:17.843437Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=0.89165 aq=0.86799 cf=0.97347 afr=0.67006
+2025-07-07T20:04:17.843474Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event Cancel O-04 B-02 AX
+2025-07-07T20:04:17.843488Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-08 Buy AZ    0.43903 @ 302.39400 + fee 0.13276 (0.100%)
+2025-07-07T20:04:17.843515Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AZ    total=1.33069 volley=403.20000 pos=1.33069 real=331.30895 + fee=0.33130
+2025-07-07T20:04:17.843547Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-02 volley=2054.60000 fill=1291.22000 frac=0.62845 real=1286.31336 fee=1.28631
+2025-07-07T20:04:17.843581Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=15.91580 pos=16.35049 aq=15.91580 cf=0.97341 afr=1.00000
+2025-07-07T20:04:17.843618Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=1.29539 pos=1.33069 aq=1.29539 cf=0.97347 afr=1.00000
+2025-07-07T20:04:17.843656Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-05 AX q=1.88922 p=100.49500 fee=0.18985
+2025-07-07T20:04:17.843679Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-06 AX q=3.36193 p=100.79800 fee=0.33887
+2025-07-07T20:04:17.843704Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-07 AZ q=0.02365 p=301.48500 fee=0.00713
+2025-07-07T20:04:17.843726Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-08 AZ q=0.40373 p=302.39400 fee=0.12208
+2025-07-07T20:04:17.843748Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=3.26937 irc=54.55625 iec=6.65496 ics=3459.80628 cs=658.61081 rc=61.21121 bfr=100.000% ofr=98.261%
+2025-07-07T20:04:17.843795Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 3.26937 719.82203 3459.80628 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.843864Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.843872Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.843877Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843882Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.843889Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.843941Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.843947Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.843953Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843958Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 3459.80628
+2025-07-07T20:04:17.843970Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 3.26937
+2025-07-07T20:04:17.843981Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843985Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.843989Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.843995Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.844000Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.63451 |          
+2025-07-07T20:04:17.844009Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.26937 |3459.80628
+2025-07-07T20:04:17.844028Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.844034Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |  61.21121
+2025-07-07T20:04:17.844048Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.844054Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    |   6.65496
+2025-07-07T20:04:17.844064Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |  54.55625
+2025-07-07T20:04:17.844077Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.844083Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.844088Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.844093Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.844099Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.844153Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.844160Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.844168Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.844174Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.26937 |3459.80628
+2025-07-07T20:04:17.844192Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.844197Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |  61.21121
+2025-07-07T20:04:17.844208Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.844217Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event Cancel O-03 B-02 AZ
+2025-07-07T20:04:17.844227Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch is all cancelled B-02
+2025-07-07T20:04:17.844235Z  INFO index_maker::solver::batch_manager: (batch-order-status) Carried over AZ Buy 0.03530
+2025-07-07T20:04:17.844247Z  INFO index_maker::solver::batch_manager: (batch-order-status) Carried over AX Buy 0.43469
+2025-07-07T20:04:17.844257Z  INFO index_maker::solver::batch_manager: (batch-manager) Will continue Index Order C-01 cc=6.65496
+2025-07-07T20:04:17.844269Z  INFO index_maker::solver::solver: (solver) Handle Batch Complete B-02
+2025-07-07T20:04:17.844280Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.844285Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Next order batch filled |==
+2025-07-07T20:04:17.844291Z  INFO index_maker::solver::solver::test:  -> FIX response received
+2025-07-07T20:04:17.844295Z  INFO index_maker::solver::solver::test:  -> FIX response received
+2025-07-07T20:04:17.844300Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.844317Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AX 100.0
+2025-07-07T20:04:17.844329Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price: Buy AZ 300.0
+2025-07-07T20:04:17.844339Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AZ 303.000
+2025-07-07T20:04:17.844349Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Price Limit: AX 101.000
+2025-07-07T20:04:17.844358Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Index Price: IX 1039.9553332142219045917455780
+2025-07-07T20:04:17.844375Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Collateral to Quantity for Index Order: C-01 c=54.55625 cc=6.65496 ca=61.15006 cu=61.15006 p=1039.95533 q=0.05880 ff=1.00100
+2025-07-07T20:04:17.844415Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Quantity for Index Order: C-01 AX q=0.48662 baq=8.27586 oq=0.05880
+2025-07-07T20:04:17.844435Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Quantity for Index Order: C-01 AZ q=0.03960 baq=0.67357 oq=0.05880
+2025-07-07T20:04:17.844464Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Fitting Quantity for Index Order: C-01 AX 0.05880 tal=20.00000 taq=0.48662 acf=1.00000 alc=20.00000 poq=2.41666
+2025-07-07T20:04:17.844490Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Fitting Quantity for Index Order: C-01 AZ 0.05880 tal=50.00000 taq=0.03960 acf=1.00000 alc=50.00000 poq=74.23076
+2025-07-07T20:04:17.844532Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Padding AX: 49.149246175950026028110359345 => 49.2, 0.486626199761881445822874845 => 0.4871287128712871287128712871 (+0.0005025131094056828899964421)
+2025-07-07T20:04:17.844568Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Padding AZ: 12.000819824049973971889640859 => 12.2, 0.039606666085973511458381653 => 0.0402640264026402640264026403 (+0.0006573603166667525680209873)
+2025-07-07T20:04:17.844604Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Fractions for Index Order: C-01 AX taq=0.48712 acf=0.99896
+2025-07-07T20:04:17.844624Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Asset Fractions for Index Order: C-01 AZ taq=0.04026 acf=0.98367
+2025-07-07T20:04:17.844654Z  INFO index_maker::solver::solvers::simple_solver: (simple-solver) Solver Order Engagement: C-01 IX eq=0.05880 ep=1039.95533 ec=61.21121
+2025-07-07T20:04:17.844681Z  INFO index_maker::solver::index_order_manager: (index-order-manager) Engage C-01 eca=+54.55625 iec=61.21121 irc=-0.00000
+2025-07-07T20:04:17.844723Z  INFO index_maker::solver::batch_manager: (batch-manager) Handle Index Order EngageIndexOrder B-03
+2025-07-07T20:04:17.844739Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.844747Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Next order batch engaged |==
+2025-07-07T20:04:17.844753Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.844788Z  INFO index_maker::solver::batch_manager: (batch-manager) Sending Batch: Buy AZ: 0.00496 @ 303.00000; Buy AX: 0.05243 @ 101.00000
+2025-07-07T20:04:17.844801Z  INFO index_maker::solver::solver::test: (mock) SingleOrder AZ 0.00297 @ 301.48500 0.00198 @ 302.39400
+2025-07-07T20:04:17.844823Z  INFO index_maker::solver::solver::test: (mock) SingleOrder AX 0.03146 @ 100.49500 0.02097 @ 100.79800
+2025-07-07T20:04:17.844876Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-09 Buy AZ    0.00297 @ 301.48500 + fee 0.00089 (0.099%)
+2025-07-07T20:04:17.844905Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AZ    total=0.04026 volley=12.20000 pos=0.03827 real=0.89783 + fee=0.00089
+2025-07-07T20:04:17.844938Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-03 volley=61.40000 fill=0.90234 frac=0.01469 real=0.89783 fee=0.00089
+2025-07-07T20:04:17.844970Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=0.48662 pos=0.43469 aq=0.43424 cf=0.99896 afr=0.89235
+2025-07-07T20:04:17.845005Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=0.03960 pos=0.03827 aq=0.03765 cf=0.98367 afr=0.95069
+2025-07-07T20:04:17.845040Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-06 AX q=0.43424 p=100.79800 fee=0.04377
+2025-07-07T20:04:17.845064Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-08 AZ q=0.03530 p=302.39400 fee=0.01067
+2025-07-07T20:04:17.845081Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-09 AZ q=0.00004 p=301.48500 fee=0.00001
+2025-07-07T20:04:17.845102Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=3.32184 irc=-0.00000 iec=6.69831 ics=3514.31918 cs=54.51289 rc=6.69831 bfr=89.235% ofr=99.809%
+2025-07-07T20:04:17.845146Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 3.32184 61.21121 3514.31918 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.845220Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.845227Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.845232Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845237Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.845243Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.845297Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.845304Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.845308Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845312Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 3514.31918
+2025-07-07T20:04:17.845321Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 3.32184
+2025-07-07T20:04:17.845330Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845334Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845338Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.845344Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.845349Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.05247 |          
+2025-07-07T20:04:17.845358Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32184 |3514.31918
+2025-07-07T20:04:17.845375Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.845380Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |   6.69831
+2025-07-07T20:04:17.845391Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.845397Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    |   6.69831
+2025-07-07T20:04:17.845408Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |   0.00000
+2025-07-07T20:04:17.845420Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.845427Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845432Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.845436Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845440Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.845488Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.845495Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845502Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.845508Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32184 |3514.31918
+2025-07-07T20:04:17.845529Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.845534Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |   6.69831
+2025-07-07T20:04:17.845543Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845548Z  INFO index_maker::solver::solver: (solver) Set Index Order Status: C-01 PartlyMintable
+2025-07-07T20:04:17.845576Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-11 Buy AX    0.03146 @ 100.49500 + fee 0.00316 (0.099%)
+2025-07-07T20:04:17.845604Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AX    total=0.48712 volley=49.19999 pos=0.46615 real=3.16176 + fee=0.00316
+2025-07-07T20:04:17.845635Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-03 volley=61.40000 fill=4.07999 frac=0.06644 real=4.05959 fee=0.00405
+2025-07-07T20:04:17.845667Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=0.48662 pos=0.46615 aq=0.46567 cf=0.99896 afr=0.95694
+2025-07-07T20:04:17.845700Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=0.03960 pos=0.03827 aq=0.03765 cf=0.98367 afr=0.95069
+2025-07-07T20:04:17.845736Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-06 AX q=0.00044 p=100.79800 fee=0.00004
+2025-07-07T20:04:17.845755Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-11 AX q=0.02793 p=100.49500 fee=0.00280
+2025-07-07T20:04:17.845773Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-09 AZ q=0.00231 p=301.48500 fee=0.00069
+2025-07-07T20:04:17.845794Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=3.32527 irc=-0.00000 iec=3.14522 ics=3517.87227 cs=3.55309 rc=3.14522 bfr=95.069% ofr=99.910%
+2025-07-07T20:04:17.845844Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 3.32527 6.69831 3517.87227 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.845905Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.845911Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.845917Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845922Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.845928Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.845980Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.845987Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.845993Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.845997Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 3517.87227
+2025-07-07T20:04:17.846009Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 3.32527
+2025-07-07T20:04:17.846020Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846024Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846028Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.846034Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846038Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.00343 |          
+2025-07-07T20:04:17.846049Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32527 |3517.87227
+2025-07-07T20:04:17.846068Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846076Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |   3.14522
+2025-07-07T20:04:17.846089Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846093Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    |   3.14522
+2025-07-07T20:04:17.846102Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |   0.00000
+2025-07-07T20:04:17.846110Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846114Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846118Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.846122Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846126Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.846177Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.846184Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846192Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846198Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32527 |3517.87227
+2025-07-07T20:04:17.846217Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846222Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |   3.14522
+2025-07-07T20:04:17.846231Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846248Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-10 Buy AZ    0.00198 @ 302.39400 + fee 0.00060 (0.100%)
+2025-07-07T20:04:17.846276Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AZ    total=0.04026 volley=12.20000 pos=0.04026 real=1.49818 + fee=0.00149
+2025-07-07T20:04:17.846310Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-03 volley=61.40000 fill=4.68156 frac=0.07624 real=4.65995 fee=0.00465
+2025-07-07T20:04:17.846345Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=0.48662 pos=0.46615 aq=0.46567 cf=0.99896 afr=0.95694
+2025-07-07T20:04:17.846380Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=0.03960 pos=0.04026 aq=0.03960 cf=0.98367 afr=1.00000
+2025-07-07T20:04:17.846410Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-11 AX q=0.00304 p=100.49500 fee=0.00030
+2025-07-07T20:04:17.846431Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-09 AZ q=0.00024 p=301.48500 fee=0.00007
+2025-07-07T20:04:17.846451Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=3.32564 irc=-0.00000 iec=2.76452 ics=3518.25297 cs=0.38069 rc=2.76452 bfr=95.694% ofr=99.921%
+2025-07-07T20:04:17.846496Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 3.32564 3.14522 3518.25297 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.846568Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.846575Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.846580Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846585Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.846591Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.846645Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.846652Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.846656Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846660Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 3518.25297
+2025-07-07T20:04:17.846669Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 3.32564
+2025-07-07T20:04:17.846679Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846683Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846687Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.846693Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846698Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.00036 |          
+2025-07-07T20:04:17.846706Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32564 |3518.25297
+2025-07-07T20:04:17.846724Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846730Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |   2.76452
+2025-07-07T20:04:17.846746Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846753Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    |   2.76452
+2025-07-07T20:04:17.846762Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |   0.00000
+2025-07-07T20:04:17.846771Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846775Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846779Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.846783Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846787Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.846838Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.846843Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846849Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846853Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32564 |3518.25297
+2025-07-07T20:04:17.846868Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.846873Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |   2.76452
+2025-07-07T20:04:17.846882Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.846899Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event Cancel O-06 B-03 AZ
+2025-07-07T20:04:17.846915Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event OpenLot L-12 Buy AX    0.02097 @ 100.79800 + fee 0.00211 (0.100%)
+2025-07-07T20:04:17.846942Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Position: Buy AX    total=0.48712 volley=49.19999 pos=0.48712 real=5.27597 + fee=0.00527
+2025-07-07T20:04:17.846972Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch Status: B-03 volley=61.40000 fill=6.79999 frac=0.11074 real=6.77415 fee=0.00677
+2025-07-07T20:04:17.847005Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AX    q=0.48662 pos=0.48712 aq=0.48662 cf=0.99896 afr=1.00000
+2025-07-07T20:04:17.847034Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Basket Asset: AZ    q=0.03960 pos=0.04026 aq=0.03960 cf=0.98367 afr=1.00000
+2025-07-07T20:04:17.847065Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-11 AX q=0.00048 p=100.49500 fee=0.00004
+2025-07-07T20:04:17.847088Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-12 AX q=0.02047 p=100.79800 fee=0.00206
+2025-07-07T20:04:17.847109Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-09 AZ q=0.00037 p=301.48500 fee=0.00011
+2025-07-07T20:04:17.847131Z  INFO index_maker::solver::batch_manager: (batch-asset-position) IndexOrder allocation for C-01 L-10 AZ q=0.00132 p=302.39400 fee=0.00040
+2025-07-07T20:04:17.847150Z  INFO index_maker::solver::batch_manager: (batch-manager) Fill Index Order: ifq=3.32817 irc=-0.00000 iec=0.13467 ics=3520.88282 cs=2.62985 rc=0.13467 bfr=100.000% ofr=99.996%
+2025-07-07T20:04:17.847192Z  INFO index_maker::solver::solver::test: (mock) FIX Order Response: EXE [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01 3.32817 2.76452 3520.88282 2025-07-07 20:04:28.836810 UTC
+2025-07-07T20:04:17.847265Z  INFO index_maker::solver::solver::test: (mock) FIX response sent
+2025-07-07T20:04:17.847272Z  INFO index_maker::solver::mint_invoice: (report) == Fill Report == 
+2025-07-07T20:04:17.847277Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847282Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:28.836810 UTC 
+2025-07-07T20:04:17.847288Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.847341Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.847348Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.847354Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847359Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 3520.88282
+2025-07-07T20:04:17.847371Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 3.32817
+2025-07-07T20:04:17.847384Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847389Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847394Z  INFO index_maker::solver::mint_invoice: (report)          Item         |    Qty     |  Amount  
+2025-07-07T20:04:17.847400Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.847406Z  INFO index_maker::solver::mint_invoice: (report) Filled                |    0.00253 |          
+2025-07-07T20:04:17.847414Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32817 |3520.88282
+2025-07-07T20:04:17.847433Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.847438Z  INFO index_maker::solver::mint_invoice: (report) Collateral              Remaining  |   0.13467
+2025-07-07T20:04:17.847453Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.847459Z  INFO index_maker::solver::mint_invoice: (report) of which                Engaged    |   0.13467
+2025-07-07T20:04:17.847468Z  INFO index_maker::solver::mint_invoice: (report)                         Unengaged  |   0.00000
+2025-07-07T20:04:17.847476Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.847480Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847484Z  INFO index_maker::solver::mint_invoice: (report) -- All User Orders --
+2025-07-07T20:04:17.847488Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847492Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.847543Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.847549Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847555Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.847559Z  INFO index_maker::solver::mint_invoice: (report) Total Filled          |    3.32817 |3520.88282
+2025-07-07T20:04:17.847573Z  INFO index_maker::solver::mint_invoice: (report) ----------------------------------------------
+2025-07-07T20:04:17.847579Z  INFO index_maker::solver::mint_invoice: (report) Total Collateral        Remaining  |   0.13467
+2025-07-07T20:04:17.847590Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.847598Z  INFO index_maker::solver::batch_manager: (batch-manager) Index Order C-01 fill-rate 0.99996 is above fill threshold 0.99990
+2025-07-07T20:04:17.847612Z  INFO index_maker::solver::solver: (solver) Set Index Order Status: C-01 FullyMintable
+2025-07-07T20:04:17.847621Z  INFO index_maker::solver::solver: (solver) Handle Inventory Event Cancel O-05 B-03 AX
+2025-07-07T20:04:17.847629Z  INFO index_maker::solver::batch_manager: (batch-manager) Batch is all cancelled B-03
+2025-07-07T20:04:17.847636Z  INFO index_maker::solver::batch_manager: (batch-order-status) Carried over AZ Buy 0.00065
+2025-07-07T20:04:17.847652Z  INFO index_maker::solver::batch_manager: (batch-order-status) Carried over AX Buy 0.00050
+2025-07-07T20:04:17.847666Z  INFO index_maker::solver::batch_manager: (batch-manager) Index Order is Fully Mintable C-01 cc=0.13467
+2025-07-07T20:04:17.847678Z  INFO index_maker::solver::solver: (solver) Handle Batch Complete B-03
+2025-07-07T20:04:17.847690Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.847696Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Next order batch filled |==
+2025-07-07T20:04:17.847702Z  INFO index_maker::solver::solver::test:  -> FIX response received
+2025-07-07T20:04:17.847708Z  INFO index_maker::solver::solver::test:  -> FIX response received
+2025-07-07T20:04:17.847714Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.847723Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.847729Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.847751Z  INFO index_maker::solver::solver: (solver) Handle Batch Mintable
+2025-07-07T20:04:17.847764Z  INFO index_maker::solver::solver::test: <<< End events
+
+2025-07-07T20:04:17.847771Z  INFO index_maker::solver::solver::test:     ================================================================| ^^^ Clock moved forward 10.0s |==
+2025-07-07T20:04:17.847777Z  INFO index_maker::solver::solver::test: 
+>>> Begin events
+2025-07-07T20:04:17.847807Z  INFO index_maker::collateral::collateral_manager: (collateral-manager) Confirm Payment for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 3450.81457
+2025-07-07T20:04:17.847874Z  INFO index_maker::collateral::collateral_position: (colateral-side) Spend for P-01 [P-02] 3450.81457 ua=0.00000 ra=0.00000 pa=0.13467 sa=3520.88282 (partial spend *)
+2025-07-07T20:04:17.847915Z  INFO index_maker::solver::solver: (solver) Payment authorized: P-02
+2025-07-07T20:04:17.847924Z  INFO index_maker::solver::solver::test: (mock) MintedIndex: 1 IX    Quantity: 3.32817 User: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 @3450.81457 2025-07-07 20:04:38.836810 UTC
+2025-07-07T20:04:17.847989Z  INFO index_maker::solver::solver::test: (mock) Chain response sent
+2025-07-07T20:04:17.848005Z  INFO index_maker::solver::index_order_manager: (index-order-manager) Removing entry for [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] IX
+2025-07-07T20:04:17.848057Z  INFO index_maker::solver::index_order_manager: (index-order-manager) Removing entry for [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.848111Z  INFO index_maker::solver::mint_invoice: (report) Closing Index Order [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045] C-01
+2025-07-07T20:04:17.848161Z  INFO index_maker::solver::mint_invoice: (report) C-01 IX rc=0.00000 cs=3520.88282 ec=0.13467 fill=3.32817 fee=70.06824 (closed)
+2025-07-07T20:04:17.848183Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.848189Z  INFO index_maker::solver::mint_invoice: (report) == Mint Invoice == 
+2025-07-07T20:04:17.848193Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.848197Z  INFO index_maker::solver::mint_invoice: (report) Date:  2025-07-07 20:04:38.836810 UTC 
+2025-07-07T20:04:17.848202Z  INFO index_maker::solver::mint_invoice: (report) To:    [1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045]
+2025-07-07T20:04:17.848243Z  INFO index_maker::solver::mint_invoice: (report) Order: C-01
+2025-07-07T20:04:17.848248Z  INFO index_maker::solver::mint_invoice: (report) Index: IX
+2025-07-07T20:04:17.848252Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.848255Z  INFO index_maker::solver::mint_invoice: (report) Collateral Spent: 3520.88282
+2025-07-07T20:04:17.848264Z  INFO index_maker::solver::mint_invoice: (report) Filed Quantity: 3.32817
+2025-07-07T20:04:17.848273Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.848277Z  INFO index_maker::solver::mint_invoice: (report)
+2025-07-07T20:04:17.848282Z  INFO index_maker::solver::mint_invoice: (report)     Lot     |   Symbol   |   Qty     |  Price    |   Fee     |  Amount  
+2025-07-07T20:04:17.848292Z  INFO index_maker::solver::mint_invoice: (report) ------------------------------------------------------------------------
+2025-07-07T20:04:17.848344Z  INFO index_maker::solver::mint_invoice: (report) L-01        | AX         |  12.00000 | 100.49500 |   1.20594 |1207.14594
+2025-07-07T20:04:17.848365Z  INFO index_maker::solver::mint_invoice: (report) L-02        | AX         |   6.00000 | 100.79800 |   0.60478 | 605.39278
+2025-07-07T20:04:17.848385Z  INFO index_maker::solver::mint_invoice: (report) L-03        | AZ         |   0.97702 | 301.48500 |   0.29455 | 294.85435
+2025-07-07T20:04:17.848404Z  INFO index_maker::solver::mint_invoice: (report) L-04        | AZ         |   0.16283 | 302.39400 |   0.04924 |  49.29056
+2025-07-07T20:04:17.848424Z  INFO index_maker::solver::mint_invoice: (report) L-05        | AX         |   5.69493 | 100.49500 |   0.57231 | 572.88473
+2025-07-07T20:04:17.848444Z  INFO index_maker::solver::mint_invoice: (report) L-06        | AX         |   3.79662 | 100.79800 |   0.38269 | 383.07468
+2025-07-07T20:04:17.848463Z  INFO index_maker::solver::mint_invoice: (report) L-07        | AZ         |   0.65855 | 301.48500 |   0.19854 | 198.74446
+2025-07-07T20:04:17.848483Z  INFO index_maker::solver::mint_invoice: (report) L-08        | AZ         |   0.43903 | 302.39400 |   0.13276 | 132.89579
+2025-07-07T20:04:17.848502Z  INFO index_maker::solver::mint_invoice: (report) L-09        | AZ         |   0.00297 | 301.48500 |   0.00089 |   0.89872
+2025-07-07T20:04:17.848521Z  INFO index_maker::solver::mint_invoice: (report) L-10        | AZ         |   0.00132 | 302.39400 |   0.00040 |   0.40197
+2025-07-07T20:04:17.848540Z  INFO index_maker::solver::mint_invoice: (report) L-11        | AX         |   0.03146 | 100.49500 |   0.00316 |   3.16493
+2025-07-07T20:04:17.848558Z  INFO index_maker::solver::mint_invoice: (report) L-12        | AX         |   0.02047 | 100.79800 |   0.00206 |   2.06561
+2025-07-07T20:04:17.848583Z  INFO index_maker::solver::mint_invoice: (report) ------------------------------------------------------------------------
+2025-07-07T20:04:17.848590Z  INFO index_maker::solver::mint_invoice: (report) Sub-Total   | AX         |  27.54349 |~ 100.6029 |   2.77095 |2773.72868
+2025-07-07T20:04:17.848613Z  INFO index_maker::solver::mint_invoice: (report) Sub-Total   | AZ         |   2.24177 |~ 301.7295 |   0.67640 | 677.08589
+2025-07-07T20:04:17.848638Z  INFO index_maker::solver::mint_invoice: (report) ------------------------------------------------------------------------
+2025-07-07T20:04:17.848644Z  INFO index_maker::solver::mint_invoice: (report)                                                Sub Total     |3450.81457
+2025-07-07T20:04:17.848654Z  INFO index_maker::solver::mint_invoice: (report) P-02                                           Paid          |3450.81457
+2025-07-07T20:04:17.848664Z  INFO index_maker::solver::mint_invoice: (report)                                                Balance       |   0.00000
+2025-07-07T20:04:17.848675Z  INFO index_maker::solver::mint_invoice: (report) ------------------------------------------------------------------------
+2025-07-07T20:04:17.848682Z  INFO index_maker::solver::mint_invoice: (report) Collateral                                     Deposited     |3521.01750
+2025-07-07T20:04:17.848692Z  INFO index_maker::solver::mint_invoice: (report) Management Fee                                 Paid          |  70.06824
+2025-07-07T20:04:17.848700Z  INFO index_maker::solver::mint_invoice: (report)                                                Total Paid    |3520.88282
+2025-07-07T20:04:17.848710Z  INFO index_maker::solver::mint_invoice: (report) Reached minting threshold before full spend    Balance       |   0.13467
+2025-07-07T20:04:17.848723Z  INFO index_maker::solver::mint_invoice: (report) ------------------------------------------------------------------------
+2025-07-07T20:04:17.848729Z  INFO index_maker::solver::mint_invoice: (report) Collateral used                                Fill Rate     | 99.99617%
+2025-07-07T20:04:17.848740Z  INFO index_maker::solver::mint_invoice: (report) Less management fee                            Fill Rate     | 99.99609%
+2025-07-07T20:04:17.848749Z  INFO index_maker::solver::mint_invoice: (report)

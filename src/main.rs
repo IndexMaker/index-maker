@@ -219,13 +219,13 @@ async fn main() {
     let max_volley_size = dec!(100.0);
     let min_asset_volley_size = dec!(5.0);
     let asset_volley_step_size = dec!(0.2);
+    let max_total_volley_size = dec!(1000.0);
 
     let fill_threshold = dec!(0.9999);
     let mint_threshold = dec!(0.99);
     let mint_wait_period = TimeDelta::seconds(10);
 
     let max_batch_size = 4usize;
-    let max_total_volley_size = dec!(200.0);
     let zero_threshold = dec!(0.00001);
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
@@ -333,7 +333,6 @@ async fn main() {
         .mint_threshold(mint_threshold)
         .mint_wait_period(mint_wait_period)
         .max_batch_size(max_batch_size)
-        .max_total_volley_size(max_total_volley_size)
         .build()
         .expect("Failed to build batch manager");
 
@@ -348,12 +347,14 @@ async fn main() {
         .expect("Failed to build collateral manager");
 
     let strategy_config = SimpleSolverConfig::builder()
+        .zero_threshold(zero_threshold)
         .price_threshold(price_threshold)
         .fee_factor(fee_factor)
         .max_order_volley_size(max_order_volley_size)
         .max_volley_size(max_volley_size)
         .min_asset_volley_size(min_asset_volley_size)
         .asset_volley_step_size(asset_volley_step_size)
+        .max_total_volley_size(max_total_volley_size)
         .build_arc()
         .expect("Failed to build simple solver");
 

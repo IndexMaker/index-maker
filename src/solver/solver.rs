@@ -111,6 +111,7 @@ pub trait SolverStrategyHost: SetSolverOrderStatus {
         side: Side,
         symbols: &HashMap<Symbol, Amount>,
     ) -> Result<HashMap<Symbol, Amount>>;
+    fn get_total_volley_size(&self) -> Result<Amount>;
 }
 
 pub trait SolverStrategy {
@@ -124,7 +125,7 @@ pub trait SolverStrategy {
         &self,
         strategy_host: &dyn SolverStrategyHost,
         order_batch: Vec<Arc<RwLock<SolverOrder>>>,
-    ) -> Result<SolveEngagementsResult>;
+    ) -> Result<Option<SolveEngagementsResult>>;
 
     fn solve_quotes(
         &self,
@@ -266,7 +267,11 @@ impl Solver {
             return Ok(());
         }
 
-        let solve_engagements_result = self.strategy.solve_engagements(self, order_batch)?;
+        let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch) {
+            Err(err) => return Err(err),
+            Ok(None) => return Ok(()),
+            Ok(Some(x)) => x,
+        };
 
         self.handle_failed_orders(solve_engagements_result.failed_orders, timestamp)?;
 
@@ -1112,6 +1117,16 @@ impl SolverStrategyHost for Solver {
     ) -> Result<HashMap<Symbol, Amount>> {
         self.order_book_manager.read().get_liquidity(side, symbols)
     }
+
+    fn get_total_volley_size(&self) -> Result<Amount> {
+        let total_volley_size = self
+            .batch_manager
+            .read()
+            .map_err(|e| eyre!("Failed to access batch manager: {}", e))?
+            .get_total_volley_size();
+
+        Ok(total_volley_size)
+    }
 }
 
 impl BatchManagerHost for Solver {
@@ -1446,17 +1461,18 @@ mod test {
         }));
 
         let solver_strategy = Arc::new(SimpleSolver::new(
+            tolerance,
             dec!(0.01),
             dec!(1.001),
             dec!(3000.0),
             dec!(2000.0),
             dec!(5.00),
             dec!(0.2),
+            dec!(1000000.0),
         ));
 
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
             max_batch_size,
-            dec!(10000.0),
             tolerance,
             dec!(0.9999),
             dec!(0.99),
