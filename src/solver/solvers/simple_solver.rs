@@ -1554,7 +1554,7 @@ mod test {
         }
 
         fn get_total_volley_size(&self) -> Result<Amount> {
-            Ok(Amount::ZERO)
+            Ok(dec!(1000.0))
         }
     }
 
@@ -1715,80 +1715,97 @@ mod test {
 
     #[test_case(
         "Unlimited",
-        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(1.0), dec!(1000.0), dec!(1000.0)),
             (dec!(5.0), dec!(1000.0), dec!(5000.0))
-        ]; "unlimited"
+        ]); "unlimited"
     )]
     #[test_case(
         "Max Order Volley Set",
-        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(1.0), dec!(1000.0), dec!(1000.0)),
             (dec!(1.0), dec!(1000.0), dec!(1000.0))
-        ]; "max_order_volley_set"
+        ]); "max_order_volley_set"
     )]
     #[test_case(
         "Max Batch Volley Set",
-        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(0.16666), dec!(1000.0), dec!(166.66666)),
             (dec!(0.83333), dec!(1000.0), dec!(833.33333))
-        ]; "max_batch_volley_set"
+        ]); "max_batch_volley_set"
     )]
     #[test_case(
         "Max Volleys Set",
-        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(0.75), dec!(1000.0), dec!(750.0)),
             (dec!(0.75), dec!(1000.0), dec!(750.0))
-        ]; "max_volleys_set"
+        ]); "max_volleys_set"
     )]
     #[test_case(
         "Fee Factor 1%",
-        (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(0.990099), dec!(4.950495)],
-        vec![
+        Some(vec![
             (dec!(0.99009), dec!(1000.0), dec!(1000.0)),
             (dec!(4.95049), dec!(1000.0), dec!(5000.0))
-        ]; "fee_factor_1pct"
+        ]); "fee_factor_1pct"
     )]
     #[test_case(
         "Price Threshold 1%",
-        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(0.990099), dec!(4.950495)],
-        vec![
+        Some(vec![
             (dec!(0.99009), dec!(1010.0), dec!(1000.0)),
             (dec!(4.95049), dec!(1010.0), dec!(5000.0))
-        ]; "price_threshold_1pct"
+        ]); "price_threshold_1pct"
     )]
     #[test_case(
         "Padding & Alignment",
-        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1571.0), dec!(7531.0)],
         vec![dec!(1.55544), dec!(7.45643)],
-        vec![
+        Some(vec![
             (dec!(1.55544), dec!(1010.0), dec!(1571.0)),
             (dec!(7.45643), dec!(1010.0), dec!(7531.0))
-        ]; "padding_and_alignment"
+        ]); "padding_and_alignment"
+    )]
+    #[test_case(
+        "Total Volley Capped",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(5_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
+        Some(vec![
+            (dec!(0.66666), dec!(1000.0), dec!(666.66666)),
+            (dec!(3.33333), dec!(1000.0), dec!(3333.33333))
+        ]); "total_volley_capped"
+    )]
+    #[test_case(
+        "Total Volley Restricted",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
+        None; "total_volley_restricted"
     )]
     fn test_simple_solver(
         title: &str,
-        params: (Amount, Amount, Amount, Amount),
+        params: (Amount, Amount, Amount, Amount, Amount),
         collateral_amount: Vec<Amount>,
         expected_quotes: Vec<Amount>,
-        expected: Vec<(Amount, Amount, Amount)>,
+        expected: Option<Vec<(Amount, Amount, Amount)>>,
     ) {
         init_log!();
 
@@ -1857,7 +1874,6 @@ mod test {
 
         let min_asset_volley_size = dec!(5.0);
         let asset_volley_step_size = dec!(0.2);
-        let max_total_volley_size = dec!(1000000.0);
         let min_total_volley_available = dec!(1.0);
 
         let simple_solver = SimpleSolver::new(
@@ -1867,7 +1883,7 @@ mod test {
             params.3,
             min_asset_volley_size,
             asset_volley_step_size,
-            max_total_volley_size,
+            params.4,
             min_total_volley_available,
         );
 
@@ -1895,29 +1911,34 @@ mod test {
 
         let batch = simple_solver
             .solve_engagements(&strategy_host, order_batch)
-            .expect("Failed to solve engagements")
-            .expect("Expected some engagements");
+            .expect("Failed to solve engagements");
 
-        assert_eq!(
-            batch.engaged_orders.engaged_buys.engaged_orders.len(),
-            expected.len()
-        );
-        for n in 0..expected.len() {
-            assert_decimal_approx_eq!(
-                batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_quantity,
-                expected[n].0,
-                dec!(0.00001)
+        if let Some(expected) = expected {
+            let batch = batch.expect("Expected some engagements");
+
+            assert_eq!(
+                batch.engaged_orders.engaged_buys.engaged_orders.len(),
+                expected.len()
             );
-            assert_decimal_approx_eq!(
-                batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_price,
-                expected[n].1,
-                dec!(0.00001)
-            );
-            assert_decimal_approx_eq!(
-                batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_collateral,
-                expected[n].2,
-                dec!(0.00001)
-            );
+            for n in 0..expected.len() {
+                assert_decimal_approx_eq!(
+                    batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_quantity,
+                    expected[n].0,
+                    dec!(0.00001)
+                );
+                assert_decimal_approx_eq!(
+                    batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_price,
+                    expected[n].1,
+                    dec!(0.00001)
+                );
+                assert_decimal_approx_eq!(
+                    batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_collateral,
+                    expected[n].2,
+                    dec!(0.00001)
+                );
+            }
+        } else {
+            batch.is_none().then_some(()).expect("No batch was expected");
         }
     }
 }
