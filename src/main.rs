@@ -225,6 +225,7 @@ async fn main() {
     let mint_wait_period = TimeDelta::seconds(10);
 
     let max_batch_size = 4usize;
+    let max_total_volley_size = dec!(200.0);
     let zero_threshold = dec!(0.00001);
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
@@ -332,6 +333,7 @@ async fn main() {
         .mint_threshold(mint_threshold)
         .mint_wait_period(mint_wait_period)
         .max_batch_size(max_batch_size)
+        .max_total_volley_size(max_total_volley_size)
         .build()
         .expect("Failed to build batch manager");
 

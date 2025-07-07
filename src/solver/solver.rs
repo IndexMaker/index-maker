@@ -1456,6 +1456,7 @@ mod test {
 
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
             max_batch_size,
+            dec!(10000.0),
             tolerance,
             dec!(0.9999),
             dec!(0.99),

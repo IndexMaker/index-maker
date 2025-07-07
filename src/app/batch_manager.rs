@@ -17,6 +17,9 @@ use symm_core::core::bits::Amount;
 pub struct BatchManagerConfig {
     #[builder(setter(into, strip_option), default)]
     pub max_batch_size: Option<usize>,
+    
+    #[builder(setter(into, strip_option))]
+    pub max_total_volley_size: Amount,
 
     #[builder(setter(into, strip_option), default)]
     pub zero_threshold: Option<Amount>,
@@ -60,6 +63,7 @@ impl BatchManagerConfigBuilder {
 
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
             config.max_batch_size.unwrap_or(4),
+            config.max_total_volley_size,
             config.zero_threshold.unwrap_or(dec!(0.00001)),
             config.fill_threshold.unwrap_or(dec!(0.9999)),
             config.mint_threshold.unwrap_or(dec!(0.99)),
