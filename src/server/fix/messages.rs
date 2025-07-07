@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::solver::solver_order::SolverOrderAssetLot;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {
@@ -112,7 +113,16 @@ pub enum Body {
         collateral_remaining: String,
     },
     MintInvoiceBody {
-        client_order_id: String,
+        timestamp: DateTime<Utc>,
+        order_id: String,
+        index_id: String,
+        collateral_spent: String,
+        total_collateral: String,
+        engaged_collateral: String,
+        management_fee: String,
+        payment_id: String,
+        amount_paid: String,
+        lots: Vec<SolverOrderAssetLot>,
     },
     NewQuoteRequestBody {
         client_quote_id: String,

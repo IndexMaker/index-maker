@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
@@ -14,6 +15,25 @@ use crate::{
 };
 
 string_id!(LotId);
+
+impl Serialize for LotId {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for LotId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(LotId(s))
+    }
+}
 
 pub struct LotTransaction {
     /// ID of the closing order that was executed
