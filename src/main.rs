@@ -1,5 +1,3 @@
-use std::{env, sync::Arc};
-
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
@@ -30,6 +28,7 @@ use index_maker::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
+use std::{env, sync::Arc};
 use symm_core::{
     assets::asset::Asset,
     core::{
@@ -49,6 +48,12 @@ struct Cli {
 
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
+
+    #[arg(long, short)]
+    log_path: Option<String>,
+    
+    #[arg(long, short, action = clap::ArgAction::SetTrue)]
+    term_log_off: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -182,12 +187,12 @@ impl AppMode {
 
 #[tokio::main]
 async fn main() {
-    init_log!();
-
     // ==== Command line input
     // ----
 
     let cli = Cli::parse();
+
+    init_log!(cli.log_path.clone(), cli.term_log_off);
 
     match &cli.command {
         Commands::SendOrder {
