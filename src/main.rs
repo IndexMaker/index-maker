@@ -279,7 +279,7 @@ async fn main() {
 
                 let assets = entries.iter().map(|e| {
                     let symbol = Symbol::from(format!("{}{}", e.ticker, main_quote_currency).as_str());
-                    Arc::new(Asset::new(symbol))
+                    Arc::new(Asset::new(symbol, e.listing.clone().into()))
                 }).collect_vec();
 
                 let asset_weights = assets.iter().zip(entries.iter()).map(|(asset, entry)| {
@@ -315,7 +315,7 @@ async fn main() {
 
         let assets = symbols
             .iter()
-            .map(|s| Arc::new(Asset::new(s.clone())))
+            .map(|s| Arc::new(Asset::new(s.clone(), "BINANCE".into())))
             .collect_vec();
 
         let asset_weights = assets
@@ -338,37 +338,11 @@ async fn main() {
     let (index_symbol, basket_definition) = index_definitions.first().unwrap().clone();
 
     let symbols = basket_definition.weights.iter()
-        .map(|aw| aw.asset.name.clone())
+        .map(|aw| aw.asset.ticker.clone())
         .collect_vec();
 
     // ==== Fake stuff
     // ----
-
-    // let symbols = ["BNB", "ETH"];
-
-    // // Fake index assets (btw: these should be assets and not markets)
-    // let symbols = symbols
-    //     .into_iter()
-    //     .map(|s| format!("{}{}", s, main_quote_currency))
-    //     .map(Symbol::from)
-    //     .collect_vec();
-
-    // let weights = [dec!(0.6), dec!(0.4)];
-    // let index_symbol = Symbol::from("SO2");
-
-    // let assets = symbols
-    //     .iter()
-    //     .map(|s| Arc::new(Asset::new(s.clone())))
-    //     .collect_vec();
-
-    // let asset_weights = assets
-    //     .iter()
-    //     .zip(weights)
-    //     .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
-    //     .collect_vec();
-
-    // let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
-    //     .expect("Failed to create basket definition");
 
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
@@ -489,23 +463,25 @@ async fn main() {
     tracing::info!("Awaiting market data...");
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
-        let reslult = price_tracker
+        let result = price_tracker
             .read()
             .get_prices(PriceType::BestAsk, &symbols);
-        if reslult.missing_symbols.is_empty() {
+        if result.missing_symbols.is_empty() {
             break;
         }
     }
 
     tracing::info!("Sending index weights...");
 
-    simple_chain
-        .write()
-        .expect("Failed to lock chain connector")
-        .publish_event(ChainNotification::CuratorWeightsSet(
-            index_symbol,
-            basket_definition,
-        ));
+    // for (index_symbol, basket_definition) in index_definitions{
+    //     simple_chain
+    //         .write()
+    //         .expect("Failed to lock chain connector")
+    //         .publish_event(ChainNotification::CuratorWeightsSet(
+    //             index_symbol,
+    //             basket_definition,
+    //         ));
+    // }
 
     sleep(std::time::Duration::from_secs(2)).await;
 

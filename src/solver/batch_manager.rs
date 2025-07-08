@@ -653,7 +653,7 @@ impl BatchManager {
             let asset_quantity =
                 safe!(asset.quantity * engaged_quantity).ok_or_eyre("Math Problem")?;
 
-            let asset_symbol = &asset.weight.asset.name;
+            let asset_symbol = &asset.weight.asset.ticker;
             let key = (asset_symbol.clone(), index_order_write.side);
             let position = batch
                 .positions
@@ -722,7 +722,7 @@ impl BatchManager {
             let asset_quantity =
                 safe!(asset.quantity * filled_quantity_delta).ok_or_eyre("Math Problem")?;
 
-            let asset_symbol = &asset.weight.asset.name;
+            let asset_symbol = &asset.weight.asset.ticker;
             let key = (asset_symbol.clone(), index_order_write.side);
             let position = batch
                 .positions
