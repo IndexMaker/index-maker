@@ -1526,7 +1526,6 @@ mod test {
         Arc::new(Basket {
             basket_assets: vec![
                 BasketAsset {
-                    price: dec!(100.0),
                     quantity: dec!(8.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
@@ -1534,7 +1533,6 @@ mod test {
                     },
                 },
                 BasketAsset {
-                    price: dec!(200.0),
                     quantity: dec!(1.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_2_arc(),
@@ -1542,7 +1540,6 @@ mod test {
                     },
                 },
             ],
-            target_price: dec!(1000.0),
         })
     }
 
@@ -1550,7 +1547,6 @@ mod test {
         Arc::new(Basket {
             basket_assets: vec![
                 BasketAsset {
-                    price: dec!(100.0),
                     quantity: dec!(5.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
@@ -1558,7 +1554,6 @@ mod test {
                     },
                 },
                 BasketAsset {
-                    price: dec!(10.0),
                     quantity: dec!(50.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_3_arc(),
@@ -1566,7 +1561,6 @@ mod test {
                     },
                 },
             ],
-            target_price: dec!(1000.0),
         })
     }
 

@@ -100,7 +100,6 @@ impl Display for BasketDefinition {
 #[derive(Clone)]
 pub struct BasketAsset {
     pub weight: AssetWeight,
-    pub price: Amount,
     pub quantity: Amount,
 }
 
@@ -113,7 +112,6 @@ pub struct BasketAsset {
 /// struct needs to be burned, and new struct needs to be created.
 pub struct Basket {
     pub basket_assets: Vec<BasketAsset>,
-    pub target_price: Amount,
 }
 
 impl Basket {
@@ -136,26 +134,10 @@ impl Basket {
                     safe!(safe!(target_price / *price) * weight.weight).unwrap_or_default();
                 BasketAsset {
                     weight,
-                    price: *price,
                     quantity,
                 }
             })
             .collect();
-
-        // Complain about assets with prices
-        let unpriced_assets: Vec<&BasketAsset> = basket_assets
-            .iter()
-            .filter(|asset| asset.price.is_zero())
-            .collect();
-        if !unpriced_assets.is_empty() {
-            return Err(eyre!(format!(
-                "Unknown price of the assets: {}",
-                unpriced_assets
-                    .into_iter()
-                    .map(|a| a.weight.asset.name.as_ref())
-                    .join(", ")
-            )));
-        }
 
         // Complain about numeric overflow during quantity calculation
         let overflown_assets: Vec<&BasketAsset> = basket_assets
@@ -174,7 +156,7 @@ impl Basket {
 
         Ok(Self {
             basket_assets,
-            target_price,
+            //target_price,
         })
     }
 
@@ -214,13 +196,12 @@ impl Display for Basket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Basket[{}; {}]",
-            self.target_price,
+            "Basket[{}]",
             self.basket_assets
                 .iter()
                 .map(|ba| format!(
-                    "{:.7}{} @ ${:.7} (w={:.7})",
-                    ba.quantity, ba.weight.asset.name, ba.price, ba.weight.weight
+                    "{:.7}{} (w={:.7})",
+                    ba.quantity, ba.weight.asset.name, ba.weight.weight
                 ))
                 .join(", ")
         )
