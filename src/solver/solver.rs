@@ -2028,7 +2028,7 @@ mod test {
         // subscribe to symbol/USDC markets
         market_data_connector
             .write()
-            .subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
+            .subscribe_mock(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
             .unwrap();
 
         // send some market data

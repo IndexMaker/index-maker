@@ -37,6 +37,7 @@ use symm_core::{
         test_util::get_mock_address_1,
     },
     init_log,
+    market_data::market_data_connector::Subscription,
 };
 use tokio::time::sleep;
 
@@ -51,7 +52,7 @@ struct Cli {
 
     #[arg(long, short)]
     log_path: Option<String>,
-    
+
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
 }
@@ -303,7 +304,12 @@ async fn main() {
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
-        .symbols(symbols.clone())
+        .subscriptions(
+            symbols
+                .iter()
+                .map(|s| Subscription::new(s.clone(), Symbol::from("Binance")))
+                .collect_vec(),
+        )
         .with_price_tracker(true)
         .with_book_manager(true)
         .build()

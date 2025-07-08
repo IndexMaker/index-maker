@@ -4,6 +4,8 @@ members = [
     "libs/axum-fix-server",
     "libs/binance-market-data",
     "libs/binance-order-sending",
+    "libs/bitget-market-data",
+    "libs/market-data",
     "libs/symm-core",
     "examples",
     "proc-macros/safe-math",
@@ -17,8 +19,11 @@ autoexamples = false
 
 [dependencies]
 alloy = { workspace = true }
+async-trait = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
+bitget-market-data = { workspace = true }
+market-data = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
@@ -46,35 +51,38 @@ test-case = { workspace = true }
 
 [workspace.dependencies]
 alloy = "0.14.0"
+async-trait = "0.1.88"
+axum-fix-server = { path = "./libs/axum-fix-server" }
 base64 = "0.22.1"
-binance-sdk = { version = "^5.0.0", features = ["spot"] }
+binance-market-data = { path = "libs/binance-market-data" }
+binance-order-sending = { path = "libs/binance-order-sending" }
 #binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
+binance-sdk = { version = "^5.0.0", features = ["spot"] }
+bitget-market-data = { path = "libs/bitget-market-data" }
 chrono = { version = "0.4.40", features = ["serde"] }
-crossbeam = "0.8.4"
 clap = { version = "4.0", features = ["derive"] }
+crossbeam = "0.8.4"
 derive_builder = "^0.10"
 eyre = "0.6.12"
 futures-util = "0.3.31"
 index-maker = { path = "." }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
+market-data = { path = "libs/market-data" }
 parking_lot = "0.12.4"
+paste = "1.0.15"
+quote = "1.0.40"
+rand = "0.9.1"
 rust_decimal = { version = "1.37.1", features = ["macros"] }
 safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 string_cache = "0.8.9"
 symm-core = { path = "./libs/symm-core" }
-axum-fix-server = { path = "./libs/axum-fix-server" }
+syn = "2.0.101"
+test-case = "*"
 thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-util = "0.7.15"
-binance-market-data = { path = "libs/binance-market-data" }
-binance-order-sending = { path = "libs/binance-order-sending" }
-paste = "1.0.15"
-quote = "1.0.40"
-rand = "0.9.1"
-syn = "2.0.101"
-test-case = "*"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

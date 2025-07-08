@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use binance_sdk::config::{ConfigurationRestApi, ConfigurationWebsocketStreams};
 use binance_sdk::spot::rest_api::DepthParams;
 use binance_sdk::spot::websocket_streams::BookTickerParams;
@@ -9,42 +10,37 @@ use binance_sdk::spot::{websocket_streams::DiffBookDepthParams, SpotWsStreams};
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
 use itertools::Itertools;
+use market_data::subscriber::{SubscriberTask, SubscriberTaskFactory};
 use parking_lot::RwLock as AtomicLock;
+use symm_core::market_data::market_data_connector::Subscription;
 use symm_core::{
     core::{async_loop::AsyncLoop, bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
 use tokio::{
     select,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver},
 };
 
-use crate::{book::Books, subscriptions::Subscriptions};
+use crate::book::Books;
 
-pub struct Subscriber {
-    subscriptions: Arc<AtomicLock<Subscriptions>>,
+pub struct BinanceSubscriberTask {
     subscriber_loop: AsyncLoop<()>,
     snapshot_loop: AsyncLoop<()>,
 }
 
-impl Subscriber {
-    pub fn new(subscription_sender: UnboundedSender<Symbol>) -> Self {
+impl BinanceSubscriberTask {
+    pub fn new() -> Self {
         Self {
-            subscriptions: Arc::new(AtomicLock::new(Subscriptions::new(subscription_sender))),
             subscriber_loop: AsyncLoop::new(),
             snapshot_loop: AsyncLoop::new(),
         }
     }
+}
 
-    pub fn get_subscription_count(&self) -> usize {
-        self.subscriptions.read().get_subscription_count()
-    }
-
-    pub fn subscribe(&self, symbols: &[Symbol]) -> Result<()> {
-        self.subscriptions.write().subscribe(symbols)
-    }
-
-    pub async fn stop(&mut self) -> Result<()> {
+#[async_trait]
+impl SubscriberTask for BinanceSubscriberTask {
+    async fn stop(&mut self) -> Result<()> {
         let stop_futures = [self.subscriber_loop.stop(), self.snapshot_loop.stop()];
 
         let (_, failures): (Vec<_>, Vec<_>) =
@@ -60,11 +56,11 @@ impl Subscriber {
         Ok(())
     }
 
-    pub fn start(
+    fn start(
         &mut self,
-        mut subscription_rx: UnboundedReceiver<Symbol>,
+        mut subscription_rx: UnboundedReceiver<Subscription>,
         observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
-    ) {
+    ) -> Result<()> {
         let (snapshot_tx, mut snapshot_rx) = unbounded_channel::<Symbol>();
 
         let books = Arc::new(AtomicLock::new(Books::new_with_observer(observer)));
@@ -95,7 +91,7 @@ impl Subscriber {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
-                    Some(symbol) = subscription_rx.recv() => {
+                    Some(Subscription { ticker: symbol, listing: _ }) = subscription_rx.recv() => {
                         if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone()) {
                             tracing::warn!("Error adding book {:?}", err);
                             continue;
@@ -209,5 +205,21 @@ impl Subscriber {
             }
             tracing::info!("Snapshot loop exited");
         });
+
+        Ok(())
+    }
+}
+
+pub struct BinanceOnlySubscriberTasks;
+
+impl SubscriberTaskFactory for BinanceOnlySubscriberTasks {
+    fn create_task_for(
+        &self,
+        listing: &Symbol,
+    ) -> Result<Box<dyn market_data::subscriber::SubscriberTask + Send + Sync>> {
+        if listing.ne("Binance") {
+            Err(eyre!("Unsupported listing: {}", listing))?;
+        }
+        Ok(Box::new(BinanceSubscriberTask::new()))
     }
 }

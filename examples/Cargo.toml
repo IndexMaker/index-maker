@@ -6,17 +6,18 @@ publish = false
 
 [dependencies]
 alloy = { workspace = true }
-index-maker = { workspace = true }
+axum-fix-server = { path = "../libs/axum-fix-server" }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 binance-sdk = { workspace = true, features = ["spot"] }
 chrono = { workspace = true }
-axum-fix-server = { path = "../libs/axum-fix-server" }
 clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
+index-maker = { workspace = true }
 itertools = { workspace = true }
+market-data = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rust_decimal = { workspace = true }

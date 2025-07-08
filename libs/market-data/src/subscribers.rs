@@ -6,27 +6,38 @@ use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{bits::Symbol, functional::MultiObserver},
-    market_data::market_data_connector::MarketDataEvent,
+    market_data::market_data_connector::{MarketDataEvent, Subscription},
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::subscriber::Subscriber;
+use crate::subscriber::{Subscriber, SubscriberTaskFactory};
 
 pub struct Subscribers {
+    subscriber_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
     subscribers: Vec<Subscriber>,
     max_subscriber_symbols: usize,
 }
 
 impl Subscribers {
-    pub fn new(max_subscriber_symbols: usize) -> Self {
+    pub fn new(
+        max_subscriber_symbols: usize,
+        subscriber_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
+    ) -> Self {
         Self {
+            subscriber_factory,
             subscribers: Vec::new(),
             max_subscriber_symbols,
         }
     }
 
-    pub async fn find_available_subscriber_mut(&mut self) -> Option<&mut Subscriber> {
+    pub async fn find_available_subscriber_mut(
+        &mut self,
+        listing: &Symbol,
+    ) -> Option<&mut Subscriber> {
         for sub in &mut self.subscribers {
+            if sub.get_listing().ne(listing) {
+                continue;
+            }
             let subscription_count = sub.get_subscription_count();
             if subscription_count < self.max_subscriber_symbols {
                 Some(sub);
@@ -37,27 +48,33 @@ impl Subscribers {
 
     pub fn start_new_subscriber_mut(
         &mut self,
+        listing: Symbol,
         observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
-    ) -> &mut Subscriber {
+    ) -> Result<&mut Subscriber> {
         let (tx, rx) = unbounded_channel();
-        self.subscribers.push(Subscriber::new(tx));
+        let subscriber_task = self.subscriber_factory.create_task_for(&listing)?;
+        self.subscribers
+            .push(Subscriber::new(listing, tx, subscriber_task));
         let sub = self.subscribers.last_mut().unwrap();
-        sub.start(rx, observer);
-        sub
+        sub.start(rx, observer)?;
+        Ok(sub)
     }
 
     pub async fn add_subscription(
         &mut self,
-        symbol: Symbol,
+        subscrption: Subscription,
         observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     ) -> Result<()> {
-        let sub = match self.find_available_subscriber_mut().await {
+        let sub = match self
+            .find_available_subscriber_mut(&subscrption.listing)
+            .await
+        {
             Some(sub) => sub,
-            None => self.start_new_subscriber_mut(observer),
+            None => self.start_new_subscriber_mut(subscrption.listing.clone(), observer)?,
         };
 
-        let symbol_clone = symbol.clone();
-        sub.subscribe(&[symbol_clone])
+        let subscription_clone = subscrption.clone();
+        sub.subscribe(&[subscription_clone])
     }
 
     pub async fn stop_all(&mut self) -> Result<()> {

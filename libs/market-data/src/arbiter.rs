@@ -3,18 +3,18 @@ use std::sync::Arc;
 use eyre::{Report, Result};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
-use symm_core::core::bits::Symbol;
 use symm_core::core::functional::MultiObserver;
-use symm_core::market_data::market_data_connector::MarketDataEvent;
+use symm_core::market_data::market_data_connector::{MarketDataEvent, Subscription};
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
 use symm_core::core::async_loop::AsyncLoop;
 
+use crate::subscriber::SubscriberTaskFactory;
 use crate::subscribers::Subscribers;
 use crate::subscriptions::Subscriptions;
 
 pub struct Arbiter {
-    arbiter_loop: AsyncLoop<UnboundedReceiver<Symbol>>,
+    arbiter_loop: AsyncLoop<UnboundedReceiver<Subscription>>,
 }
 
 impl Arbiter {
@@ -24,18 +24,19 @@ impl Arbiter {
         }
     }
 
-    pub async fn stop(&mut self) -> Result<UnboundedReceiver<Symbol>, Either<JoinError, Report>> {
+    pub async fn stop(&mut self) -> Result<UnboundedReceiver<Subscription>, Either<JoinError, Report>> {
         self.arbiter_loop.stop().await
     }
 
     pub fn start(
         &mut self,
         subscriptions: Arc<AtomicLock<Subscriptions>>,
-        mut subscription_rx: UnboundedReceiver<Symbol>,
+        mut subscription_rx: UnboundedReceiver<Subscription>,
         observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
         max_subscriber_symbols: usize,
+        subscriber_task_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
     ) {
-        let mut subscribers = Subscribers::new(max_subscriber_symbols);
+        let mut subscribers = Subscribers::new(max_subscriber_symbols, subscriber_task_factory);
         self.arbiter_loop.start(async move |cancel_token| {
             tracing::info!("Loop started");
             loop {
@@ -43,11 +44,11 @@ impl Arbiter {
                     _ = cancel_token.cancelled() => {
                         break
                     },
-                    Some(symbol) = subscription_rx.recv() => {
-                        match subscribers.add_subscription(symbol.clone(), observer.clone()).await {
+                    Some(subscription) = subscription_rx.recv() => {
+                        match subscribers.add_subscription(subscription.clone(), observer.clone()).await {
                             Ok(_) => {
                                 let mut subs = subscriptions.write();
-                                if let Err(err) = subs.add_subscription_taken(symbol) {
+                                if let Err(err) = subs.add_subscription_taken(subscription) {
                                     tracing::warn!("Error storing taken subscription {:?}", err);
                                 }
                             }

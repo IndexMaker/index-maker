@@ -2,17 +2,17 @@ use std::{collections::HashSet, usize};
 
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
-use symm_core::core::bits::Symbol;
+use symm_core::market_data::market_data_connector::Subscription;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub struct Subscriptions {
-    subscription_sender: UnboundedSender<Symbol>,
-    subscriptions: HashSet<Symbol>,
-    subscriptions_taken: HashSet<Symbol>,
+    subscription_sender: UnboundedSender<Subscription>,
+    subscriptions: HashSet<Subscription>,
+    subscriptions_taken: HashSet<Subscription>,
 }
 
 impl Subscriptions {
-    pub fn new(subscription_sender: UnboundedSender<Symbol>) -> Self {
+    pub fn new(subscription_sender: UnboundedSender<Subscription>) -> Self {
         Self {
             subscription_sender,
             subscriptions: HashSet::new(),
@@ -20,7 +20,7 @@ impl Subscriptions {
         }
     }
 
-    pub fn get_subscriptions(&self) -> &HashSet<Symbol> {
+    pub fn get_subscriptions(&self) -> &HashSet<Subscription> {
         &self.subscriptions
     }
 
@@ -32,25 +32,25 @@ impl Subscriptions {
         self.subscriptions_taken.len()
     }
 
-    pub fn add_subscription_taken(&mut self, symbol: Symbol) -> Result<()> {
+    pub fn add_subscription_taken(&mut self, subscription: Subscription) -> Result<()> {
         self.subscriptions
-            .contains(&symbol)
+            .contains(&subscription)
             .then_some(())
             .ok_or_eyre("Subscription not found")?;
         self.subscriptions_taken
-            .insert(symbol)
+            .insert(subscription)
             .then_some(())
             .ok_or_eyre("Subscription already taken")?;
         Ok(())
     }
 
-    pub fn subscribe(&mut self, symbols: &[Symbol]) -> Result<()> {
-        let (successes, failures): (Vec<_>, Vec<_>) = symbols
+    pub fn subscribe(&mut self, subscriptions: &[Subscription]) -> Result<()> {
+        let (successes, failures): (Vec<_>, Vec<_>) = subscriptions
             .iter()
-            .map(|symbol| {
+            .map(|subscription| {
                 self.subscription_sender
-                    .send(symbol.clone())
-                    .map(|_| symbol.clone())
+                    .send(subscription.clone())
+                    .map(|_| subscription.clone())
             })
             .partition_result();
 

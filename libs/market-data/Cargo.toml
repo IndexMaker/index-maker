@@ -1,16 +1,14 @@
 [package]
-name = "binance-market-data"
+name = "market-data"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 async-trait = { workspace = true }
-binance-sdk = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
-market-data = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rust_decimal = { workspace = true }
