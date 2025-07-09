@@ -7,7 +7,7 @@ use itertools::Itertools;
 use eyre::{OptionExt, Result};
 use safe_math::safe;
 
-use crate::core::{
+use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     decimal_ext::DecimalExt,
 };
@@ -167,7 +167,7 @@ impl CollateralSide {
             let unconfirmed_balance = safe!(lot.unconfirmed_amount - amount)?;
             lot.unconfirmed_amount = unconfirmed_balance;
             lot.ready_amount = ready_balance;
-            println!(
+            tracing::info!(
                 "(colateral-side) AddReady for {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial confirm)",
                 lot.payment_id, amount, lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
@@ -179,7 +179,7 @@ impl CollateralSide {
             lot.unconfirmed_amount = Amount::ZERO;
             lot.ready_amount = ready_balance;
             lot.last_update_timestamp = timestamp;
-            println!(
+            tracing::info!(
                 "(colateral-side) AddReady for {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full confirm)",
                 lot.payment_id, amount, lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
             );
@@ -235,7 +235,7 @@ impl CollateralSide {
                 spent_amount: Amount::ZERO,
                 timestamp,
             };
-            println!(
+            tracing::info!(
                 "(colateral-side) PreAuth for {} [{}] {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial preauth)",
                 lot.payment_id, spend.payment_id, spend.client_order_id, spend.preauth_amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
@@ -256,7 +256,7 @@ impl CollateralSide {
                 spent_amount: Amount::ZERO,
                 timestamp,
             };
-            println!(
+            tracing::info!(
                 "(colateral-side) PreAuth for {} [{}] {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full preauth)",
                 lot.payment_id, spend.payment_id, spend.client_order_id, spend.preauth_amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
@@ -340,7 +340,7 @@ impl CollateralSide {
                 && lot.ready_amount < zero_threshold
                 && lot.preauth_amount < zero_threshold
             {
-                println!(
+                tracing::info!(
                     "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full spend)",
                         lot.payment_id, payment_id, amount,
                         lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
@@ -348,7 +348,7 @@ impl CollateralSide {
 
                 closed_lots.push_back(lot.payment_id.clone());
             } else {
-                println!(
+                tracing::info!(
                     "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
                         lot.payment_id, payment_id, amount,
                         lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
@@ -391,7 +391,7 @@ impl CollateralSide {
             lot.preauth_amount = preauth_balance;
             lot.spent_amount = spent_balance;
 
-            println!(
+            tracing::info!(
                 "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend *)",
                 lot.payment_id, payment_id, amount,
                 lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
@@ -546,14 +546,15 @@ mod test {
     use rust_decimal::dec;
     use test_case::test_case;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
-        collateral::collateral_position::{ConfirmStatus, PreAuthStatus},
         core::{
             bits::{Amount, Side},
             test_util::get_mock_address_1,
         },
     };
+
+    use crate::collateral::collateral_position::{ConfirmStatus, PreAuthStatus};
 
     use super::CollateralPosition;
 

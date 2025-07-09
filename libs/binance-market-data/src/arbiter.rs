@@ -1,18 +1,14 @@
-use std::{sync::Arc, usize};
+use std::sync::Arc;
 
 use eyre::{Report, Result};
-use index_maker::core::functional::MultiObserver;
-use index_maker::market_data::market_data_connector::MarketDataEvent;
-use index_maker::{core::bits::Symbol};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
-use tokio::{
-    select,
-    sync::mpsc::UnboundedReceiver,
-    task::JoinError,
-};
+use symm_core::core::bits::Symbol;
+use symm_core::core::functional::MultiObserver;
+use symm_core::market_data::market_data_connector::MarketDataEvent;
+use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
-use async_core::async_loop::AsyncLoop;
+use symm_core::core::async_loop::AsyncLoop;
 
 use crate::subscribers::Subscribers;
 use crate::subscriptions::Subscriptions;
@@ -41,6 +37,7 @@ impl Arbiter {
     ) {
         let mut subscribers = Subscribers::new(max_subscriber_symbols);
         self.arbiter_loop.start(async move |cancel_token| {
+            tracing::info!("Loop started");
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
@@ -51,21 +48,21 @@ impl Arbiter {
                             Ok(_) => {
                                 let mut subs = subscriptions.write();
                                 if let Err(err) = subs.add_subscription_taken(symbol) {
-                                    eprintln!("Error storing taken subscription {:?}", err);
+                                    tracing::warn!("Error storing taken subscription {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("Error while subscribing {:?}", err);
+                                tracing::warn!("Error while subscribing {:?}", err);
                             }
                         }
                     }
                 }
             }
-            if let Err(err) = subscribers.stop_all().await { 
-                eprintln!("Error stopping subscribers {:?}", err);
+            if let Err(err) = subscribers.stop_all().await {
+                tracing::warn!("Error stopping subscribers {:?}", err);
             }
+            tracing::info!("Loop exited");
             subscription_rx
         });
     }
 }
-

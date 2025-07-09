@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use async_core::async_loop::AsyncLoop;
 use eyre::Report;
-use index_maker::{
-    core::functional::SingleObserver, order_sender::order_connector::OrderConnectorNotification,
-};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
+use symm_core::{
+    core::{async_loop::AsyncLoop, bits::Symbol, functional::SingleObserver},
+    order_sender::order_connector::OrderConnectorNotification,
+};
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
-use crate::{session::Credentials, sessions::Sessions, subaccounts::SubAccounts};
+use crate::{credentials::Credentials, sessions::Sessions, subaccounts::SubAccounts};
 
 /// Arbiter manages open sessions
 ///
@@ -38,31 +38,38 @@ impl Arbiter {
         &mut self,
         subaccounts: Arc<AtomicLock<SubAccounts>>,
         mut subaccount_rx: UnboundedReceiver<Credentials>,
+        symbols: Vec<Symbol>,
         sessions: Arc<AtomicLock<Sessions>>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
+            tracing::info!("Loop started");
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
                         break
                     },
                     Some(credentials) = subaccount_rx.recv() => {
-                        let api_key = credentials.get_api_key();
-                        match sessions.write().add_session(credentials, observer.clone()) {
+                        let account_name = credentials.get_account_name();
+                        match sessions.write().add_session(credentials, symbols.clone(), observer.clone()) {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
-                                if let Err(err) = suba.add_subaccount_taken(api_key) {
-                                    eprintln!("Error storing taken session {:?}", err);
+                                if let Err(err) = suba.add_subaccount_taken(account_name) {
+                                    tracing::warn!("Error storing taken session {:?}", err);
                                 }
                             }
                             Err(err) => {
-                                eprintln!("Error while creating session {:?}", err);
+                                tracing::warn!("Error while creating session {:?}", err);
                             }
                         }
                     }
                 }
             }
+            let sessions = sessions.write().drain_all_sessions();
+            if let Err(err) = Sessions::stop_all(sessions).await {
+                tracing::warn!("Error stopping sessions {:?}", err);
+            }
+            tracing::info!("Loop exited");
             subaccount_rx
         });
     }

@@ -9,7 +9,8 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
-use crate::{
+use crate::solver::solver_order::SolverOrderStatus;
+use symm_core::{
     core::{
         bits::{
             Address, Amount, AssetOrder, BatchOrder, BatchOrderId, ClientOrderId, OrderId, Side,
@@ -18,12 +19,11 @@ use crate::{
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
-    solver::solver_order::SolverOrderStatus,
+    order_sender::position::LotId,
 };
 
 use super::{
     index_order_manager::EngagedIndexOrder,
-    position::LotId,
     solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
     solver_order::{SolverOrder, SolverOrderAssetLot},
 };
@@ -176,7 +176,7 @@ impl BatchAssetPosition {
             let asset_allocation = lot.build_solver_asset_lot(self.symbol.clone(), quantity)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
-            println!(
+            tracing::info!(
                 "(batch-asset-position) IndexOrder allocation for {} {} {} q={:0.5} p={:0.5} fee={:0.5}",
                 index_order.client_order_id,
                 asset_allocation.lot_id,
@@ -339,7 +339,7 @@ impl BatchOrderStatus {
         })()
         .ok_or_eyre("Math Problem")?;
 
-        println!(
+        tracing::info!(
             "(batch-manager) Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
             position.side,
             position.symbol,
@@ -350,7 +350,7 @@ impl BatchOrderStatus {
             position.fee
         );
 
-        println!(
+        tracing::info!(
             "(batch-manager) Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
             batch_order_id,
             self.volley_size,
@@ -386,7 +386,7 @@ impl BatchOrderStatus {
             .values()
             .all(|position| position.is_cancelled)
         {
-            println!(
+            tracing::info!(
                 "(batch-manager) Batch is all cancelled {}",
                 self.batch_order_id
             );
@@ -408,9 +408,11 @@ impl BatchOrderStatus {
                     carried_lots.extend(position.open_lots.drain(1..));
                     let carried_position =
                         carried_lots.iter().map(|lot| lot.remaining_quantity).sum();
-                    println!(
+                    tracing::info!(
                         "(batch-order-status) Carried over {} {:?} {:0.5}",
-                        symbol, side, carried_position
+                        symbol,
+                        side,
+                        carried_position
                     );
 
                     match carry_overs.entry((symbol.clone(), *side)) {
@@ -487,6 +489,7 @@ pub struct BatchManager {
     ready_batches: VecDeque<BatchOrderId>,
     carry_overs: Mutex<HashMap<(Symbol, Side), BatchCarryOver>>,
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    total_volley_size: RwLock<Amount>,
     max_batch_size: usize,
     zero_threshold: Amount,
     fill_threshold: Amount,
@@ -509,6 +512,7 @@ impl BatchManager {
             ready_batches: VecDeque::new(),
             carry_overs: Mutex::new(HashMap::new()),
             ready_mints: Mutex::new(VecDeque::new()),
+            total_volley_size: RwLock::new(Amount::ZERO),
             max_batch_size,
             zero_threshold,
             fill_threshold,
@@ -526,28 +530,27 @@ impl BatchManager {
         let batch_order_id = &engaged_orders.batch_order_id;
         let mut batch_data = HashMap::new();
 
-        for engage_order in engaged_orders.engaged_orders.iter() {
-            for basket_asset in engage_order.basket.basket_assets.iter() {
-                let asset_symbol = &basket_asset.weight.asset.name;
-                let price = *engage_order.asset_price_limits.get(&asset_symbol).unwrap();
-                let quantity = *engage_order.asset_quantities.get(&asset_symbol).unwrap();
-                match batch_data.entry(asset_symbol.clone()) {
-                    Entry::Vacant(entry) => {
-                        entry.insert(AssetOrder {
-                            order_id: host.get_next_order_id(),
-                            price,
-                            quantity,
-                            side: engage_order.engaged_side,
-                            symbol: basket_asset.weight.asset.name.clone(),
-                        });
-                    }
-                    Entry::Occupied(mut entry) => {
-                        let asset_order = entry.get_mut();
-                        asset_order.quantity =
-                            safe!(asset_order.quantity + quantity).ok_or_eyre("Math Problem")?;
-                    }
-                }
-            }
+        for (asset_symbol, quantity) in &engaged_orders.engaged_buys.asset_quantities {
+            let price = *engaged_orders
+                .engaged_buys
+                .asset_price_limits
+                .get(&asset_symbol)
+                .ok_or_else(|| eyre!("Cannot find expected price for asset {}", asset_symbol))?;
+
+            batch_data
+                .insert(
+                    asset_symbol.clone(),
+                    AssetOrder {
+                        order_id: host.get_next_order_id(),
+                        price,
+                        quantity: *quantity,
+                        side: Side::Buy,
+                        symbol: asset_symbol.clone(),
+                    },
+                )
+                .is_none()
+                .then_some(())
+                .ok_or_else(|| eyre!("Cannot insert asset order for {}", asset_symbol))?;
         }
 
         let batch = BatchOrder {
@@ -603,7 +606,7 @@ impl BatchManager {
         let carried_positions = batch_order_status.carry_in(&mut self.carry_overs.lock())?;
         self.adjust_order_batch(&mut batch, carried_positions)?;
 
-        println!(
+        tracing::info!(
             "(batch-manager) Sending Batch: {}",
             batch
                 .asset_orders
@@ -614,6 +617,8 @@ impl BatchManager {
                 ))
                 .join("; ")
         );
+
+        *self.total_volley_size.write() += batch_order_status.volley_size;
 
         self.batches
             .insert(
@@ -679,7 +684,7 @@ impl BatchManager {
             fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
                 Some(x.min(avialable_fill_rate))
             });
-            println!(
+            tracing::info!(
                 "(batch-manager) Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
                 asset_symbol,
                 asset_quantity,
@@ -690,7 +695,10 @@ impl BatchManager {
             );
         }
 
-        let fill_rate = fill_rate.expect("Fill-rate must have been known at this stage");
+        // The index-order fill-rate must never exceed 100%
+        let fill_rate = fill_rate
+            .expect("Fill-rate must have been known at this stage")
+            .min(Amount::ONE);
 
         // This is new filled quantity of this batch engagement with Index Order
         let filled_quantity = safe!(fill_rate * engaged_quantity).ok_or_eyre("Math Problem")?;
@@ -784,7 +792,7 @@ impl BatchManager {
         let order_fill_rate = safe!(index_order_write.collateral_spent / total_collateral)
             .ok_or_eyre("Math Problem")?;
 
-        println!(
+        tracing::info!(
             "(batch-manager) Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
             index_order_write.filled_quantity,
             index_order_write.remaining_collateral,
@@ -817,9 +825,11 @@ impl BatchManager {
         }
 
         if self.fill_threshold < order_fill_rate {
-            println!(
+            tracing::info!(
                 "(batch-manager) Index Order {} fill-rate {:0.5} is above fill threshold {:0.5}",
-                index_order_write.client_order_id, order_fill_rate, self.fill_threshold
+                index_order_write.client_order_id,
+                order_fill_rate,
+                self.fill_threshold
             );
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
         }
@@ -838,7 +848,7 @@ impl BatchManager {
             .get(&batch_order_id)
             .ok_or_else(|| eyre!("Engagement not found {}", batch_order_id))?;
 
-        for engaged_order in engagement.write().engaged_orders.iter_mut() {
+        for engaged_order in engagement.write().engaged_buys.engaged_orders.iter_mut() {
             self.fill_index_order(host, &mut batch.write(), engaged_order)?
         }
 
@@ -862,7 +872,7 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let new_engagements = (|| {
+        let new_engagements = {
             let new_batches = &mut self.ready_batches;
             let max_drain = new_batches.len().min(self.max_batch_size);
             new_batches
@@ -870,7 +880,7 @@ impl BatchManager {
                 .filter_map(|batch_order_id| self.engagements.get(&batch_order_id))
                 .cloned()
                 .collect_vec()
-        })();
+        };
 
         for engaged_orders in new_engagements {
             self.send_batch(host, &engaged_orders.read(), timestamp)?;
@@ -896,10 +906,14 @@ impl BatchManager {
         Ok(())
     }
 
+    pub fn get_total_volley_size(&self) -> Amount {
+        *self.total_volley_size.read()
+    }
+
     fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.mint_wait_period;
         let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
-        let ready_mints = (|| {
+        let ready_mints = {
             let mut mints = self.ready_mints.lock();
             let res = mints.iter().find_position(|p| check_not_ready(&p.read()));
             if let Some((pos, _)) = res {
@@ -908,7 +922,7 @@ impl BatchManager {
                 mints.drain(..)
             }
             .collect_vec()
-        })();
+        };
         ready_mints
     }
 
@@ -931,14 +945,15 @@ impl BatchManager {
         engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!(
-            "\n(batch-manager) Handle Index Order EngageIndexOrder {}",
+        tracing::info!(
+            "(batch-manager) Handle Index Order EngageIndexOrder {}",
             batch_order_id
         );
         match self.engagements.get(&batch_order_id) {
             Some(engaged_orders_stored) => {
                 engaged_orders_stored
                     .write()
+                    .engaged_buys
                     .engaged_orders
                     .iter_mut()
                     .for_each(|engaged_order_stored| {
@@ -975,14 +990,11 @@ impl BatchManager {
 
                                 index_order_stored.timestamp = timestamp;
 
-                                match index_order_stored.status {
-                                    SolverOrderStatus::Ready => {
-                                        host.set_order_status(
-                                            &mut index_order_stored,
-                                            SolverOrderStatus::Engaged,
-                                        );
-                                    }
-                                    _ => (),
+                                if let SolverOrderStatus::Ready = index_order_stored.status {
+                                    host.set_order_status(
+                                        &mut index_order_stored,
+                                        SolverOrderStatus::Engaged,
+                                    );
                                 }
                             }
                             None => {
@@ -1084,20 +1096,22 @@ impl BatchManager {
 
             let mut continued_orders = Vec::new();
 
-            for engaged_order in engagement.read().engaged_orders.iter() {
+            for engaged_order in engagement.read().engaged_buys.engaged_orders.iter() {
                 let mut index_order = engaged_order.index_order.upgradable_read();
                 let collateral_carried = index_order.engaged_collateral;
 
                 if self.zero_threshold < collateral_carried {
                     if let SolverOrderStatus::FullyMintable = index_order.status {
-                        println!(
+                        tracing::info!(
                             "(batch-manager) Index Order is Fully Mintable {} cc={:0.5}",
-                            engaged_order.client_order_id, collateral_carried
+                            engaged_order.client_order_id,
+                            collateral_carried
                         );
                     } else {
-                        println!(
+                        tracing::info!(
                             "(batch-manager) Will continue Index Order {} cc={:0.5}",
-                            engaged_order.client_order_id, collateral_carried
+                            engaged_order.client_order_id,
+                            collateral_carried
                         );
                         index_order.with_upgraded(|index_order_write| {
                             index_order_write.collateral_carried = collateral_carried;
@@ -1107,6 +1121,8 @@ impl BatchManager {
                     }
                 }
             }
+
+            *self.total_volley_size.write() -= batch.read().volley_size;
 
             self.observer.publish_single(BatchEvent::BatchComplete {
                 batch_order_id,
@@ -1138,7 +1154,7 @@ mod test {
     use rust_decimal::dec;
     use test_case::test_case;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::{
@@ -1151,12 +1167,19 @@ mod test {
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
             },
         },
+    };
+
+    use crate::{
         index::basket::{AssetWeight, Basket, BasketDefinition},
         solver::{
             batch_manager::BatchEvent,
             index_order_manager::EngagedIndexOrder,
-            solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
-            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus}, solver_quote::{SolverQuote, SolverQuoteStatus},
+            solver::{
+                EngagedSolverOrders, EngagedSolverOrdersSide, SetSolverOrderStatus,
+                SolverOrderEngagement,
+            },
+            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
+            solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 
@@ -1412,7 +1435,7 @@ mod test {
 
     impl SetSolverOrderStatus for MockHost {
         fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
-            println!("Set order status: {:?}", status);
+            tracing::info!("Set order status: {:?}", status);
             order.status = status;
         }
 
@@ -1428,7 +1451,7 @@ mod test {
 
         fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
             let _ = batch_order;
-            println!("Send order batch");
+            tracing::info!("Send order batch");
             Ok(())
         }
 
@@ -1449,7 +1472,7 @@ mod test {
             let _ = client_order_id;
             let _ = address;
             let _ = chain_id;
-            println!("Fill order request");
+            tracing::info!("Fill order request");
             Ok(())
         }
     }
@@ -1503,11 +1526,11 @@ mod test {
                     batch_order_id,
                     continued_orders,
                 } => {
-                    assert_eq!(batch_order_id.0, "B-1".to_owned());
+                    assert_eq!(*batch_order_id, "B-1".to_owned());
                     assert_eq!(continued_orders.len(), 1);
 
                     let first = continued_orders[0].read();
-                    assert_eq!(first.client_order_id.0, "C-1".to_owned());
+                    assert_eq!(*first.client_order_id, "C-1".to_owned());
 
                     flag_mock_atomic_bool(&batch_complete_set);
                 }
@@ -1545,23 +1568,32 @@ mod test {
         // Engagement definition would be built be SolverStrategy (e.g. SimpleSolver)
         let engagement_definition = Arc::new(RwLock::new(EngagedSolverOrders {
             batch_order_id: "B-1".into(),
-            engaged_orders: vec![SolverOrderEngagement {
-                index_order,
-                asset_contribution_fractions: HashMap::from([(get_mock_asset_name_1(), dec!(1.0))]),
-                asset_quantities: HashMap::from([(get_mock_asset_name_1(), dec!(10.0))]),
+            engaged_buys: EngagedSolverOrdersSide {
                 asset_price_limits,
-                chain_id: 1,
-                address: get_mock_address_1(),
-                client_order_id: "C-1".into(),
-                symbol: get_mock_asset_name_1(),
-                basket,
-                engaged_side: Side::Buy,
-                engaged_collateral: dec!(1200.0),
-                new_engaged_collateral: dec!(1200.0),
-                engaged_quantity: dec!(1.0),
-                engaged_price: dec!(1200.0),
-                filled_quantity: dec!(0.0),
-            }],
+                asset_quantities: HashMap::from([(get_mock_asset_name_1(), dec!(10.0))]),
+                engaged_orders: vec![SolverOrderEngagement {
+                    index_order,
+                    asset_contribution_fractions: HashMap::from([(
+                        get_mock_asset_name_1(),
+                        dec!(1.0),
+                    )]),
+                    asset_quantity_contributions: HashMap::from([(
+                        get_mock_asset_name_1(),
+                        dec!(10.0),
+                    )]),
+                    chain_id: 1,
+                    address: get_mock_address_1(),
+                    client_order_id: "C-1".into(),
+                    symbol: get_mock_asset_name_1(),
+                    basket,
+                    engaged_side: Side::Buy,
+                    engaged_collateral: dec!(1200.0),
+                    new_engaged_collateral: dec!(1200.0),
+                    engaged_quantity: dec!(1.0),
+                    engaged_price: dec!(1200.0),
+                    filled_quantity: dec!(0.0),
+                }],
+            },
         }));
 
         // Engagement confirmation would be built by Index Order Manager

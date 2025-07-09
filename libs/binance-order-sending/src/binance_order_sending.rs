@@ -1,21 +1,18 @@
 use std::sync::Arc;
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::{
+use parking_lot::RwLock as AtomicLock;
+use symm_core::{
     core::{
-        bits::SingleOrder,
+        bits::{SingleOrder, Symbol},
         functional::{IntoObservableSingleArc, SingleObserver},
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };
-use parking_lot::RwLock as AtomicLock;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{
-    arbiter::Arbiter,
-    command::{Command, SessionCommand},
-    session::Credentials,
-    sessions::Sessions,
+    arbiter::Arbiter, command::Command, credentials::Credentials, sessions::Sessions,
     subaccounts::SubAccounts,
 };
 
@@ -39,7 +36,7 @@ impl BinanceOrderSending {
         }
     }
 
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start(&mut self, symbols: Vec<Symbol>) -> Result<()> {
         let subaccount_rx = self
             .subaccount_rx
             .take()
@@ -48,6 +45,7 @@ impl BinanceOrderSending {
         self.arbiter.start(
             self.subaccounts.clone(),
             subaccount_rx,
+            symbols,
             self.sessions.clone(),
             self.observer.clone(),
         );
@@ -78,10 +76,13 @@ impl BinanceOrderSending {
 
 impl OrderConnector for BinanceOrderSending {
     fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()> {
-        self.sessions.read().send_command(SessionCommand {
-            session_id,
-            command: Command::NewOrder(order.clone()),
-        })
+        tracing::debug!("Send to: {} command: {:#?}", session_id, &*order);
+        let sessions = self.sessions.read();
+        let session = sessions
+            .get_session(&session_id)
+            .ok_or_else(|| eyre!("Cannot find session: {}", session_id))?;
+
+        session.send_command(Command::NewOrder(order.clone()))
     }
 }
 

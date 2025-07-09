@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use async_core::async_loop::AsyncLoop;
+use chrono::Utc;
 use eyre::{eyre, Report, Result};
-use index_maker::order_sender::order_connector::SessionId;
-use index_maker::{
-    core::functional::{PublishSingle, SingleObserver},
-    order_sender::order_connector::OrderConnectorNotification,
-};
 use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
+use symm_core::{
+    core::{
+        async_loop::AsyncLoop, bits::Symbol, functional::{PublishSingle, SingleObserver}
+    },
+    order_sender::order_connector::OrderConnectorNotification,
+};
 use tokio::task::JoinError;
 use tokio::{
     select,
@@ -16,36 +17,8 @@ use tokio::{
 };
 
 use crate::command::Command;
+use crate::credentials::Credentials;
 use crate::trading_session::TradingSessionBuilder;
-
-pub struct Credentials {
-    api_key: String,
-    get_secret_fn: Box<dyn Fn() -> String + Send + Sync>,
-}
-
-impl Credentials {
-    pub fn new(
-        api_key: String,
-        get_secret_fn: impl Fn() -> String + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            api_key,
-            get_secret_fn: Box::new(get_secret_fn),
-        }
-    }
-
-    pub fn get_api_key(&self) -> String {
-        self.api_key.clone()
-    }
-
-    pub(crate) fn get_api_secret(&self) -> String {
-        (*self.get_secret_fn)()
-    }
-
-    pub(crate) fn into_session_id(&self) -> SessionId {
-        SessionId(self.get_api_key())
-    }
-}
 
 pub struct Session {
     command_tx: UnboundedSender<Command>,
@@ -75,46 +48,56 @@ impl Session {
         mut command_rx: UnboundedReceiver<Command>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         credentials: Credentials,
+        symbols: Vec<Symbol>,
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
-            println!("(binance-session) Logon");
+            tracing::info!("Session loop started");
             let session_id = credentials.into_session_id();
+            let on_error = |reason| {
+                tracing::warn!("{:?}", reason);
+                observer
+                    .read()
+                    .publish_single(OrderConnectorNotification::SessionLogout {
+                        session_id: session_id.clone(),
+                        reason,
+                        timestamp: Utc::now(),
+                    })
+            };
 
-            let trading_session = match TradingSessionBuilder::build(&credentials).await {
+            let mut trading_session = match TradingSessionBuilder::build(&credentials).await {
                 Err(err) => {
-                    observer
-                        .read()
-                        .publish_single(OrderConnectorNotification::SessionLogout {
-                            session_id,
-                            reason: format!("Failed create session: {:?}", err),
-                        });
+                    on_error(format!("Failed create session: {:?}", err));
                     return credentials;
                 }
                 Ok(s) => s,
             };
 
             if let Err(err) = trading_session.logon().await {
-                observer
-                    .read()
-                    .publish_single(OrderConnectorNotification::SessionLogout {
-                        session_id,
-                        reason: format!("Failed to login: {:?}", err),
-                    });
+                on_error(format!("Failed to login: {:?}", err));
                 return credentials;
             }
 
-            let user_data = match trading_session.subscribe(observer.clone()).await {
+            if let Err(err) = trading_session.get_exchange_info(symbols).await {
+                on_error(format!("Failed to get exchange info: {:?}", err));
+                return credentials;
+            }
+
+            let user_data = match trading_session.get_user_data().await {
                 Err(err) => {
-                    observer
-                        .read()
-                        .publish_single(OrderConnectorNotification::SessionLogout {
-                            session_id: session_id.clone(),
-                            reason: format!("Failed to obtain user-data: {:?}", err),
-                        });
+                    on_error(format!("Failed to obtain user-data: {:?}", err));
                     return credentials;
                 }
                 Ok(s) => s,
             };
+
+            observer
+                .read()
+                .publish_single(OrderConnectorNotification::SessionLogon {
+                    session_id: session_id.clone(),
+                    timestamp: Utc::now(),
+                });
+
+            user_data.subscribe(observer.clone());
 
             loop {
                 select! {
@@ -122,8 +105,8 @@ impl Session {
                         break;
                     },
                     Some(command) = command_rx.recv() => {
-                        if let Err(res) = trading_session.send_command(command).await {
-                            eprintln!("(binance-order-sending-session) Failed to send command: {:?}", res);
+                        if let Err(res) = trading_session.send_command(command, &observer).await {
+                            tracing::warn!("Failed to send command: {:?}", res);
                         }
                     },
                 }
@@ -131,14 +114,15 @@ impl Session {
 
             user_data.unsubscribe().await;
 
-            println!("(binance-session) Logout");
             observer
                 .read()
                 .publish_single(OrderConnectorNotification::SessionLogout {
                     session_id,
-                    reason: "Session disconnected".to_owned(),
+                    reason: "Session ended".to_owned(),
+                    timestamp: Utc::now(),
                 });
 
+            tracing::info!("Session loop exited");
             credentials
         });
 

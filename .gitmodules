@@ -1,0 +1,3 @@
+[submodule "subs/binance-connector-rust"]
+	path = subs/binance-connector-rust
+	url = git@github.com:IndexMaker/binance-connector-rust.git

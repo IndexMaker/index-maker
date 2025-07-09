@@ -5,23 +5,27 @@ use crossbeam::{
     channel::{bounded, unbounded},
     select,
 };
-use index_maker::{
+use parking_lot::RwLock;
+use rust_decimal::dec;
+use symm_core::{
     core::{
         bits::{Amount, PriceType, Side},
         functional::{IntoObservableManyArc, IntoObservableSingle},
+        logging::log_init,
     },
+    init_log,
     market_data::{
         market_data_connector::{MarketDataConnector, MarketDataEvent},
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager, PricePointBookManager},
         price_tracker::{PriceEvent, PriceTracker},
     },
 };
-use parking_lot::RwLock;
-use rust_decimal::dec;
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() {
+    init_log!();
+
     let mut market_data = BinanceMarketData::new(2);
 
     let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
@@ -45,10 +49,7 @@ async fn main() {
 
     let handle_order_book_event = move |e| match e {
         OrderBookEvent::UpdateError { symbol, error } => {
-            eprintln!(
-                "(order-book-manager) Failed to apply update for {} reason: {}",
-                symbol, error
-            );
+            tracing::warn!("Failed to apply update for {} reason: {}", symbol, error);
         }
         OrderBookEvent::BookUpdate { symbol } => {
             let mut prices = price_tracker
@@ -56,7 +57,7 @@ async fn main() {
                 .get_prices(PriceType::BestAsk, &[symbol.clone()]);
 
             if !prices.missing_symbols.is_empty() {
-                eprint!("(order-book-manager) No prices for {}", symbol);
+                tracing::warn!("No prices for {}", symbol);
                 return;
             }
 
@@ -72,20 +73,35 @@ async fn main() {
             match book_manager_read.get_liquidity(Side::Sell, &prices.prices) {
                 Ok(liquidity) => {
                     let liquidity = liquidity.get(&symbol).unwrap();
-                    println!("(order-book-manager) Liquidity for {} at {} <= ASK <= {} available: {}", symbol, price, limit, liquidity);
+                    tracing::info!(
+                        "Liquidity for {} at {} <= ASK <= {} available: {}",
+                        symbol,
+                        price,
+                        limit,
+                        liquidity
+                    );
 
                     let book = book_manager_read.get_order_book(&symbol).unwrap();
                     for entry in book.get_entries(Side::Sell, 10) {
-                        println!("(order-book-manager) Entry for {}: {:0.5} {:0.5}", symbol, entry.price, entry.quantity);
+                        tracing::debug!(
+                            "Entry for {}: {:0.5} {:0.5}",
+                            symbol,
+                            entry.price,
+                            entry.quantity
+                        );
                     }
-                },
-                Err(err) => eprint!("(order-book-manager) Encountered error while getting liquidity for {} reason: {}", symbol, err)
+                }
+                Err(err) => tracing::warn!(
+                    "Encountered error while getting liquidity for {} reason: {}",
+                    symbol,
+                    err
+                ),
             }
         }
     };
 
     spawn(move || {
-        println!("Running event loop");
+        tracing::info!("Running event loop");
         let mut price_event_count = 0;
         loop {
             select! {
@@ -93,7 +109,7 @@ async fn main() {
                     price_event_count += 1;
                 },
                 recv(book_rx) -> res => {
-                    println!("(order-book-manager) Order Book event (price_event_count = {})", price_event_count);
+                    tracing::info!("Order Book event (price_event_count = {})", price_event_count);
                     price_event_count = 0;
                     handle_order_book_event(res.unwrap());
                 },

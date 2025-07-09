@@ -1,9 +1,27 @@
-pub mod assets {
-    pub mod asset;
+pub mod app {
+    pub mod fix_server;
+    pub mod basket_manager;
+    pub mod batch_manager;
+    pub mod collateral_manager;
+    pub mod config;
+    pub mod index_order_manager;
+    pub mod market_data;
+    pub mod order_sender;
+    pub mod quote_request_manager;
+    pub mod simple_chain;
+    pub mod simple_router;
+    pub mod simple_server;
+    pub mod simple_solver;
+    pub mod solver;
+    pub mod timestamp_ids;
 }
 
 pub mod blockchain {
     pub mod chain_connector;
+    pub mod evm {
+        pub mod evm_bridge;
+        pub mod evm_connector;
+    }
 }
 
 pub mod collateral {
@@ -12,40 +30,20 @@ pub mod collateral {
     pub mod collateral_router;
 }
 
-pub mod core {
-    pub mod bits;
-    pub mod decimal_ext;
-    pub mod decimal_macros;
-    pub mod deque_macros;
-    pub mod functional;
-    pub mod hashmap_macros;
-
-    #[cfg(test)]
-    pub mod test_util;
-}
-
 pub mod index {
     pub mod basket;
     pub mod basket_manager;
 }
 
-pub mod market_data {
-    pub mod market_data_connector;
-    pub mod price_tracker;
-
-    pub mod order_book {
-        pub mod order_book;
-        pub mod order_book_manager;
-    }
-}
-
-pub mod order_sender {
-    pub mod order_connector;
-    pub mod order_tracker;
-}
-
 pub mod server {
     pub mod server;
+    pub mod fix {
+        pub mod messages;
+        pub mod requests;
+        pub mod responses;
+        pub mod server;
+        pub mod server_plugin;
+    }
 }
 
 pub mod solver {
@@ -54,9 +52,7 @@ pub mod solver {
     pub mod index_order_manager;
     pub mod index_quote;
     pub mod index_quote_manager;
-    pub mod inventory_manager;
     pub mod mint_invoice;
-    pub mod position;
     pub mod solver;
     pub mod solver_order;
     pub mod solver_quote;

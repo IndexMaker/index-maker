@@ -3,27 +3,24 @@ use std::{
     sync::Arc,
 };
 
-use alloy::signers::k256::elliptic_curve::weierstrass::add;
+use axum_fix_server::server;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use itertools::Either;
 use parking_lot::RwLock;
 use safe_math::safe;
 
 use crate::{
-    core::{
-        bits::{BatchOrderId, PaymentId},
-        decimal_ext::DecimalExt,
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
     server::server::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
     solver::index_order::IndexOrder,
 };
-
-use crate::core::bits::{Address, Amount, ClientOrderId, Side, Symbol};
+use symm_core::core::{
+    bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
+    decimal_ext::DecimalExt,
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+};
 
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
@@ -194,14 +191,13 @@ impl IndexOrderManager {
         let index_order = user_index_orders
             .entry(symbol.clone())
             .or_insert_with(|| {
-                let order = Arc::new(RwLock::new(IndexOrder::new(
+                Arc::new(RwLock::new(IndexOrder::new(
                     chain_id,
                     address.clone(),
                     symbol.clone(),
                     side,
                     timestamp.clone(),
-                )));
-                order
+                )))
             })
             .clone();
 
@@ -370,7 +366,9 @@ impl IndexOrderManager {
                 ) {
                     let result = match &reason {
                         ServerResponseReason::User(..) => Ok(()),
-                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::Server(err) => {
+                            Err(eyre!("Internal server error: {:?}", err))
+                        }
                     };
                     self.server
                         .write()
@@ -412,7 +410,9 @@ impl IndexOrderManager {
                 ) {
                     let result = match &reason {
                         ServerResponseReason::User(..) => Ok(()),
-                        ServerResponseReason::Server(err) => Err(eyre!("Internal server error: {:?}", err)),
+                        ServerResponseReason::Server(err) => {
+                            Err(eyre!("Internal server error: {:?}", err))
+                        }
                     };
                     self.server
                         .write()
@@ -452,8 +452,7 @@ impl IndexOrderManager {
     ) -> Result<()> {
         self.index_orders
             .get(&(chain_id, *address))
-            .and_then(|x| x.get(symbol))
-            .and_then(|index_order| Some(index_order.upgradable_read()))
+            .and_then(|x| x.get(symbol).map(|index_order| index_order.upgradable_read()))
             .and_then(|mut order_upread| {
                 let (update_remaining_collateral, update_collateral_spent, update_fee) = (|| {
                     let update = order_upread
@@ -463,17 +462,21 @@ impl IndexOrderManager {
                     let mut update_upread = update.upgradable_read();
 
                     let update_collateral_spent = safe!(update_upread.collateral_spent + fees)?;
+                    tracing::debug!("(index-order-manager) update_collateral_spent: {:0.5}", update_collateral_spent);
+                    tracing::debug!("(index-order-manager) fees: {:0.5}", fees);
                     let update_fee = safe!(update_upread.update_fee + fees)?;
+                    tracing::debug!("(index-order-manager) update_fee: {:0.5}", update_fee);
                     let update_remaining_collateral =
                         safe!(update_upread.remaining_collateral - fees)?;
-
+                    tracing::debug!("(index-order-manager) update_remaining_collateral: {:0.5}", update_remaining_collateral);
+                    tracing::debug!("(index-order-manager) collateral_amount: {:0.5}", collateral_amount);
                     if update_remaining_collateral < safe!(collateral_amount - self.tolerance)? {
-                        eprintln!(
+                        tracing::warn!(
                             "(index-order-manager) Error updating collateral ready: {:0.5} < {:0.5}",
                             update_remaining_collateral, collateral_amount
                         );
                         return None;
-                    }
+                    }                  
 
                     update_upread.with_upgraded(|update_write| {
                         update_write.collateral_spent = update_collateral_spent;
@@ -530,9 +533,11 @@ impl IndexOrderManager {
                             Ok(index_order_write.order_updates.is_empty())
                         })()?;
                         if should_remove {
-                            println!(
+                            tracing::info!(
                                 "(index-order-manager) Removing entry for [{}:{}] {}",
-                                chain_id, address, symbol
+                                chain_id,
+                                address,
+                                symbol
                             );
                             inner_entry.remove();
                         }
@@ -545,9 +550,10 @@ impl IndexOrderManager {
                     )),
                 }?;
                 if entry.get().is_empty() {
-                    println!(
+                    tracing::info!(
                         "(index-order-manager) Removing entry for [{}:{}]",
-                        chain_id, address
+                        chain_id,
+                        address
                     );
                     entry.remove();
                 }
@@ -617,6 +623,15 @@ impl IndexOrderManager {
             lots,
             timestamp,
         )?;
+
+        self.server.write().respond_with({
+            ServerResponse::MintInvoice {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                timestamp,
+            }
+        });
 
         Ok(())
     }
@@ -730,7 +745,7 @@ impl IndexOrderManager {
                     engage_order.collateral_amount,
                     self.tolerance,
                 )?;
-                println!(
+                tracing::info!(
                     "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
                     engage_order.client_order_id,
                     engage_order.collateral_amount,

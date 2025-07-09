@@ -9,13 +9,12 @@ use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
-use crate::{
-    core::{
-        bits::{Address, Amount, ClientOrderId, PaymentId, Side},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
-    solver::solver::{CollateralManagement, SetSolverOrderStatus},
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, PaymentId, Side},
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
+
+use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
 
 use super::{
     collateral_position::*,
@@ -89,9 +88,25 @@ impl CollateralManager {
                         Side::Sell => position_read.side_dr.unconfirmed_balance,
                     };
                     if unconfirmed_balance < request.collateral_amount {
+                        tracing::debug!(
+                            "(collateral-manager) Awaiting deposit [{}:{}] {}: ca={} ub={}",
+                            request.chain_id,
+                            request.address,
+                            request.client_order_id,
+                            request.collateral_amount,
+                            unconfirmed_balance
+                        );
                         Either::Right(request)
                     } else {
-                        Either::Left((request, unconfirmed_balance))
+                        tracing::debug!(
+                            "(collateral-manager) Ready to route [{}:{}] {}: ca={} ub={}",
+                            request.chain_id,
+                            request.address,
+                            request.client_order_id,
+                            request.collateral_amount,
+                            unconfirmed_balance
+                        );
+                        Either::Left(request)
                     }
                 } else {
                     Either::Right(request)
@@ -102,7 +117,7 @@ impl CollateralManager {
 
         let failures = ready_to_route
             .into_iter()
-            .filter_map(|(request, unconfirmed_balance)| {
+            .filter_map(|request| {
                 match self
                     .router
                     .write()
@@ -113,7 +128,7 @@ impl CollateralManager {
                             request.address,
                             request.client_order_id.clone(),
                             request.side,
-                            unconfirmed_balance,
+                            request.collateral_amount,
                         )
                     }) {
                     Ok(()) => None,
@@ -123,7 +138,7 @@ impl CollateralManager {
             .collect_vec();
 
         if !failures.is_empty() {
-            eprintln!(
+            tracing::warn!(
                 "(collateral-manager) Errors in processing: {}",
                 failures
                     .into_iter()
@@ -144,9 +159,10 @@ impl CollateralManager {
     }
 
     pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
-        println!(
+        tracing::info!(
             "(collateral-manager) ManageCollateral for {} {}",
-            collateral_management.address, collateral_management.client_order_id
+            collateral_management.address,
+            collateral_management.client_order_id
         );
         self.collateral_management_requests
             .push_back(collateral_management);
@@ -160,9 +176,11 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) Deposit from [{}:{}] {:0.5}",
-            chain_id, address, amount
+            chain_id,
+            address,
+            amount
         );
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
@@ -178,9 +196,11 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
-            chain_id, address, amount
+            chain_id,
+            address,
+            amount
         );
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
@@ -203,9 +223,10 @@ impl CollateralManager {
         side: Side,
         amount_payable: Amount,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) PreAuth Payment for {} {:0.5}",
-            address, amount_payable
+            address,
+            amount_payable
         );
 
         let funds = self
@@ -254,9 +275,10 @@ impl CollateralManager {
         side: Side,
         amount_paid: Amount,
     ) -> Result<()> {
-        println!(
+        tracing::info!(
             "(collateral-manager) Confirm Payment for {} {:0.5}",
-            address, amount_paid
+            address,
+            amount_paid
         );
 
         let funds = self
@@ -327,9 +349,15 @@ impl CollateralManager {
                 amount,
                 fee,
             } => {
-                println!(
+                tracing::info!(
                     "(collateral-manager) Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
-                    chain_id, address, client_order_id, transfer_from, transfer_to, amount, fee
+                    chain_id,
+                    address,
+                    client_order_id,
+                    transfer_from,
+                    transfer_to,
+                    amount,
+                    fee
                 );
                 let funds = self
                     .get_position(chain_id, &address)
@@ -344,12 +372,16 @@ impl CollateralManager {
                     .add_ready(side, amount, timestamp, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;
 
-                // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
+                // Note: We must charge the collateral routing fee otherwise
+                // we'll have dangling unconfirmed amount, while that amount was
+                // in fact used already when routing collateral.
                 let get_payment_id = || "Charges".into();
                 let payment_id = get_payment_id();
+
                 funds_write
                     .add_ready(side, fee, timestamp, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;
+
                 funds_write
                     .preauth_payment(
                         &client_order_id,
@@ -360,16 +392,7 @@ impl CollateralManager {
                         get_payment_id,
                     )
                     .ok_or_eyre("Math Problem")?;
-                //funds_write
-                //    .preauth_payment(
-                //        &client_order_id,
-                //        timestamp,
-                //        side,
-                //        amount,
-                //        self.zero_threshold,
-                //        get_payment_id,
-                //    )
-                //    .ok_or_eyre("Math Problem")?;
+
                 funds_write
                     .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
                     .ok_or_eyre("Math Problem")?;
@@ -408,11 +431,8 @@ mod test {
     use chrono::Utc;
     use rust_decimal::dec;
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
-        collateral::{
-            collateral_manager::PreAuthStatus, collateral_router::test_util::build_test_router,
-        },
         core::{
             bits::{PaymentId, Side},
             functional::IntoObservableSingle,
@@ -422,9 +442,16 @@ mod test {
                 run_mock_deferred, test_mock_atomic_bool,
             },
         },
+    };
+
+    use crate::{
+        collateral::{
+            collateral_manager::PreAuthStatus, collateral_router::test_util::build_test_router,
+        },
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
-            solver_order::{SolverOrder, SolverOrderStatus}, solver_quote::{SolverQuote, SolverQuoteStatus},
+            solver_order::{SolverOrder, SolverOrderStatus},
+            solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
 
@@ -454,7 +481,7 @@ mod test {
     impl CollateralManagerHost for MockCollateralManagerHost {
         fn get_next_payment_id(&self) -> PaymentId {
             let last_id = self.last_id.fetch_add(1, Ordering::SeqCst);
-            PaymentId(format!("P-{}", last_id))
+            PaymentId::from(format!("P-{}", last_id))
         }
     }
 
@@ -532,27 +559,28 @@ mod test {
                     fee,
                     ..
                 } => {
-                    println!(
+                    tracing::info!(
                         "Collateral Ready Event {:0.5} {:0.5}",
-                        collateral_amount, fee
+                        collateral_amount,
+                        fee
                     );
                 }
                 CollateralEvent::PreAuthResponse { status, .. } => match status {
                     PreAuthStatus::Approved { .. } => {
-                        println!("PreAuthResponse Event: Approved");
+                        tracing::info!("PreAuthResponse Event: Approved");
                         flag_mock_atomic_bool(&preauth_approved_set);
                     }
                     PreAuthStatus::NotEnoughFunds => {
-                        println!("PreAuthResponse Event: NotEnoughFunds");
+                        tracing::info!("PreAuthResponse Event: NotEnoughFunds");
                     }
                 },
                 CollateralEvent::ConfirmResponse { status, .. } => match status {
                     ConfirmStatus::Authorized => {
-                        println!("ConfirmRespnse Event: Authorized");
+                        tracing::info!("ConfirmRespnse Event: Authorized");
                         flag_mock_atomic_bool(&confirm_auth_set);
                     }
                     ConfirmStatus::NotEnoughFunds => {
-                        println!("ConfirmRespnse Event: NotEnoughFunds");
+                        tracing::info!("ConfirmRespnse Event: NotEnoughFunds");
                     }
                 },
             });

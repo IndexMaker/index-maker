@@ -74,6 +74,12 @@
     - [x] Create Binance Market Data Connector implementation
     - [x] Create Binance Market Data Connector integration example
     - [x] Build order book from Binance market data events
+* [x] Binance Order Sending Connector
+    - [x] Investigate work required to support sending orders to Binance
+    - [x] Design Binance Order Connector architecture
+    - [x] Create Binance Order Connector implementation
+    - [x] Create Binance Order Connector integration example
+    - [x] Send small order to Binance using limit price X% away from TOB
 * [ ] Bitget Market Data Connector
     - [ ] Investigate work required to support Bitget Market Data
     - [ ] Receive book deltas and snapshots from Bitget
@@ -81,28 +87,21 @@
     - [ ] Create Bitget Market Data Connector implementation
     - [ ] Create Bitget Market Data Connector integration example
     - [ ] Build order book from Bitget market data events
-* [ ] Binance Order Sending Connector
-    - [ ] Investigate work required to support sending orders to Binance
-    - [ ] Design Binance Order Connector architecture
-    - [ ] Create Binance Order Connector implementation
-    - [ ] Create Binance Order Connector integration example
-    - [ ] Send small order to Binance using limit price X% away from TOB
 * [ ] Bitget Order Sending Connector
     - [ ] Investigate work required to support sending orders to Bitget
     - [ ] Design Bitget Order Connector architecture
     - [ ] Create Bitget Order Connector implementation
     - [ ] Create Bitget Order Connector integration example
     - [ ] Send small order to Bitget using limit price X% away from TOB
-* [ ] Alloy Integration Investigation
-    - [ ] Calling contract methods
-    - [ ] Subscribtions to chain events
+* [ ] Alloy Integration
+    - [x] Calling contract methods
+    - [x] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
-* [ ] Collateral Router Bridges Investigation
-    - [ ] Investigate how do we transfer collateral from EVM to EVM
-    - [ ] Investigate how do we transfer collateral from EVM to Ceffu
-    - [ ] Investigate how do we transfer collateral from Ceffu to Binance
-    - [ ] Investigate how do we transfer collateral from Binance to Binance
-    - [ ] Send small amount of collateral from EVM to Binance via Ceffu
+* [ ] Collateral Router Bridges
+    - [ ] Create Collateral Bridge between two EVM chains using Across
+    - [ ] Create Collateral Bridge between two EVM wallets within same network 
+    - [ ] Create Collateral Designation for Binance account
+    - [ ] Send small amount of collateral from EVM to Binance
 * [ ] Sell side implementation
     - [ ] Wait for index token collateral before selling assets
     - [ ] Obtain USD cash management details after filling index order
@@ -110,20 +109,23 @@
     - [ ] Burn index token collateral
 * [ ] Rebalance
     - [ ] Review rebalance code...
-* [ ] Implement additional limits
-    - [ ] Ensure individual orders in a batch have size at least minimum
-    - [ ] Ensure order rate is within limits
-    - [ ] Ensure total volley size across batches is not exceeded
+* [x] Implement additional limits
+    - [x] Ensure individual orders in a batch have size at least minimum
+    - [x] Ensure order rate is within limits
+    - [x] Ensure total volley size across batches is not exceeded
 * [ ] Additional Work for Binance Market Data Connector 
     - [ ] Test performance of many subscriptions
     - [ ] Investigate asset delisting
     - [ ] Investigate system to maintain the list of assets
     - [ ] Create Solver example with live market data
+* [ ] Additional Work for Binance Order Sending Connector 
+    - [x] Respect rate limits
+    - [x] Respect price and quantity filters
+    - [x] Handle private user data notifications
 * [ ] Logging & Error handling
-    - [ ] Use Rust `log` package for logging
-    - [ ] Use `env_logger` package for log level configuration
-    - [ ] Find out best way to handle runtime errors
-    - [ ] Explore logging mechanism, and craft log messages
+    - [x] Choose Rust package for logging (see `tracing` package)
+    - [ ] Find out best way to handle runtime errors (logging, automated recovery, responding to user)
+    - [ ] Explore logging mechanism (craft log messages, configure logging to file)
     - [x] Error handling for server events
 * [ ] Reporting & On-Chain History Recording
     - [ ] Invastigate reportable events to store on-chain as proof of transaction
@@ -150,13 +152,15 @@
 #### Design & Performance
 
 * [ ] Logging
-    - We need to review our logging, as at present messages and errors are logged to standard output.
-    - We need to review log messages, and ensure they contain just right amount of information for us to understand what happened in the system, and not too much to avoid logs bloating and poor overall performance.
-    - We need to find logging mechanism that we want to use, and test it so that we know how it performs.
+    - [x] We need to review our logging, as at present messages and errors are logged to standard output.
+    - [ ] We need to review log messages, and ensure they contain just right amount of information for us to understand what happened in the system, and not too much to avoid logs bloating and poor overall performance.
+    - [x] We need to find logging mechanism that we want to use, and test it so that we know how it performs.
 * [ ] Error handling
-    - We need to review our error handling, as we are currently bailing out in case of an error, and we might be leaving some state inconsistent (especially if arithmetic error happens in the middle of calculations).
+    - [ ] We need to review our error handling, as we are currently bailing out in case of an error, and we might be leaving some state inconsistent (especially if arithmetic error happens in the middle of calculations).
 * [ ] Multi-Threaded Performance
-    - We need to review design of queues and events in context of performance and
+    - [x] Evaluate performance & behaviour of demo application running separate threads
+    for quote backend, order backend, solver, and market data.
+    - [ ] We need to review design of queues and events in context of performance and
     maintainability, i.e. we use Mutex and RwLock from parking-lot, and then
     standard VecDeque and HashMap. The VecDeque gives us ability to efficiently
     drain number of elements from the front using some predicate.  The parking-lot
@@ -190,32 +194,57 @@ The resulting PoC should be able to demonstrate following activity:
 - User receives confirmations of each individual Index Order fill
 - User receives newly minted Index Token
 
-## Phase 2. FIX integration
+## Phase 2. Integration
 
 ### Goal
 
-The goal is to have fully functional FIX server capable of receiving NewOrder, CancelOrder etc messages
+The goal is to have working demoable MVP where we can send Index Orders over FIX, and we want to
+see Solver acquiring assets from Binance, and reporting mint.
 
-## Phase 3. Chain integration
+The resulting MVP should be able to demonstrate following:
+- User can send Index Order over FIX/Json to Solver service
+- Solver receives latest asset prices and order book updates from Binance
+- Solver creates a batch of Asset Orders, and sends them out to Binance
+- Solver responds to filled Asset Orders by assigning lots to Index Orders
+- Solver sends back to the user Fill Reports and eventually Mint Invoice
 
-### Goal
-
-The goal is to have fully functiona chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
-
-## Phase 4. Binance Market Data integration
-
-### Goal
+### Binance Market Data
 
 The goal is to integrate market data from Binance, and observe system behavior and accuracy dependant on changing market conditions.
-We would be sending orders into mock connector, yet using real market data. This is to confirm that orders look as expected and system
-works correctly.
 
-## Phase 5. Binance Orders integration
+We will use Binance SDK provided directly by Binance to receive market data and track asset prices, and build books.
 
-### Goal
+### Binance Orders
 
-The goal is to integrate order sending with Binance, and to conrifm that orders are sent, they don't exceed limits, they get
+The goal is to integrate order sending with Binance, and to confirm that orders are sent, they don't exceed limits, they get
 executed, we track them correctly all the way up until minting.
+
+We will use Binance SDK to log onto Binance account, obtain exchange information about traded assets, and to send orders.
+The order sender will respect order rate limits and will apply price & quantity filters to orders before sending to Binance.
+
+### FIX/Json over Web Sockets
+
+The goal is to have fully functional FIX server capable of receiving NewOrder, CancelOrder etc messages.
+
+We will use Axum web framework to provide web socket server, and on top of that we will privde FIX/Json
+protocol to the users. The sever will have a plugin, which will translate from FIX/Json messages into
+application specific events and from application specific reponses into FIX/Json responses. Plugin will
+be provided by application, i.e. Solver (Index Maker).
+
+### EVM Network
+
+The goal is to have fully functional chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
+
+We will use Alloy framework to provide interop with EVM chains, and on top of that we will provide
+Chain Connector implementation that will emit application events, and will provide application level methods, that will translate
+into chain specific smart-contract method calls. 
+
+### Collateral Routing
+
+The goal is to have fully functional collateral routing implemented, so that collateral can be routed
+from Arbitrum to Binance via Base. The routing between Arbitrum and Base is to be done via Across bridge, while
+the routing from Base to Binance should happend between two EVM wallets. The wallet address for Binance account
+need to be obtained via Binance API call.
 
 ## Phase X. Future Development
 

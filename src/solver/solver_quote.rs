@@ -4,10 +4,10 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use parking_lot::RwLock;
 use eyre::{eyre, OptionExt, Result};
+use parking_lot::RwLock;
 
-use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+use symm_core::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverQuoteStatus {
@@ -157,7 +157,7 @@ impl SolverClientQuotes {
 
         Ok(())
     }
-    
+
     pub fn cancel_client_order(
         &mut self,
         chain_id: u32,
@@ -184,13 +184,15 @@ impl SolverClientQuotes {
                         queue.retain(|x| !x.eq(&client_quote_id));
                     }
                 } else {
-                    eprintln!("(solver) Cancel order found empty index order queue for the user");
+                    tracing::warn!(
+                        "(solver) Cancel order found empty index order queue for the user"
+                    );
                     entry.remove();
                 }
                 notify
             }
             Entry::Vacant(_) => {
-                eprintln!("(solver) Cancel order cannot find any index orders for the user");
+                tracing::warn!("(solver) Cancel order cannot find any index orders for the user");
                 false
             }
         };
@@ -205,7 +207,5 @@ impl SolverClientQuotes {
 mod test {
 
     #[test]
-    fn test_solver_quotes() {
-
-    }
+    fn test_solver_quotes() {}
 }

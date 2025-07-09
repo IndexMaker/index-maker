@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use crate::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+use symm_core::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
 
 /// a quote on index
 pub struct IndexQuote {
@@ -51,7 +51,7 @@ impl IndexQuote {
             collateral_amount,
             quantity_possible: Amount::ZERO,
             created_timestamp: timestamp,
-            last_update_timestamp: timestamp
+            last_update_timestamp: timestamp,
         }
     }
 }

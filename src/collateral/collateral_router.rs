@@ -8,90 +8,11 @@ use itertools::Itertools;
 
 use eyre::{eyre, OptionExt, Result};
 
-use crate::core::{
+use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
-    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    functional::{IntoObservableSingle, IntoObservableSingleVTable, PublishSingle, SingleObserver},
 };
 
-pub enum CollateralTransferEvent {
-    TransferComplete {
-        chain_id: u32,
-        address: Address,
-        client_order_id: ClientOrderId,
-        timestamp: DateTime<Utc>,
-        transfer_from: Symbol,
-        transfer_to: Symbol,
-        amount: Amount,
-        fee: Amount,
-    },
-}
-
-pub enum CollateralRouterEvent {
-    HopComplete {
-        chain_id: u32,
-        address: Address,
-        client_order_id: ClientOrderId,
-        timestamp: DateTime<Utc>,
-        source: Symbol,
-        destination: Symbol,
-        route_from: Symbol,
-        route_to: Symbol,
-        amount: Amount,
-        fee: Amount,
-    },
-}
-
-pub trait CollateralDesignation: Send + Sync {
-    /// e.g. EVM, CEFFU, BINANCE
-    fn get_type(&self) -> Symbol;
-
-    /// e.g. ARBITRUM, BASE, CEFFU, 1, 2
-    fn get_name(&self) -> Symbol;
-
-    /// e.g. USDC, USDT
-    fn get_collateral_symbol(&self) -> Symbol;
-
-    /// e.g. EVM:ARBITRUM:USDC
-    fn get_full_name(&self) -> Symbol;
-
-    /// Tell balance of the collateral in this designation
-    fn get_balance(&self) -> Amount;
-}
-
-pub trait CollateralBridge: Send + Sync {
-    /// e.g. EVM:ARBITRUM:USDC
-    fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
-
-    /// e.g. BINANCE:1:USDT
-    fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
-
-    /// Transfer funds from this designation to target designation
-    ///
-    /// - chain_id - Chain ID from which IndexOrder originated
-    /// - address - User address from whom IndexOrder originated
-    /// - client_order_id - An ID of the IndexOrder that user assigned to it
-    /// - amount - An amount to be transferred from source to destination
-    ///
-    /// This may be direct bridge or composite of several bridges.
-    ///
-    /// Bridging Rules:
-    /// ===============
-    /// * `EVM:ARBITRUM:USDC` => `EVM:BASE:USDC`
-    /// * `EVM:BASE:USDC` => `CEFFU:USDC`
-    /// * `CEFFU:USDC` => `BINANCE:1:USDC`
-    /// * `BINANCE:1:USDC` => `BINANCE:1:USDT`
-    /// * `BINANCE:1:USDC` => `BINANCE:2:USDC`
-    fn transfer_funds(
-        &self,
-        chain_id: u32,
-        address: Address,
-        client_order_id: ClientOrderId,
-        route_from: Symbol,
-        route_to: Symbol,
-        amount: Amount,
-        cumulative_fee: Amount,
-    ) -> Result<()>;
-}
 
 pub struct CollateralRouter {
     observer: SingleObserver<CollateralTransferEvent>,
@@ -135,6 +56,10 @@ impl CollateralRouter {
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate designation ID")
+    }
+
+    pub fn get_bridges(&self) -> Vec<Arc<ComponentLock<dyn CollateralBridge>>> {
+        self.bridges.values().cloned().collect_vec()
     }
 
     pub fn add_route(&mut self, route: &[Symbol]) -> Result<()> {
@@ -222,7 +147,7 @@ impl CollateralRouter {
             })
             .ok_or_eyre("Route not found")?;
 
-        println!(
+        tracing::info!(
             "(collateral-router) Found route: {}",
             route.iter().join(", ")
         );
@@ -261,9 +186,15 @@ impl CollateralRouter {
                 fee,
             } => {
                 if route_to.eq(&destination) {
-                    println!(
+                    tracing::info!(
                         "(collateral-router) Route Complete for [{}:{}] {}: {} => {} {:0.5} {:0.5}",
-                        chain_id, address, client_order_id, route_from, route_to, amount, fee
+                        chain_id,
+                        address,
+                        client_order_id,
+                        route_from,
+                        route_to,
+                        amount,
+                        fee
                     );
                     self.observer
                         .publish_single(CollateralTransferEvent::TransferComplete {
@@ -282,7 +213,7 @@ impl CollateralRouter {
                     let next_hop = next_hop
                         .write()
                         .map_err(|e| eyre!("Failed to access next hop {}", e))?;
-                    println!(
+                    tracing::info!(
                         "(collateral-router) Route Hop for [{}:{}] {}: ({}) {} .. [{}] => {} ({}) {:0.5} {:0.5}",
                         chain_id,
                         address,
@@ -327,9 +258,12 @@ pub mod test_util {
         sync::{mpsc::Sender, Arc, RwLock as ComponentLock},
     };
 
-    use crate::core::{
+    use symm_core::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        functional::{
+            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+            PublishSingle, SingleObserver,
+        },
     };
 
     use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
@@ -422,6 +356,15 @@ pub mod test_util {
     impl IntoObservableSingle<CollateralRouterEvent> for MockCollateralBridge {
         fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralRouterEvent> {
             &mut self.observer
+        }
+    }
+
+    impl IntoObservableSingleVTable<CollateralRouterEvent> for MockCollateralBridge {
+        fn set_observer(
+            &mut self,
+            observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>,
+        ) {
+            self.get_single_observer_mut().set_observer(observer);
         }
     }
 
@@ -615,9 +558,9 @@ mod test {
 
     use test_case::test_case;
 
-    use crate::{
+    use crate::collateral::collateral_router::test_util::build_test_router;
+    use symm_core::{
         assert_decimal_approx_eq,
-        collateral::collateral_router::test_util::build_test_router,
         core::{
             bits::Side,
             functional::IntoObservableSingle,

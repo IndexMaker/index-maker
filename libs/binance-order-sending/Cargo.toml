@@ -5,18 +5,18 @@ edition = "2021"
 publish = false
 
 [dependencies]
-index-maker = { path = "../.." }
-async-core = { path = "../async-core" }
-base64 = "0.22.1"
-binance-sdk = { version = "1.0.0", features = ["spot"] }
+base64 = { workspace = true }
+binance-sdk = { workspace = true }
 chrono = { workspace = true }
 eyre = { workspace = true }
-futures-util = "0.3.31"
+futures-util = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
-rust_decimal = "1.37.1"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = "0.7.15"
-
+rust_decimal = { workspace = true }
+safe-math = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+symm-core = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }

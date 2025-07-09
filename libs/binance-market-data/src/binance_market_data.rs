@@ -1,10 +1,14 @@
 use std::{sync::Arc, usize};
 
 use eyre::{eyre, OptionExt, Result};
-use index_maker::core::functional::{IntoObservableMany, IntoObservableManyArc, MultiObserver};
-use index_maker::{core::bits::Symbol};
-use index_maker::market_data::market_data_connector::{MarketDataConnector, MarketDataEvent};
 use parking_lot::RwLock as AtomicLock;
+use symm_core::{
+    core::{
+        bits::Symbol,
+        functional::{IntoObservableManyArc, MultiObserver},
+    },
+    market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
+};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::arbiter::Arbiter;
@@ -63,14 +67,13 @@ impl BinanceMarketData {
 }
 
 impl MarketDataConnector for BinanceMarketData {
-    fn subscribe(&self, symbols: &[index_maker::core::bits::Symbol]) -> Result<()> {
+    fn subscribe(&self, symbols: &[Symbol]) -> Result<()> {
         self.subscriptions.write().subscribe(symbols)
     }
 }
 
 impl IntoObservableManyArc<Arc<MarketDataEvent>> for BinanceMarketData {
-    fn get_multi_observer_arc(&mut self) -> &Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>> {
+    fn get_multi_observer_arc(&self) -> &Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>> {
         &self.observer
     }
 }
-

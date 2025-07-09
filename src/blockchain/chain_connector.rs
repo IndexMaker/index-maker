@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
-use crate::{
-    core::bits::{Address, Amount, Symbol},
-    index::basket::{Basket, BasketDefinition},
+use symm_core::core::{
+    bits::{Address, Amount, Symbol},
+    functional::IntoObservableSingleVTable,
 };
+
+use crate::index::basket::{Basket, BasketDefinition};
 
 /// call blockchain methods, receive blockchain events
 
@@ -27,7 +29,7 @@ pub enum ChainNotification {
 }
 
 /// Connects to some Blockchain
-pub trait ChainConnector {
+pub trait ChainConnector: IntoObservableSingleVTable<ChainNotification> {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>);
     fn mint_index(
         &self,
@@ -56,13 +58,15 @@ pub mod test_util {
 
     use chrono::{DateTime, Utc};
 
-    use crate::{
-        core::{
-            bits::{Address, Amount, Symbol},
-            functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    use symm_core::core::{
+        bits::{Address, Amount, Symbol},
+        functional::{
+            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+            PublishSingle, SingleObserver,
         },
-        index::basket::{Basket, BasketDefinition},
     };
+
+    use crate::index::basket::{Basket, BasketDefinition};
 
     use super::{ChainConnector, ChainNotification};
 
@@ -171,6 +175,12 @@ pub mod test_util {
         }
     }
 
+    impl IntoObservableSingleVTable<ChainNotification> for MockChainConnector {
+        fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
+            self.get_single_observer_mut().set_observer(observer);
+        }
+    }
+
     impl ChainConnector for MockChainConnector {
         fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
             self.implementor
@@ -237,14 +247,17 @@ mod tests {
     use parking_lot::RwLock;
     use rust_decimal::dec;
 
-    use crate::{
+    use symm_core::{
         assert_hashmap_amounts_eq,
-        blockchain::chain_connector::{ChainConnector, ChainNotification},
         core::{
             bits::{Amount, Symbol},
             functional::{IntoObservableSingle, SingleObserver},
             test_util::*,
         },
+    };
+
+    use crate::{
+        blockchain::chain_connector::{ChainConnector, ChainNotification},
         index::{
             basket::{AssetWeight, BasketDefinition},
             basket_manager::{BasketManager, BasketNotification},

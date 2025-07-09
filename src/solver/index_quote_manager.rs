@@ -8,15 +8,15 @@ use eyre::{eyre, Result};
 use parking_lot::RwLock;
 
 use crate::{
-    core::{
-        bits::{Address, Amount, ClientQuoteId, Side, Symbol},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
     server::server::{
         CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
     solver::index_quote::IndexQuote,
+};
+use symm_core::core::{
+    bits::{Address, Amount, ClientQuoteId, Side, Symbol},
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
 use super::solver::SolveQuotesResult;
@@ -154,7 +154,7 @@ impl QuoteRequestManager {
     }
 
     pub fn quotes_solved(&mut self, solved_quotes: SolveQuotesResult) -> Result<()> {
-        println!("(index-order-manager) Quotes solved...");
+        //tracing::info!("(index-order-manager) Quotes solved...");
 
         // We need to remove solved (or failed) quotes first, before we send
         // response to FIX, because once user receives FIX response, they

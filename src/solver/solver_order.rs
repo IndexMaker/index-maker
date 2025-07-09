@@ -9,12 +9,13 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use crate::core::{
-    bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
-    decimal_ext::DecimalExt,
+use symm_core::{
+    core::{
+        bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
+        decimal_ext::DecimalExt,
+    },
+    order_sender::position::LotId,
 };
-
-use super::position::LotId;
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
@@ -288,7 +289,9 @@ impl SolverClientOrders {
                 } else {
                     // This is rather unexpected, as we would remove queue from map
                     // when it becomes empty.
-                    eprintln!("(solver) Cancel order found empty index order queue for the user");
+                    tracing::warn!(
+                        "(solver) Cancel order found empty index order queue for the user"
+                    );
                     entry.remove();
                 }
                 notify
@@ -296,7 +299,7 @@ impl SolverClientOrders {
             Entry::Vacant(_) => {
                 // This is rather unexpected, as we would add any new index orders to
                 // a queue and cancelling should always find a match in the queue.
-                eprintln!("(solver) Cancel order cannot find any index orders for the user");
+                tracing::warn!("(solver) Cancel order cannot find any index orders for the user");
                 false
             }
         };
@@ -378,7 +381,7 @@ mod test {
     use chrono::{TimeDelta, Utc};
     use rust_decimal::dec;
 
-    use crate::core::{
+    use symm_core::core::{
         bits::Side,
         test_util::{get_mock_address_1, get_mock_asset_name_1},
     };

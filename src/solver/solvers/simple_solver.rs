@@ -10,16 +10,18 @@ use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
+    decimal_ext::DecimalExt,
+};
+
 use crate::{
-    core::{
-        bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
-        decimal_ext::DecimalExt,
-    },
     index::basket::Basket,
     solver::{
         solver::{
-            CollateralManagement, EngagedSolverOrders, SolveEngagementsResult, SolveQuotesResult,
-            SolverOrderEngagement, SolverStrategy, SolverStrategyHost,
+            CollateralManagement, EngagedSolverOrders, EngagedSolverOrdersSide,
+            SolveEngagementsResult, SolveQuotesResult, SolverOrderEngagement, SolverStrategy,
+            SolverStrategyHost,
         },
         solver_order::{SolverOrder, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
@@ -30,6 +32,7 @@ struct SimpleSolverEngagements {
     baskets: HashMap<Symbol, Arc<Basket>>,
     asset_price_limits: HashMap<Symbol, Amount>,
     index_price_limits: HashMap<Symbol, Amount>,
+    asset_order_quantites: HashMap<Symbol, Amount>,
     quantity_contributions: HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
     contribution_fractions: HashMap<(Address, ClientOrderId), HashMap<Symbol, Amount>>,
 }
@@ -45,6 +48,14 @@ pub struct SimpleSolver {
     max_order_volley_size: Amount,
     /// Cap the total amount of collateral all orders in the batch can potentially consume
     max_volley_size: Amount,
+    /// Pad the minimum asset order size
+    min_asset_volley_size: Amount,
+    /// Align asset order size
+    asset_volley_step_size: Amount,
+    /// Cap the total amount of collateral all order batches can potentially consume
+    max_total_volley_size: Amount,
+    /// Minimum total amount of volley available
+    min_total_volley_available: Amount,
 }
 
 impl SimpleSolver {
@@ -53,12 +64,20 @@ impl SimpleSolver {
         fee_factor: Amount,
         max_order_volley_size: Amount,
         max_volley_size: Amount,
+        min_asset_volley_size: Amount,
+        asset_volley_step_size: Amount,
+        max_total_volley_size: Amount,
+        min_total_volley_available: Amount,
     ) -> Self {
         Self {
             price_threshold,
             fee_factor,
             max_order_volley_size,
             max_volley_size,
+            min_asset_volley_size,
+            asset_volley_step_size,
+            max_total_volley_size,
+            min_total_volley_available,
         }
     }
 
@@ -90,9 +109,11 @@ impl SimpleSolver {
                 true
             }
             Err(err) => {
-                eprintln!(
+                tracing::warn!(
                     "(simple-solver) Error while {} for IndexOrder {}: {:?}",
-                    error_action, order_upread.client_order_id, err
+                    error_action,
+                    order_upread.client_order_id,
+                    err
                 );
                 set_order_status(order_upread, error_status);
                 bad.push(order_ptr.clone());
@@ -246,7 +267,7 @@ impl SimpleSolver {
         let prices_len = get_prices.prices.len();
 
         for (k, v) in &get_prices.prices {
-            println!("(simple-solver) Price: {:?} {} {}", side, k, v);
+            tracing::info!("(simple-solver) Price: {:?} {} {}", side, k, v);
         }
 
         let price_limits: HashMap<_, _> = get_prices
@@ -260,7 +281,7 @@ impl SimpleSolver {
         }
 
         for (k, v) in &price_limits {
-            println!("(simple-solver) Price Limit: {} {}", k, v);
+            tracing::info!("(simple-solver) Price Limit: {} {}", k, v);
         }
 
         Ok((price_limits, get_prices.missing_symbols))
@@ -281,19 +302,20 @@ impl SimpleSolver {
             .map(|(symbol, basket)| (symbol.clone(), basket.get_current_price(asset_prices)))
             .partition_map(|(symbol, index_price_result)| match index_price_result {
                 Ok(price) => {
-                    println!("(simple-solver) Index Price: {} {}", symbol, price);
+                    tracing::info!("(simple-solver) Index Price: {} {}", symbol, price);
                     Either::Left((symbol, price))
                 }
                 Err(err) => {
-                    eprintln!(
+                    tracing::warn!(
                         "(simple-solver) Failed to compute index price for {}: {:?}",
-                        symbol, err
+                        symbol,
+                        err
                     );
                     Either::Right(symbol)
                 }
             });
 
-        (HashMap::from_iter(index_prices.into_iter()), bad)
+        (HashMap::from_iter(index_prices), bad)
     }
 
     /// Calculate quantity of An Index that fits within Collateral given, and
@@ -339,7 +361,7 @@ impl SimpleSolver {
         let index_order_quantity = safe!(collateral_usable / index_price)
             .ok_or_eyre("Index order quantity computation error")?;
 
-        println!(
+        tracing::info!(
             "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} cc={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
             client_order_id,
             collateral_amount,
@@ -357,7 +379,7 @@ impl SimpleSolver {
             .map_while(|basket_asset| {
                 let asset_symbol = &basket_asset.weight.asset.name;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
-                println!(
+                tracing::info!(
                     "(simple-solver) Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
                     client_order_id,
                     asset_symbol,
@@ -399,9 +421,11 @@ impl SimpleSolver {
         let capped_order_quantity = safe!(order_quantity * volley_fraction)
             .ok_or_eyre("Cannot calculate capped order quantity")?;
 
-        println!(
+        tracing::info!(
             "(simple-solver) Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
-            client_order_id, order_quantity, capped_order_quantity
+            client_order_id,
+            order_quantity,
+            capped_order_quantity
         );
 
         let mut capped_asset_quantities = HashMap::new();
@@ -413,9 +437,11 @@ impl SimpleSolver {
 
             capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
-                asset_symbol, asset_quantity, capped_asset_quantity
+                asset_symbol,
+                asset_quantity,
+                capped_asset_quantity
             );
         }
 
@@ -474,6 +500,7 @@ impl SimpleSolver {
         asset_prices: &HashMap<Symbol, Amount>,
     ) -> Result<Amount> {
         let mut total_volley_size = Amount::ZERO;
+
         for (symbol, &quantity) in asset_quantites {
             let price = *asset_prices
                 .get(&symbol)
@@ -486,7 +513,33 @@ impl SimpleSolver {
                 eyre!("Cannot calculate total volley size for an asset {}", symbol)
             })?;
         }
+
         Ok(total_volley_size)
+    }
+
+    fn compute_asset_volley_size(
+        &self,
+        asset_quantites: &HashMap<Symbol, Amount>,
+        asset_prices: &HashMap<Symbol, Amount>,
+    ) -> Result<HashMap<Symbol, Amount>> {
+        let mut total_asset_volley_sizes = HashMap::new();
+
+        for (symbol, &quantity) in asset_quantites {
+            let price = *asset_prices
+                .get(&symbol)
+                .ok_or_else(|| eyre!("Cannot find price for an asset {}", symbol))?;
+
+            let volley_size = safe!(price * quantity)
+                .ok_or_else(|| eyre!("Cannot calculate volley size for an asset {}", symbol))?;
+
+            total_asset_volley_sizes
+                .insert(symbol.clone(), volley_size)
+                .is_none()
+                .then_some(())
+                .ok_or_else(|| eyre!("Cannot insert asset volley size {}", symbol))?;
+        }
+
+        Ok(total_asset_volley_sizes)
     }
 
     /// Calculate maximum contribution of each Index order that fits into
@@ -580,7 +633,7 @@ impl SimpleSolver {
             // on price threshold, so that we don't wipe too many levels.
             fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",
                 client_order_id,
                 asset_symbol,
@@ -694,9 +747,12 @@ impl SimpleSolver {
 
             asset_contribution_fractions.insert(asset_symbol.clone(), asset_contribution_fraction);
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
-                client_order_id, asset_symbol, total_asset_quantity, asset_contribution_fraction,
+                client_order_id,
+                asset_symbol,
+                total_asset_quantity,
+                asset_contribution_fraction,
             );
         }
 
@@ -734,6 +790,7 @@ impl SimpleSolver {
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
         total_volley_size: Amount,
+        max_volley_size: Amount,
         order_quantities: HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
     ) -> Result<(
         HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
@@ -744,11 +801,11 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        if total_volley_size < self.max_volley_size {
+        if total_volley_size < max_volley_size {
             return Ok((order_quantities, Vec::new()));
         }
 
-        let volley_fraction = safe!(self.max_volley_size / total_volley_size)
+        let volley_fraction = safe!(max_volley_size / total_volley_size)
             .ok_or_eyre("Failed to compute volley fraction")?;
 
         Ok(self.scan_order_batch(
@@ -760,6 +817,55 @@ impl SimpleSolver {
                 self.cap_volley_size_for_order(volley_fraction, &order_quantities, order_upread)
             },
         ))
+    }
+
+    fn pad_asset_volley_sizes(
+        &self,
+        asset_prices: &HashMap<Symbol, Amount>,
+        total_asset_volley_size: HashMap<Symbol, Amount>,
+    ) -> Result<HashMap<Symbol, Amount>> {
+        let mut padded_asset_quantites = HashMap::new();
+
+        for (symbol, asset_volley_size) in total_asset_volley_size {
+            let price = *asset_prices
+                .get(&symbol)
+                .ok_or_else(|| eyre!("Cannot find price for an asset {}", symbol))?;
+
+            let asset_quantity = safe!(asset_volley_size / price)
+                .ok_or_else(|| eyre!("Cannot calculate quantity for an asset {}", symbol))?;
+
+            let volley_size = asset_volley_size.max(self.min_asset_volley_size);
+
+            let k = safe!(volley_size / self.asset_volley_step_size)
+                .ok_or_else(|| eyre!("Cannot calculate k-steps for an asset {}", symbol))?;
+
+            let volley_size = safe!(k.ceil() * self.asset_volley_step_size)
+                .ok_or_else(|| eyre!("Cannot calculate aligned size for an asset {}", symbol))?;
+
+            let quantity = safe!(volley_size / price)
+                .ok_or_else(|| eyre!("Cannot calculate quantity for an asset {}", symbol))?;
+
+            let quantity_extra = safe!(quantity - asset_quantity)
+                .ok_or_else(|| eyre!("Cannot calculate quantity extra for an asset {}", symbol))?;
+
+            tracing::info!(
+                "(simple-solver) Padding {}: {} => {}, {} => {} (+{})",
+                symbol,
+                asset_volley_size,
+                volley_size,
+                asset_quantity,
+                quantity,
+                quantity_extra
+            );
+
+            padded_asset_quantites
+                .insert(symbol.clone(), quantity)
+                .is_none()
+                .then_some(())
+                .ok_or_else(|| eyre!("Cannot insert padded asset quantity {}", symbol))?;
+        }
+
+        Ok(padded_asset_quantites)
     }
 
     fn compute_contributions_for<OrderPtr, UpRead, SetOrderStatusFn>(
@@ -918,6 +1024,7 @@ impl SimpleSolver {
         &self,
         strategy_host: &dyn SolverStrategyHost,
         side: Side,
+        max_volley_size: Amount,
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
     ) -> Result<(SimpleSolverEngagements, Vec<OrderPtr>)>
@@ -1019,11 +1126,17 @@ impl SimpleSolver {
             locked_order_batch,
             &set_order_status,
             total_volley_size,
+            max_volley_size,
             order_asset_contributions,
         )?;
 
-        // And we recomupte total asset quantites
-        let total_asset_quantities = self.summarise_asset_quanties(&order_asset_contributions)?;
+        // Next we pad asset volley sizes to meet minimum asset volley size
+        // and we recompute total padded asset quantites
+        let total_asset_volley_size =
+            self.compute_asset_volley_size(&total_asset_quantities, &asset_price_limits)?;
+
+        let total_asset_quantities =
+            self.pad_asset_volley_sizes(&asset_price_limits, total_asset_volley_size)?;
 
         // And now we compute contribution fraction for each asset, so that when
         // we get fills we can distribute those fills between index orders in
@@ -1052,6 +1165,7 @@ impl SimpleSolver {
                 baskets,
                 asset_price_limits,
                 index_price_limits,
+                asset_order_quantites: total_asset_quantities,
                 quantity_contributions: order_asset_contributions,
                 contribution_fractions: order_asset_contribution_fractions,
             },
@@ -1204,7 +1318,18 @@ impl SolverStrategy for SimpleSolver {
         &self,
         strategy_host: &dyn SolverStrategyHost,
         order_batch: Vec<Arc<RwLock<SolverOrder>>>,
-    ) -> Result<SolveEngagementsResult> {
+    ) -> Result<Option<SolveEngagementsResult>> {
+        let total_volley_size = strategy_host.get_total_volley_size()?;
+
+        let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
+            .ok_or_eyre("Math error while calculating remaining volley size")?;
+
+        if max_volley_size < self.min_total_volley_available {
+            return Ok(None);
+        }
+
+        let max_volley_size = self.max_volley_size.min(max_volley_size);
+
         let locked_order_batch = order_batch
             .iter()
             .map(|order| (order, order.upgradable_read()));
@@ -1221,18 +1346,31 @@ impl SolverStrategy for SimpleSolver {
             upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
         };
 
-        let (mut engaged_buys, failed_buys) =
-            self.solve_engagements_for(strategy_host, Side::Buy, &mut buys, set_order_status)?;
+        let (mut engaged_buys, failed_buys) = self.solve_engagements_for(
+            strategy_host,
+            Side::Buy,
+            max_volley_size,
+            &mut buys,
+            set_order_status,
+        )?;
 
-        let (engaged_sells, failed_sells) =
-            self.solve_engagements_for(strategy_host, Side::Sell, &mut sells, set_order_status)?;
+        let (engaged_sells, failed_sells) = self.solve_engagements_for(
+            strategy_host,
+            Side::Sell,
+            max_volley_size,
+            &mut sells,
+            set_order_status,
+        )?;
 
         if !engaged_sells.baskets.is_empty() {
             todo!("Selling isn't fully supported yet")
         }
 
-        let mut engagenments = EngagedSolverOrders {
-            batch_order_id: strategy_host.get_next_batch_order_id(),
+        let batch_order_id = strategy_host.get_next_batch_order_id();
+
+        let mut engagenments = EngagedSolverOrdersSide {
+            asset_price_limits: engaged_buys.asset_price_limits,
+            asset_quantities: engaged_buys.asset_order_quantites,
             engaged_orders: Vec::new(),
         };
 
@@ -1277,8 +1415,7 @@ impl SolverStrategy for SimpleSolver {
                 client_order_id: client_order_id.clone(),
                 symbol: index_symbol.clone(),
                 asset_contribution_fractions: contribution_fractions,
-                asset_quantities: quantity_contributions,
-                asset_price_limits: engaged_buys.asset_price_limits.clone(),
+                asset_quantity_contributions: quantity_contributions,
                 basket: basket.clone(),
                 engaged_quantity: order_quantity,
                 engaged_price: index_price_limit,
@@ -1288,7 +1425,7 @@ impl SolverStrategy for SimpleSolver {
                 filled_quantity: Amount::ZERO,
             };
 
-            println!(
+            tracing::info!(
                 "(simple-solver) Solver Order Engagement: {} {} eq={:0.5} ep={:0.5} ec={:0.5}",
                 engagement.client_order_id,
                 engagement.symbol,
@@ -1303,10 +1440,13 @@ impl SolverStrategy for SimpleSolver {
         let failed_buys = failed_buys.into_iter().cloned().collect_vec();
         let failed_sells = failed_sells.into_iter().cloned().collect_vec();
 
-        Ok(SolveEngagementsResult {
-            engaged_orders: engagenments,
+        Ok(Some(SolveEngagementsResult {
+            engaged_orders: EngagedSolverOrders {
+                batch_order_id,
+                engaged_buys: engagenments,
+            },
             failed_orders: [failed_buys, failed_sells].concat(),
-        })
+        }))
     }
 }
 
@@ -1322,18 +1462,23 @@ mod test {
         sync::Arc,
     };
 
-    use crate::{
+    use symm_core::{
         assert_decimal_approx_eq,
         core::{
             bits::*,
+            logging::log_init,
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_3_arc, get_mock_asset_name_1, get_mock_asset_name_2,
                 get_mock_asset_name_3, get_mock_index_name_1, get_mock_index_name_2,
             },
         },
-        index::basket::*,
+        init_log,
         market_data::price_tracker::*,
+    };
+
+    use crate::{
+        index::basket::*,
         solver::{
             solver::*,
             solver_order::{SolverOrder, SolverOrderStatus},
@@ -1407,6 +1552,10 @@ mod test {
                 missing_symbols: Vec::new(),
             }
         }
+
+        fn get_total_volley_size(&self) -> Result<Amount> {
+            Ok(dec!(1000.0))
+        }
     }
 
     fn make_basket_1() -> Arc<Basket> {
@@ -1458,11 +1607,11 @@ mod test {
     }
 
     fn gen_client_order_id(index: u32) -> ClientOrderId {
-        ClientOrderId(format!("C-{:02}", index))
+        ClientOrderId::from(format!("C-{:02}", index))
     }
 
     fn gen_client_quote_id(index: u32) -> ClientQuoteId {
-        ClientQuoteId(format!("Q-{:02}", index))
+        ClientQuoteId::from(format!("Q-{:02}", index))
     }
 
     fn make_solver_order(
@@ -1566,72 +1715,101 @@ mod test {
 
     #[test_case(
         "Unlimited",
-        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(1.0), dec!(1000.0), dec!(1000.0)),
             (dec!(5.0), dec!(1000.0), dec!(5000.0))
-        ]; "unlimited"
+        ]); "unlimited"
     )]
     #[test_case(
         "Max Order Volley Set",
-        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(1.0), dec!(1000.0), dec!(1000.0)),
             (dec!(1.0), dec!(1000.0), dec!(1000.0))
-        ]; "max_order_volley_set"
+        ]); "max_order_volley_set"
     )]
     #[test_case(
         "Max Batch Volley Set",
-        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(0.16666), dec!(1000.0), dec!(166.66666)),
             (dec!(0.83333), dec!(1000.0), dec!(833.33333))
-        ]; "max_batch_volley_set"
+        ]); "max_batch_volley_set"
     )]
     #[test_case(
         "Max Volleys Set",
-        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0)),
+        (dec!(0.0), dec!(1.0), dec!(1_000.0), dec!(1_500.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(1.0), dec!(5.0)],
-        vec![
+        Some(vec![
             (dec!(0.75), dec!(1000.0), dec!(750.0)),
             (dec!(0.75), dec!(1000.0), dec!(750.0))
-        ]; "max_volleys_set"
+        ]); "max_volleys_set"
     )]
     #[test_case(
         "Fee Factor 1%",
-        (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.0), dec!(1.01), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(0.990099), dec!(4.950495)],
-        vec![
+        Some(vec![
             (dec!(0.99009), dec!(1000.0), dec!(1000.0)),
             (dec!(4.95049), dec!(1000.0), dec!(5000.0))
-        ]; "fee_factor_1pct"
+        ]); "fee_factor_1pct"
     )]
     #[test_case(
         "Price Threshold 1%",
-        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
         vec![dec!(1000.0), dec!(5000.0)],
         vec![dec!(0.990099), dec!(4.950495)],
-        vec![
+        Some(vec![
             (dec!(0.99009), dec!(1010.0), dec!(1000.0)),
             (dec!(4.95049), dec!(1010.0), dec!(5000.0))
-        ]; "price_threshold_1pct"
+        ]); "price_threshold_1pct"
+    )]
+    #[test_case(
+        "Padding & Alignment",
+        (dec!(0.01), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000_000.0)),
+        vec![dec!(1571.0), dec!(7531.0)],
+        vec![dec!(1.55544), dec!(7.45643)],
+        Some(vec![
+            (dec!(1.55544), dec!(1010.0), dec!(1571.0)),
+            (dec!(7.45643), dec!(1010.0), dec!(7531.0))
+        ]); "padding_and_alignment"
+    )]
+    #[test_case(
+        "Total Volley Capped",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(5_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
+        Some(vec![
+            (dec!(0.66666), dec!(1000.0), dec!(666.66666)),
+            (dec!(3.33333), dec!(1000.0), dec!(3333.33333))
+        ]); "total_volley_capped"
+    )]
+    #[test_case(
+        "Total Volley Restricted",
+        (dec!(0.0), dec!(1.0), dec!(1_000_000.0), dec!(1_000_000.0), dec!(1_000.0)),
+        vec![dec!(1000.0), dec!(5000.0)],
+        vec![dec!(1.0), dec!(5.0)],
+        None; "total_volley_restricted"
     )]
     fn test_simple_solver(
         title: &str,
-        params: (Amount, Amount, Amount, Amount),
+        params: (Amount, Amount, Amount, Amount, Amount),
         collateral_amount: Vec<Amount>,
         expected_quotes: Vec<Amount>,
-        expected: Vec<(Amount, Amount, Amount)>,
+        expected: Option<Vec<(Amount, Amount, Amount)>>,
     ) {
-        println!("Test Case: {}", title);
+        init_log!();
+
+        tracing::info!("Test Case: {}", title);
 
         let timestamp = Utc::now();
 
@@ -1694,7 +1872,20 @@ mod test {
             ),
         ];
 
-        let simple_solver = SimpleSolver::new(params.0, params.1, params.2, params.3);
+        let min_asset_volley_size = dec!(5.0);
+        let asset_volley_step_size = dec!(0.2);
+        let min_total_volley_available = dec!(1.0);
+
+        let simple_solver = SimpleSolver::new(
+            params.0,
+            params.1,
+            params.2,
+            params.3,
+            min_asset_volley_size,
+            asset_volley_step_size,
+            params.4,
+            min_total_volley_available,
+        );
 
         let solved_quotes = simple_solver
             .solve_quotes(&strategy_host, quote_requests)
@@ -1704,7 +1895,12 @@ mod test {
 
         for n in 0..expected_quotes.len() {
             let quote_read = solved_quotes.solved_quotes[n].read();
-            println!("for {} {} <> {}", n, quote_read.quantity_possible, expected_quotes[n]);
+            tracing::info!(
+                "for {} {} <> {}",
+                n,
+                quote_read.quantity_possible,
+                expected_quotes[n]
+            );
             assert!(matches!(quote_read.status, SolverQuoteStatus::Ready));
             assert_decimal_approx_eq!(
                 quote_read.quantity_possible,
@@ -1717,23 +1913,32 @@ mod test {
             .solve_engagements(&strategy_host, order_batch)
             .expect("Failed to solve engagements");
 
-        assert_eq!(batch.engaged_orders.engaged_orders.len(), expected.len());
-        for n in 0..expected.len() {
-            assert_decimal_approx_eq!(
-                batch.engaged_orders.engaged_orders[n].engaged_quantity,
-                expected[n].0,
-                dec!(0.00001)
+        if let Some(expected) = expected {
+            let batch = batch.expect("Expected some engagements");
+
+            assert_eq!(
+                batch.engaged_orders.engaged_buys.engaged_orders.len(),
+                expected.len()
             );
-            assert_decimal_approx_eq!(
-                batch.engaged_orders.engaged_orders[n].engaged_price,
-                expected[n].1,
-                dec!(0.00001)
-            );
-            assert_decimal_approx_eq!(
-                batch.engaged_orders.engaged_orders[n].engaged_collateral,
-                expected[n].2,
-                dec!(0.00001)
-            );
+            for n in 0..expected.len() {
+                assert_decimal_approx_eq!(
+                    batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_quantity,
+                    expected[n].0,
+                    dec!(0.00001)
+                );
+                assert_decimal_approx_eq!(
+                    batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_price,
+                    expected[n].1,
+                    dec!(0.00001)
+                );
+                assert_decimal_approx_eq!(
+                    batch.engaged_orders.engaged_buys.engaged_orders[n].engaged_collateral,
+                    expected[n].2,
+                    dec!(0.00001)
+                );
+            }
+        } else {
+            batch.is_none().then_some(()).expect("No batch was expected");
         }
     }
 }
