@@ -22,15 +22,12 @@ use index_maker::{
         timestamp_ids::TimestampOrderIdsConfig,
     },
     blockchain::chain_connector::ChainNotification,
-    index::basket::{deserialize_basket_or_definition, AssetWeight, Basket, BasketDefinition, BasketOrDefinition},
     server::server::{Server, ServerEvent},
 };
-use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{env, fs, path::Path, str::FromStr, sync::Arc};
+use std::{env, sync::Arc};
 use symm_core::{
-    assets::asset::Asset,
     core::{
         bits::{Amount, PriceType, Side, Symbol},
         logging::log_init,
@@ -39,8 +36,6 @@ use symm_core::{
     init_log,
 };
 use tokio::time::sleep;
-use serde::{Deserialize, Serialize};
-use serde_json;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -212,7 +207,7 @@ async fn main() {
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
 
-    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDC".into());
+    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
 
     let app_mode = AppMode::new(&cli.command, None);
 
@@ -255,77 +250,8 @@ async fn main() {
 
     tracing::info!("Loading index definitions from JSON files...");
 
-    let indexes_path = Path::new(cli.indexes_path.as_deref().unwrap_or("indexes"));
-    let mut index_definitions: Vec<(Symbol, BasketDefinition)> = Vec::new();
+    let indexes_path = cli.indexes_path.as_deref().unwrap_or("indexes").to_string();
 
-    if indexes_path.exists() && indexes_path.is_dir() {
-        for entry in fs::read_dir(indexes_path).expect("Failed to read indexes directory") {
-            let entry = entry.expect("Failed to read directory entry");
-            let file_name = entry.file_name().into_string().expect("Invalid file name");
-            if file_name.ends_with("_Latest_rebalance.json") {
-                let index_name = file_name.split('_').next().unwrap_or("UNKNOWN").to_string();
-                let index_symbol = Symbol::from(index_name.as_str());
-                let content = fs::read_to_string(entry.path()).expect("Failed to read JSON file");
-                
-                //let basket_definition: BasketDefinition= serde_json::from_str(json_str).expect("Failed to parse JSON");
-
-                // Deserialize and handle the result
-                match deserialize_basket_or_definition(content.as_str()) {
-                    Ok(BasketOrDefinition::Basket(basket)) => {
-                        tracing::info!("Deserialized into Basket: {}", serde_json::to_string(&basket).unwrap());
-                    }
-                    Ok(BasketOrDefinition::BasketDefinition(basket_definition)) => {
-                        tracing::info!("Deserialized into BasketDefinition: {:?}", serde_json::to_string(&basket_definition).unwrap());
-                        index_definitions.push((index_symbol.clone(), basket_definition));
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to deserialize: {}", e);
-                    }
-                }
-                
-            }
-        }
-    } else {
-        tracing::warn!("Indexes directory does not exist, falling back to hardcoded values");
-
-        // Fake index assets (btw: these should be assets and not markets)
-        let symbols = ["BNB", "ETH"];
-        let symbols = symbols
-            .into_iter()
-            .map(|s| format!("{}{}", s, main_quote_currency))
-            .map(Symbol::from)
-            .collect_vec();
-
-        let weights = [dec!(0.6), dec!(0.4)];
-        let index_symbol = Symbol::from("SO2");
-
-        let assets = symbols
-            .iter()
-            .map(|s| Arc::new(Asset::new(s.clone(), "BINANCE".into())))
-            .collect_vec();
-
-        let asset_weights = assets
-            .iter()
-            .zip(weights)
-            .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
-            .collect_vec();
-
-        let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
-            .expect("Failed to create basket definition");
-
-        index_definitions.push((index_symbol, basket_definition));
-    }
-
-    if index_definitions.is_empty() {
-        tracing::error!("No index definitions loaded, application cannot proceed without indices.");
-        std::process::exit(1);
-    }
-
-    let (index_symbol, basket_definition) = index_definitions.first().unwrap().clone();
-
-    let symbols = basket_definition.weights.iter()
-        .map(|aw| aw.asset.ticker.clone())
-        .collect_vec();
 
     // ==== Fake stuff
     // ----
@@ -356,9 +282,11 @@ async fn main() {
 
     let basket_manager_config = BasketManagerConfig::builder()
         //.with_config_file("FILENAME")
+        .assets_file_path(indexes_path)
         .build()
         .expect("Failed to build basket manager");
 
+    let symbols = basket_manager_config.get_symbols();
     //let asset_manager = basket_manager_config.expect_asset_manager_cloned();
     // Here all json of basket and assets are loaded
 
@@ -433,6 +361,7 @@ async fn main() {
         .with_chain_connector(chain_connector_config as Arc<dyn ChainConnectorConfig + Send + Sync>)
         .build()
         .expect("Failed to build solver");
+
 
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {

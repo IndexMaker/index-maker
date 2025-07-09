@@ -3,7 +3,6 @@ use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
 use symm_core::{
@@ -17,7 +16,7 @@ use symm_core::{
 /// An asset with its associated weight.
 ///
 /// This struct is used for BasketDefinition and Basket.
-#[derive(Clone, Serialize)]
+#[derive(Serialize)]
 pub struct AssetWeight {
     pub asset: Arc<Asset>,
     pub weights: Amount,
@@ -56,20 +55,8 @@ impl<'de> Deserialize<'de> for AssetWeight {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
-#[derive(Clone, Serialize)]
 pub struct BasketDefinition {
     pub weights: Vec<AssetWeight>,
-}
-
-impl<'de> Deserialize<'de> for BasketDefinition {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize the array directly into weights
-        let weights = Vec::<AssetWeight>::deserialize(deserializer)?;
-        Ok(BasketDefinition { weights })
-    }
 }
 
 impl BasketDefinition {
@@ -131,7 +118,7 @@ impl Display for BasketDefinition {
 /// This struct associates quantity of an asset for containing basket.
 /// The quantity is calculated based on price, which is also memorised here
 /// together with the original weight assigned to asset.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct BasketAsset {
     #[serde(flatten)]
     pub weight: AssetWeight,
@@ -155,7 +142,6 @@ impl<'de> Deserialize<'de> for Basket {
     where
         D: Deserializer<'de>,
     {
-        // Deserialize the array directly into weights
         let basket_assets: Vec<BasketAsset> = Vec::<BasketAsset>::deserialize(deserializer)?;
         Ok(Basket { basket_assets })
     }
@@ -270,36 +256,6 @@ impl From<Basket> for Vec<AssetWeight> {
             .map(|ba| ba.weight)
             .collect_vec()
     }
-}
-
-// Function to determine if JSON contains "quantity" field
-pub fn has_quantity_field(json_str: &str) -> bool {
-    if let Ok(value) = serde_json::from_str::<Vec<Value>>(json_str) {
-        value.iter().any(|item| {
-            item.as_object()
-                .map(|obj| obj.contains_key("quantity"))
-                .unwrap_or(false)
-        })
-    } else {
-        false
-    }
-}
-
-// Function to deserialize JSON into either Basket or BasketDefinition
-pub fn deserialize_basket_or_definition(json_str: &str) -> Result<BasketOrDefinition, serde_json::Error> {
-    if has_quantity_field(json_str) {
-        let basket: Basket = serde_json::from_str(json_str)?;
-        Ok(BasketOrDefinition::Basket(basket))
-    } else {
-        let definition: BasketDefinition = serde_json::from_str(json_str)?;
-        Ok(BasketOrDefinition::BasketDefinition(definition))
-    }
-}
-
-// Enum to hold either Basket or BasketDefinition
-pub enum BasketOrDefinition {
-    Basket(Basket),
-    BasketDefinition(BasketDefinition),
 }
 
 

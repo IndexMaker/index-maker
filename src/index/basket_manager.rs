@@ -12,6 +12,7 @@ pub enum BasketNotification {
     BasketAdded(Symbol, Arc<Basket>),
     BasketUpdated(Symbol, Arc<Basket>),
     BasketRemoved(Symbol),
+    //BaketsImported
 }
 
 /// Manages baskets, add, remove, update
@@ -34,7 +35,6 @@ impl BasketManager {
 
     pub fn set_basket(&mut self, symbol: &Symbol, basket: &Arc<Basket>) {
         let mut event: Option<BasketNotification> = None;
-
         self.baskets
             .entry(symbol.clone())
             .and_modify(|value| {
