@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{core::bits::Symbol, string_id};
 
@@ -23,7 +23,7 @@ impl<'de> Deserialize<'de> for ListingId {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct Asset {
     pub ticker: Symbol, // add things like:
                         // precision: u8 - number of decimal places
@@ -34,6 +34,26 @@ pub struct Asset {
 impl Asset {
     pub fn new(name: Symbol, listing: ListingId) -> Self {
         Self { ticker: name, listing }
+    }
+}
+
+impl<'de> Deserialize<'de> for Asset {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct TempAsset {
+            ticker: String,
+            #[serde(default)]
+            listing: String,
+            // Ignore other fields like id, sector, market_cap
+        }
+        let temp = TempAsset::deserialize(deserializer)?;
+        Ok(Asset {
+            ticker: temp.ticker.into(),
+            listing: temp.listing.into(),
+        })
     }
 }
 

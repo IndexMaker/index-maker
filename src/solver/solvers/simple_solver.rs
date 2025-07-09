@@ -1529,14 +1529,14 @@ mod test {
                     quantity: dec!(8.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
-                        weight: dec!(0.8),
+                        weights: dec!(0.8),
                     },
                 },
                 BasketAsset {
                     quantity: dec!(1.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_2_arc(),
-                        weight: dec!(0.2),
+                        weights: dec!(0.2),
                     },
                 },
             ],
@@ -1550,14 +1550,14 @@ mod test {
                     quantity: dec!(5.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
-                        weight: dec!(0.5),
+                        weights: dec!(0.5),
                     },
                 },
                 BasketAsset {
                     quantity: dec!(50.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_3_arc(),
-                        weight: dec!(0.5),
+                        weights: dec!(0.5),
                     },
                 },
             ],

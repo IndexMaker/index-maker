@@ -22,7 +22,7 @@ use index_maker::{
         timestamp_ids::TimestampOrderIdsConfig,
     },
     blockchain::chain_connector::ChainNotification,
-    index::basket::{AssetWeight, BasketDefinition},
+    index::basket::{deserialize_basket_or_definition, AssetWeight, Basket, BasketDefinition, BasketOrDefinition},
     server::server::{Server, ServerEvent},
 };
 use itertools::Itertools;
@@ -190,15 +190,6 @@ impl AppMode {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct IndexEntry {
-    id: u32,
-    ticker: String,
-    listing: String,
-    sector: String,
-    weights: String,
-    market_cap: u64,
-}
 
 #[tokio::main]
 async fn main() {
@@ -275,28 +266,23 @@ async fn main() {
                 let index_name = file_name.split('_').next().unwrap_or("UNKNOWN").to_string();
                 let index_symbol = Symbol::from(index_name.as_str());
                 let content = fs::read_to_string(entry.path()).expect("Failed to read JSON file");
-                let entries: Vec<IndexEntry> = serde_json::from_str(&content).expect("Failed to parse JSON");
+                
+                //let basket_definition: BasketDefinition= serde_json::from_str(json_str).expect("Failed to parse JSON");
 
-                let assets = entries.iter().map(|e| {
-                    let symbol = Symbol::from(format!("{}{}", e.ticker, main_quote_currency).as_str());
-                    Arc::new(Asset::new(symbol, e.listing.clone().into()))
-                }).collect_vec();
-
-                let asset_weights = assets.iter().zip(entries.iter()).map(|(asset, entry)| {
-                    let weight_str = entry.weights.replace(',', ".");
-                    let weight = rust_decimal::Decimal::from_str(&weight_str).unwrap_or_else(|_| {
-                        tracing::error!("Invalid weight format for {}: {}", entry.ticker, entry.weights);
-                        dec!(0.0)
-                    });
-                    AssetWeight::new(asset.clone(), weight)
-                }).collect_vec();
-
-                if let Ok(basket_definition) = BasketDefinition::try_new(asset_weights.into_iter()) {
-                    index_definitions.push((index_symbol.clone(), basket_definition));
-                    tracing::info!("Loaded index: {}", index_name);
-                } else {
-                    tracing::error!("Failed to create basket definition for index: {}", index_name);
+                // Deserialize and handle the result
+                match deserialize_basket_or_definition(content.as_str()) {
+                    Ok(BasketOrDefinition::Basket(basket)) => {
+                        tracing::info!("Deserialized into Basket: {}", serde_json::to_string(&basket).unwrap());
+                    }
+                    Ok(BasketOrDefinition::BasketDefinition(basket_definition)) => {
+                        tracing::info!("Deserialized into BasketDefinition: {:?}", serde_json::to_string(&basket_definition).unwrap());
+                        index_definitions.push((index_symbol.clone(), basket_definition));
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to deserialize: {}", e);
+                    }
                 }
+                
             }
         }
     } else {
@@ -368,6 +354,14 @@ async fn main() {
 
     tracing::info!("Configuring solver...");
 
+    let basket_manager_config = BasketManagerConfig::builder()
+        //.with_config_file("FILENAME")
+        .build()
+        .expect("Failed to build basket manager");
+
+    //let asset_manager = basket_manager_config.expect_asset_manager_cloned();
+    // Here all json of basket and assets are loaded
+
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
         .symbols(symbols.clone())
@@ -403,10 +397,6 @@ async fn main() {
         .max_batch_size(max_batch_size)
         .build()
         .expect("Failed to build batch manager");
-
-    let basket_manager_config = BasketManagerConfig::builder()
-        .build()
-        .expect("Failed to build basket manager");
 
     let collateral_manager_config = CollateralManagerConfig::builder()
         .zero_threshold(zero_threshold)

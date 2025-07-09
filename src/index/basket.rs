@@ -2,8 +2,9 @@ use eyre::{eyre, Report, Result};
 use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, sync::Arc};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
 use symm_core::{
     assets::asset::Asset,
@@ -16,15 +17,36 @@ use symm_core::{
 /// An asset with its associated weight.
 ///
 /// This struct is used for BasketDefinition and Basket.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 pub struct AssetWeight {
     pub asset: Arc<Asset>,
-    pub weight: Amount,
+    pub weights: Amount,
 }
 
 impl AssetWeight {
     pub fn new(asset: Arc<Asset>, weight: Amount) -> Self {
-        Self { asset, weight }
+        Self { asset, weights: weight }
+    }
+}
+
+impl<'de> Deserialize<'de> for AssetWeight {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct TempAssetWeight {
+            #[serde(flatten)]
+            asset: Asset,
+            weights: String, // JSON field is "weights" as a string
+            // Ignore other fields like id, sector, market_cap
+        }
+        let temp = TempAssetWeight::deserialize(deserializer)?;
+        let weight = Decimal::from_str(&temp.weights).map_err(serde::de::Error::custom)?;
+        Ok(AssetWeight {
+            asset: Arc::new(temp.asset),
+            weights: Amount::from(weight),
+        })
     }
 }
 
@@ -34,9 +56,20 @@ impl AssetWeight {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 pub struct BasketDefinition {
     pub weights: Vec<AssetWeight>,
+}
+
+impl<'de> Deserialize<'de> for BasketDefinition {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize the array directly into weights
+        let weights = Vec::<AssetWeight>::deserialize(deserializer)?;
+        Ok(BasketDefinition { weights })
+    }
 }
 
 impl BasketDefinition {
@@ -48,12 +81,12 @@ impl BasketDefinition {
         let weights = weights.into_iter().collect_vec();
         let total_weight = weights
             .iter()
-            .try_fold(Amount::ZERO, |a, x| safe!(a + x.weight))
+            .try_fold(Amount::ZERO, |a, x| safe!(a + x.weights))
             .ok_or(eyre!("Numeric overflow"))?;
         let weights = weights
             .into_iter()
             .map(|w| {
-                if let Some(weight) = safe!(w.weight / total_weight) {
+                if let Some(weight) = safe!(w.weights / total_weight) {
                     Some(AssetWeight::new(w.asset, weight))
                 } else {
                     None
@@ -87,7 +120,7 @@ impl Display for BasketDefinition {
             "BasketDefinition[{}]",
             self.weights
                 .iter()
-                .map(|w| format!("{}: {:.7}", w.asset.ticker, w.weight))
+                .map(|w| format!("{}: {:.7}", w.asset.ticker, w.weights))
                 .join(", ")
         )
     }
@@ -100,6 +133,7 @@ impl Display for BasketDefinition {
 /// together with the original weight assigned to asset.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BasketAsset {
+    #[serde(flatten)]
     pub weight: AssetWeight,
     pub quantity: Amount,
 }
@@ -111,9 +145,20 @@ pub struct BasketAsset {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
-#[derive(Serialize, Deserialize)] 
+#[derive(Serialize)] 
 pub struct Basket {
     pub basket_assets: Vec<BasketAsset>,
+}
+
+impl<'de> Deserialize<'de> for Basket {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize the array directly into weights
+        let basket_assets: Vec<BasketAsset> = Vec::<BasketAsset>::deserialize(deserializer)?;
+        Ok(Basket { basket_assets })
+    }
 }
 
 impl Basket {
@@ -133,7 +178,7 @@ impl Basket {
                     .get(&weight.asset.ticker)
                     .unwrap_or(&Amount::ZERO);
                 let quantity =
-                    safe!(safe!(target_price / *price) * weight.weight).unwrap_or_default();
+                    safe!(safe!(target_price / *price) * weight.weights).unwrap_or_default();
                 BasketAsset {
                     weight,
                     quantity,
@@ -203,7 +248,7 @@ impl Display for Basket {
                 .iter()
                 .map(|ba| format!(
                     "{:.7}{} (w={:.7})",
-                    ba.quantity, ba.weight.asset.ticker, ba.weight.weight
+                    ba.quantity, ba.weight.asset.ticker, ba.weight.weights
                 ))
                 .join(", ")
         )
@@ -226,6 +271,37 @@ impl From<Basket> for Vec<AssetWeight> {
             .collect_vec()
     }
 }
+
+// Function to determine if JSON contains "quantity" field
+pub fn has_quantity_field(json_str: &str) -> bool {
+    if let Ok(value) = serde_json::from_str::<Vec<Value>>(json_str) {
+        value.iter().any(|item| {
+            item.as_object()
+                .map(|obj| obj.contains_key("quantity"))
+                .unwrap_or(false)
+        })
+    } else {
+        false
+    }
+}
+
+// Function to deserialize JSON into either Basket or BasketDefinition
+pub fn deserialize_basket_or_definition(json_str: &str) -> Result<BasketOrDefinition, serde_json::Error> {
+    if has_quantity_field(json_str) {
+        let basket: Basket = serde_json::from_str(json_str)?;
+        Ok(BasketOrDefinition::Basket(basket))
+    } else {
+        let definition: BasketDefinition = serde_json::from_str(json_str)?;
+        Ok(BasketOrDefinition::BasketDefinition(definition))
+    }
+}
+
+// Enum to hold either Basket or BasketDefinition
+pub enum BasketOrDefinition {
+    Basket(Basket),
+    BasketDefinition(BasketDefinition),
+}
+
 
 #[cfg(test)]
 mod tests {

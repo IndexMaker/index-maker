@@ -315,7 +315,7 @@ mod tests {
                         let weights: HashMap<Symbol, Amount> = basket_definition
                             .weights
                             .iter()
-                            .map(|w| (w.asset.ticker.clone(), w.weight))
+                            .map(|w| (w.asset.ticker.clone(), w.weights))
                             .collect();
 
                         assert_eq!(symbol, get_mock_index_name_1());
