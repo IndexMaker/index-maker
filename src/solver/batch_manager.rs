@@ -489,6 +489,7 @@ pub struct BatchManager {
     ready_batches: VecDeque<BatchOrderId>,
     carry_overs: Mutex<HashMap<(Symbol, Side), BatchCarryOver>>,
     ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    total_volley_size: RwLock<Amount>,
     max_batch_size: usize,
     zero_threshold: Amount,
     fill_threshold: Amount,
@@ -511,6 +512,7 @@ impl BatchManager {
             ready_batches: VecDeque::new(),
             carry_overs: Mutex::new(HashMap::new()),
             ready_mints: Mutex::new(VecDeque::new()),
+            total_volley_size: RwLock::new(Amount::ZERO),
             max_batch_size,
             zero_threshold,
             fill_threshold,
@@ -615,6 +617,8 @@ impl BatchManager {
                 ))
                 .join("; ")
         );
+
+        *self.total_volley_size.write() += batch_order_status.volley_size;
 
         self.batches
             .insert(
@@ -902,6 +906,10 @@ impl BatchManager {
         Ok(())
     }
 
+    pub fn get_total_volley_size(&self) -> Amount {
+        *self.total_volley_size.read()
+    }
+
     fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.mint_wait_period;
         let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
@@ -1113,6 +1121,8 @@ impl BatchManager {
                     }
                 }
             }
+
+            *self.total_volley_size.write() -= batch.read().volley_size;
 
             self.observer.publish_single(BatchEvent::BatchComplete {
                 batch_order_id,

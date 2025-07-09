@@ -109,10 +109,10 @@
     - [ ] Burn index token collateral
 * [ ] Rebalance
     - [ ] Review rebalance code...
-* [ ] Implement additional limits
+* [x] Implement additional limits
     - [x] Ensure individual orders in a batch have size at least minimum
-    - [ ] Ensure order rate is within limits
-    - [ ] Ensure total volley size across batches is not exceeded
+    - [x] Ensure order rate is within limits
+    - [x] Ensure total volley size across batches is not exceeded
 * [ ] Additional Work for Binance Market Data Connector 
     - [ ] Test performance of many subscriptions
     - [ ] Investigate asset delisting

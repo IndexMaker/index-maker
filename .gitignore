@@ -2,3 +2,4 @@
 *.bkp
 .DS_Store
 .env
+/logs
