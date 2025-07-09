@@ -19,7 +19,7 @@ pub struct BasketManagerConfig {
     basket_manager: Option<Arc<RwLock<BasketManager>>>,
 
     #[builder(setter(into, strip_option), default)]
-    assets_file_path: String,
+    with_config_file: String,
 
     #[builder(setter(skip))]
     symbols: Vec<Symbol>,
@@ -58,28 +58,43 @@ impl BasketManagerConfigBuilder {
             .basket_manager
             .replace(Arc::new(RwLock::new(BasketManager::new())));
 
-        let mut indexes: Vec<(Symbol, Basket)> = Vec::new();
+        
+        let path_str: String = config.with_config_file.clone();
+        let config_path = Path::new(path_str.as_str());
 
-        let path_str = config.assets_file_path.clone();
-        let indexes_path = Path::new(path_str.as_str());
-
-        if indexes_path.exists() && indexes_path.is_dir() {
-            for entry in fs::read_dir(indexes_path).expect("Failed to read indexes directory") {
-                let entry = entry.expect("Failed to read directory entry");
-                let file_name = entry.file_name().into_string().expect("Invalid file name");
-                if file_name.ends_with("_Latest_rebalance.json") {
-                    let index_name = file_name.split('_').next().unwrap_or("UNKNOWN").to_string();
-                    let index_symbol = Symbol::from(index_name.as_str());
-                    let content =
-                        fs::read_to_string(entry.path()).expect("Failed to read JSON file");
-
-                    let basket: Basket =
-                        serde_json::from_str(content.as_str()).expect("Invalid index data");
-                    indexes.push((index_symbol.clone(), basket));
+        let mut indexes_configs: Vec<(Symbol, String)> = Vec::new();
+        if config_path.exists() {
+            tracing::info!("Loading index definitions from config file: {}", path_str);
+            let content = fs::read_to_string(config_path)
+                .expect("Failed to read BasketManagerConfig.json");
+            let json_data: serde_json::Value = serde_json::from_str(&content)
+                .expect("Failed to parse BasketManagerConfig.json");
+            
+            if let Some(indexes_files) = json_data.get("indexes_files").and_then(|v| v.as_array()) {
+                for index_obj in indexes_files {
+                    if let Some(obj) = index_obj.as_object() {
+                        for (index_name, file_path) in obj {
+                            if let Some(path_str) = file_path.as_str() {
+                                let index_symbol = Symbol::from(index_name.as_str());
+                                indexes_configs.push((index_symbol, path_str.to_string()));
+                            }
+                        }
+                    }
                 }
+            } else {
+                tracing::warn!("No 'indexes_files' array found in config file.");
             }
         } else {
-            tracing::warn!("Indexes directory does not exist.")
+            tracing::warn!("BasketManagerConfig.json config file not found.")
+        }
+
+        let mut indexes: Vec<(Symbol, Basket)> = Vec::new();
+        for (index_symbol, index_path_str) in indexes_configs {
+            let index_path = Path::new(index_path_str.as_str());
+            let content = fs::read_to_string(index_path).expect(format!("Failed to read file: {}", index_path_str).as_str());
+
+            let basket: Basket = serde_json::from_str(content.as_str()).expect("Invalid index data");
+            indexes.push((index_symbol.clone(), basket));
         }
 
         if indexes.is_empty() {

@@ -26,7 +26,7 @@ use index_maker::{
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{env, sync::Arc};
+use std::{env, path::Path, sync::Arc};
 use symm_core::{
     core::{
         bits::{Amount, PriceType, Side, Symbol},
@@ -50,7 +50,7 @@ struct Cli {
     log_path: Option<String>,
 
     #[arg(long, short)]
-    indexes_path: Option<String>,
+    config_path: Option<String>,
     
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
@@ -207,6 +207,7 @@ async fn main() {
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
 
+    let config_path = cli.config_path.unwrap_or("configs".into());
     let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
 
     let app_mode = AppMode::new(&cli.command, None);
@@ -249,11 +250,7 @@ async fn main() {
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
     );
 
-
     tracing::info!("Loading index definitions from JSON files...");
-
-    let indexes_path = cli.indexes_path.as_deref().unwrap_or("indexes").to_string();
-
 
     // ==== Fake stuff
     // ----
@@ -281,10 +278,8 @@ async fn main() {
     // ----
 
     tracing::info!("Configuring solver...");
-
     let basket_manager_config = BasketManagerConfig::builder()
-        //.with_config_file("FILENAME")
-        .assets_file_path(indexes_path)
+        .with_config_file(format!("{}/BasketManagerConfig.json", config_path))
         .build()
         .expect("Failed to build basket manager");
 

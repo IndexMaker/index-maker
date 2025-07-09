@@ -74,7 +74,7 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let side = if (side == "1"
+                    let side = if side == "1"
                         || side == "b"
                         || side == "B"
                         || side == "buy"
@@ -82,7 +82,7 @@ impl ServerPlugin {
                         || side == "BUY"
                         || side == "bid"
                         || side == "Bid"
-                        || side == "BID")
+                        || side == "BID"
                     {
                         Side::Buy
                     } else {
