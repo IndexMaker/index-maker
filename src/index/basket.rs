@@ -3,7 +3,7 @@ use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use symm_core::{
     assets::asset::Asset,
@@ -16,36 +16,17 @@ use symm_core::{
 /// An asset with its associated weight.
 ///
 /// This struct is used for BasketDefinition and Basket.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct AssetWeight {
+    #[serde(flatten)]
     pub asset: Arc<Asset>,
-    pub weights: Amount,
+    #[serde(alias="weights")]
+    pub weight: Amount,
 }
 
 impl AssetWeight {
     pub fn new(asset: Arc<Asset>, weight: Amount) -> Self {
-        Self { asset, weights: weight }
-    }
-}
-
-impl<'de> Deserialize<'de> for AssetWeight {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct TempAssetWeight {
-            #[serde(flatten)]
-            asset: Asset,
-            weights: String, // JSON field is "weights" as a string
-            // Ignore other fields like id, sector, market_cap
-        }
-        let temp = TempAssetWeight::deserialize(deserializer)?;
-        let weight = Decimal::from_str(&temp.weights).map_err(serde::de::Error::custom)?;
-        Ok(AssetWeight {
-            asset: Arc::new(temp.asset),
-            weights: Amount::from(weight),
-        })
+        Self { asset, weight }
     }
 }
 
@@ -68,12 +49,12 @@ impl BasketDefinition {
         let weights = weights.into_iter().collect_vec();
         let total_weight = weights
             .iter()
-            .try_fold(Amount::ZERO, |a, x| safe!(a + x.weights))
+            .try_fold(Amount::ZERO, |a, x| safe!(a + x.weight))
             .ok_or(eyre!("Numeric overflow"))?;
         let weights = weights
             .into_iter()
             .map(|w| {
-                if let Some(weight) = safe!(w.weights / total_weight) {
+                if let Some(weight) = safe!(w.weight / total_weight) {
                     Some(AssetWeight::new(w.asset, weight))
                 } else {
                     None
@@ -107,7 +88,7 @@ impl Display for BasketDefinition {
             "BasketDefinition[{}]",
             self.weights
                 .iter()
-                .map(|w| format!("{}: {:.7}", w.asset.ticker, w.weights))
+                .map(|w| format!("{}: {:.7}", w.asset.ticker, w.weight))
                 .join(", ")
         )
     }
@@ -164,7 +145,7 @@ impl Basket {
                     .get(&weight.asset.ticker)
                     .unwrap_or(&Amount::ZERO);
                 let quantity =
-                    safe!(safe!(target_price / *price) * weight.weights).unwrap_or_default();
+                    safe!(safe!(target_price / *price) * weight.weight).unwrap_or_default();
                 BasketAsset {
                     weight,
                     quantity,
@@ -189,7 +170,6 @@ impl Basket {
 
         Ok(Self {
             basket_assets,
-            //target_price,
         })
     }
 
@@ -234,7 +214,7 @@ impl Display for Basket {
                 .iter()
                 .map(|ba| format!(
                     "{:.7}{} (w={:.7})",
-                    ba.quantity, ba.weight.asset.ticker, ba.weight.weights
+                    ba.quantity, ba.weight.asset.ticker, ba.weight.weight
                 ))
                 .join(", ")
         )

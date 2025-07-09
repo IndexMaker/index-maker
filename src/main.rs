@@ -26,12 +26,12 @@ use index_maker::{
 };
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{env, path::Path, sync::Arc};
+use std::{env, sync::Arc};
 use symm_core::{
     core::{
         bits::{Amount, PriceType, Side, Symbol},
         logging::log_init,
-        test_util::get_mock_address_1,
+        test_util::{get_mock_address_1, get_mock_address_2},
     },
     init_log,
 };
@@ -250,8 +250,6 @@ async fn main() {
         move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
     );
 
-    tracing::info!("Loading index definitions from JSON files...");
-
     // ==== Fake stuff
     // ----
 
@@ -389,18 +387,6 @@ async fn main() {
         }
     }
 
-    tracing::info!("Sending index weights...");
-
-    // for (index_symbol, basket_definition) in index_definitions{
-    //     simple_chain
-    //         .write()
-    //         .expect("Failed to lock chain connector")
-    //         .publish_event(ChainNotification::CuratorWeightsSet(
-    //             index_symbol,
-    //             basket_definition,
-    //         ));
-    // }
-
     sleep(std::time::Duration::from_secs(2)).await;
 
     match &app_mode {
@@ -452,6 +438,16 @@ async fn main() {
                 .publish_event(ChainNotification::Deposit {
                     chain_id: 1,
                     address: get_mock_address_1(),
+                    amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                });
+
+            simple_chain
+                .write()
+                .expect("Failed to lock chain connector")
+                .publish_event(ChainNotification::Deposit {
+                    chain_id: 1,
+                    address: get_mock_address_2(),
                     amount: *collateral_amount,
                     timestamp: Utc::now(),
                 });

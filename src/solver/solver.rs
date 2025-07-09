@@ -509,7 +509,7 @@ impl Solver {
                     );
                 }
 
-                let target_price = "1000".try_into().unwrap(); // TODO: Can be optional
+                let target_price = "1000".try_into().unwrap(); // TODO
 
                 if let Err(err) = self.basket_manager.write().set_basket_from_definition(
                     symbol,
