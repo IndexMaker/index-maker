@@ -2294,7 +2294,7 @@ mod test {
             let order = order.unwrap();
             assert_eq!(order.side, Side::Buy);
 
-            if (order.symbol == get_mock_asset_name_1()) {
+            if order.symbol == get_mock_asset_name_1() {
                 assert_eq!(order.symbol, get_mock_asset_name_1());
 
                 assert_decimal_approx_eq!(order.price, dec!(101.00), tolerance);

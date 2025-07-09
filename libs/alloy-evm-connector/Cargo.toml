@@ -14,19 +14,19 @@ too_many_arguments = "allow"
 [dependencies]
 alloy = { workspace = true }
 chrono = { workspace = true }
-dotenv = "0.15"
-ethers = "1.0"
+dotenv = { workspace = true }
+ethers = { workspace = true }
 eyre = { workspace = true }
-futures-util = "0.3.31"
+futures-util = { workspace = true }
 itertools = { workspace = true }
-merkle-tree-rs = "0.1.0"
+merkle-tree-rs = { workspace = true }
 parking_lot = { workspace = true }
-rand = "0.9.1"
-reqwest = { version = "0.11", features = ["json"] }
-rust_decimal = "1.37.1"
+rand = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+rust_decimal = { workspace = true }
 safe-math = { workspace = true }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 symm-core = { workspace = true, path = "../libs/symm-core" }
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = "0.7.15"
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }

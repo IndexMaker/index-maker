@@ -1,13 +1,16 @@
 use chrono::{DateTime, Utc};
 
-use crate::{
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::{
-        bits::{Address, Amount, Symbol},
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+use crate::blockchain::chain_connector::{ChainConnector, ChainNotification};
+
+use symm_core::core::{
+    bits::{Address, Amount, Symbol},
+    functional::{
+        IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+        PublishSingle, SingleObserver,
     },
-    index::basket::{Basket, BasketDefinition},
 };
+
+use crate::index::basket::{Basket, BasketDefinition};
 
 pub struct EvmConnector {
     observer: SingleObserver<ChainNotification>,
@@ -62,6 +65,12 @@ impl EvmConnector {
                 amount,
                 timestamp,
             });
+    }
+}
+
+impl IntoObservableSingleVTable<ChainNotification> for EvmConnector {
+    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
+        self.observer.set_observer(observer);
     }
 }
 

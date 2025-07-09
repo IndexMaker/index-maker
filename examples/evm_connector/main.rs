@@ -5,16 +5,18 @@ use std::{
     time::Duration,
 };
 
-use alloy_evm_connector::evm_connector::EvmConnector;
 use crossbeam::{channel::unbounded, select};
 use index_maker::{
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
-    core::functional::IntoObservableSingle,
+    blockchain::{
+        chain_connector::{ChainConnector, ChainNotification},
+        evm::evm_connector::EvmConnector,
+    },
     index::basket::Basket,
 };
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
+use symm_core::core::functional::IntoObservableSingle;
 
 pub fn handle_chain_event(event: &ChainNotification) {
     match event {

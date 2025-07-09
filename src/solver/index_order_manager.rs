@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use axum_fix_server::server;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
@@ -476,7 +475,7 @@ impl IndexOrderManager {
                             update_remaining_collateral, collateral_amount
                         );
                         return None;
-                    }                  
+                    }
 
                     update_upread.with_upgraded(|update_write| {
                         update_write.collateral_spent = update_collateral_spent;

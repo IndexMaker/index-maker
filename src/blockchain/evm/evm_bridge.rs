@@ -1,27 +1,25 @@
 use alloy::primitives::U256;
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;
-use rust_decimal::{dec, Decimal};
+use rust_decimal::dec;
 use safe_math::safe;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock as ComponentLock, Weak};
 use symm_core::core::functional::{IntoObservableSingleVTable, NotificationHandlerOnce};
-use symm_core::core::{self, functional};
 
-use crate::across_deposit::{
-    new_builder_from_env, AcrossDepositBuilder, ARBITRUM_CHAIN_ID, BASE_CHAIN_ID,
+use crate::collateral::collateral_router::{
+    CollateralBridge, CollateralDesignation, CollateralRouterEvent,
+};
+use alloy_evm_connector::across_deposit::{
+    new_builder_from_env, ARBITRUM_CHAIN_ID, BASE_CHAIN_ID,
     USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS,
 };
 use chrono::{DateTime, Utc};
-use symm_core::{
-    collateral::collateral_bridge::{
-        CollateralBridge, CollateralDesignation, CollateralRouterEvent,
-    },
-    core::{
-        bits::{Address, Amount, ClientOrderId, Symbol},
-        decimal_ext::DecimalExt,
-        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    },
+
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, Symbol},
+    decimal_ext::DecimalExt,
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 use tokio::{spawn, task::JoinHandle};
 

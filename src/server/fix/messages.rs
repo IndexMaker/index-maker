@@ -1,20 +1,19 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {
     pub msg_type: String,       // Type of message, e.g. "NewOrderSingle"
-    pub sender_comp_id: String,  // Public key of sender
-    pub target_comp_id: String,  // Public key of receiver
+    pub sender_comp_id: String, // Public key of sender
+    pub target_comp_id: String, // Public key of receiver
     pub seq_num: u32,           // Message sequence number
-//    ResetSeqNum: u8,       // Boolean that determines if SeqNum must be ignored (this will invalidate Disputes)
+    //    ResetSeqNum: u8,       // Boolean that determines if SeqNum must be ignored (this will invalidate Disputes)
     pub timestamp: DateTime<Utc>,
-//    CustodyId: String,
+    //    CustodyId: String,
 }
 
 impl FixHeader {
-    pub fn new(msg_type: String) -> Self{
+    pub fn new(msg_type: String) -> Self {
         Self {
             msg_type: msg_type,
             sender_comp_id: "".to_string(),
@@ -39,14 +38,14 @@ impl FixHeader {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixTrailer {
-    pub public_key: Vec<String>,  // Public key of sender
+    pub public_key: Vec<String>, // Public key of sender
     pub signature: Vec<String>,  // Public key of receiver
-//    RateLimitInterval: u32,           // Message sequence number
-//    RateLimitCount: u32,
+                                 //    RateLimitInterval: u32,           // Message sequence number
+                                 //    RateLimitCount: u32,
 }
 
 impl FixTrailer {
-    pub fn new() -> Self{
+    pub fn new() -> Self {
         Self {
             public_key: Vec::new(),
             signature: Vec::new(),

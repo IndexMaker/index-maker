@@ -124,7 +124,9 @@ pub enum ServerResponse {
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
-    #[error("CancelIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}")]
+    #[error(
+        "CancelIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}"
+    )]
     CancelIndexOrderNak {
         chain_id: u32,
         address: Address,
@@ -179,7 +181,9 @@ pub enum ServerResponse {
         client_quote_id: ClientQuoteId,
         timestamp: DateTime<Utc>,
     },
-    #[error("CancelIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}")]
+    #[error(
+        "CancelIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}"
+    )]
     CancelIndexQuoteNak {
         chain_id: u32,
         address: Address,

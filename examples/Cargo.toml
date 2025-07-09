@@ -7,12 +7,12 @@ publish = false
 [dependencies]
 alloy = { workspace = true }
 index-maker = { workspace = true }
-alloy-evm-connector = { path = "../libs/alloy-evm-connector" }
+alloy-evm-connector = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 binance-sdk = { workspace = true, features = ["spot"] }
 chrono = { workspace = true }
-axum-fix-server = { path = "../libs/axum-fix-server" }
+axum-fix-server = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }

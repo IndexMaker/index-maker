@@ -51,7 +51,7 @@ struct Cli {
 
     #[arg(long, short)]
     log_path: Option<String>,
-    
+
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
 }

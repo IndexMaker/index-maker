@@ -16,10 +16,6 @@ pub mod core {
     pub mod test_util;
 }
 
-pub mod collateral {
-    pub mod collateral_bridge;
-}
-
 pub mod market_data {
     pub mod market_data_connector;
     pub mod price_tracker;

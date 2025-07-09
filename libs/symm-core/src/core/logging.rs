@@ -1,4 +1,7 @@
-use std::{sync::{Once, OnceLock}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    sync::{Once, OnceLock},
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing_appender::rolling::{self, Builder};
 use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -33,20 +36,18 @@ pub fn log_init(filter: String, log_path: Option<String>, disable_terminal_log: 
             .with_ansi(false); // Disable ANSI colors for file output
 
         //Set up the terminal output layer
-        let terminal_layer = Layer::new()
-            .with_writer(std::io::stdout)
-            .with_ansi(true); // Enable ANSI colors for terminal output
+        let terminal_layer = Layer::new().with_writer(std::io::stdout).with_ansi(true); // Enable ANSI colors for terminal output
 
         // Set up the global filter from RUST_LOG or fallback to the provided filter
-        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| filter.into());
+        let env_filter =
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into());
 
         // Combine the layers into a subscriber
         let registry = tracing_subscriber::registry()
             .with(env_filter) // Apply the filter globally to both layers
             .with(file_layer);
 
-        if (disable_terminal_log){
+        if (disable_terminal_log) {
             registry.init();
         } else {
             registry.with(terminal_layer).init();
@@ -89,12 +90,24 @@ macro_rules! init_log {
         log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), None, false);
     };
     ($log_path:expr) => {
-        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), $log_path, false);
+        log_init(
+            format!("{}=info", env!("CARGO_CRATE_NAME")),
+            $log_path,
+            false,
+        );
     };
     ($disable_terminal_log:expr) => {
-        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), None, $disable_terminal_log);
+        log_init(
+            format!("{}=info", env!("CARGO_CRATE_NAME")),
+            None,
+            $disable_terminal_log,
+        );
     };
     ($log_path:expr, $disable_terminal_log:expr) => {
-        log_init(format!("{}=info", env!("CARGO_CRATE_NAME")), $log_path, $disable_terminal_log);
+        log_init(
+            format!("{}=info", env!("CARGO_CRATE_NAME")),
+            $log_path,
+            $disable_terminal_log,
+        );
     };
 }
