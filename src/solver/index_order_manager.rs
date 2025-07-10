@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use axum_fix_server::server;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
@@ -14,7 +13,7 @@ use crate::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
-    solver::index_order::IndexOrder,
+    solver::{index_order::IndexOrder, mint_invoice::MintInvoice},
 };
 use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
@@ -615,7 +614,7 @@ impl IndexOrderManager {
             .write()
             .drain_closed_updates(|x| report.report_closed_update(x));
 
-        print_mint_invoice(
+        let mint_invoice = MintInvoice::try_new(
             &index_order.read(),
             &update.read(),
             payment_id,
@@ -628,8 +627,7 @@ impl IndexOrderManager {
             ServerResponse::MintInvoice {
                 chain_id,
                 address: *address,
-                client_order_id: client_order_id.clone(),
-                timestamp,
+                mint_invoice,
             }
         });
 
