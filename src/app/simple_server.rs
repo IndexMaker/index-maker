@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use super::config::ConfigBuildError;
+use crate::app::solver::ServerConfig;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
-use crate::app::solver::ServerConfig;
 
 use symm_core::core::functional::{
     IntoObservableManyVTable, MultiObserver, NotificationHandler, PublishMany,

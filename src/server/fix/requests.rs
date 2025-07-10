@@ -5,11 +5,13 @@ use axum_fix_server::{
     plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
 };
 use eyre::{eyre, Result};
-use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize};
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use symm_core::core::bits::Address;
 
 use crate::server::fix::messages::*;
-
 
 #[derive(Serialize, Debug)]
 pub struct FixRequest {
@@ -61,7 +63,8 @@ impl<'de> Deserialize<'de> for FixRequest {
                 let mut chain_id: Option<u32> = None;
                 let mut address: Option<Address> = None;
                 let mut standard_trailer: Option<FixTrailer> = None;
-                let mut body_fields: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+                let mut body_fields: serde_json::Map<String, serde_json::Value> =
+                    serde_json::Map::new();
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -77,27 +80,33 @@ impl<'de> Deserialize<'de> for FixRequest {
                     }
                 }
 
-                let standard_header = standard_header.ok_or_else(|| de::Error::missing_field("standard_header"))?;
+                let standard_header =
+                    standard_header.ok_or_else(|| de::Error::missing_field("standard_header"))?;
                 let chain_id = chain_id.ok_or_else(|| de::Error::missing_field("chain_id"))?;
                 let address = address.ok_or_else(|| de::Error::missing_field("address"))?;
-                let standard_trailer = standard_trailer.ok_or_else(|| de::Error::missing_field("standard_trailer"))?;
+                let standard_trailer =
+                    standard_trailer.ok_or_else(|| de::Error::missing_field("standard_trailer"))?;
 
                 let msg_type = &standard_header.msg_type;
                 let body = match msg_type.as_str() {
                     "NewIndexOrder" => {
-                        let client_order_id = body_fields.remove("client_order_id")
+                        let client_order_id = body_fields
+                            .remove("client_order_id")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("client_order_id"))?;
 
-                        let symbol = body_fields.remove("symbol")
+                        let symbol = body_fields
+                            .remove("symbol")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("symbol"))?;
 
-                        let side = body_fields.remove("side")
+                        let side = body_fields
+                            .remove("side")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("side"))?;
 
-                        let amount = body_fields.remove("amount")
+                        let amount = body_fields
+                            .remove("amount")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("amount"))?;
 
@@ -107,18 +116,21 @@ impl<'de> Deserialize<'de> for FixRequest {
                             side,
                             amount,
                         }
-                    },
+                    }
                     "CancelIndexOrder" => {
                         // Extract fields for CancelIndexOrderBody
-                        let client_order_id = body_fields.remove("client_order_id")
+                        let client_order_id = body_fields
+                            .remove("client_order_id")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("client_order_id"))?;
 
-                        let symbol = body_fields.remove("symbol")
+                        let symbol = body_fields
+                            .remove("symbol")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("symbol"))?;
 
-                        let amount = body_fields.remove("amount")
+                        let amount = body_fields
+                            .remove("amount")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("amount"))?;
 
@@ -127,21 +139,25 @@ impl<'de> Deserialize<'de> for FixRequest {
                             symbol,
                             amount,
                         }
-                    },
+                    }
                     "NewQuoteRequest" => {
-                        let client_quote_id = body_fields.remove("client_quote_id")
+                        let client_quote_id = body_fields
+                            .remove("client_quote_id")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("client_quote_id"))?;
 
-                        let symbol = body_fields.remove("symbol")
+                        let symbol = body_fields
+                            .remove("symbol")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("symbol"))?;
 
-                        let side = body_fields.remove("side")
+                        let side = body_fields
+                            .remove("side")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("side"))?;
 
-                        let amount = body_fields.remove("amount")
+                        let amount = body_fields
+                            .remove("amount")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("amount"))?;
 
@@ -151,13 +167,15 @@ impl<'de> Deserialize<'de> for FixRequest {
                             side,
                             amount,
                         }
-                    },
+                    }
                     "CancelQuoteRequest" => {
-                        let client_quote_id = body_fields.remove("client_quote_id")
+                        let client_quote_id = body_fields
+                            .remove("client_quote_id")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("client_quote_id"))?;
 
-                        let symbol = body_fields.remove("symbol")
+                        let symbol = body_fields
+                            .remove("symbol")
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("symbol"))?;
 
@@ -165,16 +183,31 @@ impl<'de> Deserialize<'de> for FixRequest {
                             client_quote_id,
                             symbol,
                         }
-                    },
-                    "AccountToCustody" => {
-                        serde_json::from_value(serde_json::Value::Object(body_fields))
-                            .map_err(|e| de::Error::custom(format!("Failed to deserialize AccountToCustody body: {}", e)))?
-                    },
-                    "CustodyToAccount" => {
-                        serde_json::from_value(serde_json::Value::Object(body_fields))
-                            .map_err(|e| de::Error::custom(format!("Failed to deserialize CustodyToAccount body: {}", e)))?
-                    },
-                    _ => return Err(de::Error::custom(format!("Unknown message type: {}", msg_type))),
+                    }
+                    "AccountToCustody" => serde_json::from_value(serde_json::Value::Object(
+                        body_fields,
+                    ))
+                    .map_err(|e| {
+                        de::Error::custom(format!(
+                            "Failed to deserialize AccountToCustody body: {}",
+                            e
+                        ))
+                    })?,
+                    "CustodyToAccount" => serde_json::from_value(serde_json::Value::Object(
+                        body_fields,
+                    ))
+                    .map_err(|e| {
+                        de::Error::custom(format!(
+                            "Failed to deserialize CustodyToAccount body: {}",
+                            e
+                        ))
+                    })?,
+                    _ => {
+                        return Err(de::Error::custom(format!(
+                            "Unknown message type: {}",
+                            msg_type
+                        )))
+                    }
                 };
 
                 Ok(FixRequest {
@@ -190,12 +223,17 @@ impl<'de> Deserialize<'de> for FixRequest {
 
         deserializer.deserialize_struct(
             "FixRequest",
-            &["standard_header", "chain_id", "address", "body", "standard_trailer"],
+            &[
+                "standard_header",
+                "chain_id",
+                "address",
+                "body",
+                "standard_trailer",
+            ],
             FixRequestVisitor,
         )
     }
 }
-
 
 impl AxumServerRequest for FixRequest {
     fn deserialize_from_fix(
@@ -207,7 +245,11 @@ impl AxumServerRequest for FixRequest {
 
         // Set the session_id
         request.session_id = this_session_id.clone();
-        tracing::info!("FIX server request received from {}: {}", request.session_id, request.standard_header.msg_type);
+        tracing::info!(
+            "FIX server request received from {}: {}",
+            request.session_id,
+            request.standard_header.msg_type
+        );
         Ok(request)
     }
 }

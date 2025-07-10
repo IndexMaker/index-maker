@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use binance_sdk::spot::websocket_api::{
-    ExchangeFiltersInner, ExchangeInfoResponseResult, ExchangeInfoResponseResultSymbolsInner
+    ExchangeFiltersInner, ExchangeInfoResponseResult, ExchangeInfoResponseResultSymbolsInner,
 };
 use eyre::{eyre, OptionExt, Report, Result};
 use itertools::Itertools;

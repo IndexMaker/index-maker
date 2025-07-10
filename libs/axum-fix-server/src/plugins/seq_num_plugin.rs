@@ -1,8 +1,8 @@
-use std::sync::RwLock;
+use crate::messages::{ServerRequest, ServerResponse, SessionId};
+use eyre::{Report, Result};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use eyre::{Report, Result};
-use crate::messages::{ServerRequest, ServerResponse, SessionId};
+use std::sync::RwLock;
 
 pub trait WithSeqNumPlugin {
     fn get_seq_num(&self) -> u32;
@@ -16,9 +16,8 @@ pub struct SeqNumPlugin<R, Q> {
     _phantom_q: PhantomData<Q>,
 }
 
-
 impl<R, Q> SeqNumPlugin<R, Q>
-where 
+where
     R: ServerRequest + WithSeqNumPlugin,
     Q: ServerResponse + WithSeqNumPlugin,
 {
@@ -35,12 +34,12 @@ where
     pub fn last_sent_seq_num(&self, session_id: &SessionId) -> u32 {
         let read_lock = self.last_sent_seq_num.read().unwrap();
         read_lock.get(&session_id).map_or(0, |v| *v)
-    } 
+    }
 
     pub fn last_received_seq_num(&self, session_id: &SessionId) -> u32 {
         let read_lock = self.last_received_seq_num.read().unwrap();
         read_lock.get(&session_id).map_or(0, |v| *v)
-    } 
+    }
 
     pub fn valid_seq_num(&self, seq_num: u32, session_id: &SessionId) -> bool {
         let read_lock = self.last_received_seq_num.read().unwrap();

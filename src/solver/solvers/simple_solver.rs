@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use alloy::serde::quantity;
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -1932,7 +1931,10 @@ mod test {
                 );
             }
         } else {
-            batch.is_none().then_some(()).expect("No batch was expected");
+            batch
+                .is_none()
+                .then_some(())
+                .expect("No batch was expected");
         }
     }
 }

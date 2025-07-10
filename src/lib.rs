@@ -1,9 +1,9 @@
 pub mod app {
-    pub mod fix_server;
     pub mod basket_manager;
     pub mod batch_manager;
     pub mod collateral_manager;
     pub mod config;
+    pub mod fix_server;
     pub mod index_order_manager;
     pub mod market_data;
     pub mod order_sender;
