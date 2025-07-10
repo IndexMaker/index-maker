@@ -38,7 +38,10 @@ use symm_core::{
     },
     init_log,
 };
-use tokio::time::sleep;
+use tokio::{
+    signal::unix::{signal, SignalKind},
+    time::sleep,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -51,7 +54,7 @@ struct Cli {
 
     #[arg(long, short)]
     log_path: Option<String>,
-    
+
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
 }
@@ -186,7 +189,7 @@ impl AppMode {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Command line input
     // ----
 
@@ -478,7 +481,21 @@ async fn main() {
         }
     };
 
-    sleep(std::time::Duration::from_secs(60)).await;
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigquit = signal(SignalKind::quit())?;
+
+    tokio::select! {
+        _ = sigint.recv() => {
+            tracing::info!("SIGINT received")
+        }
+        _ = sigterm.recv() => {
+            tracing::info!("SIGTERM received")
+        }
+        _ = sigquit.recv() => {
+            tracing::info!("SIGQUIT received")
+        }
+    }
 
     tracing::info!("Stopping solver...");
 
@@ -494,4 +511,6 @@ async fn main() {
     app_mode.stop().await;
 
     tracing::info!("Done.");
+
+    Ok(())
 }
