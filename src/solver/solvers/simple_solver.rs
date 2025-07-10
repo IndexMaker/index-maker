@@ -376,7 +376,7 @@ impl SimpleSolver {
             .basket_assets
             .iter()
             .map_while(|basket_asset| {
-                let asset_symbol = &basket_asset.weight.asset.name;
+                let asset_symbol = &basket_asset.weight.asset.ticker;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
                 tracing::info!(
                     "(simple-solver) Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
@@ -679,7 +679,7 @@ impl SimpleSolver {
             .ok_or_else(|| eyre!("Missing basket for {} {}", client_order_id, index_symbol))?;
 
         for basket_asset in basket.basket_assets.iter() {
-            let asset_symbol = &basket_asset.weight.asset.name;
+            let asset_symbol = &basket_asset.weight.asset.ticker;
             let asset_quantity =
                 safe!(basket_asset.quantity * order_quantity).ok_or_else(|| {
                     eyre!(
@@ -980,7 +980,7 @@ impl SimpleSolver {
                     basket
                         .basket_assets
                         .iter()
-                        .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                        .map(|basket_asset| basket_asset.weight.asset.ticker.clone()),
                 )
             })
             .concat();
@@ -1042,7 +1042,7 @@ impl SimpleSolver {
                     basket
                         .basket_assets
                         .iter()
-                        .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                        .map(|basket_asset| basket_asset.weight.asset.ticker.clone()),
                 )
             })
             .concat();
@@ -1191,7 +1191,7 @@ impl SolverStrategy for SimpleSolver {
             basket
                 .basket_assets
                 .iter()
-                .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                .map(|basket_asset| basket_asset.weight.asset.ticker.clone()),
         );
 
         let symbols = basket_assets.into_iter().collect_vec();
@@ -1231,7 +1231,7 @@ impl SolverStrategy for SimpleSolver {
         };
 
         for basket_asset in &basket.basket_assets {
-            let asset_symbol = &basket_asset.weight.asset.name;
+            let asset_symbol = &basket_asset.weight.asset.ticker;
             let asset_price = *prices.get(asset_symbol).ok_or_eyre("Missing asset price")?;
 
             // We calculate how big is the portion of the collateral that needs
@@ -1561,7 +1561,6 @@ mod test {
         Arc::new(Basket {
             basket_assets: vec![
                 BasketAsset {
-                    price: dec!(100.0),
                     quantity: dec!(8.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
@@ -1569,7 +1568,6 @@ mod test {
                     },
                 },
                 BasketAsset {
-                    price: dec!(200.0),
                     quantity: dec!(1.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_2_arc(),
@@ -1577,7 +1575,6 @@ mod test {
                     },
                 },
             ],
-            target_price: dec!(1000.0),
         })
     }
 
@@ -1585,7 +1582,6 @@ mod test {
         Arc::new(Basket {
             basket_assets: vec![
                 BasketAsset {
-                    price: dec!(100.0),
                     quantity: dec!(5.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
@@ -1593,7 +1589,6 @@ mod test {
                     },
                 },
                 BasketAsset {
-                    price: dec!(10.0),
                     quantity: dec!(50.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_3_arc(),
@@ -1601,7 +1596,6 @@ mod test {
                     },
                 },
             ],
-            target_price: dec!(1000.0),
         })
     }
 

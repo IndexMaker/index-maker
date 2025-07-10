@@ -173,7 +173,7 @@
 * [x] Web Framework Integration
     - [x] Decision to use Axum for web server (REST and WSS)
 * [ ] Disaster recovery plan
-    - We need to understand our system well, make sure logging is 
+    - We need to understand our system well, make sure logging is expressive.
 
 ## Phase 1. Mocked I/O (FIX / Chain/ Market Data)
 

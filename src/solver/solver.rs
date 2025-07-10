@@ -494,7 +494,7 @@ impl Solver {
                 let symbols = basket_definition
                     .weights
                     .iter()
-                    .map(|w| w.asset.name.clone())
+                    .map(|w| w.asset.ticker.clone())
                     .collect_vec();
 
                 let get_prices_response = self
@@ -517,7 +517,7 @@ impl Solver {
                     &get_prices_response.prices,
                     target_price,
                 ) {
-                    tracing::info!("(solver) Error while setting curator weights: {err}");
+                    tracing::warn!("(solver) Error while setting curator weights: {err}");
                 }
                 Ok(())
             }
