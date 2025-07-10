@@ -1,75 +1,55 @@
-# Stage 1: Builder - This stage compiles your Rust application.
-# We use a Rust image that is based on Debian (or similar, rust:latest is usually Debian-based).
-# This provides a more convenient environment for compilation and linking,
-# especially when dealing with various C dependencies, before targeting musl.
-FROM rust:latest AS builder
+# syntax=docker/dockerfile:1.4
 
-# Set working directory inside the builder container
+# Stage 1: Build the application
+# We use a glibc-based image for the builder to handle proc-macros,
+# even though we target musl for the final binary.
+# FROM rust:latest AS builder
+FROM --platform=linux/amd64 rustlang/rust:nightly AS builder
+
+# Set the working directory inside the container
 WORKDIR /app
 
-# Install necessary build-time dependencies for common Rust crates
-# For example, if your project uses OpenSSL for HTTPS (via `native-tls`), you'll need its dev packages.
-# If you use `rustls`, you often won't need these.
-# pkg-config is often needed for various C bindings.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    musl-tools \
+# Install build dependencies for OpenSSL and musl-tools
+# build-essential includes gcc/g++, pkg-config, etc.
+# musl-tools are necessary for the x86_64-unknown-linux-musl target
+# libssl-dev is for OpenSSL development headers
+RUN apt-get update && apt-get install -y  --no-install-recommends \
+    build-essential \
     pkg-config \
     libssl-dev \
-    # Add any other build dependencies for your specific C-linked crates here, e.g.:
-    # libpq-dev (for PostgreSQL)
-    # libsqlite3-dev (for SQLite)
-    # libmysqlclient-dev (for MySQL/MariaDB)
-    # libxml2-dev libxslt1-dev (if using xml/xslt parsing libraries)
+    ca-certificates \
+    musl-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# Add the x86_64-unknown-linux-musl target for static compilation
-# Replace x86_64 with aarch64 or other if targeting a different architecture
+# Add the musl target to rustup
 RUN rustup target add x86_64-unknown-linux-musl
 
-# Copy only Cargo.toml and Cargo.lock first to leverage Docker's layer caching.
-# This ensures that if your source code changes, but dependencies don't,
-# Cargo won't re-download and recompile all dependencies.
-COPY Cargo.toml Cargo.lock ./
-
-# Create a dummy src/main.rs and build to cache dependencies.
-# This is a common optimization: if Cargo.toml/Cargo.lock don't change,
-# this layer and its subsequent dependency compilation will be cached.
-# If your project has a build.rs, you might need to copy more files here before this step.
-# RUN mkdir src && echo "fn main() {println!(\"Caching...\");}" > src/main.rs \
-#     && cargo build --release --target=x86_64-unknown-linux-musl \
-#     && rm src/main.rs
-
-# Copy the rest of your application source code
+# Copy Cargo.toml and Cargo.lock first to leverage Docker cache
+# This ensures dependencies are only recompiled if Cargo.toml/Cargo.lock change
 COPY . .
 
-# Set RUSTFLAGS for static linking against musl.
-# `+crt-static` links the C runtime statically.
-# `link-self-contained=yes` ensures Rust's standard library is also linked statically.
-ENV RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=yes"
+# Build the final release binary for the musl target
+# Use the same RUSTFLAGS and OPENSSL_STATIC for consistency
+RUN RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=yes" \
+    OPENSSL_STATIC=1 \
+    cargo build --target=x86_64-unknown-linux-musl --release --features alpine-deploy
 
-# Build your Rust application in release mode for the musl target.
-# Replace `your_app_name` with the actual name of your binary if it's different from the package name in Cargo.toml.
-# Cargo will usually name the binary after the `[package].name` in Cargo.toml by default.
-RUN cargo build --release --target=x86_64-unknown-linux-musl
-
-# ---
-# Stage 2: Final Alpine Image - This stage creates the smallest possible image.
-# We start from a minimal Alpine base.
+# Stage 2: Create the final, minimal runtime image
+# Use alpine as it's very small and compatible with musl binaries
 FROM alpine:latest
 
-# Install ca-certificates if your application makes HTTPS requests.
-# Most well-built musl Rust binaries are fully static and only need this for HTTPS.
+# Install ca-certificates for HTTPS/TLS, crucial for network communication
 RUN apk add --no-cache ca-certificates
 
-# Set the working directory for the final application
+# Set the working directory
 WORKDIR /app
 
-# Copy the compiled binary from the builder stage into the final Alpine image.
-# Replace `your_app_name` with the actual name of the compiled binary.
+# Copy the built binary from the builder stage
+# Replace `your_app_name` with the actual name of your binary (usually from Cargo.toml's [package] name)
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/index-maker ./
 
-# Define the command to run your application when the container starts.
-ENTRYPOINT ["./index-maker quote-server"]
+# Set the default command to run your application
+CMD ["./index-maker"]
 
-# Optional: Expose ports if your application is a web server or listens on a port.
-# EXPOSE 8080
+# Optional: If your application listens on a port, expose it (e.g., for a web server)
+EXPOSE 3000
