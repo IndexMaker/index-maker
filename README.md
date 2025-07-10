@@ -94,8 +94,8 @@
     - [ ] Create Bitget Order Connector integration example
     - [ ] Send small order to Bitget using limit price X% away from TOB
 * [ ] Alloy Integration
-    - [x] Calling contract methods
-    - [x] Subscribtions to chain events
+    - [ ] Calling contract methods
+    - [ ] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
 * [ ] Collateral Router Bridges
     - [ ] Create Collateral Bridge between two EVM chains using Across
