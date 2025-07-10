@@ -19,7 +19,7 @@ pub struct BasketManagerConfig {
     basket_manager: Option<Arc<RwLock<BasketManager>>>,
 
     #[builder(setter(into, strip_option), default)]
-    with_config_file: String,
+    with_config_file: Option<String>,
 
     #[builder(setter(skip))]
     symbols: Vec<Symbol>,
@@ -51,7 +51,9 @@ impl BasketManagerConfig {
 
 
     pub fn load_config_file(&self) -> Result<Vec<(Symbol, String)>> {
-        let path_str: String = self.with_config_file.clone();
+        let Some(path_str) = &self.with_config_file else {
+            return Err(eyre::eyre!("No config file path provided"));
+        };
         let config_path = Path::new(path_str.as_str());
 
         let mut indexes_configs: Vec<(Symbol, String)> = Vec::new();
@@ -87,43 +89,44 @@ impl BasketManagerConfigBuilder {
             .basket_manager
             .replace(Arc::new(RwLock::new(BasketManager::new())));
 
-        let mut indexes: Vec<(Symbol, Basket)> = Vec::new();
-        match config.load_config_file() {
-            Ok(indexes_configs) => {
-                for (index_symbol, index_path_str) in indexes_configs {
-                    let index_path = Path::new(index_path_str.as_str());
-                    let content = fs::read_to_string(index_path).expect(format!("Failed to read file: {}", index_path_str).as_str());
-
-                    let basket: Basket = serde_json::from_str(content.as_str()).expect("Invalid index data");
-                    indexes.push((index_symbol.clone(), basket));
-                }
-            }
-            Err(e) => return Err(ConfigBuildError::Other(format!("Config load error: {}", e)))
-        }
-
-        if indexes.is_empty() {
-            tracing::error!("No index loaded, application cannot proceed without indices.");
-            std::process::exit(1);
-        }
-
-        let mut unique_symbols: Vec<Symbol> = Vec::new();
-        for (index_symbol, basket) in indexes {
-            let symbols = basket
-                .basket_assets
-                .iter()
-                .map(|aw| aw.weight.asset.ticker.clone())
-                .filter(|s| !unique_symbols.contains(s))
+        if config.with_config_file.is_some() {
+            let indexes: Vec<(Symbol, Basket)> = config.load_config_file()
+                .map_err(|e| ConfigBuildError::Other(format!("Config load error: {}", e)))?
+                .into_iter()
+                .map(|(index_symbol, index_path_str)| {
+                    let index_path = Path::new(&index_path_str);
+                    let content = fs::read_to_string(&index_path)
+                        .expect(format!("Failed to read file: {}", index_path_str).as_str());
+                    let basket: Basket = serde_json::from_str(&content)
+                        .expect("Invalid index data");
+                    (index_symbol.clone(), basket)
+                })
                 .collect_vec();
 
-            unique_symbols.extend(symbols);
-            config
-                .basket_manager
-                .as_ref()
-                .unwrap()
-                .write()
-                .set_basket(&index_symbol, &Arc::new(basket));
+            if indexes.is_empty() {
+                tracing::error!("No index loaded, application cannot proceed without indices.");
+                std::process::exit(1);
+            }
+
+            let mut unique_symbols: Vec<Symbol> = Vec::new();
+            for (index_symbol, basket) in indexes {
+                let symbols = basket
+                    .basket_assets
+                    .iter()
+                    .map(|aw| aw.weight.asset.ticker.clone())
+                    .filter(|s| !unique_symbols.contains(s))
+                    .collect_vec();
+
+                unique_symbols.extend(symbols);
+                config
+                    .basket_manager
+                    .as_ref()
+                    .unwrap()
+                    .write()
+                    .set_basket(&index_symbol, &Arc::new(basket));
+            }
+            config.symbols = unique_symbols;
         }
-        config.symbols = unique_symbols;
 
         Ok(config)
     }
