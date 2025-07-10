@@ -12,6 +12,8 @@ path = "examples/across_deposit_example.rs"
 too_many_arguments = "allow"
 
 [dependencies]
+index-maker = { path = "../.." }
+async-core = { path = "../async-core" }
 alloy = { workspace = true }
 chrono = { workspace = true }
 dotenv = { workspace = true }

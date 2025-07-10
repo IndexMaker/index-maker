@@ -161,9 +161,10 @@ impl CollateralBridge for EvmCollateralBridge {
                     USDC_ARBITRUM_ADDRESS,
                     USDC_BASE_ADDRESS,
                     U256::from_str(
-                        &(amount.try_into().unwrap_or(0u128) * 1_000_000u128).to_string(),
+                        &(amount.try_into().unwrap_or(1u128) * 1_000_000u128).to_string(),
                     )
-                    .unwrap(), // 6 decimals for USDC
+                    .map_err(|err| eyre!("Failed to
+                     convert amount to U256: {}", err))?, // 6 decimals for USDC
                     ARBITRUM_CHAIN_ID,
                     BASE_CHAIN_ID,
                 )

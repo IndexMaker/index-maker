@@ -244,7 +244,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         Ok(receipt)
     }
 
-    async fn get_ca(&self, custody_id: [u8; 32]) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn get_ca(&self, custody_id: [u8; 32]) -> Result<String, Box<dyn std::error::Error>> {
         let call = self.otc_custody.getCA(FixedBytes(custody_id));
         let ca = call.call().await?.to_string();
         Ok(ca)

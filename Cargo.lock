@@ -253,6 +253,7 @@ name = "alloy-evm-connector"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-core",
  "chrono",
  "dotenv",
  "ethers",
