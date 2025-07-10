@@ -74,7 +74,7 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let side = if (side == "1"
+                    let side = if side == "1"
                         || side == "b"
                         || side == "B"
                         || side == "buy"
@@ -82,7 +82,7 @@ impl ServerPlugin {
                         || side == "BUY"
                         || side == "bid"
                         || side == "Bid"
-                        || side == "BID")
+                        || side == "BID"
                     {
                         Side::Buy
                     } else {
@@ -286,7 +286,6 @@ impl ServerPlugin {
                 address,
                 SessionId::from("S-1"),
                 "MintInvoice".to_string(),
-
                 Body::MintInvoiceBody {
                     timestamp: mint_invoice.timestamp,
                     order_id: mint_invoice.order_id.to_string(),

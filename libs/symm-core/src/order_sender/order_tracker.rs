@@ -146,9 +146,7 @@ impl OrderTracker {
             Entry::Occupied(entry) => {
                 let order_entry = entry.get();
                 match order_entry.get_status() {
-                    OrderStatus::Sent {
-                        order_quantity: _,
-                    } => {
+                    OrderStatus::Sent { order_quantity: _ } => {
                         if !is_cancel {
                             Err(eyre!("Invalid order state for applying fill"))
                         } else {

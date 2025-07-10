@@ -354,7 +354,7 @@ pub mod test {
                             assert_eq!(timestamp, timestamp_2);
                             assert_decimal_approx_eq!(price, order_price, tolerance);
                             assert_decimal_approx_eq!(quantity, order_quantity, tolerance);
-                        },
+                        }
                         OrderConnectorNotification::Cancel {
                             order_id,
                             symbol,
