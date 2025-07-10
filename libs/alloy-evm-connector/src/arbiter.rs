@@ -32,52 +32,52 @@ impl Arbiter {
     pub fn start(
         &mut self,
         chain_operations: Arc<AtomicLock<ChainOperations>>,      // State management
-        mut operation_rx: UnboundedReceiver<ChainOperationRequest>, // Input channel
+        operation_rx: UnboundedReceiver<ChainOperationRequest>, // Input channel
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>, // Event publisher
         max_chain_operations: usize,                            // Configuration
     ) {
-        todo!();
-        // self.arbiter_loop.start(async move |cancel_token| {
-        //     println!("Chain operations arbiter started");
+        self.arbiter_loop.start(async move |cancel_token| {
+            println!("Chain operations arbiter started");
             
-        //     loop {
-        //         tokio::select! {
-        //             _ = cancel_token.cancelled() => {
-        //                 println!("Chain operations arbiter cancelled");
-        //                 break;
-        //             }
-        //             Some(request) = operation_rx.recv() => {
-        //                 println!("Arbiter received request: {:?}", std::mem::discriminant(&request));
+            let mut operation_rx = operation_rx; // Make it mutable in the async block
+            
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        println!("Chain operations arbiter cancelled");
+                        break;
+                    }
+                    Some(request) = operation_rx.recv() => {
+                        println!("Arbiter received request: {:?}", std::mem::discriminant(&request));
                         
-        //                 // Handle the request using the state management pattern
-        //                 match Self::handle_chain_operation_request(
-        //                     &chain_operations,
-        //                     request,
-        //                     &observer,
-        //                     max_chain_operations,
-        //                 ).await {
-        //                     Ok(()) => {
-        //                         // Request handled successfully
-        //                     }
-        //                     Err(e) => {
-        //                         eprintln!("Failed to handle chain operation request: {}", e);
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
+                        // Handle the request using the state management pattern
+                        match Self::handle_chain_operation_request(
+                            &chain_operations,
+                            request,
+                            &observer,
+                            max_chain_operations,
+                        ).await {
+                            Ok(()) => {
+                                // Request handled successfully
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to handle chain operation request: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
 
-        //     // Cleanup: shutdown all operations (following binance pattern)
-        //     {
-        //         let mut operations = chain_operations.write();
-        //         drop(operations); // Release the lock before async operation
-        //         // Note: In a real implementation, we'd need a different approach for cleanup
-        //         println!("Chain operations cleanup completed");
-        //     }
+            // Cleanup: shutdown all operations (following binance pattern)
+            {
+                let operations = chain_operations.read();
+                drop(operations); // Release the lock before async operation
+                println!("Chain operations cleanup completed");
+            }
 
-        //     println!("Chain operations arbiter stopped");
-        //     operation_rx
-        // });
+            println!("Chain operations arbiter stopped");
+            operation_rx
+        });
     }
 
     /// Handle chain operation request (following binance pattern)
@@ -87,28 +87,33 @@ impl Arbiter {
         observer: &Arc<AtomicLock<SingleObserver<ChainNotification>>>,
         max_operations: usize,
     ) -> Result<()> {
-        let mut operations = chain_operations.write();
-        
         match request {
             ChainOperationRequest::AddOperation { credentials } => {
                 let chain_id = credentials.get_chain_id() as u32;
                 
                 // Check if we've reached the maximum number of operations
-                if operations.operation_count() >= max_operations {
+                let can_add = {
+                    let operations = chain_operations.read();
+                    operations.operation_count() < max_operations
+                };
+                
+                if !can_add {
                     eprintln!("Maximum number of chain operations ({}) reached", max_operations);
                     return Ok(());
                 }
 
                 // Add the new chain operation using credentials (following binance pattern)
-                operations.add_operation_with_credentials(credentials).await?;
+                // This is synchronous so no Arc cloning needed
+                {
+                    let mut operations = chain_operations.write();
+                    operations.add_operation_with_credentials(credentials)?;
+                }
                 
                 // Notify via observer (following binance pattern)
                 {
                     let obs = observer.read();
-                    obs.publish_single(ChainNotification::Deposit {
+                    obs.publish_single(ChainNotification::ChainConnected {
                         chain_id,
-                        address: Default::default(), // placeholder
-                        amount: Default::default(),  // placeholder
                         timestamp: Utc::now(),
                     });
                 }
@@ -117,29 +122,51 @@ impl Arbiter {
             }
             
             ChainOperationRequest::RemoveOperation { chain_id } => {
-                // Remove the chain operation
-                operations.remove_operation(chain_id).await?;
+                // Following senior dev's advice: extract operation while holding lock,
+                // then call async method on cloned Arc outside the lock
+                let operation_to_stop = {
+                    let mut operations = chain_operations.write();
+                    operations.remove_operation_sync(chain_id)
+                };
                 
-                // Notify via observer
-                {
-                    let obs = observer.read();
-                    obs.publish_single(ChainNotification::WithdrawalRequest {
-                        chain_id,
-                        address: Default::default(), // placeholder
-                        amount: Default::default(),  // placeholder
-                        timestamp: Utc::now(),
-                    });
-                }
+                // Clone the observer Arc before async operation
+                let observer_clone = observer.clone();
                 
-                println!("Removed chain operation for chain {}", chain_id);
+                // Handle async operation outside the lock
+                tokio::spawn(async move {
+                    if let Some(mut operation) = operation_to_stop {
+                        match operation.stop().await {
+                            Ok(()) => {
+                                // Notify via observer
+                                let obs = observer_clone.read();
+                                obs.publish_single(ChainNotification::ChainDisconnected {
+                                    chain_id,
+                                    timestamp: Utc::now(),
+                                });
+                                println!("Removed chain operation for chain {}", chain_id);
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to stop chain operation for chain {}: {}", chain_id, e);
+                            }
+                        }
+                    } else {
+                        // Notify via observer anyway (operation was not found)
+                        let obs = observer_clone.read();
+                        obs.publish_single(ChainNotification::ChainDisconnected {
+                            chain_id,
+                            timestamp: Utc::now(),
+                        });
+                        println!("Chain operation for chain {} not found", chain_id);
+                    }
+                });
             }
             
             ChainOperationRequest::ExecuteCommand { chain_id, command } => {
                 // Execute the command on the specified chain
-                operations.handle_request(ChainOperationRequest::ExecuteCommand { 
-                    chain_id, 
-                    command 
-                }).await?;
+                {
+                    let operations = chain_operations.read();
+                    operations.execute_command(chain_id, command)?;
+                }
             }
         }
 

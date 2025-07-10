@@ -42,32 +42,32 @@ impl ChainOperations {
     }
 
     /// Add a new chain operation using credentials (following binance pattern)
-    pub async fn add_operation_with_credentials(&mut self, credentials: EvmCredentials) -> Result<()> {
+    pub fn add_operation_with_credentials(&mut self, credentials: EvmCredentials) -> Result<()> {
         let chain_id = credentials.get_chain_id() as u32;
         let rpc_url = credentials.get_rpc_url();
         let private_key = credentials.get_private_key();
         
-        self.add_operation(chain_id, rpc_url, private_key).await
+        self.add_operation(chain_id, rpc_url, private_key)
     }
 
     /// Process a chain operation request
     pub async fn handle_request(&mut self, request: ChainOperationRequest) -> Result<()> {
         match request {
             ChainOperationRequest::AddOperation { credentials } => {
-                self.add_operation_with_credentials(credentials).await?;
+                self.add_operation_with_credentials(credentials)?;
             }
             ChainOperationRequest::RemoveOperation { chain_id } => {
                 self.remove_operation(chain_id).await?;
             }
             ChainOperationRequest::ExecuteCommand { chain_id, command } => {
-                self.execute_command(chain_id, command).await?;
+                self.execute_command(chain_id, command)?;
             }
         }
         Ok(())
     }
 
     /// Add a new chain operation
-    pub async fn add_operation(
+    pub fn add_operation(
         &mut self,
         chain_id: u32,
         rpc_url: String,
@@ -101,15 +101,20 @@ impl ChainOperations {
         Ok(())
     }
 
-    /// Remove a chain operation
-    pub async fn remove_operation(&mut self, chain_id: u32) -> Result<()> {
+    /// Remove a chain operation (synchronous part)
+    pub fn remove_operation_sync(&mut self, chain_id: u32) -> Option<ChainOperation> {
         println!("Removing chain operation for chain {}", chain_id);
 
         // Remove command sender first
         self.command_senders.remove(&chain_id);
 
-        // Stop and remove the operation
-        if let Some(mut operation) = self.operations.remove(&chain_id) {
+        // Remove the operation (returns it so we can stop it outside the lock)
+        self.operations.remove(&chain_id)
+    }
+
+    /// Remove a chain operation (async version that handles the full process)
+    pub async fn remove_operation(&mut self, chain_id: u32) -> Result<()> {
+        if let Some(mut operation) = self.remove_operation_sync(chain_id) {
             operation.stop().await?;
             println!("Chain operation for chain {} stopped successfully", chain_id);
         } else {
@@ -120,7 +125,7 @@ impl ChainOperations {
     }
 
     /// Execute a command on a specific chain
-    async fn execute_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
+    pub fn execute_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
         if let Some(sender) = self.command_senders.get(&chain_id) {
             sender.send(command).map_err(|e| {
                 eyre::eyre!("Failed to send command to chain {}: {}", chain_id, e)

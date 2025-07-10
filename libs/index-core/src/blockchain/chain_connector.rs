@@ -26,6 +26,14 @@ pub enum ChainNotification {
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
+    ChainConnected {
+        chain_id: u32,
+        timestamp: DateTime<Utc>,
+    },
+    ChainDisconnected {
+        chain_id: u32,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// Connects to some Blockchain
