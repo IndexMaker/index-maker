@@ -6,7 +6,6 @@ members = [
     "libs/binance-market-data",
     "libs/binance-order-sending",
     "libs/symm-core",
-    "libs/index-core",
     "examples",
     "proc-macros/safe-math",
 ]
@@ -38,12 +37,16 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 string_cache = { workspace = true }
 symm-core = { workspace = true }
-index-core = { workspace = true }
+<<<<<<< HEAD
+=======
+axum-fix-server = { workspace = true }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { workspace = true }
+>>>>>>> main
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
 [dev-dependencies]
 paste = { workspace = true }
 test-case = { workspace = true }
@@ -51,32 +54,25 @@ test-case = { workspace = true }
 [workspace.dependencies]
 alloy = { version = "1.0.9", features = ["full"] }
 alloy-evm-connector = { path = "./libs/alloy-evm-connector" }
-axum = "0.7"
 axum-fix-server = { path = "./libs/axum-fix-server" }
-axum-server = "0.6"
 base64 = "0.22.1"
 binance-market-data = { path = "libs/binance-market-data" }
 binance-order-sending = { path = "libs/binance-order-sending" }
-#binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
 binance-sdk = { version = "^5.0.0", features = ["spot"] }
+#binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
 chrono = { version = "0.4.40", features = ["serde"] }
 clap = { version = "4.0", features = ["derive"] }
 crossbeam = "0.8.4"
 derive_builder = "^0.10"
-dotenv = "0.15"
-ethers = "1.0"
 eyre = "0.6.12"
 futures-util = "0.3.31"
-index-core = { path = "./libs/index-core" }
 index-maker = { path = "." }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
-merkle-tree-rs = "0.1.0"
 parking_lot = "0.12.4"
 paste = "1.0.15"
 quote = "1.0.40"
 rand = "0.9.1"
-reqwest = "0.11"
 rust_decimal = { version = "1.37.1", features = ["macros"] }
 safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -89,6 +85,11 @@ thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-util = "0.7.15"
 tracing = "0.1"
-tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
+axum = "0.7"
+axum-server = "0.6"
+dotenv = "0.15"
+ethers = "1.0"
+merkle-tree-rs = "0.1.0"
+reqwest = "0.11"
+tracing-appender = "0.2.3"

@@ -14,18 +14,15 @@ use symm_core::core::{
     decimal_ext::DecimalExt,
 };
 
-use crate::{
-    index::basket::Basket,
+use crate::solver::{
     solver::{
-        solver::{
-            CollateralManagement, EngagedSolverOrders, EngagedSolverOrdersSide,
-            SolveEngagementsResult, SolveQuotesResult, SolverOrderEngagement, SolverStrategy,
-            SolverStrategyHost,
-        },
-        solver_order::{SolverOrder, SolverOrderStatus},
-        solver_quote::{SolverQuote, SolverQuoteStatus},
+        CollateralManagement, EngagedSolverOrders, EngagedSolverOrdersSide, SolveEngagementsResult,
+        SolveQuotesResult, SolverOrderEngagement, SolverStrategy, SolverStrategyHost,
     },
+    solver_order::{SolverOrder, SolverOrderStatus},
+    solver_quote::{SolverQuote, SolverQuoteStatus},
 };
+use ::index_core::index::basket::Basket;
 
 struct SimpleSolverEngagements {
     baskets: HashMap<Symbol, Arc<Basket>>,
@@ -1476,14 +1473,12 @@ mod test {
         market_data::price_tracker::*,
     };
 
-    use crate::{
-        index::basket::*,
-        solver::{
-            solver::*,
-            solver_order::{SolverOrder, SolverOrderStatus},
-            solver_quote::{SolverQuote, SolverQuoteStatus},
-        },
+    use crate::solver::{
+        solver::*,
+        solver_order::{SolverOrder, SolverOrderStatus},
+        solver_quote::{SolverQuote, SolverQuoteStatus},
     };
+    use index_core::index::basket::*;
 
     use test_case::test_case;
 

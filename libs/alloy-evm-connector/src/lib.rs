@@ -8,6 +8,5 @@ pub mod credentials;
 pub mod custody_helper;
 pub mod utils;
 
-// Re-export main components
-pub use evm_connector::EvmConnector;
-pub use credentials::EvmCredentials;
+pub mod evm_bridge;
+pub mod evm_connector;

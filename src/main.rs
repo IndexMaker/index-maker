@@ -1,6 +1,10 @@
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
+use index_core::{
+    blockchain::chain_connector::ChainNotification,
+    index::basket::{AssetWeight, BasketDefinition},
+};
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -21,8 +25,6 @@ use index_maker::{
         },
         timestamp_ids::TimestampOrderIdsConfig,
     },
-    blockchain::chain_connector::ChainNotification,
-    index::basket::{AssetWeight, BasketDefinition},
     server::server::{Server, ServerEvent},
 };
 use itertools::Itertools;
@@ -38,7 +40,10 @@ use symm_core::{
     },
     init_log,
 };
-use tokio::time::sleep;
+use tokio::{
+    signal::unix::{signal, SignalKind},
+    time::sleep,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -186,7 +191,7 @@ impl AppMode {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Command line input
     // ----
 
@@ -478,7 +483,21 @@ async fn main() {
         }
     };
 
-    sleep(std::time::Duration::from_secs(60)).await;
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigquit = signal(SignalKind::quit())?;
+
+    tokio::select! {
+        _ = sigint.recv() => {
+            tracing::info!("SIGINT received")
+        }
+        _ = sigterm.recv() => {
+            tracing::info!("SIGTERM received")
+        }
+        _ = sigquit.recv() => {
+            tracing::info!("SIGQUIT received")
+        }
+    }
 
     tracing::info!("Stopping solver...");
 
@@ -494,4 +513,6 @@ async fn main() {
     app_mode.stop().await;
 
     tracing::info!("Done.");
+
+    Ok(())
 }

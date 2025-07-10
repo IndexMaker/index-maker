@@ -16,10 +16,9 @@ use symm_core::core::{
 
 use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
 
-use super::{
-    collateral_position::*,
-    collateral_router::{CollateralRouter, CollateralTransferEvent},
-};
+use index_core::collateral::collateral_router::{CollateralRouter, CollateralTransferEvent};
+
+use super::collateral_position::*;
 
 pub enum CollateralEvent {
     CollateralReady {
@@ -445,15 +444,14 @@ mod test {
     };
 
     use crate::{
-        collateral::{
-            collateral_manager::PreAuthStatus, collateral_router::test_util::build_test_router,
-        },
+        collateral::collateral_manager::PreAuthStatus,
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
             solver_order::{SolverOrder, SolverOrderStatus},
             solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
+    use index_core::collateral::collateral_router::test_util::build_test_router;
 
     use super::{CollateralEvent, CollateralManager, CollateralManagerHost, ConfirmStatus};
 

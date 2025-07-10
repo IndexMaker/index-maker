@@ -1,12 +1,12 @@
 use eyre::Result;
-use async_core::async_loop::AsyncLoop;
+use symm_core::core::async_loop::AsyncLoop;
 use tokio::sync::mpsc::UnboundedReceiver;
 use itertools::Either;
 use tokio::task::JoinError;
 use std::sync::Arc;
 use parking_lot::RwLock as AtomicLock;
-use index_maker::core::functional::SingleObserver;
-use index_maker::blockchain::chain_connector::ChainNotification;
+use symm_core::core::functional::{SingleObserver, PublishSingle};
+use index_core::blockchain::chain_connector::ChainNotification;
 use chrono::Utc;
 
 use crate::chain_operations::ChainOperations;
@@ -36,47 +36,48 @@ impl Arbiter {
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>, // Event publisher
         max_chain_operations: usize,                            // Configuration
     ) {
-        self.arbiter_loop.start(async move |cancel_token| {
-            println!("Chain operations arbiter started");
+        todo!();
+        // self.arbiter_loop.start(async move |cancel_token| {
+        //     println!("Chain operations arbiter started");
             
-            loop {
-                tokio::select! {
-                    _ = cancel_token.cancelled() => {
-                        println!("Chain operations arbiter cancelled");
-                        break;
-                    }
-                    Some(request) = operation_rx.recv() => {
-                        println!("Arbiter received request: {:?}", std::mem::discriminant(&request));
+        //     loop {
+        //         tokio::select! {
+        //             _ = cancel_token.cancelled() => {
+        //                 println!("Chain operations arbiter cancelled");
+        //                 break;
+        //             }
+        //             Some(request) = operation_rx.recv() => {
+        //                 println!("Arbiter received request: {:?}", std::mem::discriminant(&request));
                         
-                        // Handle the request using the state management pattern
-                        match Self::handle_chain_operation_request(
-                            &chain_operations,
-                            request,
-                            &observer,
-                            max_chain_operations,
-                        ).await {
-                            Ok(()) => {
-                                // Request handled successfully
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to handle chain operation request: {}", e);
-                            }
-                        }
-                    }
-                }
-            }
+        //                 // Handle the request using the state management pattern
+        //                 match Self::handle_chain_operation_request(
+        //                     &chain_operations,
+        //                     request,
+        //                     &observer,
+        //                     max_chain_operations,
+        //                 ).await {
+        //                     Ok(()) => {
+        //                         // Request handled successfully
+        //                     }
+        //                     Err(e) => {
+        //                         eprintln!("Failed to handle chain operation request: {}", e);
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
 
-            // Cleanup: shutdown all operations (following binance pattern)
-            {
-                let mut operations = chain_operations.write();
-                drop(operations); // Release the lock before async operation
-                // Note: In a real implementation, we'd need a different approach for cleanup
-                println!("Chain operations cleanup completed");
-            }
+        //     // Cleanup: shutdown all operations (following binance pattern)
+        //     {
+        //         let mut operations = chain_operations.write();
+        //         drop(operations); // Release the lock before async operation
+        //         // Note: In a real implementation, we'd need a different approach for cleanup
+        //         println!("Chain operations cleanup completed");
+        //     }
 
-            println!("Chain operations arbiter stopped");
-            operation_rx
-        });
+        //     println!("Chain operations arbiter stopped");
+        //     operation_rx
+        // });
     }
 
     /// Handle chain operation request (following binance pattern)
@@ -104,7 +105,7 @@ impl Arbiter {
                 // Notify via observer (following binance pattern)
                 {
                     let obs = observer.read();
-                    obs.publish(ChainNotification::Deposit {
+                    obs.publish_single(ChainNotification::Deposit {
                         chain_id,
                         address: Default::default(), // placeholder
                         amount: Default::default(),  // placeholder
@@ -122,7 +123,7 @@ impl Arbiter {
                 // Notify via observer
                 {
                     let obs = observer.read();
-                    obs.publish(ChainNotification::WithdrawalRequest {
+                    obs.publish_single(ChainNotification::WithdrawalRequest {
                         chain_id,
                         address: Default::default(), // placeholder
                         amount: Default::default(),  // placeholder

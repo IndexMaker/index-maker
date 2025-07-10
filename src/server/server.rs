@@ -8,6 +8,8 @@ use symm_core::core::{
     functional::IntoObservableManyVTable,
 };
 
+use crate::solver::mint_invoice::MintInvoice;
+
 pub enum ServerEvent {
     NewIndexOrder {
         chain_id: u32,
@@ -144,12 +146,11 @@ pub enum ServerResponse {
         collateral_remaining: Amount,
         timestamp: DateTime<Utc>,
     },
-    #[error("MintInvoice: NAK [{chain_id}:{address}] {client_order_id} {timestamp}")]
+    #[error("MintInvoice: NAK [{chain_id}:{address}]")]
     MintInvoice {
         chain_id: u32,
         address: Address,
-        client_order_id: ClientOrderId,
-        timestamp: DateTime<Utc>,
+        mint_invoice: MintInvoice,
     },
     #[error("NewIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
     NewIndexQuoteAck {

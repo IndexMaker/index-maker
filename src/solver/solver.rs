@@ -24,16 +24,17 @@ use symm_core::{
     order_sender::inventory_manager::{InventoryEvent, InventoryManager},
 };
 
-use crate::{
+use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    collateral::{
-        collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
-        collateral_position::{ConfirmStatus, PreAuthStatus},
-    },
     index::{
         basket::Basket,
         basket_manager::{BasketManager, BasketNotification},
     },
+};
+
+use crate::collateral::{
+    collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
+    collateral_position::{ConfirmStatus, PreAuthStatus},
 };
 
 use super::{
@@ -1210,7 +1211,7 @@ mod test {
         },
     };
 
-    use crate::{
+    use index_core::{
         blockchain::chain_connector::test_util::{
             MockChainConnector, MockChainInternalNotification,
         },
@@ -1225,6 +1226,9 @@ mod test {
             basket::{AssetWeight, BasketDefinition},
             basket_manager::BasketNotification,
         },
+    };
+
+    use crate::{
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::solvers::simple_solver::SimpleSolver,
     };
@@ -1810,15 +1814,14 @@ mod test {
                     ServerResponse::MintInvoice {
                         chain_id,
                         address,
-                        client_order_id,
-                        timestamp,
+                        mint_invoice,
                     } => {
                         tracing::info!(
                             "(mock) FIX Mint Invoice: {} {} {} {}",
                             chain_id,
                             address,
-                            client_order_id,
-                            timestamp
+                            mint_invoice.payment_id,
+                            mint_invoice.timestamp
                         );
                     }
                     response => {

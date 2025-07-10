@@ -5,12 +5,10 @@ use std::{
     time::Duration,
 };
 
+use alloy_evm_connector::evm_connector::EvmConnector;
 use crossbeam::{channel::unbounded, select};
-use index_maker::{
-    blockchain::{
-        chain_connector::{ChainConnector, ChainNotification},
-        evm::evm_connector::EvmConnector,
-    },
+use index_core::{
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
     index::basket::Basket,
 };
 use itertools::Itertools;
@@ -122,7 +120,11 @@ pub async fn main() {
             event_tx.send(e).unwrap();
         });
 
-    evm_connector.write().connect(); //< should launch async task, and return immediatelly
+    evm_connector
+        .write()
+        .connect_arbitrum()
+        .await
+        .expect("Failed to connect to ARBITRUM");
 
     spawn(move || loop {
         select! {

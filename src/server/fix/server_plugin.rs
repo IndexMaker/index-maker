@@ -280,15 +280,24 @@ impl ServerPlugin {
             ServerResponse::MintInvoice {
                 chain_id,
                 address,
-                client_order_id,
-                timestamp,
+                mint_invoice,
             } => (
                 chain_id,
                 address,
                 SessionId::from("S-1"),
                 "MintInvoice".to_string(),
+
                 Body::MintInvoiceBody {
-                    client_order_id: client_order_id.as_str().to_string(),
+                    timestamp: mint_invoice.timestamp,
+                    order_id: mint_invoice.order_id.to_string(),
+                    index_id: mint_invoice.index_id.to_string(),
+                    collateral_spent: mint_invoice.collateral_spent.to_string(),
+                    total_collateral: mint_invoice.total_collateral.to_string(),
+                    engaged_collateral: mint_invoice.engaged_collateral.to_string(),
+                    management_fee: mint_invoice.management_fee.to_string(),
+                    payment_id: mint_invoice.payment_id.to_string(),
+                    amount_paid: mint_invoice.amount_paid.to_string(),
+                    lots: mint_invoice.lots,
                 },
             ),
             ServerResponse::NewIndexQuoteAck {

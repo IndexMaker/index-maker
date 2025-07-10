@@ -1,5 +1,5 @@
 use eyre::Result;
-use async_core::async_loop::AsyncLoop;
+use symm_core::core::async_loop::AsyncLoop;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 use alloy::{

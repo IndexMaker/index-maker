@@ -7,10 +7,10 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock as ComponentLock, Weak};
 use symm_core::core::functional::{IntoObservableSingleVTable, NotificationHandlerOnce};
 
-use crate::collateral::collateral_router::{
+use index_core::collateral::collateral_router::{
     CollateralBridge, CollateralDesignation, CollateralRouterEvent,
 };
-use alloy_evm_connector::across_deposit::{
+use crate::across_deposit::{
     new_builder_from_env, ARBITRUM_CHAIN_ID, BASE_CHAIN_ID,
     USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS,
 };

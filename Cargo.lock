@@ -253,12 +253,12 @@ name = "alloy-evm-connector"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "async-core",
  "chrono",
  "dotenv",
  "ethers",
  "eyre",
  "futures-util",
+ "index-core",
  "itertools 0.14.0",
  "merkle-tree-rs",
  "parking_lot 0.12.4",
@@ -2701,6 +2701,7 @@ dependencies = [
  "crossbeam",
  "eyre",
  "futures-util",
+ "index-core",
  "index-maker",
  "itertools 0.14.0",
  "parking_lot 0.12.4",
@@ -3546,6 +3547,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
+name = "index-core"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "chrono",
+ "crossbeam",
+ "eyre",
+ "futures-util",
+ "intrusive-collections",
+ "itertools 0.14.0",
+ "parking_lot 0.12.4",
+ "paste",
+ "rust_decimal",
+ "safe-math",
+ "serde",
+ "serde_json",
+ "string_cache",
+ "symm-core",
+ "test-case",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "index-maker"
 version = "0.1.0"
 dependencies = [
@@ -3560,6 +3589,7 @@ dependencies = [
  "derive_builder",
  "eyre",
  "futures-util",
+ "index-core",
  "intrusive-collections",
  "itertools 0.14.0",
  "parking_lot 0.12.4",

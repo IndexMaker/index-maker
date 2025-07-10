@@ -5,7 +5,7 @@ use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 
-use crate::index::basket_manager::BasketManager;
+use index_core::index::basket_manager::BasketManager;
 
 #[derive(Clone, Builder)]
 #[builder(

@@ -17,6 +17,7 @@ clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
+index-core = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }

@@ -1,20 +1,19 @@
 use chrono::{DateTime, Utc};
 use eyre::Result;
+use index_core::blockchain::chain_connector::{ChainConnector, ChainNotification};
+use parking_lot::RwLock as AtomicLock;
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use parking_lot::RwLock as AtomicLock;
-use crate::blockchain::chain_connector::{ChainConnector, ChainNotification};
 
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
     functional::{
-        IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
-        PublishSingle, SingleObserver,
+        IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle,
+        SingleObserver,
     },
-    index::basket::{Basket, BasketDefinition},
 };
 
-use crate::index::basket::{Basket, BasketDefinition};
+use index_core::index::basket::{Basket, BasketDefinition};
 
 use crate::arbiter::Arbiter;
 use crate::chain_operations::ChainOperations;
@@ -42,12 +41,12 @@ impl EvmConnector {
     pub fn new() -> Self {
         let mut arbiter = Arbiter::new();
         let (request_sender, request_receiver) = unbounded_channel();
-        
+
         // Create shared state following binance pattern
         let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new()));
         let observer = SingleObserver::new();
         let shared_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
-        
+
         // Configuration
         let max_chain_operations = 50; // Maximum number of chain operations
 
@@ -75,13 +74,17 @@ impl EvmConnector {
         credentials: EvmCredentials,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id() as u32;
-        println!("Connecting to chain {} at {}", chain_id, credentials.get_rpc_url());
+        println!(
+            "Connecting to chain {} at {}",
+            chain_id,
+            credentials.get_rpc_url()
+        );
 
         let request = ChainOperationRequest::AddOperation { credentials };
 
-        self.request_sender.send(request).map_err(|e| {
-            eyre::eyre!("Failed to send connect request: {}", e)
-        })?;
+        self.request_sender
+            .send(request)
+            .map_err(|e| eyre::eyre!("Failed to send connect request: {}", e))?;
 
         if !self.connected_chains.contains(&chain_id) {
             self.connected_chains.push(chain_id);
@@ -99,7 +102,8 @@ impl EvmConnector {
         rpc_url: String,
         private_key: String,
     ) -> Result<()> {
-        let credentials = EvmCredentials::new(chain_id as u64, rpc_url, move || private_key.clone());
+        let credentials =
+            EvmCredentials::new(chain_id as u64, rpc_url, move || private_key.clone());
         self.connect_chain_with_credentials(credentials).await
     }
 
@@ -131,9 +135,9 @@ impl EvmConnector {
 
         let request = ChainOperationRequest::RemoveOperation { chain_id };
 
-        self.request_sender.send(request).map_err(|e| {
-            eyre::eyre!("Failed to send disconnect request: {}", e)
-        })?;
+        self.request_sender
+            .send(request)
+            .map_err(|e| eyre::eyre!("Failed to send disconnect request: {}", e))?;
 
         self.connected_chains.retain(|&id| id != chain_id);
 
@@ -161,10 +165,10 @@ impl EvmConnector {
     /// Send a command to be executed on a specific chain
     async fn send_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
         let request = ChainOperationRequest::ExecuteCommand { chain_id, command };
-        
-        self.request_sender.send(request).map_err(|e| {
-            eyre::eyre!("Failed to send command: {}", e)
-        })?;
+
+        self.request_sender
+            .send(request)
+            .map_err(|e| eyre::eyre!("Failed to send command: {}", e))?;
 
         Ok(())
     }
@@ -217,15 +221,11 @@ impl IntoObservableSingleVTable<ChainNotification> for EvmConnector {
 }
 
 impl ChainConnector for EvmConnector {
-    fn solver_weights_set(
-        &self,
-        symbol: Symbol,
-        basket: std::sync::Arc<Basket>,
-    ) {
+    fn solver_weights_set(&self, symbol: Symbol, basket: std::sync::Arc<Basket>) {
         // Send command to the first connected chain (or implement chain selection logic)
         if let Some(&chain_id) = self.connected_chains.first() {
             let command = ChainCommand::SetSolverWeights { symbol, basket };
-            
+
             tokio::spawn(async move {
                 // Note: In a real implementation, we'd need to handle this properly
                 // For now, this is a synchronous interface so we can't await

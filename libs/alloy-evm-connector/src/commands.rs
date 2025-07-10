@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use index_maker::core::bits::{Address, Amount, Symbol};
-use index_maker::index::basket::Basket;
+use symm_core::core::bits::{Address, Amount, Symbol};
+use index_core::index::basket::Basket;
 use alloy::primitives::FixedBytes;
 use crate::custody_helper::Party;
 use crate::credentials::EvmCredentials;

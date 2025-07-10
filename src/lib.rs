@@ -16,23 +16,9 @@ pub mod app {
     pub mod timestamp_ids;
 }
 
-pub mod blockchain {
-    pub mod chain_connector;
-    pub mod evm {
-        pub mod evm_bridge;
-        pub mod evm_connector;
-    }
-}
-
 pub mod collateral {
     pub mod collateral_manager;
     pub mod collateral_position;
-    pub mod collateral_router;
-}
-
-pub mod index {
-    pub mod basket;
-    pub mod basket_manager;
 }
 
 pub mod server {
