@@ -1,27 +1,24 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use binance_sdk::common::websocket::WebsocketStream;
 use binance_sdk::models::{self, WebsocketApiRateLimit};
 use binance_sdk::spot::websocket_api::{
     ExchangeInfoParams, OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum,
-    UserDataStreamStartParams, UserDataStreamSubscribeParams, WebsocketApi,
+    UserDataStreamEventsResponse, UserDataStreamStartParams, UserDataStreamSubscribeParams,
+    WebsocketApi,
 };
 use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
 use chrono::{Duration, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
-use rust_decimal::Decimal;
 use safe_math::safe;
-use serde::Deserialize;
-use serde_json::Value;
 use symm_core::core::bits::{Amount, SingleOrder};
+use symm_core::core::decimal_ext::DecimalExt;
 use symm_core::{
     core::{
         bits::{OrderId, Side, Symbol},
-        decimal_ext::DecimalExt,
         functional::{PublishSingle, SingleObserver},
         limit::{LimiterConfig, MultiLimiter},
     },
@@ -33,55 +30,6 @@ use tracing::info;
 use crate::command::Command;
 use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
 use crate::trading_markets::TradingMarkets;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ExecutionReport {
-    #[serde(rename = "E")]
-    event_time: i64,
-
-    #[serde(rename = "t")]
-    trade_id: i64,
-
-    #[serde(rename = "c")]
-    client_order_id: String,
-
-    #[serde(rename = "x")]
-    execution_type: String,
-
-    #[serde(rename = "r")]
-    order_reject_reason: String,
-
-    #[serde(rename = "X")]
-    order_status: String,
-
-    #[serde(rename = "s")]
-    symbol: String,
-
-    #[serde(rename = "S")]
-    side: String,
-
-    #[serde(rename = "q")]
-    order_quantity: Decimal,
-
-    #[serde(rename = "p")]
-    order_price: Decimal,
-
-    #[serde(rename = "l")]
-    executed_quantity: Decimal,
-
-    #[serde(rename = "L")]
-    executed_price: Decimal,
-
-    #[serde(rename = "z")]
-    cumulative_quantity: Decimal,
-
-    #[serde(rename = "n")]
-    commission_amount: Decimal,
-
-    #[serde(rename = "N")]
-    commission_asset: Option<String>,
-}
 
 pub struct TradingSessionBuilder;
 
@@ -383,11 +331,11 @@ impl TradingSession {
 }
 
 pub struct TradingUserData {
-    stream: Arc<WebsocketStream<Value>>,
+    stream: Arc<WebsocketStream<UserDataStreamEventsResponse>>,
 }
 
 impl TradingUserData {
-    fn new(stream: Arc<WebsocketStream<Value>>) -> Self {
+    fn new(stream: Arc<WebsocketStream<UserDataStreamEventsResponse>>) -> Self {
         Self { stream }
     }
 
@@ -399,222 +347,124 @@ impl TradingUserData {
         self.stream.on_message(move |data| {
             tracing::debug!("User data: {:#?}", data);
 
-            if !data.get("e").map_or(false, |e| e == "executionReport") {
-                tracing::debug!("Skipping user data: Not an execution report");
-                return;
-            }
-
-            let execution_report = match serde_json::from_value::<ExecutionReport>(data) {
-                Ok(x) => x,
-                Err(err) => {
-                    tracing::warn!("Cannot parse user data: {:#?}", err);
-                    return;
-                }
-            };
-
-            let side = match execution_report.side.as_str() {
-                "BUY" => Side::Buy,
-                "SELL" => Side::Sell,
+            let execution_report = match data {
+                UserDataStreamEventsResponse::ExecutionReport(x) => x,
                 _ => {
-                    tracing::warn!("Cannot parse side in: {:?}", execution_report.side);
+                    tracing::debug!("Skipping user data: Not an execution report");
                     return;
                 }
             };
 
-            let order_id = OrderId::from(execution_report.client_order_id);
-            let symbol = Symbol::from(execution_report.symbol);
-            let remaining_quantity =
-                match safe!(execution_report.order_quantity - execution_report.cumulative_quantity)
+            let result = || -> Result<()> {
+                let side = match execution_report
+                    .s_uppercase
+                    .ok_or_eyre("Missing side")?
+                    .as_str()
                 {
-                    Some(x) => x,
-                    None => {
-                        tracing::warn!("Cannot compute remaining quantity: Math error");
-                        return;
+                    "BUY" => Side::Buy,
+                    "SELL" => Side::Sell,
+                    _ => Err(eyre!("Cannot parse side",))?,
+                };
+
+                let order_id =
+                    OrderId::from(execution_report.c.ok_or_eyre("Missing client order ID")?);
+
+                let symbol = Symbol::from(execution_report.s.ok_or_eyre("Missing symbol")?);
+
+                let order_quantity = execution_report
+                    .q
+                    .and_then(|v| Some(Amount::from_str_exact(&v)))
+                    .ok_or_eyre("Missing order quantity")?
+                    .or_else(|e| Err(eyre!("Failed to parse order quantity: {:?}", e)))?;
+
+                let cumulative_quantity = execution_report
+                    .z
+                    .and_then(|v| Some(Amount::from_str_exact(&v)))
+                    .ok_or_eyre("Missing cumulative quantity")?
+                    .or_else(|e| Err(eyre!("Failed to parse cumulative quantity: {:?}", e)))?;
+
+                let remaining_quantity = safe!(order_quantity - cumulative_quantity)
+                    .ok_or_eyre("Cannot compute remaining quantity")?;
+
+                let executed_price = execution_report
+                    .l_uppercase
+                    .and_then(|v| Some(Amount::from_str_exact(&v)))
+                    .ok_or_eyre("Missing executed price")?
+                    .or_else(|e| Err(eyre!("Failed to parse executed price: {:?}", e)))?;
+
+                let executed_quantity = execution_report
+                    .l
+                    .and_then(|v| Some(Amount::from_str_exact(&v)))
+                    .ok_or_eyre("Missing executed quantity")?
+                    .or_else(|e| Err(eyre!("Failed to parse executed quantity: {:?}", e)))?;
+
+                let commission_amount = execution_report
+                    .n
+                    .and_then(|v| Some(Amount::from_str_exact(&v)))
+                    .ok_or_eyre("Missing commission amount")?
+                    .or_else(|e| Err(eyre!("Failed to parse commission amount: {:?}", e)))?;
+
+                let order_status = execution_report
+                    .x_uppercase
+                    .ok_or_eyre("Missing order status")?;
+
+                let lot_id = execution_report
+                    .t
+                    .ok_or_eyre("Missing trade ID")?
+                    .to_string()
+                    .into();
+
+                match order_status.as_str() {
+                    "NEW" => {}
+                    "FILLED" => observer
+                        .read()
+                        .publish_single(OrderConnectorNotification::Fill {
+                            order_id: order_id.clone(),
+                            lot_id,
+                            symbol: symbol.clone(),
+                            side,
+                            price: executed_price,
+                            quantity: executed_quantity,
+                            fee: commission_amount,
+                            timestamp: Utc::now(),
+                        }),
+                    "PARTIALLY_FILLED" => {
+                        observer
+                            .read()
+                            .publish_single(OrderConnectorNotification::Fill {
+                                order_id,
+                                lot_id,
+                                symbol,
+                                side,
+                                price: executed_price,
+                                quantity: executed_quantity,
+                                fee: commission_amount,
+                                timestamp: Utc::now(),
+                            })
+                    }
+                    "EXPIRED" => {
+                        observer
+                            .read()
+                            .publish_single(OrderConnectorNotification::Cancel {
+                                order_id,
+                                symbol,
+                                side,
+                                quantity: remaining_quantity,
+                                timestamp: Utc::now(),
+                            })
+                    }
+                    other => {
+                        // Note: We're firing IOC, so we can either get Fill or Cancel
+                        tracing::warn!("Unsupported execution report type: {:#?}", other);
                     }
                 };
 
-            match execution_report.order_status.as_str() {
-                "NEW" => {}
-                "FILLED" => observer
-                    .read()
-                    .publish_single(OrderConnectorNotification::Fill {
-                        order_id: order_id.clone(),
-                        lot_id: execution_report.trade_id.to_string().into(),
-                        symbol: symbol.clone(),
-                        side,
-                        price: execution_report.executed_price,
-                        quantity: execution_report.executed_quantity,
-                        fee: execution_report.commission_amount,
-                        timestamp: Utc::now(),
-                    }),
-                "PARTIALLY_FILLED" => {
-                    observer
-                        .read()
-                        .publish_single(OrderConnectorNotification::Fill {
-                            order_id,
-                            lot_id: execution_report.trade_id.to_string().into(),
-                            symbol,
-                            side,
-                            price: execution_report.executed_price,
-                            quantity: execution_report.executed_quantity,
-                            fee: execution_report.commission_amount,
-                            timestamp: Utc::now(),
-                        })
-                }
-                "EXPIRED" => observer
-                    .read()
-                    .publish_single(OrderConnectorNotification::Cancel {
-                        order_id,
-                        symbol,
-                        side,
-                        quantity: remaining_quantity,
-                        timestamp: Utc::now(),
-                    }),
-                other => {
-                    // Note: We're firing IOC, so we can either get Fill or Cancel
-                    tracing::warn!("Unsupported execution report type: {:#?}", other);
-                }
+                Ok(())
+            };
+
+            if let Err(err) = result() {
+                tracing::warn!("Cannot parse user data: {:?}", err);
             }
         });
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use serde_json::json;
-
-    use crate::trading_session::ExecutionReport;
-
-    #[test]
-    fn execution_report_filled_test() {
-        let report = json!({
-            "C": json!(""),
-            "E": json!(1750369643158i64),
-            "F": json!("0.00000000"),
-            "I": json!(1627832233),
-            "L": json!("559.53000000"),
-            "M": json!(true),
-            "N": json!("BNB"),
-            "O": json!(1750369643157i64),
-            "P": json!("0.00000000"),
-            "Q": json!("0.00000000"),
-            "S": json!("BUY"),
-            "T": json!(1750369643157i64),
-            "V": json!("EXPIRE_MAKER"),
-            "W": json!(1750369643157i64),
-            "X": json!("FILLED"),
-            "Y": json!("11.19060000"),
-            "Z": json!("11.19060000"),
-            "c": json!("O-1750369642968"),
-            "e": json!("executionReport"),
-            "f": json!("IOC"),
-            "g": json!(-1),
-            "i": json!(797425372i64),
-            "l": json!("0.02000000"),
-            "m": json!(false),
-            "n": json!("0.00001425"),
-            "o": json!("LIMIT"),
-            "p": json!("559.60000000"),
-            "q": json!("0.02000000"),
-            "r": json!("NONE"),
-            "s": json!("BNBEUR"),
-            "t": json!(37744156i64),
-            "w": json!(false),
-            "x": json!("TRADE"),
-            "z": json!("0.02000000"),
-        });
-
-        let execution_report = serde_json::from_value::<ExecutionReport>(report);
-        assert!(matches!(execution_report, Ok(_)));
-        tracing::debug!("{:#?}", execution_report);
-    }
-
-    #[test]
-    fn execution_report_cancelled_test() {
-        let report = json!({
-            "C": json!(""),
-            "E": json!(1750368429610i64),
-            "F": json!("0.00000000"),
-            "I": json!(1627826559),
-            "L": json!("0.00000000"),
-            "M": json!(false),
-            "N": json!(Option::<String>::None),
-            "O": json!(1750368429609i64),
-            "P": json!("0.00000000"),
-            "Q": json!("0.00000000"),
-            "S": json!("BUY"),
-            "T": json!(1750368429609i64),
-            "V": json!("EXPIRE_MAKER"),
-            "W": json!(1750368429609i64),
-            "X": json!("EXPIRED"),
-            "Y": json!("0.00000000"),
-            "Z": json!("0.00000000"),
-            "c": json!("O-1750368429416"),
-            "e": json!("executionReport"),
-            "f": json!("IOC"),
-            "g": json!(-1),
-            "i": json!(797422555i64),
-            "l": json!("0.00000000"),
-            "m": json!(false),
-            "n": json!("0"),
-            "o": json!("LIMIT"),
-            "p": json!("559.00000000"),
-            "q": json!("0.02000000"),
-            "r": json!("NONE"),
-            "s": json!("BNBEUR"),
-            "t": json!(-1),
-            "w": json!(false),
-            "x": json!("EXPIRED"),
-            "z": json!("0.00000000"),
-        });
-
-        let execution_report = serde_json::from_value::<ExecutionReport>(report);
-        assert!(matches!(execution_report, Ok(_)));
-        tracing::debug!("{:#?}", execution_report);
-    }
-
-    #[test]
-    fn execution_report_open_test() {
-        let report = json!({
-            "C": json!(""),
-            "E": json!(1750368215187i64),
-            "F": json!("0.00000000"),
-            "I": json!(1627825726i64),
-            "L": json!("0.00000000"),
-            "M": json!(false),
-            "N": json!(Option::<String>::None),
-            "O": json!(1750368215186i64),
-            "P": json!("0.00000000"),
-            "Q": json!("0.00000000"),
-            "S": json!("BUY"),
-            "T": json!(1750368215186i64),
-            "V": json!("EXPIRE_MAKER"),
-            "W": json!(1750368215186i64),
-            "X": json!("NEW"),
-            "Y": json!("0.00000000"),
-            "Z": json!("0.00000000"),
-            "c": json!("O-1750368214990"),
-            "e": json!("executionReport"),
-            "f": json!("GTC"),
-            "g": json!(-1),
-            "i": json!(797422142i64),
-            "l": json!("0.00000000"),
-            "m": json!(false),
-            "n": json!("0"),
-            "o": json!("LIMIT"),
-            "p": json!("559.00000000"),
-            "q": json!("0.02000000"),
-            "r": json!("NONE"),
-            "s": json!("BNBEUR"),
-            "t": json!(-1),
-            "w": json!(true),
-            "x": json!("NEW"),
-            "z": json!("0.00000000"),
-        });
-
-        let execution_report = serde_json::from_value::<ExecutionReport>(report);
-        assert!(matches!(execution_report, Ok(_)));
-        tracing::debug!("{:#?}", execution_report);
     }
 }
