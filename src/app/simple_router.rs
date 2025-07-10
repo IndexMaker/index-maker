@@ -11,7 +11,7 @@ use symm_core::core::{
     },
 };
 
-use crate::collateral::collateral_router::{
+use index_core::collateral::collateral_router::{
     CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
 };
 use eyre::{eyre, OptionExt, Result};

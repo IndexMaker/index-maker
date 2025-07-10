@@ -1,8 +1,4 @@
-use std::{
-    sync::Arc,
-    thread::sleep,
-    time::Duration,
-};
+use std::{sync::Arc, thread::sleep, time::Duration};
 
 use axum_fix_server::server::Server;
 use crossbeam::channel::unbounded;
@@ -18,7 +14,6 @@ use requests::Request;
 use responses::Response;
 use solver::{Solver as MockSolver, SolverEvents};
 
-
 #[tokio::main]
 pub async fn main() {
     init_log!();
@@ -27,9 +22,9 @@ pub async fn main() {
 
     // Creating plugin that will consume server messages
     let mut plugin = ExamplePlugin::<Request, Response>::new();
-     plugin.set_observer_plugin_callback(Box::new(move |e: &Request| {
-         event_tx.send(SolverEvents::Message(e.clone()));
-     }));
+    plugin.set_observer_plugin_callback(Box::new(move |e: &Request| {
+        event_tx.send(SolverEvents::Message(e.clone()));
+    }));
 
     //Creating server
     let fix_server = Arc::new(Server::new(plugin));
@@ -54,5 +49,8 @@ pub async fn main() {
     solver.stop();
 
     // Closes all server sessions
-    fix_server.stop_server().await.expect("Failed to stop server");
+    fix_server
+        .stop_server()
+        .await
+        .expect("Failed to stop server");
 }

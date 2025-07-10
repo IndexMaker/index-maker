@@ -12,7 +12,7 @@ impl<R> ObserverPlugin<R> {
             observer: MultiObserver::new(),
         }
     }
-    
+
     /// handle_server_message
     ///
     /// Processes an incoming server request by publishing it to all registered observers for processing.

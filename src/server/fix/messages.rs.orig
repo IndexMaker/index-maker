@@ -1,0 +1,155 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+<<<<<<< HEAD
+=======
+use crate::solver::solver_order::SolverOrderAssetLot;
+
+>>>>>>> main
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FixHeader {
+    pub msg_type: String,       // Type of message, e.g. "NewOrderSingle"
+    pub sender_comp_id: String, // Public key of sender
+    pub target_comp_id: String, // Public key of receiver
+    pub seq_num: u32,           // Message sequence number
+    //    ResetSeqNum: u8,       // Boolean that determines if SeqNum must be ignored (this will invalidate Disputes)
+    pub timestamp: DateTime<Utc>,
+    //    CustodyId: String,
+}
+
+impl FixHeader {
+    pub fn new(msg_type: String) -> Self {
+        Self {
+            msg_type: msg_type,
+            sender_comp_id: "".to_string(),
+            target_comp_id: "".to_string(),
+            timestamp: Utc::now(),
+            seq_num: 0,
+        }
+    }
+
+    pub fn add_sender(&mut self, sender: String) {
+        self.sender_comp_id = sender;
+    }
+
+    pub fn add_target(&mut self, target: String) {
+        self.target_comp_id = target;
+    }
+
+    pub fn add_seq_num(&mut self, seq_num: u32) {
+        self.seq_num = seq_num;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FixTrailer {
+    pub public_key: Vec<String>, // Public key of sender
+    pub signature: Vec<String>,  // Public key of receiver
+                                 //    RateLimitInterval: u32,           // Message sequence number
+                                 //    RateLimitCount: u32,
+}
+
+impl FixTrailer {
+    pub fn new() -> Self {
+        Self {
+            public_key: Vec::new(),
+            signature: Vec::new(),
+        }
+    }
+
+    pub fn add_public(&mut self, public_key: String) {
+        self.public_key.push(public_key);
+    }
+
+    pub fn add_signature(&mut self, signature: String) {
+        self.signature.push(signature);
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum Body {
+    ACKBody {
+        ref_seq_num: u32,
+    },
+    OrderACKBody {
+        client_order_id: String,
+    },
+    QuoteACKBody {
+        client_quote_id: String,
+    },
+    NAKBody {
+        ref_seq_num: u32,
+        reason: String,
+    },
+    OrderNAKBody {
+        client_order_id: String,
+        reason: String,
+    },
+    QuoteNAKBody {
+        client_quote_id: String,
+        reason: String,
+    },
+    // NewOrderBody {
+    //     client_order_id: String,
+    //     symbol: String,
+    //     side: String,
+    //     price: String,
+    //     order_quantity: String,
+    //     order_type: String,
+    // },
+    NewIndexOrderBody {
+        client_order_id: String,
+        symbol: String,
+        side: String,
+        amount: String,
+    },
+    CancelIndexOrderBody {
+        client_order_id: String,
+        symbol: String,
+        amount: String,
+    },
+    IndexOrderFillBody {
+        client_order_id: String,
+        filled_quantity: String,
+        collateral_spent: String,
+        collateral_remaining: String,
+    },
+    MintInvoiceBody {
+        timestamp: DateTime<Utc>,
+        order_id: String,
+        index_id: String,
+        collateral_spent: String,
+        total_collateral: String,
+        engaged_collateral: String,
+        management_fee: String,
+        payment_id: String,
+        amount_paid: String,
+        lots: Vec<SolverOrderAssetLot>,
+    },
+    NewQuoteRequestBody {
+        client_quote_id: String,
+        symbol: String,
+        side: String,
+        amount: String,
+    },
+    CancelQuoteRequestBody {
+        client_quote_id: String,
+        symbol: String,
+    },
+    IndexQuoteResponseBody {
+        client_quote_id: String,
+        quantity_possible: String,
+    },
+    AccountToCustodyBody,
+    CustodyToAccountBody,
+    // ExecReportBody {
+    //     client_order_id: String,
+    //     execution_type: String,
+    //     order_status: String,
+    //     side: String,
+    //     order_quantity: String,
+    //     price: String,
+    //     cummulative_quantity: String,
+    // },
+}

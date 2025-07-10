@@ -7,15 +7,17 @@ publish = false
 [dependencies]
 alloy = { workspace = true }
 index-maker = { workspace = true }
+alloy-evm-connector = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 binance-sdk = { workspace = true, features = ["spot"] }
 chrono = { workspace = true }
-axum-fix-server = { path = "../libs/axum-fix-server" }
+axum-fix-server = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
+index-core = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
@@ -55,3 +57,7 @@ path="binance_order_sending/main.rs"
 [[example]]
 name="fix-server"
 path="fix_server/main.rs"
+
+[[example]]
+name = "evm-connector"
+path = "evm_connector/main.rs"

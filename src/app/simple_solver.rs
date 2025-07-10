@@ -30,13 +30,13 @@ pub struct SimpleSolverConfig {
 
     #[builder(setter(into, strip_option), default)]
     pub min_asset_volley_size: Amount,
-    
+
     #[builder(setter(into, strip_option), default)]
     pub asset_volley_step_size: Amount,
-    
+
     #[builder(setter(into, strip_option))]
     pub max_total_volley_size: Amount,
-    
+
     #[builder(setter(into, strip_option))]
     pub min_total_volley_available: Amount,
 

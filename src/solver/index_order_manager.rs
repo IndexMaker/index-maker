@@ -475,7 +475,7 @@ impl IndexOrderManager {
                             update_remaining_collateral, collateral_amount
                         );
                         return None;
-                    }                  
+                    }
 
                     update_upread.with_upgraded(|update_write| {
                         update_write.collateral_spent = update_collateral_spent;

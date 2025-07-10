@@ -2,4 +2,7 @@
 *.bkp
 .DS_Store
 .env
+contracts/
+CLAUDE.md
+.claude
 /logs

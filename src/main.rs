@@ -1,6 +1,10 @@
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
+use index_core::{
+    blockchain::chain_connector::ChainNotification,
+    index::basket::{AssetWeight, BasketDefinition},
+};
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -21,8 +25,6 @@ use index_maker::{
         },
         timestamp_ids::TimestampOrderIdsConfig,
     },
-    blockchain::chain_connector::ChainNotification,
-    index::basket::{AssetWeight, BasketDefinition},
     server::server::{Server, ServerEvent},
 };
 use itertools::Itertools;

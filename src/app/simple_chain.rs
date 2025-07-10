@@ -12,11 +12,12 @@ use symm_core::core::{
     },
 };
 
-use crate::{
-    app::solver::ChainConnectorConfig,
+use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     index::basket::Basket,
 };
+
+use crate::app::solver::ChainConnectorConfig;
 
 pub struct SimpleChainConnector {
     observer: SingleObserver<ChainNotification>,

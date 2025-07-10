@@ -1,15 +1,14 @@
-use std::marker::PhantomData;
+use crate::messages::{FixMessage, ServerRequest, ServerResponse, SessionId};
 use eyre::Result;
-use crate::{messages::{FixMessage, ServerRequest, ServerResponse, SessionId}};
+use std::marker::PhantomData;
 
 pub struct SerdePlugin<R, Q> {
     _phantom_r: PhantomData<R>,
     _phantom_q: PhantomData<Q>,
 }
 
-
 impl<R, Q> SerdePlugin<R, Q>
-where 
+where
     R: ServerRequest,
     Q: ServerResponse,
 {

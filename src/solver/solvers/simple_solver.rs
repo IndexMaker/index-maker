@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use alloy::serde::quantity;
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -15,18 +14,15 @@ use symm_core::core::{
     decimal_ext::DecimalExt,
 };
 
-use crate::{
-    index::basket::Basket,
+use crate::solver::{
     solver::{
-        solver::{
-            CollateralManagement, EngagedSolverOrders, EngagedSolverOrdersSide,
-            SolveEngagementsResult, SolveQuotesResult, SolverOrderEngagement, SolverStrategy,
-            SolverStrategyHost,
-        },
-        solver_order::{SolverOrder, SolverOrderStatus},
-        solver_quote::{SolverQuote, SolverQuoteStatus},
+        CollateralManagement, EngagedSolverOrders, EngagedSolverOrdersSide, SolveEngagementsResult,
+        SolveQuotesResult, SolverOrderEngagement, SolverStrategy, SolverStrategyHost,
     },
+    solver_order::{SolverOrder, SolverOrderStatus},
+    solver_quote::{SolverQuote, SolverQuoteStatus},
 };
+use ::index_core::index::basket::Basket;
 
 struct SimpleSolverEngagements {
     baskets: HashMap<Symbol, Arc<Basket>>,
@@ -1477,14 +1473,12 @@ mod test {
         market_data::price_tracker::*,
     };
 
-    use crate::{
-        index::basket::*,
-        solver::{
-            solver::*,
-            solver_order::{SolverOrder, SolverOrderStatus},
-            solver_quote::{SolverQuote, SolverQuoteStatus},
-        },
+    use crate::solver::{
+        solver::*,
+        solver_order::{SolverOrder, SolverOrderStatus},
+        solver_quote::{SolverQuote, SolverQuoteStatus},
     };
+    use index_core::index::basket::*;
 
     use test_case::test_case;
 
@@ -1938,7 +1932,10 @@ mod test {
                 );
             }
         } else {
-            batch.is_none().then_some(()).expect("No batch was expected");
+            batch
+                .is_none()
+                .then_some(())
+                .expect("No batch was expected");
         }
     }
 }

@@ -6,7 +6,9 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
-        async_loop::AsyncLoop, bits::Symbol, functional::{PublishSingle, SingleObserver}
+        async_loop::AsyncLoop,
+        bits::Symbol,
+        functional::{PublishSingle, SingleObserver},
     },
     order_sender::order_connector::OrderConnectorNotification,
 };

@@ -88,7 +88,8 @@ where
 
     pub fn close_session(&mut self, session_id: SessionId) -> Result<Arc<Session>> {
         self.plugin.destroy_session(&session_id)?;
-        let session = self.sessions
+        let session = self
+            .sessions
             .sessions
             .remove(&session_id)
             .ok_or_eyre("Session no longer exists")?;

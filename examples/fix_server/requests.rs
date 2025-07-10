@@ -8,7 +8,6 @@ use symm_core::core::bits::Address;
 
 use crate::fix_messages::*;
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Request {
     #[serde(skip)]
