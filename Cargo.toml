@@ -15,6 +15,9 @@ version = "0.1.0"
 edition = "2021"
 autoexamples = false
 
+[features]
+alpine-deploy = ["openssl/vendored"]
+
 [dependencies]
 alloy = { workspace = true }
 axum-fix-server = { workspace = true }
@@ -28,6 +31,7 @@ eyre = { workspace = true }
 futures-util = { workspace = true }
 intrusive-collections = { workspace = true }
 itertools = { workspace = true }
+openssl = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 safe-math = { workspace = true }
@@ -46,7 +50,7 @@ test-case = { workspace = true }
 
 [workspace.dependencies]
 alloy = "0.14.0"
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
 axum-fix-server = { path = "./libs/axum-fix-server" }
 axum-server = "0.6"
 base64 = "0.22.1"
@@ -63,6 +67,7 @@ futures-util = "0.3.31"
 index-maker = { path = "." }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
+openssl = { version = "^0.10" }
 parking_lot = "0.12.4"
 paste = "1.0.15"
 quote = "1.0.40"

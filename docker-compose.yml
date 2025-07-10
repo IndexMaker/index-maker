@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  quote-server:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    ports:
+       - "3000:3000"
+
+    command: ["./index-maker", "-c", "config", "quote-server"]
+
+    restart: unless-stopped
