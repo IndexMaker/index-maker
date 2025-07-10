@@ -1810,15 +1810,17 @@ mod test {
                     ServerResponse::MintInvoice {
                         chain_id,
                         address,
-                        client_order_id,
-                        timestamp,
+                        mint_invoice
                     } => {
                         tracing::info!(
-                            "(mock) FIX Mint Invoice: {} {} {} {}",
+                            "(mock) FIX Mint Invoice: [{} {}] {} {} Collateral: [Spent: {}; Engaged: {}; Total: {}] ",
                             chain_id,
                             address,
-                            client_order_id,
-                            timestamp
+                            mint_invoice.index_id,
+                            mint_invoice.order_id,
+                            mint_invoice.collateral_spent,
+                            mint_invoice.engaged_collateral,
+                            mint_invoice.total_collateral,
                         );
                     }
                     response => {
