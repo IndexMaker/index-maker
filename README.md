@@ -83,13 +83,13 @@
 * [ ] Bitget Market Data Connector
     - [x] Investigate work required to support Bitget Market Data
     - [x] Receive book deltas and snapshots from Bitget
-    - [ ] Design Bitget Market Data Connector architecture
+    - [x] Design Bitget Market Data Connector architecture (same as Binance, extract common lib)
     - [ ] Create Bitget Market Data Connector implementation
     - [ ] Create Bitget Market Data Connector integration example
     - [ ] Build order book from Bitget market data events
 * [ ] Bitget Order Sending Connector
     - [x] Investigate work required to support sending orders to Bitget
-    - [ ] Design Bitget Order Connector architecture
+    - [ ] Design Bitget Order Connector architecture  (same as Binance, extract common lib)
     - [ ] Create Bitget Order Connector implementation
     - [ ] Create Bitget Order Connector integration example
     - [ ] Send small order to Bitget using limit price X% away from TOB
