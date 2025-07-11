@@ -2524,11 +2524,8 @@ dependencies = [
  "futures-util",
  "intrusive-collections",
  "itertools 0.14.0",
-<<<<<<< HEAD
  "market-data",
-=======
  "openssl",
->>>>>>> main
  "parking_lot",
  "paste",
  "rust_decimal",
