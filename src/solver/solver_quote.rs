@@ -93,6 +93,10 @@ impl SolverClientQuotes {
                         let not_ready = check_not_ready(&solver_quote.read());
                         if !not_ready {
                             self.client_notify_queue.pop_front();
+                            queue.pop_front();
+                            if queue.is_empty() {
+                                self.client_quotes_queues.remove(&front);
+                            }
                             return Some(solver_quote);
                         }
                     }
