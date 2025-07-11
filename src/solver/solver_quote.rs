@@ -158,7 +158,7 @@ impl SolverClientQuotes {
         Ok(())
     }
 
-    pub fn cancel_client_order(
+    pub fn cancel_client_quote(
         &mut self,
         chain_id: u32,
         address: Address,

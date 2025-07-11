@@ -123,7 +123,7 @@ impl QuoteRequestManager {
                 })
             })?;
 
-        let quote_request = user_quote_requests.remove(&symbol).ok_or_else(|| {
+        let quote_request = user_quote_requests.remove(symbol).ok_or_else(|| {
             ServerResponseReason::User(CancelIndexQuoteNakReason::IndexQuoteNotFound {
                 detail: format!("No quote found for user {} for {}", address, symbol),
             })
@@ -164,39 +164,82 @@ impl QuoteRequestManager {
             .iter()
             .chain(solved_quotes.failed_quotes.iter())
         {
-            let quote_read = quote.read();
+            let (key, symbol) = {
+                let quote_read = quote.read();
+                (
+                    (quote_read.chain_id, quote_read.address),
+                    quote_read.symbol.clone(),
+                )
+            };
+
             self.quote_requests
-                .get_mut(&(quote_read.chain_id, quote_read.address))
-                .and_then(|quotes| quotes.remove(&quote_read.symbol));
+                .get_mut(&key)
+                .and_then(|quotes| quotes.remove(&symbol));
         }
 
         // First send FIX responses for all solved quotes...
         for quote in solved_quotes.solved_quotes {
-            let quote_read = quote.read();
+            let (chain_id, address, client_quote_id, quantity_possible, timestamp) = {
+                let quote_read = quote.read();
+                (
+                    quote_read.chain_id,
+                    quote_read.address,
+                    quote_read.client_quote_id.clone(),
+                    quote_read.quantity_possible,
+                    quote_read.timestamp,
+                )
+            };
+
+            self.observer
+                .publish_single(QuoteRequestEvent::CancelQuoteRequest {
+                    chain_id,
+                    address,
+                    client_quote_id: client_quote_id.clone(),
+                    timestamp,
+                });
+
             self.server
                 .write()
                 .respond_with(ServerResponse::IndexQuoteResponse {
-                    chain_id: quote_read.chain_id,
-                    address: quote_read.address,
-                    client_quote_id: quote_read.client_quote_id.clone(),
-                    quantity_possible: quote_read.quantity_possible,
-                    timestamp: quote_read.timestamp,
+                    chain_id,
+                    address,
+                    client_quote_id: client_quote_id,
+                    quantity_possible: quantity_possible,
+                    timestamp,
                 });
         }
 
         // Then send FIX responses for any failed quotes...
         for quote in solved_quotes.failed_quotes {
-            let quote_read = quote.read();
+            let (chain_id, address, client_quote_id, timestamp, status) = {
+                let quote_read = quote.read();
+                (
+                    quote_read.chain_id,
+                    quote_read.address,
+                    quote_read.client_quote_id.clone(),
+                    quote_read.timestamp,
+                    quote_read.status,
+                )
+            };
+
+            self.observer
+                .publish_single(QuoteRequestEvent::CancelQuoteRequest {
+                    chain_id,
+                    address,
+                    client_quote_id: client_quote_id.clone(),
+                    timestamp,
+                });
+
             self.server
                 .write()
                 .respond_with(ServerResponse::NewIndexQuoteNak {
-                    chain_id: quote_read.chain_id,
-                    address: quote_read.address,
-                    client_quote_id: quote_read.client_quote_id.clone(),
+                    chain_id,
+                    address,
+                    client_quote_id,
                     reason: ServerResponseReason::Server(ServerError::OtherReason {
-                        detail: format!("Failed to compute quote: {:?}", quote_read.status),
+                        detail: format!("Failed to compute quote: {:?}", status),
                     }),
-                    timestamp: quote_read.timestamp,
+                    timestamp,
                 });
         }
 
