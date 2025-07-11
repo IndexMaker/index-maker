@@ -893,7 +893,7 @@ impl Solver {
             } => self
                 .client_quotes
                 .write()
-                .cancel_client_order(chain_id, address, client_quote_id),
+                .cancel_client_quote(chain_id, address, client_quote_id),
         }
     }
 
