@@ -6,10 +6,10 @@ publish = false
 
 [dependencies]
 alloy = { workspace = true }
-axum-fix-server = { path = "../libs/axum-fix-server" }
+axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
-binance-sdk = { workspace = true, features = ["spot"] }
+binance-sdk = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
@@ -21,10 +21,10 @@ market-data = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rust_decimal = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
-symm-core = { workspace = true, path = "../libs/symm-core" }
-tokio = { workspace = true, features = ["full"] }
+symm-core = { workspace = true }
+tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 

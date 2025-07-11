@@ -1,0 +1,12 @@
+.DS_Store
+.dockerignore
+.env
+.git
+.github
+.gitignore
+.gitmodules
+README.md
+binance_trading_minting.log
+docs
+logs
+target

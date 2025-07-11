@@ -93,7 +93,7 @@ where
 
         let (_, failures): (Vec<_>, Vec<_>) =
             join_all(stop_futures).await.into_iter().partition_result();
-        
+
         if !failures.is_empty() {
             Err(eyre!(
                 "Sessions join failed {}",

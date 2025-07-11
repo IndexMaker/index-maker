@@ -25,14 +25,18 @@ pub fn get_mock_asset_name_3() -> Symbol {
     "AW".into()
 }
 
+pub fn get_mock_listing() -> Symbol {
+    "MOCK".into()
+}
+
 pub fn get_mock_asset_1_arc() -> Arc<Asset> {
-    Arc::new(Asset::new(get_mock_asset_name_1()))
+    Arc::new(Asset::new(get_mock_asset_name_1(), get_mock_listing()))
 }
 pub fn get_mock_asset_2_arc() -> Arc<Asset> {
-    Arc::new(Asset::new(get_mock_asset_name_2()))
+    Arc::new(Asset::new(get_mock_asset_name_2(), get_mock_listing()))
 }
 pub fn get_mock_asset_3_arc() -> Arc<Asset> {
-    Arc::new(Asset::new(get_mock_asset_name_3()))
+    Arc::new(Asset::new(get_mock_asset_name_3(), get_mock_listing()))
 }
 
 pub fn get_mock_index_name_1() -> Symbol {
@@ -47,6 +51,10 @@ pub fn get_mock_index_name_3() -> Symbol {
 
 pub fn get_mock_address_1() -> Address {
     address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045")
+}
+
+pub fn get_mock_address_2() -> Address {
+    address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96046")
 }
 
 pub fn get_mock_channel<T>() -> (Sender<T>, Receiver<T>) {

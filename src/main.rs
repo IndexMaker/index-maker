@@ -22,7 +22,6 @@ use index_maker::{
         timestamp_ids::TimestampOrderIdsConfig,
     },
     blockchain::chain_connector::ChainNotification,
-    index::basket::{AssetWeight, BasketDefinition},
     server::server::{Server, ServerEvent},
 };
 use itertools::Itertools;
@@ -30,11 +29,10 @@ use parking_lot::RwLock;
 use rust_decimal::dec;
 use std::{env, sync::Arc};
 use symm_core::{
-    assets::asset::Asset,
     core::{
         bits::{Amount, PriceType, Side, Symbol},
         logging::log_init,
-        test_util::get_mock_address_1,
+        test_util::{get_mock_address_1, get_mock_address_2},
     },
     init_log,
     market_data::market_data_connector::Subscription,
@@ -56,6 +54,9 @@ struct Cli {
     #[arg(long, short)]
     log_path: Option<String>,
 
+    #[arg(long, short)]
+    config_path: Option<String>,
+    
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
 }
@@ -189,6 +190,7 @@ impl AppMode {
     }
 }
 
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Command line input
@@ -210,7 +212,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
 
-    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDC".into());
+    let config_path = cli.config_path.unwrap_or("configs".into());
+    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
 
     let app_mode = AppMode::new(&cli.command, None);
 
@@ -255,32 +258,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Fake stuff
     // ----
 
-    let symbols = ["BNB", "ETH"];
-
-    // Fake index assets (btw: these should be assets and not markets)
-    let symbols = symbols
-        .into_iter()
-        .map(|s| format!("{}{}", s, main_quote_currency))
-        .map(Symbol::from)
-        .collect_vec();
-
-    let weights = [dec!(0.6), dec!(0.4)];
-    let index_symbol = Symbol::from("SO2");
-
-    let assets = symbols
-        .iter()
-        .map(|s| Arc::new(Asset::new(s.clone())))
-        .collect_vec();
-
-    let asset_weights = assets
-        .iter()
-        .zip(weights)
-        .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
-        .collect_vec();
-
-    let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
-        .expect("Failed to create basket definition");
-
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
         .source(format!("SRC:BINANCE:{}", main_quote_currency))
@@ -304,6 +281,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----
 
     tracing::info!("Configuring solver...");
+    let basket_manager_config = BasketManagerConfig::builder()
+        .with_config_file(format!("{}/BasketManagerConfig.json", config_path))
+        .build()
+        .expect("Failed to build basket manager");
+
+    let symbols = basket_manager_config.get_symbols();
+    //let asset_manager = basket_manager_config.expect_asset_manager_cloned();
+    // Here all json of basket and assets are loaded
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
@@ -346,10 +331,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .expect("Failed to build batch manager");
 
-    let basket_manager_config = BasketManagerConfig::builder()
-        .build()
-        .expect("Failed to build basket manager");
-
     let collateral_manager_config = CollateralManagerConfig::builder()
         .zero_threshold(zero_threshold)
         .with_router(router_config)
@@ -388,6 +369,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .expect("Failed to build solver");
 
+
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {
             solver_config
@@ -407,23 +389,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Awaiting market data...");
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
-        let reslult = price_tracker
+        let result = price_tracker
             .read()
             .get_prices(PriceType::BestAsk, &symbols);
-        if reslult.missing_symbols.is_empty() {
+        if result.missing_symbols.is_empty() {
             break;
         }
     }
-
-    tracing::info!("Sending index weights...");
-
-    simple_chain
-        .write()
-        .expect("Failed to lock chain connector")
-        .publish_event(ChainNotification::CuratorWeightsSet(
-            index_symbol,
-            basket_definition,
-        ));
 
     sleep(std::time::Duration::from_secs(2)).await;
 
@@ -476,6 +448,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .publish_event(ChainNotification::Deposit {
                     chain_id: 1,
                     address: get_mock_address_1(),
+                    amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                });
+
+            simple_chain
+                .write()
+                .expect("Failed to lock chain connector")
+                .publish_event(ChainNotification::Deposit {
+                    chain_id: 1,
+                    address: get_mock_address_2(),
                     amount: *collateral_amount,
                     timestamp: Utc::now(),
                 });

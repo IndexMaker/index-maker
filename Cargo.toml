@@ -17,9 +17,13 @@ version = "0.1.0"
 edition = "2021"
 autoexamples = false
 
+[features]
+alpine-deploy = ["openssl/vendored"]
+
 [dependencies]
 alloy = { workspace = true }
 async-trait = { workspace = true }
+axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 bitget-market-data = { workspace = true }
@@ -29,21 +33,21 @@ clap = { workspace = true }
 crossbeam = { workspace = true }
 derive_builder = { workspace = true }
 eyre = { workspace = true }
+futures-util = { workspace = true }
 intrusive-collections = { workspace = true }
 itertools = { workspace = true }
+openssl = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
-string_cache = { workspace = true }
 safe-math = { workspace = true }
-symm-core = { workspace = true }
-axum-fix-server = { workspace = true }
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+string_cache = { workspace = true }
+symm-core = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tokio = { workspace = true }
-futures-util = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -52,15 +56,17 @@ test-case = { workspace = true }
 [workspace.dependencies]
 alloy = "0.14.0"
 async-trait = "0.1.88"
+axum = { version = "0.7", features = ["ws"] }
 axum-fix-server = { path = "./libs/axum-fix-server" }
+axum-server = "0.6"
 base64 = "0.22.1"
 binance-market-data = { path = "libs/binance-market-data" }
 binance-order-sending = { path = "libs/binance-order-sending" }
+binance-sdk = { version = "^7.0.0", features = ["spot"] }
 #binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
-binance-sdk = { version = "^5.0.0", features = ["spot"] }
 bitget-market-data = { path = "libs/bitget-market-data" }
-chrono = { version = "0.4.40", features = ["serde"] }
-clap = { version = "4.0", features = ["derive"] }
+chrono = { version = "0.4.41", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8.4"
 derive_builder = "^0.10"
 eyre = "0.6.12"
@@ -69,20 +75,22 @@ index-maker = { path = "." }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
 market-data = { path = "libs/market-data" }
+openssl = { version = "^0.10" }
 parking_lot = "0.12.4"
 paste = "1.0.15"
 quote = "1.0.40"
 rand = "0.9.1"
-rust_decimal = { version = "1.37.1", features = ["macros"] }
+rust_decimal = { version = "1.37.2", features = ["macros"] }
 safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 string_cache = "0.8.9"
 symm-core = { path = "./libs/symm-core" }
-syn = "2.0.101"
+syn = "2.0.104"
 test-case = "*"
 thiserror = "2.0.12"
-tokio = { version = "1.45.1", features = ["full"] }
+tokio = { version = "1.46.1", features = ["full"] }
 tokio-util = "0.7.15"
 tracing = "0.1"
+tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,0 +1,7 @@
+{
+"indexes_files":[
+    {"SO2": "indexes/SO2_Latest_rebalance.json"},
+    {"SO3": "indexes/SO3_Latest_rebalance.json"},
+    {"SY100": "indexes/SY100_Last_Rebalance.json"}
+]
+}

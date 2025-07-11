@@ -53,7 +53,9 @@ impl SubAccounts {
             .into_iter()
             .map(|credentials| {
                 let account_name = credentials.get_account_name();
-                self.subaccount_sender.send(credentials).map(|_| account_name)
+                self.subaccount_sender
+                    .send(credentials)
+                    .map(|_| account_name)
             })
             .partition_result();
 

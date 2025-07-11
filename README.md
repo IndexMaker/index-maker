@@ -64,8 +64,8 @@
     - [x] Investigate FIX server REST
     - [x] Investigate WebSockets
     - [x] Design FIX server architecture
-    - [ ] Create FIX server implementation
-    - [ ] Create FIX server integration example
+    - [x] Create FIX server implementation
+    - [x] Create FIX server integration example
     - [ ] FIX message signed by private wallet key
 * [x] Binance Market Data Connector
     - [x] Investigate work required to support Binance Market Data
@@ -81,21 +81,21 @@
     - [x] Create Binance Order Connector integration example
     - [x] Send small order to Binance using limit price X% away from TOB
 * [ ] Bitget Market Data Connector
-    - [ ] Investigate work required to support Bitget Market Data
-    - [ ] Receive book deltas and snapshots from Bitget
-    - [ ] Design Bitget Market Data Connector architecture
+    - [x] Investigate work required to support Bitget Market Data
+    - [x] Receive book deltas and snapshots from Bitget
+    - [x] Design Bitget Market Data Connector architecture (same as Binance, extract common lib)
     - [ ] Create Bitget Market Data Connector implementation
     - [ ] Create Bitget Market Data Connector integration example
     - [ ] Build order book from Bitget market data events
 * [ ] Bitget Order Sending Connector
-    - [ ] Investigate work required to support sending orders to Bitget
-    - [ ] Design Bitget Order Connector architecture
+    - [x] Investigate work required to support sending orders to Bitget
+    - [ ] Design Bitget Order Connector architecture  (same as Binance, extract common lib)
     - [ ] Create Bitget Order Connector implementation
     - [ ] Create Bitget Order Connector integration example
     - [ ] Send small order to Bitget using limit price X% away from TOB
 * [ ] Alloy Integration
-    - [x] Calling contract methods
-    - [x] Subscribtions to chain events
+    - [ ] Calling contract methods
+    - [ ] Subscribtions to chain events
     - [ ] Check minimum balance of the wallet to prevent bots
 * [ ] Collateral Router Bridges
     - [ ] Create Collateral Bridge between two EVM chains using Across
@@ -173,7 +173,7 @@
 * [x] Web Framework Integration
     - [x] Decision to use Axum for web server (REST and WSS)
 * [ ] Disaster recovery plan
-    - We need to understand our system well, make sure logging is 
+    - We need to understand our system well, make sure logging is expressive.
 
 ## Phase 1. Mocked I/O (FIX / Chain/ Market Data)
 

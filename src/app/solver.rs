@@ -709,7 +709,7 @@ impl SolverConfig {
 
         Ok(())
     }
-    
+
     pub async fn run_quotes_solver(&mut self) -> Result<()> {
         let solver = self.solver.clone().ok_or_eyre("Failed to get solver")?;
 
@@ -783,7 +783,6 @@ impl SolverConfig {
         Ok(())
     }
 
-
     async fn stop_solver(&mut self) -> Result<()> {
         if let Some((stop_solver_tx, solver_stopped_rx)) = self.stopping_solver.take() {
             stop_solver_tx.send(()).unwrap();
@@ -810,7 +809,7 @@ impl SolverConfig {
         self.stop_market_data().await?;
         Ok(())
     }
-    
+
     pub async fn run_quotes(&mut self) -> Result<()> {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;

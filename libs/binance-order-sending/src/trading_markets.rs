@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use binance_sdk::spot::websocket_api::{
-    ExchangeInfoResponseResult, ExchangeInfoResponseResultExchangeFiltersInner,
-    ExchangeInfoResponseResultSymbolsInner,
+    ExchangeFiltersInner, ExchangeInfoResponseResult, ExchangeInfoResponseResultSymbolsInner,
 };
 use eyre::{eyre, OptionExt, Report, Result};
 use itertools::Itertools;
@@ -174,7 +173,7 @@ impl Filter {
         Ok(())
     }
 
-    fn make_from(value: ExchangeInfoResponseResultExchangeFiltersInner) -> Result<Option<Self>> {
+    fn make_from(value: ExchangeFiltersInner) -> Result<Option<Self>> {
         let filter_type = value.filter_type.ok_or_eyre("Missing filter_type")?;
 
         let filter = match filter_type.as_str() {
