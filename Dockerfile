@@ -17,12 +17,19 @@ RUN apt-get update && apt-get install -y  --no-install-recommends \
     build-essential \
     pkg-config \
     libssl-dev \
-    ca-certificates \
     musl-tools \
+    ccache \
     && rm -rf /var/lib/apt/lists/*
 
 # Add the musl target to rustup
 RUN rustup target add x86_64-unknown-linux-musl
+ 
+# Store cache within target, easier for Docker caching
+ENV CCACHE_DIR=/app/target/.ccache
+ENV RUSTC_WRAPPER=ccache
+
+# Set the maximum size of the cache (e.g., 5GB)
+ENV CCACHE_MAXSIZE=5G 
 
 # Copy Cargo.toml and Cargo.lock first to leverage Docker cache
 # This ensures dependencies are only recompiled if Cargo.toml/Cargo.lock change
