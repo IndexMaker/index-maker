@@ -47,6 +47,8 @@ WORKDIR /app
 # Copy the built binary from the builder stage
 # Replace `your_app_name` with the actual name of your binary (usually from Cargo.toml's [package] name)
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/index-maker ./
+COPY --from=builder /app/configs ./configs
+COPY --from=builder /app/indexes ./indexes
 
 # Set the default command to run your application
 CMD ["./index-maker", "-c", "configs", "quote-server"]
