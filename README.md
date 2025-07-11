@@ -1,3 +1,12 @@
+# Alpine Build
+
+Building for Alpine Linux using Docker:
+
+```
+    docker-compose up --build -d
+```
+
+
 # Developent Plan
 
 ## Backlog

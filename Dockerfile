@@ -49,7 +49,7 @@ WORKDIR /app
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/index-maker ./
 
 # Set the default command to run your application
-CMD ["./index-maker"]
+CMD ["./index-maker", "-c", "configs", "quote-server"]
 
 # Optional: If your application listens on a port, expose it (e.g., for a web server)
 EXPOSE 3000

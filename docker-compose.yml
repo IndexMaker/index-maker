@@ -10,6 +10,6 @@ services:
     ports:
        - "3000:3000"
 
-    command: ["./index-maker", "-c", "config", "quote-server"]
+    command: ["./index-maker", "-c", "configs", "quote-server"]
 
     restart: unless-stopped

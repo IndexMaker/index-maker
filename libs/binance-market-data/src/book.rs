@@ -299,7 +299,7 @@ impl Books {
         &mut self,
         symbol: &Symbol,
         snapshot_tx: UnboundedSender<Symbol>,
-        request_snapshot: bool
+        request_snapshot: bool,
     ) -> Result<()> {
         match self.books.entry(symbol.clone()) {
             Entry::Vacant(entry) => {
@@ -309,7 +309,7 @@ impl Books {
                     self.observer.clone(),
                 ));
                 if request_snapshot {
-                    return book.request_snapshot()
+                    return book.request_snapshot();
                 }
                 Ok(())
             }

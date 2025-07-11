@@ -1197,7 +1197,7 @@ mod test {
         init_log,
         market_data::{
             market_data_connector::{
-                test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
+                test_util::MockMarketDataConnector, MarketDataEvent,
             },
             order_book::order_book_manager::PricePointBookManager,
         },
