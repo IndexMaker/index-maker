@@ -1016,10 +1016,13 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 name = "binance-market-data"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "binance-sdk",
+ "chrono",
  "eyre",
  "futures-util",
  "itertools 0.14.0",
+ "market-data",
  "parking_lot",
  "rand 0.9.1",
  "rust_decimal",
@@ -1112,6 +1115,24 @@ name = "bitflags"
 version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
+
+[[package]]
+name = "bitget-market-data"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "futures-util",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.9.1",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "symm-core",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
 
 [[package]]
 name = "bitvec"
@@ -1840,6 +1861,7 @@ dependencies = [
  "futures-util",
  "index-maker",
  "itertools 0.14.0",
+ "market-data",
  "parking_lot",
  "rand 0.9.1",
  "rust_decimal",
@@ -2490,9 +2512,11 @@ name = "index-maker"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-trait",
  "axum-fix-server",
  "binance-market-data",
  "binance-order-sending",
+ "bitget-market-data",
  "chrono",
  "clap",
  "crossbeam",
@@ -2501,6 +2525,7 @@ dependencies = [
  "futures-util",
  "intrusive-collections",
  "itertools 0.14.0",
+ "market-data",
  "openssl",
  "parking_lot",
  "paste",
@@ -2712,6 +2737,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "market-data"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "futures-util",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.9.1",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "symm-core",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

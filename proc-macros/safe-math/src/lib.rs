@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{BinOp, Expr, parse_macro_input};
+use syn::{parse_macro_input, BinOp, Expr};
 
 #[proc_macro]
 pub fn safe(input: TokenStream) -> TokenStream {

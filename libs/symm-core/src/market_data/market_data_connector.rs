@@ -31,9 +31,21 @@ pub enum MarketDataEvent {
     },
 }
 
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct Subscription {
+    pub ticker: Symbol,
+    pub listing: Symbol,
+}
+
+impl Subscription {
+    pub fn new(ticker: Symbol, listing: Symbol) -> Self {
+        Self { ticker, listing }
+    }
+}
+
 pub trait MarketDataConnector {
     /// Subscribe to set of symbols
-    fn subscribe(&self, symbols: &[Symbol]) -> Result<()>;
+    fn subscribe(&self, subscriptions: &[Subscription]) -> Result<()>;
 }
 
 pub mod test_util {
@@ -47,11 +59,15 @@ pub mod test_util {
     };
 
     use eyre::{eyre, Result};
+    use itertools::Itertools;
     use parking_lot::RwLock;
 
-    use crate::core::{
-        bits::{Amount, PricePointEntry, Symbol},
-        functional::{IntoObservableMany, MultiObserver, PublishMany},
+    use crate::{
+        core::{
+            bits::{Amount, PricePointEntry, Symbol},
+            functional::{IntoObservableMany, MultiObserver, PublishMany},
+        },
+        market_data::market_data_connector::Subscription,
     };
 
     use super::{MarketDataConnector, MarketDataEvent};
@@ -130,16 +146,28 @@ pub mod test_util {
         pub fn connect(&mut self) {
             self.is_connected.store(true, Ordering::Relaxed);
         }
+
+        pub fn subscribe_mock(&self, symbols: &[Symbol]) -> Result<()> {
+            let subscriptions = symbols
+                .iter()
+                .map(|s| Subscription::new(s.clone(), "Mock".into()))
+                .collect_vec();
+
+            self.subscribe(&subscriptions)
+        }
     }
 
     impl MarketDataConnector for MockMarketDataConnector {
         /// Subscribe to set of symbols (TBD: potentially async)
-        fn subscribe(&self, symbols: &[Symbol]) -> Result<()> {
+        fn subscribe(&self, susbscriptions: &[Subscription]) -> Result<()> {
             if self.is_connected.load(Ordering::Relaxed) {
                 // this is mock, so we only want to know the symbols that user wanted to subscribe to
                 let mut write_symbols = self.symbols.write();
-                for symbol in symbols {
-                    write_symbols.insert(symbol.clone());
+                for Subscription { ticker, listing } in susbscriptions {
+                    if listing.ne("Mock") {
+                        Err(eyre!("Unknown listing: {}", listing))?;
+                    }
+                    write_symbols.insert(ticker.clone());
                 }
                 Ok(())
             } else {
@@ -187,7 +215,7 @@ mod test {
         let mut connector = MockMarketDataConnector::new();
 
         assert!(matches!(
-            connector.subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()]),
+            connector.subscribe_mock(&[get_mock_asset_name_1(), get_mock_asset_name_2()]),
             Err(_)
         ));
 
@@ -195,7 +223,7 @@ mod test {
         assert!(connector.is_connected.load(Ordering::Relaxed));
 
         assert!(matches!(
-            connector.subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()]),
+            connector.subscribe_mock(&[get_mock_asset_name_1(), get_mock_asset_name_2()]),
             Ok(())
         ));
 

@@ -49,7 +49,6 @@ impl BasketManagerConfig {
         self.symbols.clone()
     }
 
-
     pub fn load_config_file(&self) -> Result<Vec<(Symbol, String)>> {
         let Some(path_str) = &self.with_config_file else {
             return Err(eyre::eyre!("No config file path provided"));
@@ -58,12 +57,15 @@ impl BasketManagerConfig {
 
         let mut indexes_configs: Vec<(Symbol, String)> = Vec::new();
         if config_path.exists() {
-            let content = fs::read_to_string(config_path)
-                .expect("Failed to read BasketManagerConfig.json");
-            let json_data: serde_json::Value = serde_json::from_str(&content)
-                .expect("Failed to parse BasketManagerConfig.json");
-            let indexes_files = json_data.get("indexes_files").and_then(|v| v.as_array()).ok_or_eyre("No 'indexes_files' array found in config file.")?;
-            
+            let content =
+                fs::read_to_string(config_path).expect("Failed to read BasketManagerConfig.json");
+            let json_data: serde_json::Value =
+                serde_json::from_str(&content).expect("Failed to parse BasketManagerConfig.json");
+            let indexes_files = json_data
+                .get("indexes_files")
+                .and_then(|v| v.as_array())
+                .ok_or_eyre("No 'indexes_files' array found in config file.")?;
+
             for index_obj in indexes_files {
                 if let Some(obj) = index_obj.as_object() {
                     for (index_name, file_path) in obj {
@@ -75,7 +77,10 @@ impl BasketManagerConfig {
                 }
             }
         } else {
-            return Err(eyre::eyre!("BasketManagerConfig.json config file not found at: {}", path_str));
+            return Err(eyre::eyre!(
+                "BasketManagerConfig.json config file not found at: {}",
+                path_str
+            ));
         }
         Ok(indexes_configs)
     }
@@ -90,15 +95,16 @@ impl BasketManagerConfigBuilder {
             .replace(Arc::new(RwLock::new(BasketManager::new())));
 
         if config.with_config_file.is_some() {
-            let indexes: Vec<(Symbol, Basket)> = config.load_config_file()
+            let indexes: Vec<(Symbol, Basket)> = config
+                .load_config_file()
                 .map_err(|e| ConfigBuildError::Other(format!("Config load error: {}", e)))?
                 .into_iter()
                 .map(|(index_symbol, index_path_str)| {
                     let index_path = Path::new(&index_path_str);
                     let content = fs::read_to_string(&index_path)
                         .expect(format!("Failed to read file: {}", index_path_str).as_str());
-                    let basket: Basket = serde_json::from_str(&content)
-                        .expect("Invalid index data");
+                    let basket: Basket =
+                        serde_json::from_str(&content).expect("Invalid index data");
                     (index_symbol.clone(), basket)
                 })
                 .collect_vec();

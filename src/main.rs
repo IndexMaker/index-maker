@@ -24,6 +24,7 @@ use index_maker::{
     blockchain::chain_connector::ChainNotification,
     server::server::{Server, ServerEvent},
 };
+use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use std::{env, sync::Arc};
@@ -34,6 +35,7 @@ use symm_core::{
         test_util::{get_mock_address_1, get_mock_address_2},
     },
     init_log,
+    market_data::market_data_connector::Subscription,
 };
 use tokio::{
     signal::unix::{signal, SignalKind},
@@ -48,13 +50,16 @@ struct Cli {
 
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
+    
+    #[arg(long, short)]
+    bind_address: Option<String>,
 
     #[arg(long, short)]
     log_path: Option<String>,
 
     #[arg(long, short)]
     config_path: Option<String>,
-    
+
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
 }
@@ -90,7 +95,7 @@ enum AppMode {
 }
 
 impl AppMode {
-    fn new(command: &Commands, address: Option<String>) -> Self {
+    fn new(command: &Commands, address: String) -> Self {
         match command {
             Commands::SendOrder {
                 side,
@@ -112,7 +117,7 @@ impl AppMode {
             }
             Commands::FixServer { collateral_amount } => {
                 let config = FixServerConfig::builder()
-                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .address(address)
                     .build_arc()
                     .expect("Failed to build server");
 
@@ -123,7 +128,7 @@ impl AppMode {
             }
             Commands::QuoteServer {} => {
                 let config = FixServerConfig::builder()
-                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .address(address)
                     .build_arc()
                     .expect("Failed to build server");
 
@@ -188,7 +193,6 @@ impl AppMode {
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Command line input
@@ -212,8 +216,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = cli.config_path.unwrap_or("configs".into());
     let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
+    let bind_address = cli.bind_address.unwrap_or(String::from("127.0.0.1:3000"));
 
-    let app_mode = AppMode::new(&cli.command, None);
+    let app_mode = AppMode::new(&cli.command, bind_address);
 
     // ==== Configuration parameters
     // ----
@@ -290,7 +295,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
-        .symbols(symbols.clone())
+        .subscriptions(
+            symbols
+                .iter()
+                .map(|s| Subscription::new(s.clone(), Symbol::from("Binance")))
+                .collect_vec(),
+        )
         .with_price_tracker(true)
         .with_book_manager(true)
         .build()
@@ -361,7 +371,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_chain_connector(chain_connector_config as Arc<dyn ChainConnectorConfig + Send + Sync>)
         .build()
         .expect("Failed to build solver");
-
 
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {

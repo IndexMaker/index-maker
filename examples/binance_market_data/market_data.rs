@@ -1,10 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
-use binance_market_data::binance_market_data::BinanceMarketData;
+use binance_market_data::binance_subscriber::BinanceOnlySubscriberTasks;
+use market_data::market_data::RealMarketData;
 use symm_core::{
-    core::{functional::IntoObservableManyArc, logging::log_init},
+    core::{bits::Symbol, functional::IntoObservableManyArc, logging::log_init},
     init_log,
-    market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
+    market_data::market_data_connector::{MarketDataConnector, MarketDataEvent, Subscription},
 };
 use tokio::time::sleep;
 
@@ -12,7 +13,7 @@ use tokio::time::sleep;
 async fn main() {
     init_log!();
 
-    let mut market_data = BinanceMarketData::new(2);
+    let mut market_data = RealMarketData::new(2, Arc::new(BinanceOnlySubscriberTasks));
 
     market_data
         .get_multi_observer_arc()
@@ -58,7 +59,10 @@ async fn main() {
 
     market_data.start().expect("Failed to start market data");
     market_data
-        .subscribe(&["BNBUSDT".into()])
+        .subscribe(&[Subscription::new(
+            Symbol::from("BNBUSDT"),
+            Symbol::from("Binance"),
+        )])
         .expect("Failed to subscribe");
 
     sleep(Duration::from_secs(5)).await;
@@ -66,7 +70,10 @@ async fn main() {
     tracing::info!("Second stage. Subscribing to another pair.");
 
     market_data
-        .subscribe(&["BTCUSDT".into()])
+        .subscribe(&[Subscription::new(
+            Symbol::from("BTCUSDT"),
+            Symbol::from("Binance"),
+        )])
         .expect("Failed to subscribe");
 
     sleep(Duration::from_secs(10)).await;

@@ -4,6 +4,8 @@ members = [
     "libs/axum-fix-server",
     "libs/binance-market-data",
     "libs/binance-order-sending",
+    "libs/bitget-market-data",
+    "libs/market-data",
     "libs/symm-core",
     "examples",
     "proc-macros/safe-math",
@@ -20,9 +22,12 @@ alpine-deploy = ["openssl/vendored"]
 
 [dependencies]
 alloy = { workspace = true }
+async-trait = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
+bitget-market-data = { workspace = true }
+market-data = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
@@ -50,6 +55,7 @@ test-case = { workspace = true }
 
 [workspace.dependencies]
 alloy = "0.14.0"
+async-trait = "0.1.88"
 axum = { version = "0.7", features = ["ws"] }
 axum-fix-server = { path = "./libs/axum-fix-server" }
 axum-server = "0.6"
@@ -58,6 +64,7 @@ binance-market-data = { path = "libs/binance-market-data" }
 binance-order-sending = { path = "libs/binance-order-sending" }
 binance-sdk = { version = "^7.0.0", features = ["spot"] }
 #binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
+bitget-market-data = { path = "libs/bitget-market-data" }
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8.4"
@@ -67,6 +74,7 @@ futures-util = "0.3.31"
 index-maker = { path = "." }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
+market-data = { path = "libs/market-data" }
 openssl = { version = "^0.10" }
 parking_lot = "0.12.4"
 paste = "1.0.15"

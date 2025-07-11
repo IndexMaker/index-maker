@@ -1,50 +1,50 @@
 use std::sync::Arc;
+use std::time::Duration;
 
+use async_trait::async_trait;
 use binance_sdk::config::{ConfigurationRestApi, ConfigurationWebsocketStreams};
 use binance_sdk::spot::rest_api::DepthParams;
 use binance_sdk::spot::websocket_streams::BookTickerParams;
 use binance_sdk::spot::SpotRestApi;
 use binance_sdk::spot::{websocket_streams::DiffBookDepthParams, SpotWsStreams};
 
+use chrono::Utc;
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
 use itertools::Itertools;
+use market_data::subscriber::{SubscriberTask, SubscriberTaskFactory};
 use parking_lot::RwLock as AtomicLock;
+use symm_core::core::limit::Limiter;
+use symm_core::market_data::market_data_connector::Subscription;
 use symm_core::{
     core::{async_loop::AsyncLoop, bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
+use tokio::time::sleep;
 use tokio::{
     select,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver},
 };
 
-use crate::{book::Books, subscriptions::Subscriptions};
+use crate::book::Books;
 
-pub struct Subscriber {
-    subscriptions: Arc<AtomicLock<Subscriptions>>,
+pub struct BinanceSubscriberTask {
     subscriber_loop: AsyncLoop<()>,
     snapshot_loop: AsyncLoop<()>,
 }
 
-impl Subscriber {
-    pub fn new(subscription_sender: UnboundedSender<Symbol>) -> Self {
+impl BinanceSubscriberTask {
+    pub fn new() -> Self {
         Self {
-            subscriptions: Arc::new(AtomicLock::new(Subscriptions::new(subscription_sender))),
             subscriber_loop: AsyncLoop::new(),
             snapshot_loop: AsyncLoop::new(),
         }
     }
+}
 
-    pub fn get_subscription_count(&self) -> usize {
-        self.subscriptions.read().get_subscription_count()
-    }
-
-    pub fn subscribe(&self, symbols: &[Symbol]) -> Result<()> {
-        self.subscriptions.write().subscribe(symbols)
-    }
-
-    pub async fn stop(&mut self) -> Result<()> {
+#[async_trait]
+impl SubscriberTask for BinanceSubscriberTask {
+    async fn stop(&mut self) -> Result<()> {
         let stop_futures = [self.subscriber_loop.stop(), self.snapshot_loop.stop()];
 
         let (_, failures): (Vec<_>, Vec<_>) =
@@ -60,11 +60,11 @@ impl Subscriber {
         Ok(())
     }
 
-    pub fn start(
+    fn start(
         &mut self,
-        mut subscription_rx: UnboundedReceiver<Symbol>,
+        mut subscription_rx: UnboundedReceiver<Subscription>,
         observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
-    ) {
+    ) -> Result<()> {
         let (snapshot_tx, mut snapshot_rx) = unbounded_channel::<Symbol>();
 
         let books = Arc::new(AtomicLock::new(Books::new_with_observer(observer)));
@@ -89,17 +89,33 @@ impl Subscriber {
                 }
             };
 
+            // https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#websocket-limits
+            let mut rate_limiter = Limiter::new(5, chrono::TimeDelta::seconds(1));
+            let mut limit_rate = async |weight| loop {
+                let now = Utc::now();
+                if rate_limiter.try_consume(weight, now) {
+                    break;
+                }
+                let period = rate_limiter.waiting_period_half_limit(now);
+                let millis = period.num_milliseconds() as u64;
+                tracing::info!("Subscription rate limit pause for {}ms", millis);
+                sleep(Duration::from_millis(millis)).await;
+            };
+
             tracing::info!("Market-Data loop started");
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
-                    Some(symbol) = subscription_rx.recv() => {
-                        if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone()) {
+                    Some(Subscription { ticker: symbol, listing: _ }) = subscription_rx.recv() => {
+                        if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone(), false) {
                             tracing::warn!("Error adding book {:?}", err);
                             continue;
                         }
+
+                        // We need to account for PING/PONG too
+                        limit_rate(3).await;
 
                         let depth_params = match DiffBookDepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
@@ -150,7 +166,6 @@ impl Subscriber {
                                 tracing::warn!("Failed to apply tob update: {:?}", err);
                             }
                         });
-
                     },
                 }
             }
@@ -181,7 +196,7 @@ impl Subscriber {
                         let params = match DepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
                             Err(err) =>  {
-                                tracing::warn!("Failed to request depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to request depth snapshot for {}: {:?}", symbol, err);
                                 continue;
                             }
                         };
@@ -189,7 +204,7 @@ impl Subscriber {
                         let response = match rest_client.depth(params).await {
                             Ok(x) => x,
                             Err(err) => {
-                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot {}: {:?}", symbol, err);
                                 continue;
                             }
                         };
@@ -197,11 +212,11 @@ impl Subscriber {
                         match response.data().await {
                             Ok(res) => {
                                 if let Err(err) = books_clone.write().apply_snapshot(&symbol, res) {
-                                    tracing::warn!("Failed to apply depth snapshot: {:?}", err);
+                                    tracing::warn!("Failed to apply depth snapshot for {}: {:?}", symbol, err);
                                 }
                             }
                             Err(err) => {
-                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot for {}: {:?}", symbol, err);
                             }
                         }
                     }
@@ -209,5 +224,21 @@ impl Subscriber {
             }
             tracing::info!("Snapshot loop exited");
         });
+
+        Ok(())
+    }
+}
+
+pub struct BinanceOnlySubscriberTasks;
+
+impl SubscriberTaskFactory for BinanceOnlySubscriberTasks {
+    fn create_task_for(
+        &self,
+        listing: &Symbol,
+    ) -> Result<Box<dyn market_data::subscriber::SubscriberTask + Send + Sync>> {
+        if listing.ne("Binance") {
+            Err(eyre!("Unsupported listing: {}", listing))?;
+        }
+        Ok(Box::new(BinanceSubscriberTask::new()))
     }
 }

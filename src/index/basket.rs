@@ -20,7 +20,7 @@ use symm_core::{
 pub struct AssetWeight {
     #[serde(flatten)]
     pub asset: Arc<Asset>,
-    #[serde(alias="weights")]
+    #[serde(alias = "weights")]
     pub weight: Amount,
 }
 
@@ -113,7 +113,7 @@ pub struct BasketAsset {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
-#[derive(Serialize)] 
+#[derive(Serialize)]
 pub struct Basket {
     pub basket_assets: Vec<BasketAsset>,
 }
@@ -146,10 +146,7 @@ impl Basket {
                     .unwrap_or(&Amount::ZERO);
                 let quantity =
                     safe!(safe!(target_price / *price) * weight.weight).unwrap_or_default();
-                BasketAsset {
-                    weight,
-                    quantity,
-                }
+                BasketAsset { weight, quantity }
             })
             .collect();
 
@@ -168,9 +165,7 @@ impl Basket {
             )));
         }
 
-        Ok(Self {
-            basket_assets,
-        })
+        Ok(Self { basket_assets })
     }
 
     pub fn get_current_price(&self, individual_prices: &HashMap<Symbol, Amount>) -> Result<Amount> {
@@ -237,7 +232,6 @@ impl From<Basket> for Vec<AssetWeight> {
             .collect_vec()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

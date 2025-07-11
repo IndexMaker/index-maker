@@ -1197,7 +1197,7 @@ mod test {
         init_log,
         market_data::{
             market_data_connector::{
-                test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
+                test_util::MockMarketDataConnector, MarketDataEvent,
             },
             order_book::order_book_manager::PricePointBookManager,
         },
@@ -2030,7 +2030,7 @@ mod test {
         // subscribe to symbol/USDC markets
         market_data_connector
             .write()
-            .subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
+            .subscribe_mock(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
             .unwrap();
 
         // send some market data
