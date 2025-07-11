@@ -24,7 +24,9 @@ impl Arbiter {
         }
     }
 
-    pub async fn stop(&mut self) -> Result<UnboundedReceiver<Subscription>, Either<JoinError, Report>> {
+    pub async fn stop(
+        &mut self,
+    ) -> Result<UnboundedReceiver<Subscription>, Either<JoinError, Report>> {
         self.arbiter_loop.stop().await
     }
 
@@ -36,6 +38,10 @@ impl Arbiter {
         max_subscriber_symbols: usize,
         subscriber_task_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
     ) {
+        tracing::info!(
+            "Starting arbiter with max {} symbols per subscription",
+            max_subscriber_symbols
+        );
         let mut subscribers = Subscribers::new(max_subscriber_symbols, subscriber_task_factory);
         self.arbiter_loop.start(async move |cancel_token| {
             tracing::info!("Loop started");

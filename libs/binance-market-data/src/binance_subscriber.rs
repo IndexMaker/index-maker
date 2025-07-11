@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use binance_sdk::config::{ConfigurationRestApi, ConfigurationWebsocketStreams};
@@ -7,16 +8,19 @@ use binance_sdk::spot::websocket_streams::BookTickerParams;
 use binance_sdk::spot::SpotRestApi;
 use binance_sdk::spot::{websocket_streams::DiffBookDepthParams, SpotWsStreams};
 
+use chrono::Utc;
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use market_data::subscriber::{SubscriberTask, SubscriberTaskFactory};
 use parking_lot::RwLock as AtomicLock;
+use symm_core::core::limit::Limiter;
 use symm_core::market_data::market_data_connector::Subscription;
 use symm_core::{
     core::{async_loop::AsyncLoop, bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::MarketDataEvent,
 };
+use tokio::time::sleep;
 use tokio::{
     select,
     sync::mpsc::{unbounded_channel, UnboundedReceiver},
@@ -85,6 +89,19 @@ impl SubscriberTask for BinanceSubscriberTask {
                 }
             };
 
+            // https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#websocket-limits
+            let mut rate_limiter = Limiter::new(5, chrono::TimeDelta::seconds(1));
+            let mut limit_rate = async |weight| loop {
+                let now = Utc::now();
+                if rate_limiter.try_consume(weight, now) {
+                    break;
+                }
+                let period = rate_limiter.waiting_period_half_limit(now);
+                let millis = period.num_milliseconds() as u64;
+                tracing::info!("Subscription rate limit pause for {}ms", millis);
+                sleep(Duration::from_millis(millis)).await;
+            };
+
             tracing::info!("Market-Data loop started");
             loop {
                 select! {
@@ -92,10 +109,13 @@ impl SubscriberTask for BinanceSubscriberTask {
                         break;
                     },
                     Some(Subscription { ticker: symbol, listing: _ }) = subscription_rx.recv() => {
-                        if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone()) {
+                        if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone(), false) {
                             tracing::warn!("Error adding book {:?}", err);
                             continue;
                         }
+
+                        // We need to account for PING/PONG too
+                        limit_rate(3).await;
 
                         let depth_params = match DiffBookDepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
@@ -146,7 +166,6 @@ impl SubscriberTask for BinanceSubscriberTask {
                                 tracing::warn!("Failed to apply tob update: {:?}", err);
                             }
                         });
-
                     },
                 }
             }
@@ -177,7 +196,7 @@ impl SubscriberTask for BinanceSubscriberTask {
                         let params = match DepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
                             Err(err) =>  {
-                                tracing::warn!("Failed to request depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to request depth snapshot for {}: {:?}", symbol, err);
                                 continue;
                             }
                         };
@@ -185,7 +204,7 @@ impl SubscriberTask for BinanceSubscriberTask {
                         let response = match rest_client.depth(params).await {
                             Ok(x) => x,
                             Err(err) => {
-                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot {}: {:?}", symbol, err);
                                 continue;
                             }
                         };
@@ -193,11 +212,11 @@ impl SubscriberTask for BinanceSubscriberTask {
                         match response.data().await {
                             Ok(res) => {
                                 if let Err(err) = books_clone.write().apply_snapshot(&symbol, res) {
-                                    tracing::warn!("Failed to apply depth snapshot: {:?}", err);
+                                    tracing::warn!("Failed to apply depth snapshot for {}: {:?}", symbol, err);
                                 }
                             }
                             Err(err) => {
-                                tracing::warn!("Failed to obtain depth snapshot: {:?}", err);
+                                tracing::warn!("Failed to obtain depth snapshot for {}: {:?}", symbol, err);
                             }
                         }
                     }

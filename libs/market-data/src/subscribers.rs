@@ -1,4 +1,4 @@
-use std::{sync::Arc, usize};
+use std::sync::Arc;
 
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
@@ -8,7 +8,7 @@ use symm_core::{
     core::{bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::{MarketDataEvent, Subscription},
 };
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::{sync::mpsc::unbounded_channel, time::sleep};
 
 use crate::subscriber::{Subscriber, SubscriberTaskFactory};
 
@@ -40,7 +40,7 @@ impl Subscribers {
             }
             let subscription_count = sub.get_subscription_count();
             if subscription_count < self.max_subscriber_symbols {
-                Some(sub);
+                return Some(sub);
             }
         }
         None
@@ -69,8 +69,22 @@ impl Subscribers {
             .find_available_subscriber_mut(&subscrption.listing)
             .await
         {
-            Some(sub) => sub,
-            None => self.start_new_subscriber_mut(subscrption.listing.clone(), observer)?,
+            Some(sub) => {
+                tracing::info!(
+                    "Using existing subscriber for: {} @ {}",
+                    subscrption.ticker,
+                    subscrption.listing
+                );
+                sub
+            }
+            None => {
+                tracing::info!(
+                    "Starting new subscriber for: {} @ {}",
+                    subscrption.ticker,
+                    subscrption.listing
+                );
+                self.start_new_subscriber_mut(subscrption.listing.clone(), observer)?
+            }
         };
 
         let subscription_clone = subscrption.clone();

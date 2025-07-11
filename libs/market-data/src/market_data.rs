@@ -1,4 +1,4 @@
-use std::{sync::Arc, usize};
+use std::sync::Arc;
 
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;

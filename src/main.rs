@@ -56,7 +56,7 @@ struct Cli {
 
     #[arg(long, short)]
     config_path: Option<String>,
-    
+
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
 }
@@ -189,7 +189,6 @@ impl AppMode {
         }
     }
 }
-
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -368,7 +367,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_chain_connector(chain_connector_config as Arc<dyn ChainConnectorConfig + Send + Sync>)
         .build()
         .expect("Failed to build solver");
-
 
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {

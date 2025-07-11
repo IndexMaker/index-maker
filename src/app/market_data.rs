@@ -8,10 +8,11 @@ use market_data::market_data::RealMarketData;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::bits::{Amount, Symbol},
+    core::bits::Amount,
     market_data::{
         market_data_connector::{MarketDataConnector, Subscription},
-        order_book::order_book_manager::PricePointBookManager, price_tracker::PriceTracker,
+        order_book::order_book_manager::PricePointBookManager,
+        price_tracker::PriceTracker,
     },
 };
 
@@ -119,7 +120,7 @@ impl MarketDataConfigBuilder {
         config
             .market_data
             .replace(Arc::new(RwLock::new(RealMarketData::new(
-                config.max_subscriber_symbols.unwrap_or(100),
+                config.max_subscriber_symbols.unwrap_or(10),
                 subscriber_task_factory,
             ))));
 

@@ -299,14 +299,18 @@ impl Books {
         &mut self,
         symbol: &Symbol,
         snapshot_tx: UnboundedSender<Symbol>,
+        request_snapshot: bool
     ) -> Result<()> {
         match self.books.entry(symbol.clone()) {
             Entry::Vacant(entry) => {
-                entry.insert(Book::new_with_observer(
+                let book = entry.insert(Book::new_with_observer(
                     symbol.clone(),
                     snapshot_tx.clone(),
                     self.observer.clone(),
                 ));
+                if request_snapshot {
+                    return book.request_snapshot()
+                }
                 Ok(())
             }
             Entry::Occupied(_) => Err(eyre!("Book already exists {}", symbol)),
