@@ -50,6 +50,9 @@ struct Cli {
 
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
+    
+    #[arg(long, short)]
+    bind_address: Option<String>,
 
     #[arg(long, short)]
     log_path: Option<String>,
@@ -92,7 +95,7 @@ enum AppMode {
 }
 
 impl AppMode {
-    fn new(command: &Commands, address: Option<String>) -> Self {
+    fn new(command: &Commands, address: String) -> Self {
         match command {
             Commands::SendOrder {
                 side,
@@ -114,7 +117,7 @@ impl AppMode {
             }
             Commands::FixServer { collateral_amount } => {
                 let config = FixServerConfig::builder()
-                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .address(address)
                     .build_arc()
                     .expect("Failed to build server");
 
@@ -125,7 +128,7 @@ impl AppMode {
             }
             Commands::QuoteServer {} => {
                 let config = FixServerConfig::builder()
-                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .address(address)
                     .build_arc()
                     .expect("Failed to build server");
 
@@ -213,8 +216,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = cli.config_path.unwrap_or("configs".into());
     let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
+    let bind_address = cli.bind_address.unwrap_or(String::from("127.0.0.1:3000"));
 
-    let app_mode = AppMode::new(&cli.command, None);
+    let app_mode = AppMode::new(&cli.command, bind_address);
 
     // ==== Configuration parameters
     // ----

@@ -10,6 +10,9 @@ services:
     ports:
        - "3000:3000"
 
-    command: ["./index-maker", "-c", "configs", "quote-server"]
+    command: ["./index-maker", "-b", "0.0.0.0:3000", "-c", "configs", "quote-server"]
+
+    environment:
+      RUST_LOG: info
 
     restart: unless-stopped

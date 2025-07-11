@@ -51,7 +51,7 @@ COPY --from=builder /app/configs ./configs
 COPY --from=builder /app/indexes ./indexes
 
 # Set the default command to run your application
-CMD ["./index-maker", "-c", "configs", "quote-server"]
+CMD ["./index-maker", "-b", "0.0.0.0:3000", "-c", "configs", "quote-server"]
 
 # Optional: If your application listens on a port, expose it (e.g., for a web server)
 EXPOSE 3000
