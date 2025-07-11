@@ -163,9 +163,10 @@ impl EvmConnector {
     }
 
     /// Send a command to be executed on a specific chain
-    async fn send_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
+    fn send_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
         let request = ChainOperationRequest::ExecuteCommand { chain_id, command };
 
+        // Sadhbh: request_sender is UnboundedSender, this allows our function to be sync
         self.request_sender
             .send(request)
             .map_err(|e| eyre::eyre!("Failed to send command: {}", e))?;
@@ -189,6 +190,8 @@ impl EvmConnector {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) {
+        // Sadhbh: You probably want to remove those notify_XXX functions, because you
+        // probably want to publish those events in places where you handle the commands.
         self.observer.publish_single(ChainNotification::Deposit {
             chain_id,
             address,
@@ -224,13 +227,18 @@ impl ChainConnector for EvmConnector {
     fn solver_weights_set(&self, symbol: Symbol, basket: std::sync::Arc<Basket>) {
         // Send command to the first connected chain (or implement chain selection logic)
         if let Some(&chain_id) = self.connected_chains.first() {
-            let command = ChainCommand::SetSolverWeights { symbol, basket };
-
-            tokio::spawn(async move {
-                // Note: In a real implementation, we'd need to handle this properly
-                // For now, this is a synchronous interface so we can't await
-                println!("Solver weights set command queued for chain {}", chain_id);
-            });
+            // Sadhbh: I made send_command sync, so it can be just called like that
+            if let Err(err) =
+                self.send_command(chain_id, ChainCommand::SetSolverWeights { symbol, basket })
+            {
+                // It returns result, so we just need to report it
+                // TODO: I know I stated to use println() an eprintln() but we
+                // have already selected tracing as our logging solution.
+                // You can run search and replace:
+                // eprintln! => tracing::warn!  <-- warn for errors that don't cause crash
+                // println! => trading::info! <-- informative messages as info, otherwise debug, use common sense
+                eprintln!("Error sending SetSolverWeights command: {:?}", err);
+            }
         } else {
             println!("No connected chains available for solver weights set");
         }
@@ -255,12 +263,22 @@ impl ChainConnector for EvmConnector {
         };
 
         let request_sender = self.request_sender.clone();
-        tokio::spawn(async move {
-            let request = ChainOperationRequest::ExecuteCommand { chain_id, command };
-            if let Err(e) = request_sender.send(request) {
-                println!("Failed to send mint index command: {}", e);
-            }
-        });
+
+        // Sadhbh: You shouldn't need to call tokio::spawn() at all. The Arbiter should
+        // run AsyncLoop to handle all async jobs of creating chain connections, and then
+        // each chain connection should run its own AsyncLoop to handle commands asynchronously,
+        // but besides that client code is sync, and all it does it sends commands synchronously
+        // and then receives events via provided observer and not return values. The return values
+        // of sync operations need to only say if command was queued successfully, e.g. it would
+        // be an error to queue a command for session that does not exist. If command fails in
+        // session handler, then just log error and additionally if we needed we could emit
+        // some error event (I have one example in OrderBookManager, but I haven't used that pattern much yet).
+        // PS. Code looks great! Thanks.
+        if let Err(e) =
+            request_sender.send(ChainOperationRequest::ExecuteCommand { chain_id, command })
+        {
+            eprintln!("Failed to send mint index command: {}", e);
+        }
     }
 
     fn burn_index(&self, chain_id: u32, symbol: Symbol, quantity: Amount, recipient: Address) {
@@ -272,12 +290,11 @@ impl ChainConnector for EvmConnector {
         };
 
         let request_sender = self.request_sender.clone();
-        tokio::spawn(async move {
-            let request = ChainOperationRequest::ExecuteCommand { chain_id, command };
-            if let Err(e) = request_sender.send(request) {
-                println!("Failed to send burn index command: {}", e);
-            }
-        });
+        if let Err(e) =
+            request_sender.send(ChainOperationRequest::ExecuteCommand { chain_id, command })
+        {
+            eprintln!("Failed to send burn index command: {}", e);
+        }
     }
 
     fn withdraw(
@@ -297,12 +314,11 @@ impl ChainConnector for EvmConnector {
         };
 
         let request_sender = self.request_sender.clone();
-        tokio::spawn(async move {
-            let request = ChainOperationRequest::ExecuteCommand { chain_id, command };
-            if let Err(e) = request_sender.send(request) {
-                println!("Failed to send withdraw command: {}", e);
-            }
-        });
+        if let Err(e) =
+            request_sender.send(ChainOperationRequest::ExecuteCommand { chain_id, command })
+        {
+            println!("Failed to send withdraw command: {}", e);
+        }
     }
 }
 

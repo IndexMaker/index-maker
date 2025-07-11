@@ -133,32 +133,30 @@ impl Arbiter {
                 let observer_clone = observer.clone();
                 
                 // Handle async operation outside the lock
-                tokio::spawn(async move {
-                    if let Some(mut operation) = operation_to_stop {
-                        match operation.stop().await {
-                            Ok(()) => {
-                                // Notify via observer
-                                let obs = observer_clone.read();
-                                obs.publish_single(ChainNotification::ChainDisconnected {
-                                    chain_id,
-                                    timestamp: Utc::now(),
-                                });
-                                println!("Removed chain operation for chain {}", chain_id);
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to stop chain operation for chain {}: {}", chain_id, e);
-                            }
+                if let Some(mut operation) = operation_to_stop {
+                    match operation.stop().await {
+                        Ok(()) => {
+                            // Notify via observer
+                            let obs = observer_clone.read();
+                            obs.publish_single(ChainNotification::ChainDisconnected {
+                                chain_id,
+                                timestamp: Utc::now(),
+                            });
+                            println!("Removed chain operation for chain {}", chain_id);
                         }
-                    } else {
-                        // Notify via observer anyway (operation was not found)
-                        let obs = observer_clone.read();
-                        obs.publish_single(ChainNotification::ChainDisconnected {
-                            chain_id,
-                            timestamp: Utc::now(),
-                        });
-                        println!("Chain operation for chain {} not found", chain_id);
+                        Err(e) => {
+                            eprintln!("Failed to stop chain operation for chain {}: {}", chain_id, e);
+                        }
                     }
-                });
+                } else {
+                    // Notify via observer anyway (operation was not found)
+                    let obs = observer_clone.read();
+                    obs.publish_single(ChainNotification::ChainDisconnected {
+                        chain_id,
+                        timestamp: Utc::now(),
+                    });
+                    println!("Chain operation for chain {} not found", chain_id);
+                }
             }
             
             ChainOperationRequest::ExecuteCommand { chain_id, command } => {
