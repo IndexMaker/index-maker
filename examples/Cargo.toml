@@ -61,3 +61,7 @@ path="fix_server/main.rs"
 [[example]]
 name = "evm-connector"
 path = "evm_connector/main.rs"
+
+[[example]]
+name = "evm-bridge"
+path = "evm_connector/main_bridge.rs"

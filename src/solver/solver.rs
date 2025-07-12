@@ -542,6 +542,14 @@ impl Solver {
                 .write()
                 .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
                 .handle_withdrawal(self, chain_id, address, amount, timestamp),
+            ChainNotification::ChainConnected { chain_id, timestamp } => {
+                tracing::info!("(solver) Chain {} connected at {}", chain_id, timestamp);
+                Ok(())
+            }
+            ChainNotification::ChainDisconnected { chain_id, timestamp } => {
+                tracing::info!("(solver) Chain {} disconnected at {}", chain_id, timestamp);
+                Ok(())
+            }
         }
     }
 

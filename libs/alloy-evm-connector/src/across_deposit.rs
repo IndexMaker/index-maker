@@ -148,8 +148,13 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         &self,
         amount: U256,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("  🔗 Approving USDC for amount: {}", amount);
+        println!("  🔗 Target: OTC_CUSTODY_ADDRESS ({:?})", OTC_CUSTODY_ADDRESS);
+        
         let call = self.usdc.approve(OTC_CUSTODY_ADDRESS, amount);
-        call.send().await?.get_receipt().await?;
+        let receipt = call.send().await?.get_receipt().await?;
+        
+        println!("  ✅ USDC approval transaction successful: {:?}", receipt.transaction_hash);
         Ok(())
     }
 
@@ -176,23 +181,31 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         let data: serde_json::Value = response.json().await?;
 
+        // Check if this is an error response
+        if let Some(code) = data.get("code") {
+            if code == "AMOUNT_TOO_LOW" {
+                return Err(format!("Across API error: {}", data.get("message").unwrap_or(&serde_json::Value::String("Unknown error".to_string()))).into());
+            }
+        }
+
         Ok(AcrossSuggestedOutput {
-            output_amount: U256::from_str(
-                data["outputAmount"].as_str().unwrap_or(&amount.to_string()),
-            )
-            .unwrap_or(amount),
+            output_amount: data["outputAmount"]
+                .as_str()
+                .and_then(|s| U256::from_str(s).ok())
+                .or_else(|| data["outputAmount"].as_u64().map(U256::from))
+                .unwrap_or(amount),
             fill_deadline: data["fillDeadline"]
                 .as_str()
-                .unwrap()
-                .parse::<u64>()
-                .unwrap(),
-            exclusive_relayer: Address::from_str(
-                data["exclusiveRelayer"]
-                    .as_str()
-                    .unwrap_or("0x0000000000000000000000000000000000000000"),
-            )
-            .unwrap_or(Address::ZERO),
-            exclusivity_deadline: data["exclusivityDeadline"].as_u64().unwrap(),
+                .and_then(|s| s.parse::<u64>().ok())
+                .or_else(|| data["fillDeadline"].as_u64())
+                .unwrap_or((chrono::Utc::now().timestamp() + 3600) as u64),
+            exclusive_relayer: data["exclusiveRelayer"]
+                .as_str()
+                .and_then(|s| Address::from_str(s).ok())
+                .unwrap_or(Address::ZERO),
+            exclusivity_deadline: data["exclusivityDeadline"]
+                .as_u64()
+                .unwrap_or((chrono::Utc::now().timestamp() + 1800) as u64),
         })
     }
 
@@ -203,10 +216,19 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         input_token: Address,
         amount: U256,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let call = self
-            .otc_custody
-            .addressToCustody(FixedBytes(custody_id), input_token, amount);
-        call.send().await?.get_receipt().await?;
+        println!("  🔗 Calling addressToCustody");
+        println!("  🔗 custody_id: {:?}", hex::encode_prefixed(custody_id));
+        println!("  🔗 input_token: {:?}", input_token);
+        println!("  🔗 amount: {}", amount);
+        
+        let call = self.otc_custody.addressToCustody(
+            FixedBytes(custody_id),
+            input_token,
+            amount,
+        );
+        let receipt = call.send().await?.get_receipt().await?;
+        
+        println!("  ✅ Custody setup transaction successful: {:?}", receipt.transaction_hash);
         Ok(())
     }
 
@@ -217,13 +239,21 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         amount: U256,
         verification_data: crate::contracts::VerificationData,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("  🔗 Calling custodyToConnector");
+        println!("  🔗 input_token: {:?}", input_token);
+        println!("  🔗 connector: {:?}", ACROSS_CONNECTOR_ADDRESS);
+        println!("  🔗 amount: {}", amount);
+        println!("  🔗 verification_data.id: {:?}", verification_data.id);
+        
         let call = self.otc_custody.custodyToConnector(
             input_token,
             ACROSS_CONNECTOR_ADDRESS,
             amount,
             verification_data,
         );
-        call.send().await?.get_receipt().await?;
+        let receipt = call.send().await?.get_receipt().await?;
+        
+        println!("  ✅ CustodyToConnector transaction successful: {:?}", receipt.transaction_hash);
         Ok(())
     }
 
@@ -233,6 +263,12 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         calldata: Vec<u8>,
         verification_data: crate::contracts::VerificationData,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        println!("  🔗 Calling callConnector");
+        println!("  🔗 connector_name: AcrossConnector");
+        println!("  🔗 connector_address: {:?}", ACROSS_CONNECTOR_ADDRESS);
+        println!("  🔗 calldata_length: {} bytes", calldata.len());
+        println!("  🔗 verification_data.id: {:?}", verification_data.id);
+        
         let call = self.otc_custody.callConnector(
             "AcrossConnector".to_string(),
             ACROSS_CONNECTOR_ADDRESS,
@@ -241,12 +277,18 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             verification_data,
         );
         let receipt = call.send().await?.get_receipt().await?;
+        
+        println!("  ✅ CallConnector transaction successful: {:?}", receipt.transaction_hash);
         Ok(receipt)
     }
 
     pub async fn get_ca(&self, custody_id: [u8; 32]) -> Result<String, Box<dyn std::error::Error>> {
+        println!("  🔗 Calling getCA for custody_id: {:?}", hex::encode_prefixed(custody_id));
+        
         let call = self.otc_custody.getCA(FixedBytes(custody_id));
         let ca = call.call().await?.to_string();
+        
+        println!("  ✅ CA result: {}", ca);
         Ok(ca)
     }
 
@@ -270,12 +312,23 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Step 1: Approve input token for OTCCustody
         println!("Step 1: Approving input token for custody");
-        self.approve_input_token_for_custody(deposit_amount).await?;
+        match self.approve_input_token_for_custody(deposit_amount).await {
+            Ok(()) => println!("✅ Step 1 completed: Token approval successful"),
+            Err(e) => {
+                eprintln!("❌ Step 1 failed: Token approval error: {}", e);
+                return Err(e);
+            }
+        }
 
         // Step 2: Setup custody helper (CAHelper) with the on-chain chain-id
         println!("Step 2: Setting up CAHelper");
         let chain_id_runtime = self.across_connector.provider().get_chain_id().await?;
+        println!("✅ Step 2a: Got chain ID: {}", chain_id_runtime);
+        
+        println!("Step 2b: Creating CAHelper with chain_id {} and custody address {:?}", 
+                 chain_id_runtime, OTC_CUSTODY_ADDRESS);
         let mut ca_helper = CAHelper::new(chain_id_runtime, OTC_CUSTODY_ADDRESS);
+        println!("✅ Step 2 completed: CAHelper created");
 
         // Step 3: Call custodyToConnector of custody_helper
         println!("Step 3: Adding custodyToConnector action to CAHelper");
@@ -299,6 +352,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             deposit_amount,
         )
         .await?;
+        println!("✅ Step 4: Got suggested output from API");
 
         // Step 5: Encode deposit call data
         println!("Step 5: Encoding deposit calldata");
@@ -314,6 +368,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             suggested_output.exclusivity_deadline,
         );
         let calldata = deposit.encode_deposit_calldata();
+        println!("✅ Step 5 completed: Deposit calldata encoded ({} bytes)", calldata.len());
 
         // Step 6: Call callConnector of custody_helper
         println!("Step 6: Adding callConnector action to CAHelper");
@@ -327,16 +382,19 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
         );
+        println!("✅ Step 6 completed: CallConnector action added (index: {})", connector_action_index);
 
         // Step 7: Fetch custodyId from custody_helper.get_custody_id()
         println!("Step 7: Getting custody ID");
         let custody_id = ca_helper.get_ca_root();
         println!("custody_id: {:?}", hex::encode_prefixed(custody_id));
+        println!("✅ Step 7 completed: Custody ID retrieved");
 
         // Step 8: Call otc_custody.addressToCustody
         println!("Step 8: Setting up custody with input tokens");
         self.setup_custody(custody_id, input_token, deposit_amount)
             .await?;
+        println!("✅ Step 8 completed: Custody setup successful");
 
         // Step 9: Setup verification data for custodyToConnector and get merkle proof
         println!("Step 9: Creating verification data for custodyToConnector");
@@ -360,12 +418,13 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             },
             ca_helper.get_merkle_proof(custody_action_index),
         );
+        println!("✅ Step 9 completed: Verification data created for custodyToConnector");
 
         // Step 10: Call otc_custody.custodyToConnector
         println!("Step 10: Executing custodyToConnector");
         self.execute_custody_to_connector(input_token, deposit_amount, custody_verification)
             .await?;
-        println!("Step 10: custodyToConnector completed successfully");
+        println!("✅ Step 10 completed: custodyToConnector executed successfully");
 
         // Step 11: Setup verification data for callConnector
         println!("Step 11: Creating verification data for callConnector");
@@ -387,15 +446,17 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             },
             connector_proof,
         );
+        println!("✅ Step 11 completed: Verification data created for callConnector");
 
         // Step 12: Call otc_custody.callConnector
         println!("Step 12: Executing callConnector");
         let receipt = self
             .execute_call_connector(calldata, connector_verification)
             .await?;
-        println!("Across deposit completed successfully!");
+        println!("✅ Step 12 completed: callConnector executed successfully");
+        println!("🎉 Complete Across deposit flow finished successfully!");
         println!(
-            "Across transaction via calConnector hash: {:?}",
+            "📋 Final transaction hash: {:?}",
             receipt.transaction_hash
         );
 

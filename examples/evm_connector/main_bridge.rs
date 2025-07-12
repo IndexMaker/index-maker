@@ -2,10 +2,8 @@ use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives::address;
 use alloy_evm_connector::evm_bridge::{EvmCollateralBridge, EvmCollateralDesignation};
-use index_maker::{
-    collateral::collateral_router::{CollateralBridge, CollateralRouterEvent},
-    core::functional::IntoObservableSingle,
-};
+use index_core::collateral::collateral_router::{CollateralBridge, CollateralRouterEvent};
+use symm_core::core::functional::IntoObservableSingle;
 use rust_decimal::dec;
 use tokio::sync::watch;
 
@@ -25,12 +23,24 @@ async fn main() {
 
     let bridge = EvmCollateralBridge::new_arc(source, destination);
 
+    // Initialize the new arbiter architecture
+    println!("🔧 Initializing arbiter system...");
+    bridge
+        .write()
+        .unwrap()
+        .start_arbiter()
+        .expect("Failed to start arbiter system");
+    
+    // Give time for chain operations to be added
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    println!("✅ Arbiter system initialized");
+
     let chain_id = 42161;
     let address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();
     let route_to = "BASE".into();
-    let amount = dec!(1.0);
+    let amount = dec!(1000000.0); // 1 USDC (6 decimals) = 1,000,000 wei
     let cumulative_fee = dec!(0.0);
 
     let (end_tx, mut end_rx) = watch::channel(false);

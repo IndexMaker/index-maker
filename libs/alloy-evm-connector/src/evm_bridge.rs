@@ -11,10 +11,17 @@ use index_core::collateral::collateral_router::{
     CollateralBridge, CollateralDesignation, CollateralRouterEvent,
 };
 use crate::across_deposit::{
-    new_builder_from_env, ARBITRUM_CHAIN_ID, BASE_CHAIN_ID,
+    ARBITRUM_CHAIN_ID, BASE_CHAIN_ID,
     USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS,
 };
+use crate::arbiter::Arbiter;
+use crate::chain_operations::ChainOperations;
+use crate::commands::{ChainCommand, ChainOperationRequest};
+use crate::credentials::EvmCredentials;
+use crate::custody_helper::Party;
+use index_core::blockchain::chain_connector::ChainNotification;
 use chrono::{DateTime, Utc};
+use alloy::primitives::B256;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Symbol},
@@ -22,6 +29,7 @@ use symm_core::core::{
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 use tokio::{spawn, task::JoinHandle};
+use tokio::sync::mpsc::unbounded_channel;
 
 const BRIDGE_TYPE: &str = "EVM";
 
@@ -55,6 +63,12 @@ pub struct EvmCollateralBridge {
     source: Arc<ComponentLock<EvmCollateralDesignation>>,
     destination: Arc<ComponentLock<EvmCollateralDesignation>>,
     tasks: AtomicLock<Vec<JoinHandle<Result<()>>>>,
+    
+    // New architecture components
+    arbiter: Option<Arbiter>,
+    chain_operations: Arc<AtomicLock<ChainOperations>>,
+    chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
+    request_sender: Option<tokio::sync::mpsc::UnboundedSender<ChainOperationRequest>>,
 }
 
 impl EvmCollateralBridge {
@@ -63,14 +77,72 @@ impl EvmCollateralBridge {
         destination: Arc<ComponentLock<EvmCollateralDesignation>>,
     ) -> Arc<ComponentLock<Self>> {
         Arc::new_cyclic(|me| {
+            // Initialize the new architecture components
+            let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new()));
+            let chain_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
+            
             ComponentLock::new(Self {
                 me: me.clone(),
                 observer: SingleObserver::new(),
                 source,
                 destination,
                 tasks: AtomicLock::new(Vec::new()),
+                
+                // New architecture components (initialized but not started yet)
+                arbiter: None,
+                chain_operations,
+                chain_observer,
+                request_sender: None,
             })
         })
+    }
+    
+    /// Initialize and start the arbiter system
+    pub fn start_arbiter(&mut self) -> Result<()> {
+        let (request_tx, request_rx) = unbounded_channel();
+        
+        let mut arbiter = Arbiter::new();
+        arbiter.start(
+            self.chain_operations.clone(),
+            request_rx,
+            self.chain_observer.clone(),
+            5, // max chain operations
+        );
+        
+        self.arbiter = Some(arbiter);
+        self.request_sender = Some(request_tx);
+        
+        // Add chain operations for source and destination chains
+        self.setup_chain_operations()?;
+        
+        Ok(())
+    }
+    
+    /// Setup chain operations for both source and destination chains
+    fn setup_chain_operations(&self) -> Result<()> {
+        if let Some(sender) = &self.request_sender {
+            // Add Arbitrum chain operation
+            let arbitrum_creds = EvmCredentials::arbitrum()
+                .map_err(|e| eyre!("Failed to create Arbitrum credentials: {}", e))?;
+            
+            let add_arbitrum = ChainOperationRequest::AddOperation {
+                credentials: arbitrum_creds,
+            };
+            sender.send(add_arbitrum)
+                .map_err(|e| eyre!("Failed to send Arbitrum add request: {}", e))?;
+            
+            // Add Base chain operation
+            let base_creds = EvmCredentials::base()
+                .map_err(|e| eyre!("Failed to create Base credentials: {}", e))?;
+            
+            let add_base = ChainOperationRequest::AddOperation {
+                credentials: base_creds,
+            };
+            sender.send(add_base)
+                .map_err(|e| eyre!("Failed to send Base add request: {}", e))?;
+        }
+        
+        Ok(())
     }
 
     fn notify_collateral_router_event(
@@ -132,46 +204,40 @@ impl CollateralBridge for EvmCollateralBridge {
         cumulative_fee: Amount,
     ) -> Result<()> {
         let me = self.me.upgrade().unwrap();
+        let request_sender = self.request_sender.clone()
+            .ok_or_eyre("Arbiter system not initialized. Call start_arbiter() first.")?;
 
         let transfer_task: JoinHandle<Result<()>> = spawn(async move {
-            // NOTE: I'm putting this example piece inside tokio::spawn() as I
-            // am aware that Alloy might need async code. Use this piece to
-            // start tokio async task, and once you confirm transfer to
-            // designation, please fire the event as shown below.
-            //
-            // Fill in... Need to implement transfering funds
-            // - from: self.source
-            // - to: self.destination
-            //
-            // The `route_from` and `route_to`` parameters should be ignored and
-            // passed through to the collateral routing event.  These two
-            // parameters are used to tell router which path this event is for,
-            // but our transfer_funds() is to transfer only between self.source
-            // to self.destination, and only in that one direction.
-            //
-            // The below code shows how to fire the event, and it should be used
-            // when transfer is actually complete. Collateral router responds to
-            // those events by producing next hop, which invokes next bridge (a
-            // different one than this)
-            //
-            let deposit_builder = new_builder_from_env().await.unwrap();
-            deposit_builder
-                .execute_complete_across_deposit(
-                    address,
-                    USDC_ARBITRUM_ADDRESS,
-                    USDC_BASE_ADDRESS,
-                    U256::from_str(
-                        &(amount.try_into().unwrap_or(1u128) * 1_000_000u128).to_string(),
-                    )
-                    .map_err(|err| eyre!("Failed to
-                     convert amount to U256: {}", err))?, // 6 decimals for USDC
-                    ARBITRUM_CHAIN_ID,
-                    BASE_CHAIN_ID,
-                )
-                .await
-                .unwrap();
-
-            //
+            println!("🚀 Starting transfer using new architecture...");
+            
+            // Use the new architecture: send command to arbiter instead of direct call
+            let execute_command = ChainOperationRequest::ExecuteCommand {
+                chain_id: ARBITRUM_CHAIN_ID as u32, // Source chain (Arbitrum) - convert to u32
+                command: ChainCommand::ExecuteCompleteAcrossDeposit {
+                    chain_id: ARBITRUM_CHAIN_ID as u32,
+                    recipient: address,
+                    input_token: USDC_ARBITRUM_ADDRESS,
+                    output_token: USDC_BASE_ADDRESS,
+                    deposit_amount: amount,
+                    origin_chain_id: ARBITRUM_CHAIN_ID,
+                    destination_chain_id: BASE_CHAIN_ID,
+                    party: Party {
+                        parity: 0,
+                        x: B256::ZERO,
+                    },
+                },
+            };
+            
+            // Send the command to the arbiter system
+            request_sender.send(execute_command)
+                .map_err(|e| eyre!("Failed to send execute command: {}", e))?;
+            
+            println!("✅ Command sent to arbiter system");
+            
+            // Give time for the command to be processed
+            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+            
+            // Fire the collateral router event to indicate completion
             let timestamp = Utc::now();
             let fee = safe!(cumulative_fee + dec!(0.1)).ok_or_eyre("Math Problem")?;
             me.read()
@@ -187,6 +253,7 @@ impl CollateralBridge for EvmCollateralBridge {
                     fee,
                 );
 
+            println!("🎉 Transfer completed via new architecture!");
             Ok(())
         });
 

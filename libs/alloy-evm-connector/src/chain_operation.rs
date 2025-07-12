@@ -461,6 +461,7 @@ impl ChainOperation {
                     );
                     
                     // Execute the complete Across deposit flow
+                    println!("Starting complete Across deposit execution...");
                     match builder.execute_complete_across_deposit(
                         alloy::primitives::Address::from_slice(recipient.as_slice()),
                         alloy::primitives::Address::from_slice(input_token.as_slice()),
@@ -470,10 +471,14 @@ impl ChainOperation {
                         destination_chain_id,
                     ).await {
                         Ok(()) => {
-                            println!("Complete Across deposit flow executed successfully on chain {}", chain_id);
+                            println!("✅ Complete Across deposit flow executed successfully on chain {}", chain_id);
                             Ok(Some("0xacross_complete...".to_string()))
                         }
-                        Err(e) => Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e)),
+                        Err(e) => {
+                            eprintln!("❌ ExecuteCompleteAcrossDeposit failed with error: {}", e);
+                            eprintln!("Error details: {:?}", e);
+                            Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e))
+                        }
                     }
                 } else {
                     Err(eyre::eyre!("AcrossDepositBuilder not initialized for chain {}", chain_id))
