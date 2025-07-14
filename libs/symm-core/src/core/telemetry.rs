@@ -67,8 +67,28 @@ where
 
 #[derive(Debug, Clone)]
 pub struct TraceableEvent<T> {
-    pub notification: T,
-    pub tracing_data: TracingData,
+    notification: T,
+    tracing_data: TracingData,
+}
+
+impl<T> TraceableEvent<T> {
+    pub fn new(notification: T) -> Self {
+        Self {
+            notification,
+            tracing_data: TracingData::new(),
+        }
+    }
+
+    pub fn take(self) -> (T, Context) {
+        let context = self.extract_context();
+        (self.notification, context)
+    }
+
+    pub fn with_tracing<R>(self, f: impl FnOnce(T) -> R) -> R {
+        let (notification, context) = self.take();
+        context.attach();
+        f(notification)
+    }
 }
 
 impl<T> WithTracingData for TraceableEvent<T> {
@@ -125,11 +145,7 @@ pub mod crossbeam {
         T: Send + Sync + 'static,
     {
         fn handle_notification(&self, notification: T) {
-            let mut traced_message = TraceableEvent {
-                notification,
-                tracing_data: TracingData::new(),
-            };
-
+            let mut traced_message = TraceableEvent::new(notification);
             traced_message.inject_current_context();
 
             if let Err(err) = self.sender.send(traced_message) {
@@ -152,11 +168,7 @@ pub mod crossbeam {
         T: Clone + Send + Sync + 'static,
     {
         fn handle_notification(&self, notification: &T) {
-            let mut traced_message = TraceableEvent {
-                notification: notification.clone(),
-                tracing_data: TracingData::new(),
-            };
-
+            let mut traced_message = TraceableEvent::new(notification.clone());
             traced_message.inject_current_context();
 
             if let Err(err) = self.sender.send(traced_message) {

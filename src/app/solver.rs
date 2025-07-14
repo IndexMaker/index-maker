@@ -42,6 +42,7 @@ use symm_core::{
             IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
             IntoObservableSingleArc, IntoObservableSingleFun,
         },
+        telemetry::crossbeam::unbounded_traceable,
     },
     market_data::{
         market_data_connector::MarketDataEvent, order_book::order_book_manager::OrderBookEvent,
@@ -53,6 +54,7 @@ use symm_core::{
     },
 };
 use tokio::sync::oneshot;
+use tracing::span;
 
 pub trait ChainConnectorConfig {
     fn expect_chain_connector_cloned(&self)
@@ -480,8 +482,8 @@ impl SolverConfig {
         let (stop_quotes_tx, stop_quotes_rx) = unbounded::<()>();
         let (quotes_stopped_tx, quotes_stopped_rx) = oneshot::channel();
 
-        let (quote_event_tx, quote_event_rx) = unbounded::<QuoteRequestEvent>();
-        let (server_quote_tx, server_quote_rx) = unbounded::<Arc<ServerEvent>>();
+        let (quote_event_tx, quote_event_rx) = unbounded_traceable::<QuoteRequestEvent>();
+        let (server_quote_tx, server_quote_rx) = unbounded_traceable::<Arc<ServerEvent>>();
 
         let tick_delta = time::Duration::from_millis(
             self.quotes_tick_interval
@@ -519,14 +521,17 @@ impl SolverConfig {
                     recv(server_quote_rx) -> res => match res {
                         Ok(event) => {
                             tracing::trace!("Server quote event");
-                            match quote_request_manager.write() {
-                                Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
-                                        tracing::warn!("Failed to handle index order event: {:?}", err);
+                            event.with_tracing(|notification| {
+                                match quote_request_manager.write() {
+                                    Ok(mut manager) => if let Err(err) =
+                                        manager.handle_server_message(&notification) {
+                                            tracing::warn!("Failed to handle index order event: {:?}", err);
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
+                                    }
                                 }
-                                Err(err) => {
-                                    tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
-                                }
-                            }
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive server quote event: {:?}", err);
@@ -534,10 +539,12 @@ impl SolverConfig {
                     },
                     recv(quote_event_rx) -> res => match res {
                         Ok(event) => {
+                            event.with_tracing(|notification| {
                             tracing::trace!("Quote request event");
-                            if let Err(err) = solver_quotes_clone.handle_quote_request(event) {
-                                tracing::warn!("Failed to handle quote request event: {:?}", err);
-                            }
+                                if let Err(err) = solver_quotes_clone.handle_quote_request(notification) {
+                                    tracing::warn!("Failed to handle quote request event: {:?}", err);
+                                }
+                            })
                         }
                         Err(err) => {
                             tracing::warn!("Failed to receive quote request event: {:?}", err);
