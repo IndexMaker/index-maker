@@ -1,14 +1,9 @@
-use opentelemetry::baggage::BaggageExt;
 use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
-use opentelemetry::trace::FutureExt;
 use opentelemetry::Context;
-use opentelemetry::KeyValue;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::collections::HashMap;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-use crate::core::functional::NotificationHandlerOnce;
 
 #[derive(Debug, Clone)]
 pub struct TracingData {
@@ -86,7 +81,7 @@ impl<T> TraceableEvent<T> {
 
     pub fn with_tracing<R>(self, f: impl FnOnce(T) -> R) -> R {
         let (notification, context) = self.take();
-        context.attach();
+        let _guard = context.attach();
         f(notification)
     }
 }
@@ -111,7 +106,7 @@ pub mod crossbeam {
             IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox, NotificationHandler,
             NotificationHandlerOnce,
         },
-        telemetry::{TraceableEvent, TracingData, WithTracingContext},
+        telemetry::{TraceableEvent, WithTracingContext},
     };
 
     pub struct TraceableNotificationSender<T> {
@@ -121,6 +116,14 @@ pub mod crossbeam {
     impl<T> TraceableNotificationSender<T> {
         pub fn new(sender: Sender<TraceableEvent<T>>) -> Self {
             Self { sender }
+        }
+    }
+
+    impl<T> Clone for TraceableNotificationSender<T> {
+        fn clone(&self) -> Self {
+            Self {
+                sender: self.sender.clone(),
+            }
         }
     }
 
