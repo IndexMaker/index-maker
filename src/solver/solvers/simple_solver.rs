@@ -286,6 +286,30 @@ impl SimpleSolver {
         Ok((price_limits, get_prices.missing_symbols))
     }
 
+    /// Write into log all the assets int the Index basket
+    /// 
+    /// Will print prices, quantities and volley
+    /// 
+    fn trace_log_basket(&self, basket: Arc<Basket>, asset_prices: &HashMap<Symbol, Amount>) {
+        for basket_asset in basket.basket_assets.iter() {
+            let ticker = &basket_asset.weight.asset.ticker;
+            let price = asset_prices.get(ticker).cloned();
+            let quantity = basket_asset.quantity;
+            let volley = safe!(price * quantity);
+            if let (Some(price), Some(volley)) = (price, volley) {
+                tracing::info!(
+                    "(simple-solver) Basket Asset {}: {} x {} = {}",
+                    ticker,
+                    price,
+                    quantity,
+                    volley
+                );
+            } else {
+                tracing::warn!("(simple-solver) Basket Asset {}: ! x {} = !", ticker, quantity,);
+            }
+        }
+    }
+
     /// Calculate prices of the Indexes using given prices of the Assets.
     ///
     /// Based on the Asset prices we calculate price of each Index, by summing
@@ -298,21 +322,30 @@ impl SimpleSolver {
     ) -> (HashMap<Symbol, Amount>, Vec<Symbol>) {
         let (index_prices, bad): (Vec<_>, Vec<_>) = baskets
             .iter()
-            .map(|(symbol, basket)| (symbol.clone(), basket.get_current_price(asset_prices)))
-            .partition_map(|(symbol, index_price_result)| match index_price_result {
-                Ok(price) => {
-                    tracing::info!("(simple-solver) Index Price: {} {}", symbol, price);
-                    Either::Left((symbol, price))
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        "(simple-solver) Failed to compute index price for {}: {:?}",
-                        symbol,
-                        err
-                    );
-                    Either::Right(symbol)
-                }
-            });
+            .map(|(symbol, basket)| {
+                (
+                    symbol.clone(),
+                    basket.clone(),
+                    basket.get_current_price(asset_prices),
+                )
+            })
+            .partition_map(
+                |(symbol, basket, index_price_result)| match index_price_result {
+                    Ok(price) => {
+                        self.trace_log_basket(basket, asset_prices);
+                        tracing::info!("(simple-solver) Index Price: {} {}", symbol, price);
+                        Either::Left((symbol, price))
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "(simple-solver) Failed to compute index price for {}: {:?}",
+                            symbol,
+                            err
+                        );
+                        Either::Right(symbol)
+                    }
+                },
+            );
 
         (HashMap::from_iter(index_prices), bad)
     }
