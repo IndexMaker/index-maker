@@ -13,6 +13,7 @@ pub mod core {
     pub mod id_macros;
     pub mod limit;
     pub mod logging;
+    pub mod telemetry;
     pub mod test_util;
 }
 

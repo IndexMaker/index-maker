@@ -48,6 +48,11 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -76,6 +81,10 @@ intrusive-collections = "0.9.7"
 itertools = "0.14.0"
 market-data = { path = "libs/market-data" }
 openssl = { version = "^0.10" }
+opentelemetry = { version = "0.30", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.30", features = ["trace", "http-proto", "reqwest-client", "tokio"] }
+opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio"] }
+opentelemetry-semantic-conventions = "0.30"
 parking_lot = "0.12.4"
 paste = "1.0.15"
 quote = "1.0.40"
@@ -93,4 +102,5 @@ tokio = { version = "1.46.1", features = ["full"] }
 tokio-util = "0.7.15"
 tracing = "0.1"
 tracing-appender = "0.2.3"
+tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
