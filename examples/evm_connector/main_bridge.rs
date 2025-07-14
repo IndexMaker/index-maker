@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock as ComponentLock};
 use alloy::primitives::address;
 use alloy_evm_connector::evm_bridge::{EvmCollateralBridge, EvmCollateralDesignation};
 use index_core::collateral::collateral_router::{CollateralBridge, CollateralRouterEvent};
-use symm_core::core::functional::IntoObservableSingle;
 use rust_decimal::dec;
+use symm_core::core::functional::{IntoObservableSingleFun, IntoObservableSingleVTable};
 use tokio::sync::watch;
 
 #[tokio::main]
@@ -30,7 +30,7 @@ async fn main() {
         .unwrap()
         .start_arbiter()
         .expect("Failed to start arbiter system");
-    
+
     // Give time for chain operations to be added
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     println!("✅ Arbiter system initialized");
@@ -48,7 +48,6 @@ async fn main() {
     bridge
         .write()
         .unwrap()
-        .get_single_observer_mut()
         .set_observer_fn(move |event: CollateralRouterEvent| match event {
             CollateralRouterEvent::HopComplete {
                 chain_id,

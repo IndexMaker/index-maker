@@ -14,10 +14,18 @@ use index_core::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use symm_core::core::functional::IntoObservableSingle;
+use symm_core::core::functional::{IntoObservableSingleFun, IntoObservableSingleVTable};
 
 pub fn handle_chain_event(event: &ChainNotification) {
     match event {
+        ChainNotification::ChainConnected {
+            chain_id,
+            timestamp,
+        } => {}
+        ChainNotification::ChainDisconnected {
+            chain_id,
+            timestamp,
+        } => {}
         ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
             println!(
                 "(evm-connector-main) CuratorWeightsSet {}: {}",
@@ -65,6 +73,14 @@ pub async fn main() {
     let handle_event_internal = move |e: ChainNotification| {
         let evm_connector = evm_connector_weak.upgrade().unwrap();
         match e {
+            ChainNotification::ChainConnected {
+                chain_id,
+                timestamp,
+            } => {}
+            ChainNotification::ChainDisconnected {
+                chain_id,
+                timestamp,
+            } => {}
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
                 // When we receive curator weights, we respond with solver weights set
                 let individual_prices = HashMap::from_iter([
@@ -112,13 +128,10 @@ pub async fn main() {
         }
     };
 
-    evm_connector
-        .write()
-        .get_single_observer_mut()
-        .set_observer_fn(move |e| {
-            handle_chain_event(&e);
-            event_tx.send(e).unwrap();
-        });
+    evm_connector.write().set_observer_fn(move |e| {
+        handle_chain_event(&e);
+        event_tx.send(e).unwrap();
+    });
 
     evm_connector
         .write()

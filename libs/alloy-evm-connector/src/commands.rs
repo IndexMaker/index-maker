@@ -1,9 +1,15 @@
-use chrono::{DateTime, Utc};
-use symm_core::core::bits::{Address, Amount, Symbol};
-use index_core::index::basket::Basket;
-use alloy::primitives::FixedBytes;
-use crate::custody_helper::Party;
+use std::sync::Arc;
+
 use crate::credentials::EvmCredentials;
+use crate::custody_helper::Party;
+use alloy::primitives::FixedBytes;
+use chrono::{DateTime, Utc};
+use index_core::blockchain::chain_connector::ChainNotification;
+use index_core::collateral::collateral_router::CollateralRouterEvent;
+use index_core::index::basket::Basket;
+use parking_lot::RwLock as AtomicLock;
+use symm_core::core::bits::{Address, Amount, ClientOrderId, Symbol};
+use symm_core::core::functional::SingleObserver;
 
 /// Commands that can be sent to the chain operations arbiter
 #[derive(Clone)]
@@ -100,6 +106,7 @@ pub enum ChainCommand {
         origin_chain_id: u64,
         destination_chain_id: u64,
         party: Party,
+        callback: Arc<dyn Fn(Amount, Amount) -> eyre::Result<()> + Send + Sync>
     },
     /// Get CA (Custody Account) information
     GetCA {
@@ -112,13 +119,9 @@ pub enum ChainCommand {
 /// Following the binance pattern with credential-based requests
 pub enum ChainOperationRequest {
     /// Add a new chain operation using credentials (following binance pattern)
-    AddOperation {
-        credentials: EvmCredentials,
-    },
+    AddOperation { credentials: EvmCredentials },
     /// Remove a chain operation
-    RemoveOperation {
-        chain_id: u32,
-    },
+    RemoveOperation { chain_id: u32 },
     /// Execute a command on a specific chain
     ExecuteCommand {
         chain_id: u32,
@@ -144,18 +147,9 @@ pub enum ChainOperationResult {
         exclusivity_deadline: u64,
     },
     /// Encoded calldata result
-    EncodedCalldata {
-        chain_id: u32,
-        calldata: Vec<u8>,
-    },
+    EncodedCalldata { chain_id: u32, calldata: Vec<u8> },
     /// CA information result
-    CAInfo {
-        chain_id: u32,
-        ca: String,
-    },
+    CAInfo { chain_id: u32, ca: String },
     /// Operation failed
-    Failure {
-        chain_id: u32,
-        error: String,
-    },
+    Failure { chain_id: u32, error: String },
 }
