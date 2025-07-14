@@ -11,7 +11,7 @@ use safe_math::safe;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
-    decimal_ext::DecimalExt,
+    decimal_ext::DecimalExt, telemetry::TracingData,
 };
 
 use crate::{
@@ -1228,6 +1228,7 @@ impl SolverStrategy for SimpleSolver {
             side: order.side,
             collateral_amount,
             asset_requirements: HashMap::new(),
+            tracing_data: TracingData::default(),
         };
 
         for basket_asset in &basket.basket_assets {
@@ -1466,6 +1467,7 @@ mod test {
         core::{
             bits::*,
             logging::log_init,
+            telemetry::TracingData,
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_3_arc, get_mock_asset_name_1, get_mock_asset_name_2,
@@ -1631,6 +1633,7 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Open,
             lots: Vec::new(),
+            tracing_data: TracingData::default(),
         }))
     }
 

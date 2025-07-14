@@ -1160,12 +1160,10 @@ mod test {
             bits::{
                 Address, Amount, AssetOrder, BatchOrder, ClientOrderId, OrderId, PaymentId, Side,
                 Symbol,
-            },
-            functional::IntoObservableSingle,
-            test_util::{
+            }, functional::IntoObservableSingle, telemetry::TracingData, test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
-            },
+            }
         },
     };
 
@@ -1284,6 +1282,7 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),
+            tracing_data: TracingData::default(),
         };
 
         // this is what we sent to exchange (order)
@@ -1552,6 +1551,7 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),
+            tracing_data: TracingData::default(),
         }));
 
         let index_order_clone = index_order.clone();

@@ -53,6 +53,7 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -84,6 +85,7 @@ openssl = { version = "^0.10" }
 opentelemetry = { version = "0.30", features = ["trace", "metrics"] }
 opentelemetry-otlp = { version = "0.30", features = ["trace", "http-proto", "reqwest-client", "tokio"] }
 opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio"] }
+opentelemetry-appender-tracing = "0.30.1"
 opentelemetry-semantic-conventions = "0.30"
 parking_lot = "0.12.4"
 paste = "1.0.15"

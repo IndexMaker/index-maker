@@ -7,6 +7,8 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
 use parking_lot::RwLock;
 
+use serde::Serialize;
+
 use crate::{
     server::server::{
         CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerError, ServerEvent,
@@ -21,6 +23,7 @@ use symm_core::core::{
 
 use super::solver::SolveQuotesResult;
 
+#[derive(Serialize)]
 pub enum QuoteRequestEvent {
     NewQuoteRequest {
         chain_id: u32,

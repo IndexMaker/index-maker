@@ -4,11 +4,13 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use safe_math::safe;
 use std::collections::{hash_map::Entry, HashMap};
+use opentelemetry::propagation::Injector;
 
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
 use crate::core::functional::{IntoObservableSingle, PublishSingle};
+use crate::core::telemetry::WithBaggage;
 use crate::core::{
     bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
     decimal_ext::DecimalExt,
@@ -49,6 +51,32 @@ pub enum OrderTrackerNotification {
         cancel_timestamp: DateTime<Utc>,
     },
 }
+
+impl WithBaggage for OrderTrackerNotification {
+    fn inject_baggage(&self, tracing_data: &mut crate::core::telemetry::TracingData) {
+        match self {
+            OrderTrackerNotification::Fill {
+                order_id,
+                batch_order_id,
+                lot_id,
+                ..
+            } => {
+                tracing_data.set("order_id", order_id.to_string());
+                tracing_data.set("batch_order_id", batch_order_id.to_string());
+                tracing_data.set("lot_id", lot_id.to_string());
+            }
+            OrderTrackerNotification::Cancel {
+                order_id,
+                batch_order_id,
+                ..
+            } => {
+                tracing_data.set("order_id", order_id.to_string());
+                tracing_data.set("batch_order_id", batch_order_id.to_string());
+            }
+        }
+    }
+}
+
 
 #[derive(Clone, Copy)]
 pub enum OrderStatus {

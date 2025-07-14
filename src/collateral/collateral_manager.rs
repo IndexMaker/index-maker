@@ -8,11 +8,14 @@ use itertools::{Either, Itertools};
 use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
+use opentelemetry::propagation::Injector;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    telemetry::{WithBaggage, WithTracingContext},
 };
+use tracing::{span, Level};
 
 use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
 
@@ -49,6 +52,45 @@ pub enum CollateralEvent {
     },
 }
 
+impl WithBaggage for CollateralEvent {
+    fn inject_baggage(&self, tracing_data: &mut symm_core::core::telemetry::TracingData) {
+        match self {
+            CollateralEvent::CollateralReady {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+            }
+            CollateralEvent::PreAuthResponse {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+            }
+            CollateralEvent::ConfirmResponse {
+                chain_id,
+                address,
+                client_order_id,
+                payment_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+                tracing_data.set("payment_id", payment_id.to_string());
+            }
+        }
+    }
+}
+
 pub trait CollateralManagerHost: SetSolverOrderStatus {
     fn get_next_payment_id(&self) -> PaymentId;
 }
@@ -77,6 +119,9 @@ impl CollateralManager {
         _host: &dyn CollateralManagerHost,
         _timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let process_collateral_span = span!(Level::INFO, "process-collateral");
+        let _guard = process_collateral_span.enter();
+        
         let requests = VecDeque::from_iter(self.collateral_management_requests.drain(..));
 
         let (ready_to_route, check_later): (Vec<_>, Vec<_>) =
@@ -118,6 +163,7 @@ impl CollateralManager {
         let failures = ready_to_route
             .into_iter()
             .filter_map(|request| {
+                request.add_span_context_link();
                 match self
                     .router
                     .write()
@@ -434,13 +480,11 @@ mod test {
     use symm_core::{
         assert_decimal_approx_eq,
         core::{
-            bits::{PaymentId, Side},
-            functional::IntoObservableSingle,
-            test_util::{
+            bits::{PaymentId, Side}, functional::IntoObservableSingle, telemetry::TracingData, test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
                 get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
                 run_mock_deferred, test_mock_atomic_bool,
-            },
+            }
         },
     };
 
@@ -595,6 +639,7 @@ mod test {
                 (get_mock_asset_name_1(), dec!(800.0)),
                 (get_mock_asset_name_2(), dec!(200.0)),
             ]),
+            tracing_data: TracingData::default(),
         };
 
         collateral_manager

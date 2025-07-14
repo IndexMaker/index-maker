@@ -13,10 +13,11 @@ use serde::{Deserialize, Serialize};
 use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
-        decimal_ext::DecimalExt,
+        decimal_ext::DecimalExt, telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     order_sender::position::LotId,
 };
+use tracing::Instrument;
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
@@ -76,6 +77,19 @@ pub struct SolverOrder {
 
     /// All asset lots allocated to this Index Order
     pub lots: Vec<SolverOrderAssetLot>,
+
+    /// Telemetry data
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for SolverOrder {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 /// When we fill Index Orders from executed batches, we need to allocate some
@@ -210,8 +224,10 @@ impl SolverClientOrders {
                     timestamp,
                     status: SolverOrderStatus::Open,
                     lots: Vec::new(),
+                    tracing_data: TracingData::default(),
                 }));
-                entry.insert(solver_order.clone());
+                solver_order.write().inject_current_context();
+                entry.insert(solver_order);
 
                 Ok(())
             }

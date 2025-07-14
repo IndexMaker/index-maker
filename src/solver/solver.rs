@@ -15,7 +15,7 @@ use symm_core::{
             Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
             PriceType, Side, Symbol,
         },
-        decimal_ext::DecimalExt,
+        decimal_ext::DecimalExt, telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -23,6 +23,7 @@ use symm_core::{
     },
     order_sender::inventory_manager::{InventoryEvent, InventoryManager},
 };
+use tracing::{span, Level};
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -89,6 +90,17 @@ pub struct CollateralManagement {
     pub side: Side,
     pub collateral_amount: Amount,
     pub asset_requirements: HashMap<Symbol, Amount>,
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for CollateralManagement {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 pub trait OrderIdProvider {
@@ -261,11 +273,18 @@ impl Solver {
     }
 
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        let engage_orders_span = span!(Level::INFO, "engage-more-orders");
+        let _guard = engage_orders_span.enter();
+    
         let order_batch = self.get_order_batch();
 
         if order_batch.is_empty() {
             return Ok(());
         }
+
+        order_batch
+            .iter()
+            .for_each(|order| order.read().add_span_context_link());
 
         let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch) {
             Err(err) => return Err(err),
@@ -323,15 +342,22 @@ impl Solver {
     }
 
     fn manage_collateral(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
+        let manage_collateral_span = span!(Level::INFO, "manage-collateral");
+        let _guard = manage_collateral_span.enter();
+        
+        solver_order.read().add_span_context_link();
+
         self.set_order_status(
             &mut solver_order.write(),
             SolverOrderStatus::ManageCollateral,
         );
 
         // Compute amount of collateral required for each asset in the Index basket
-        let collateral_management = self
+        let mut collateral_management = self
             .strategy
             .query_collateral_management(self, solver_order)?;
+
+        collateral_management.inject_current_context();
 
         // Manage collateral to have it ready at trading designation(s)
         self.collateral_manager
@@ -1196,9 +1222,7 @@ mod test {
         },
         init_log,
         market_data::{
-            market_data_connector::{
-                test_util::MockMarketDataConnector, MarketDataEvent,
-            },
+            market_data_connector::{test_util::MockMarketDataConnector, MarketDataEvent},
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{

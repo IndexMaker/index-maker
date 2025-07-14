@@ -54,7 +54,7 @@ use symm_core::{
     },
 };
 use tokio::sync::oneshot;
-use tracing::span;
+use tracing::{span, Level};
 
 pub trait ChainConnectorConfig {
     fn expect_chain_connector_cloned(&self)
@@ -366,6 +366,9 @@ impl SolverConfig {
         order_server.write().add_observer_from(server_order_tx);
 
         thread::spawn(move || {
+            let orders_backend_span = span!(Level::INFO, "orders-backend");
+            let _guard = orders_backend_span.enter();
+
             tracing::info!("Backend started");
             loop {
                 select! {
@@ -521,6 +524,9 @@ impl SolverConfig {
         quote_server.write().add_observer_from(server_quote_tx);
 
         thread::spawn(move || {
+            let quotes_backend_span = span!(Level::INFO, "quotes-backend");
+            let _guard = quotes_backend_span.enter();
+
             tracing::info!("Quotes started");
             loop {
                 select! {
@@ -641,6 +647,9 @@ impl SolverConfig {
             .ok_or_eyre("Failed to obtain index order event receiver")?;
 
         thread::spawn(move || {
+            let solver_thread_span = span!(Level::INFO, "solver-thread");
+            let _guard = solver_thread_span.enter();
+
             tracing::info!("Solver started");
             loop {
                 select! {

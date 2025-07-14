@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! string_id {
     ($name:ident) => {
-        #[derive(Default, Hash, Eq, PartialEq, Clone, Debug)]
+        #[derive(Default, Hash, Eq, PartialEq, Clone, Serialize, Deserialize, Debug)]
         pub struct $name(String);
 
         impl std::ops::Deref for $name {

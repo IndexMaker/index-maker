@@ -1,21 +1,15 @@
 use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
+use opentelemetry::trace::TraceContextExt;
 use opentelemetry::Context;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
+use serde::Serialize;
 use std::collections::HashMap;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct TracingData {
-    properties: HashMap<String, String>,
-}
-
-impl TracingData {
-    pub fn new() -> Self {
-        Self {
-            properties: HashMap::new(),
-        }
-    }
+    properties: Option<HashMap<String, String>>,
 }
 
 pub trait WithTracingData {
@@ -25,23 +19,34 @@ pub trait WithTracingData {
 
 impl Injector for TracingData {
     fn set(&mut self, key: &str, value: String) {
-        self.properties.insert(key.to_string(), value);
+        let map = self.properties.get_or_insert_with(|| HashMap::new());
+        map.insert(key.to_string(), value);
     }
 }
 
 impl Extractor for TracingData {
     fn get(&self, key: &str) -> Option<&str> {
-        self.properties.get(key).map(|s| s.as_str())
+        if let Some(ref map) = self.properties {
+            map.get(key).map(|s| s.as_str())
+        } else {
+            None
+        }
     }
 
     fn keys(&self) -> Vec<&str> {
-        self.properties.keys().map(|s| s.as_str()).collect()
+        if let Some(ref map) = self.properties {
+            map.keys().map(|s| s.as_str()).collect()
+        }
+        else {
+            Vec::new()
+        }
     }
 }
 
 pub trait WithTracingContext {
     fn inject_current_context(&mut self);
     fn extract_context(&self) -> Context;
+    fn add_span_context_link(&self);
 }
 
 impl<T> WithTracingContext for T
@@ -58,6 +63,10 @@ where
         let propagator = TraceContextPropagator::new();
         propagator.extract(self.get_tracing_data())
     }
+
+    fn add_span_context_link(&self) {
+        Span::current().add_link(self.extract_context().span().span_context().clone());
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +79,7 @@ impl<T> TraceableEvent<T> {
     pub fn new(notification: T) -> Self {
         Self {
             notification,
-            tracing_data: TracingData::new(),
+            tracing_data: TracingData::default(),
         }
     }
 
@@ -96,6 +105,44 @@ impl<T> WithTracingData for TraceableEvent<T> {
     }
 }
 
+pub trait WithBaggage {
+    fn inject_baggage(&self, tracing_data: &mut TracingData);
+}
+
+impl<T> WithBaggage for T
+where
+    T: Serialize,
+{
+    fn inject_baggage(&self, tracing_data: &mut TracingData) {
+        let get_string_value = |v: &serde_json::Value| -> String {
+            if v.is_string() {
+                v.as_str().unwrap_or_default().to_string()
+            } else {
+                v.to_string()
+            }
+        };
+
+        let value = serde_json::json!(self);
+
+        let known_keys = [
+            "chain_id",
+            "address",
+            "client_order_id",
+            "client_quote_id",
+            "payment_id",
+            "batch_order_id",
+            "order_id",
+            "lot_id",
+        ];
+
+        for key in known_keys {
+            if let Some(val) = value.get(key) {
+                tracing_data.set(key, get_string_value(val));
+            }
+        }
+    }
+}
+
 pub mod crossbeam {
     use std::any::type_name;
 
@@ -106,7 +153,7 @@ pub mod crossbeam {
             IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox, NotificationHandler,
             NotificationHandlerOnce,
         },
-        telemetry::{TraceableEvent, WithTracingContext},
+        telemetry::{TraceableEvent, WithBaggage, WithTracingContext},
     };
 
     pub struct TraceableNotificationSender<T> {
@@ -145,10 +192,11 @@ pub mod crossbeam {
 
     impl<T> NotificationHandlerOnce<T> for TraceableNotificationSender<T>
     where
-        T: Send + Sync + 'static,
+        T: WithBaggage + Send + Sync + 'static,
     {
         fn handle_notification(&self, notification: T) {
             let mut traced_message = TraceableEvent::new(notification);
+            //traced_message.inject_baggage();
             traced_message.inject_current_context();
 
             if let Err(err) = self.sender.send(traced_message) {
@@ -159,7 +207,7 @@ pub mod crossbeam {
 
     impl<T> IntoNotificationHandlerOnceBox<T> for TraceableNotificationSender<T>
     where
-        T: Send + Sync + 'static,
+        T: WithBaggage + Send + Sync + 'static,
     {
         fn into_notification_handler_once_box(self) -> Box<dyn NotificationHandlerOnce<T>> {
             Box::new(self)
@@ -168,10 +216,11 @@ pub mod crossbeam {
 
     impl<T> NotificationHandler<T> for TraceableNotificationSender<T>
     where
-        T: Clone + Send + Sync + 'static,
+        T: WithBaggage + Clone + Send + Sync + 'static,
     {
         fn handle_notification(&self, notification: &T) {
             let mut traced_message = TraceableEvent::new(notification.clone());
+            //traced_message.inject_baggage();
             traced_message.inject_current_context();
 
             if let Err(err) = self.sender.send(traced_message) {
@@ -182,7 +231,7 @@ pub mod crossbeam {
 
     impl<T> IntoNotificationHandlerBox<T> for TraceableNotificationSender<T>
     where
-        T: Clone + Send + Sync + 'static,
+        T: WithBaggage + Clone + Send + Sync + 'static,
     {
         fn into_notification_handler_box(self) -> Box<dyn NotificationHandler<T>> {
             Box::new(self)
