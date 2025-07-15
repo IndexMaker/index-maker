@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives::address;
 use alloy_evm_connector::evm_bridge::{EvmCollateralBridge, EvmCollateralDesignation};
+use alloy_evm_connector::evm_connector::EvmConnector;
 use index_core::collateral::collateral_router::{CollateralBridge, CollateralRouterEvent};
 use rust_decimal::dec;
 use symm_core::core::functional::{IntoObservableSingleFun, IntoObservableSingleVTable};
@@ -9,6 +10,22 @@ use tokio::sync::watch;
 
 #[tokio::main]
 async fn main() {
+    // Create the EvmConnector first (new architecture)
+    let mut connector = EvmConnector::new();
+    
+    // Start the connector (this initializes the arbiter)
+    println!("🔧 Starting EvmConnector...");
+    connector.start().expect("Failed to start EvmConnector");
+    
+    // Connect to chains
+    println!("🔗 Connecting to Arbitrum and Base chains...");
+    connector.connect_arbitrum().await.expect("Failed to connect to Arbitrum");
+    connector.connect_base().await.expect("Failed to connect to Base");
+    
+    // Give time for chain operations to be added
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    println!("✅ EvmConnector and chains initialized");
+
     let source = Arc::new(ComponentLock::new(EvmCollateralDesignation {
         name: "ARBITRUM".into(),
         collateral_symbol: "USDC".into(),
@@ -21,19 +38,8 @@ async fn main() {
         full_name: "EVM:BASE:USDC".into(),
     }));
 
-    let bridge = EvmCollateralBridge::new_arc(source, destination);
-
-    // Initialize the new arbiter architecture
-    println!("🔧 Initializing arbiter system...");
-    bridge
-        .write()
-        .unwrap()
-        .start_arbiter()
-        .expect("Failed to start arbiter system");
-
-    // Give time for chain operations to be added
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    println!("✅ Arbiter system initialized");
+    // Create bridge using the new dependency injection pattern
+    let bridge = connector.create_bridge(source, destination);
 
     let chain_id = 42161;
     let address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");

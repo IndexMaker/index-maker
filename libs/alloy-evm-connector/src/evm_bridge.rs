@@ -65,11 +65,8 @@ pub struct EvmCollateralBridge {
     source: Arc<ComponentLock<EvmCollateralDesignation>>,
     destination: Arc<ComponentLock<EvmCollateralDesignation>>,
 
-    // New architecture components
-    arbiter: Option<Arbiter>,
+    // Shared chain_operations injected by EvmConnector
     chain_operations: Arc<AtomicLock<ChainOperations>>,
-    chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
-    request_sender: Option<tokio::sync::mpsc::UnboundedSender<ChainOperationRequest>>,
 }
 
 impl EvmCollateralBridge {
@@ -78,118 +75,35 @@ impl EvmCollateralBridge {
         destination: Arc<ComponentLock<EvmCollateralDesignation>>,
     ) -> Arc<ComponentLock<Self>> {
         Arc::new({
-            // Initialize the new architecture components
+            // Legacy constructor - creates its own chain_operations
             let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new()));
-            let chain_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
 
             ComponentLock::new(Self {
                 observer: Arc::new(AtomicLock::new(SingleObserver::new())),
                 source,
                 destination,
-
-                // New architecture components (initialized but not started yet)
-                arbiter: None,
                 chain_operations,
-                chain_observer,
-                request_sender: None,
             })
         })
     }
 
-    /// Initialize and start the arbiter system
-    pub fn start_arbiter(&mut self) -> Result<()> {
-        let (request_tx, request_rx) = unbounded_channel();
-
-        let mut arbiter = Arbiter::new();
-        arbiter.start(
-            self.chain_operations.clone(),
-            request_rx,
-            self.chain_observer.clone(),
-            5, // max chain operations
-        );
-
-        self.arbiter = Some(arbiter);
-        self.request_sender = Some(request_tx);
-
-        // Add chain operations for source and destination chains
-        self.setup_chain_operations()?;
-
-        // You will have one Chain Connector and multiple Bridges.
-        // Each bridge is for exact source -> destination routing, so
-        // for each (source -> destination) pair there will be separate bridge created.
-        todo!("Chain Connector should be the one owning the arbiter");
-
-        Ok(())
+    /// New constructor that accepts shared chain_operations from EvmConnector
+    pub fn new_with_shared_operations(
+        source: Arc<ComponentLock<EvmCollateralDesignation>>,
+        destination: Arc<ComponentLock<EvmCollateralDesignation>>,
+        chain_operations: Arc<AtomicLock<ChainOperations>>,
+    ) -> Arc<ComponentLock<Self>> {
+        Arc::new({
+            ComponentLock::new(Self {
+                observer: Arc::new(AtomicLock::new(SingleObserver::new())),
+                source,
+                destination,
+                chain_operations,
+            })
+        })
     }
 
-    /// Setup chain operations for both source and destination chains.
-    ///
-    /// Sadhbh: Move all that into EvmConnector.
-    ///
-    /// There is only one EvmConnector and there are multiple EvmBridges.
-    ///
-    /// The way I want to setup application is:
-    /// - Create EvmConnector, which should create Arbiter
-    /// - Create EvmCollateralDesignation for each custory on each network for each currency
-    /// - Create EvmCollateralBridge for each (source -> destination) pair
-    ///
-    /// EvmConnector should own Arbiter and start it.
-    /// The EvmConnector should also provide observer for solver chain events (solver weights, deposit, withdrawal request).
-    ///
-    /// - EvmCollateralDesignation(s) should be derived from EvmConnector
-    /// - EvmCollateralBridge(s) should be derived from EvmConnector and
-    ///   related to source and destination EvmCollateralDesignation(s).
-    ///
-    /// The source and destination are telling what is the bridge for,
-    /// and perhaps the process of creating EvmCollateralDesignation should
-    /// be the one performing ChainOperationRequest::AddOperation command.
-    ///
-    /// EvmCollateralBridge should be small and it should merely provide:
-    /// - An observer for CollateralRouterEvent
-    /// - A transfer_funds() function that will enqueue a command into Arbiter
-    ///
-    /// Note: An observer can be put into Arc<AtomicLock<..>> (already shown above).
-    /// We are calling observer.write() to call set_observer(fn), and we are calling
-    /// obserer.read() to publish. The publish is always non-blocking and thus safe
-    /// to call from async context. When we pass events into channels we use
-    /// UnboundedSender to ensure operation is non-blicking. Code should not contain
-    /// any calls to tokio::spawn(). All asynchronous work should be done in AsyncLoop(s)
-    /// of Arbiter and related ChainOperation, and non-async context should be notified
-    /// via callbacks (as shown). I use here Arc<dyn Fn()> as callback, that is because
-    /// ChainCommand implements Clone. A good question to ask is why Clone is needed?
-    /// ChainCommand is something we pass from source context to execution context, so
-    /// ownership of the command moves at all times. There is no need to copy commands.
-    /// Thus if Clone can be removed, the callback can be passed as Box<FnOnce()>, which
-    /// is much better option as it allows callback closure data to be moved out of callback
-    /// once it's executed.
-    ///
-    fn setup_chain_operations(&self) -> Result<()> {
-        if let Some(sender) = &self.request_sender {
-            // Add Arbitrum chain operation
-            let arbitrum_creds = EvmCredentials::arbitrum()
-                .map_err(|e| eyre!("Failed to create Arbitrum credentials: {}", e))?;
 
-            let add_arbitrum = ChainOperationRequest::AddOperation {
-                credentials: arbitrum_creds,
-            };
-            sender
-                .send(add_arbitrum)
-                .map_err(|e| eyre!("Failed to send Arbitrum add request: {}", e))?;
-
-            // Add Base chain operation
-            let base_creds = EvmCredentials::base()
-                .map_err(|e| eyre!("Failed to create Base credentials: {}", e))?;
-
-            let add_base = ChainOperationRequest::AddOperation {
-                credentials: base_creds,
-            };
-            sender
-                .send(add_base)
-                .map_err(|e| eyre!("Failed to send Base add request: {}", e))?;
-        }
-
-        Ok(())
-    }
 }
 
 impl IntoObservableSingleArc<CollateralRouterEvent> for EvmCollateralBridge {
@@ -228,56 +142,50 @@ impl CollateralBridge for EvmCollateralBridge {
         let observer = self.observer.clone();
         let source = self.source.read().unwrap().get_full_name();
         let destination = self.destination.read().unwrap().get_full_name();
-        let request_sender = self
-            .request_sender
-            .clone()
-            .ok_or_eyre("Arbiter system not initialized. Call start_arbiter() first.")?;
 
-        println!("🚀 Starting transfer using new architecture...");
+        println!("🚀 Starting transfer using direct chain_operations...");
 
-        // Use the new architecture: send command to arbiter instead of direct call
-        let execute_command = ChainOperationRequest::ExecuteCommand {
-            chain_id: ARBITRUM_CHAIN_ID as u32, // Source chain (Arbitrum) - convert to u32
-            command: ChainCommand::ExecuteCompleteAcrossDeposit {
-                chain_id: ARBITRUM_CHAIN_ID as u32,
-                recipient: address,
-                input_token: USDC_ARBITRUM_ADDRESS,
-                output_token: USDC_BASE_ADDRESS,
-                deposit_amount: amount,
-                origin_chain_id: ARBITRUM_CHAIN_ID,
-                destination_chain_id: BASE_CHAIN_ID,
-                party: Party {
-                    parity: 0,
-                    x: B256::ZERO,
-                },
-                callback: Arc::new(move |total_routed, fee_deducted| {
-                    let timestamp = Utc::now();
-                    let fee = safe!(cumulative_fee + fee_deducted).ok_or_eyre("Math problem")?;
-                    observer
-                        .read()
-                        .publish_single(CollateralRouterEvent::HopComplete {
-                            chain_id,
-                            address,
-                            client_order_id: client_order_id.clone(),
-                            timestamp,
-                            source: source.clone(),
-                            destination: destination.clone(),
-                            route_from: route_from.clone(),
-                            route_to: route_to.clone(),
-                            amount: total_routed,
-                            fee,
-                        });
-                    Ok(())
-                }),
+        // Use direct chain_operations.execute_command() instead of arbiter
+        let command = ChainCommand::ExecuteCompleteAcrossDeposit {
+            chain_id: ARBITRUM_CHAIN_ID as u32,
+            recipient: address,
+            input_token: USDC_ARBITRUM_ADDRESS,
+            output_token: USDC_BASE_ADDRESS,
+            deposit_amount: amount,
+            origin_chain_id: ARBITRUM_CHAIN_ID,
+            destination_chain_id: BASE_CHAIN_ID,
+            party: Party {
+                parity: 0,
+                x: B256::ZERO,
             },
+            callback: Arc::new(move |total_routed, fee_deducted| {
+                let timestamp = Utc::now();
+                let fee = safe!(cumulative_fee + fee_deducted).ok_or_eyre("Math problem")?;
+                observer
+                    .read()
+                    .publish_single(CollateralRouterEvent::HopComplete {
+                        chain_id,
+                        address,
+                        client_order_id: client_order_id.clone(),
+                        timestamp,
+                        source: source.clone(),
+                        destination: destination.clone(),
+                        route_from: route_from.clone(),
+                        route_to: route_to.clone(),
+                        amount: total_routed,
+                        fee,
+                    });
+                Ok(())
+            }),
         };
 
-        // Send the command to the arbiter system
-        request_sender
-            .send(execute_command)
-            .map_err(|e| eyre!("Failed to send execute command: {}", e))?;
+        // Send the command directly to chain_operations
+        {
+            let operations = self.chain_operations.read();
+            operations.execute_command(ARBITRUM_CHAIN_ID as u32, command)?;
+        }
 
-        println!("✅ Command sent to arbiter system");
+        println!("✅ Command sent to chain_operations directly");
 
         Ok(())
     }

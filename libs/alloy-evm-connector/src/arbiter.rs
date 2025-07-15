@@ -160,11 +160,9 @@ impl Arbiter {
             }
             
             ChainOperationRequest::ExecuteCommand { chain_id, command } => {
-                // Execute the command on the specified chain
-                {
-                    let operations = chain_operations.read();
-                    operations.execute_command(chain_id, command)?;
-                }
+                // ExecuteCommand is no longer handled by Arbiter
+                // Commands should be sent directly to chain_operations
+                eprintln!("ExecuteCommand should not be sent to Arbiter. Use direct chain_operations.send_command() instead.");
             }
         }
 

@@ -25,11 +25,11 @@ use crate::credentials::EvmCredentials;
 pub struct EvmConnector {
     /// Observer for publishing chain events to the main system
     observer: SingleObserver<ChainNotification>,
-    /// Arbiter for coordinating chain operations
-    arbiter: Arbiter,
+    /// Arbiter for coordinating chain operations (owned by EvmConnector)
+    arbiter: Option<Arbiter>,
     /// Sender for chain operation requests
-    request_sender: UnboundedSender<ChainOperationRequest>,
-    /// Shared state for chain operations (following binance pattern)
+    request_sender: Option<UnboundedSender<ChainOperationRequest>>,
+    /// Shared state for chain operations (owned by EvmConnector)
     chain_operations: Arc<AtomicLock<ChainOperations>>,
     /// Shared observer for event publishing (following binance pattern)
     shared_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
@@ -39,33 +39,42 @@ pub struct EvmConnector {
 
 impl EvmConnector {
     pub fn new() -> Self {
-        let mut arbiter = Arbiter::new();
-        let (request_sender, request_receiver) = unbounded_channel();
-
         // Create shared state following binance pattern
         let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new()));
         let observer = SingleObserver::new();
         let shared_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
+
+        Self {
+            observer,
+            arbiter: None,
+            request_sender: None,
+            chain_operations,
+            shared_observer,
+            connected_chains: Vec::new(),
+        }
+    }
+
+    /// Start the EVM connector and initialize the arbiter
+    pub fn start(&mut self) -> Result<()> {
+        let mut arbiter = Arbiter::new();
+        let (request_sender, request_receiver) = unbounded_channel();
 
         // Configuration
         let max_chain_operations = 50; // Maximum number of chain operations
 
         // Start the arbiter with the proper parameters following binance pattern
         arbiter.start(
-            chain_operations.clone(),
+            self.chain_operations.clone(),
             request_receiver,
-            shared_observer.clone(),
+            self.shared_observer.clone(),
             max_chain_operations,
         );
 
-        Self {
-            observer,
-            arbiter,
-            request_sender,
-            chain_operations,
-            shared_observer,
-            connected_chains: Vec::new(),
-        }
+        self.arbiter = Some(arbiter);
+        self.request_sender = Some(request_sender);
+
+        println!("EVM Connector started with arbiter");
+        Ok(())
     }
 
     /// Connect to a blockchain network using credentials (following binance pattern)
@@ -82,9 +91,13 @@ impl EvmConnector {
 
         let request = ChainOperationRequest::AddOperation { credentials };
 
-        self.request_sender
-            .send(request)
-            .map_err(|e| eyre::eyre!("Failed to send connect request: {}", e))?;
+        if let Some(sender) = &self.request_sender {
+            sender
+                .send(request)
+                .map_err(|e| eyre::eyre!("Failed to send connect request: {}", e))?;
+        } else {
+            return Err(eyre::eyre!("EVM Connector not started. Call start() first."));
+        }
 
         if !self.connected_chains.contains(&chain_id) {
             self.connected_chains.push(chain_id);
@@ -135,9 +148,13 @@ impl EvmConnector {
 
         let request = ChainOperationRequest::RemoveOperation { chain_id };
 
-        self.request_sender
-            .send(request)
-            .map_err(|e| eyre::eyre!("Failed to send disconnect request: {}", e))?;
+        if let Some(sender) = &self.request_sender {
+            sender
+                .send(request)
+                .map_err(|e| eyre::eyre!("Failed to send disconnect request: {}", e))?;
+        } else {
+            return Err(eyre::eyre!("EVM Connector not started. Call start() first."));
+        }
 
         self.connected_chains.retain(|&id| id != chain_id);
 
@@ -150,27 +167,39 @@ impl EvmConnector {
         &self.connected_chains
     }
 
+    /// Create a new EvmCollateralBridge with shared chain_operations
+    pub fn create_bridge(
+        &self,
+        source: Arc<std::sync::RwLock<crate::evm_bridge::EvmCollateralDesignation>>,
+        destination: Arc<std::sync::RwLock<crate::evm_bridge::EvmCollateralDesignation>>,
+    ) -> Arc<std::sync::RwLock<crate::evm_bridge::EvmCollateralBridge>> {
+        crate::evm_bridge::EvmCollateralBridge::new_with_shared_operations(
+            source,
+            destination,
+            self.chain_operations.clone(),
+        )
+    }
+
     /// Stop the connector and all operations
     pub async fn stop(&mut self) -> Result<()> {
         println!("Stopping EVM connector");
-        match self.arbiter.stop().await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                println!("Error stopping arbiter: {:?}", e);
-                Ok(()) // Don't propagate join errors
+        if let Some(mut arbiter) = self.arbiter.take() {
+            match arbiter.stop().await {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    println!("Error stopping arbiter: {:?}", e);
+                    Ok(()) // Don't propagate join errors
+                }
             }
+        } else {
+            Ok(())
         }
     }
 
-    /// Send a command to be executed on a specific chain
-    fn send_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
-        let request = ChainOperationRequest::ExecuteCommand { chain_id, command };
-
-        // Sadhbh: request_sender is UnboundedSender, this allows our function to be sync
-        self.request_sender
-            .send(request)
-            .map_err(|e| eyre::eyre!("Failed to send command: {}", e))?;
-
+    /// Send a command to be executed on a specific chain (direct access to chain_operations)
+    pub fn send_command(&self, chain_id: u32, command: ChainCommand) -> Result<()> {
+        let operations = self.chain_operations.read();
+        operations.execute_command(chain_id, command)?;
         Ok(())
     }
 
@@ -262,21 +291,7 @@ impl ChainConnector for EvmConnector {
             execution_time,
         };
 
-        let request_sender = self.request_sender.clone();
-
-        // Sadhbh: You shouldn't need to call tokio::spawn() at all. The Arbiter should
-        // run AsyncLoop to handle all async jobs of creating chain connections, and then
-        // each chain connection should run its own AsyncLoop to handle commands asynchronously,
-        // but besides that client code is sync, and all it does it sends commands synchronously
-        // and then receives events via provided observer and not return values. The return values
-        // of sync operations need to only say if command was queued successfully, e.g. it would
-        // be an error to queue a command for session that does not exist. If command fails in
-        // session handler, then just log error and additionally if we needed we could emit
-        // some error event (I have one example in OrderBookManager, but I haven't used that pattern much yet).
-        // PS. Code looks great! Thanks.
-        if let Err(e) =
-            request_sender.send(ChainOperationRequest::ExecuteCommand { chain_id, command })
-        {
+        if let Err(e) = self.send_command(chain_id, command) {
             eprintln!("Failed to send mint index command: {}", e);
         }
     }
@@ -289,10 +304,7 @@ impl ChainConnector for EvmConnector {
             recipient,
         };
 
-        let request_sender = self.request_sender.clone();
-        if let Err(e) =
-            request_sender.send(ChainOperationRequest::ExecuteCommand { chain_id, command })
-        {
+        if let Err(e) = self.send_command(chain_id, command) {
             eprintln!("Failed to send burn index command: {}", e);
         }
     }
@@ -313,10 +325,7 @@ impl ChainConnector for EvmConnector {
             execution_time,
         };
 
-        let request_sender = self.request_sender.clone();
-        if let Err(e) =
-            request_sender.send(ChainOperationRequest::ExecuteCommand { chain_id, command })
-        {
+        if let Err(e) = self.send_command(chain_id, command) {
             println!("Failed to send withdraw command: {}", e);
         }
     }
