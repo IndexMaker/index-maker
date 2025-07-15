@@ -6,13 +6,15 @@ use std::{
 
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
+use opentelemetry::trace::FutureExt;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
-    decimal_ext::DecimalExt, telemetry::TracingData,
+    decimal_ext::DecimalExt, telemetry::{TracingData, WithTracingContext},
 };
+use tracing::{span, Level};
 
 use crate::{
     index::basket::Basket,
@@ -1179,6 +1181,9 @@ impl SolverStrategy for SimpleSolver {
         strategy_host: &dyn SolverStrategyHost,
         order: Arc<RwLock<SolverOrder>>,
     ) -> Result<CollateralManagement> {
+        let query_collateral_management_span = span!(Level::INFO, "query-collateral-management");
+        let _guard = query_collateral_management_span.enter();
+
         let order = order.read();
         let collateral_amount = order.remaining_collateral;
         let index_symbol = &order.symbol;
@@ -1228,7 +1233,7 @@ impl SolverStrategy for SimpleSolver {
             side: order.side,
             collateral_amount,
             asset_requirements: HashMap::new(),
-            tracing_data: TracingData::default(),
+            tracing_data: TracingData::from_current_context(),
         };
 
         for basket_asset in &basket.basket_assets {
@@ -1319,6 +1324,9 @@ impl SolverStrategy for SimpleSolver {
         strategy_host: &dyn SolverStrategyHost,
         order_batch: Vec<Arc<RwLock<SolverOrder>>>,
     ) -> Result<Option<SolveEngagementsResult>> {
+        let solve_engagements_span = span!(Level::INFO, "solve-engagements");
+        let _guard = solve_engagements_span.enter();
+
         let total_volley_size = strategy_host.get_total_volley_size()?;
 
         let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
@@ -1444,6 +1452,7 @@ impl SolverStrategy for SimpleSolver {
             engaged_orders: EngagedSolverOrders {
                 batch_order_id,
                 engaged_buys: engagenments,
+                trace_data: TracingData::from_current_context()
             },
             failed_orders: [failed_buys, failed_sells].concat(),
         }))
@@ -1656,6 +1665,7 @@ mod test {
             quantity_possible: Amount::ZERO,
             timestamp,
             status: SolverQuoteStatus::Open,
+            tracing_data: TracingData::default(),
         }))
     }
 

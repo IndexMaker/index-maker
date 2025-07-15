@@ -224,9 +224,8 @@ impl SolverClientOrders {
                     timestamp,
                     status: SolverOrderStatus::Open,
                     lots: Vec::new(),
-                    tracing_data: TracingData::default(),
+                    tracing_data: TracingData::from_current_context(),
                 }));
-                solver_order.write().inject_current_context();
                 entry.insert(solver_order);
 
                 Ok(())

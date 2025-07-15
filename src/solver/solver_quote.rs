@@ -7,7 +7,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 
-use symm_core::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+use symm_core::core::{bits::{Address, Amount, ClientQuoteId, Side, Symbol}, telemetry::{TracingData, WithTracingContext, WithTracingData}};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverQuoteStatus {
@@ -46,6 +46,19 @@ pub struct SolverQuote {
 
     /// Solver status
     pub status: SolverQuoteStatus,
+
+    /// Telemetry data
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for SolverQuote {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 pub struct SolverClientQuotes {
@@ -127,6 +140,7 @@ impl SolverClientQuotes {
                     quantity_possible: Amount::ZERO,
                     timestamp,
                     status: SolverQuoteStatus::Open,
+                    tracing_data: TracingData::from_current_context(),
                 }));
                 entry.insert(solver_order.clone());
 

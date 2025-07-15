@@ -71,6 +71,17 @@ pub struct EngagedSolverOrdersSide {
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
     pub engaged_buys: EngagedSolverOrdersSide, // TODO: sells we don't currently support
+    pub trace_data: TracingData,
+}
+
+impl WithTracingData for EngagedSolverOrders {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.trace_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.trace_data
+    }
 }
 
 pub struct SolveEngagementsResult {
@@ -380,6 +391,9 @@ impl Solver {
     }
 
     fn process_more_quotes(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        let process_quotes_span = span!(Level::INFO, "process-more-quotes");
+        let _guard = process_quotes_span.enter();
+
         let mut quote_requests = Vec::new();
         while let Some(solver_quote) = self.client_quotes.write().get_next_client_quote(timestamp) {
             let side = solver_quote.read().side;
@@ -391,6 +405,8 @@ impl Solver {
                 Side::Sell => Err(eyre!("We don't support Sell yet!")),
             }?;
         }
+
+        quote_requests.iter().for_each(|q| q.read().add_span_context_link());
 
         let result = self.strategy.solve_quotes(self, quote_requests)?;
 
@@ -415,6 +431,11 @@ impl Solver {
         index_order: &mut SolverOrder,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let mint_index_span = span!(Level::INFO, "mint-index");
+        let _guard = mint_index_span.enter();
+
+        index_order.add_span_context_link();
+
         let total_cost = index_order
             .lots
             .iter()
@@ -458,6 +479,9 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
+        let solver_solve_span = span!(Level::INFO, "solver-solve");
+        let _guard = solver_solve_span.enter();
+
         tracing::trace!("\n(solver) Begin solve");
 
         tracing::trace!("(solver) * Process collateral");
@@ -504,6 +528,9 @@ impl Solver {
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
+        let solver_solve_quotes_span = span!(Level::INFO, "solver-solve-quotes");
+        let _guard = solver_solve_quotes_span.enter();
+
         tracing::trace!("\n(solver) Begin solve quotes");
 
         if let Err(err) = self.process_more_quotes(timestamp) {

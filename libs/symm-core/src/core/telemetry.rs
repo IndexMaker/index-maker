@@ -69,6 +69,16 @@ where
     }
 }
 
+impl TracingData {
+    pub fn from_current_context() -> TracingData {
+        let mut tracing_data = TracingData::default();
+        let propagator = TraceContextPropagator::new();
+        let parent_context = Span::current().context();
+        propagator.inject_context(&parent_context, &mut tracing_data);
+        tracing_data
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceableEvent<T> {
     notification: T,
