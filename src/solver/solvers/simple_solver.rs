@@ -6,13 +6,13 @@ use std::{
 
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
-use opentelemetry::trace::FutureExt;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
-    decimal_ext::DecimalExt, telemetry::{TracingData, WithTracingContext},
+    decimal_ext::DecimalExt,
+    telemetry::TracingData,
 };
 use tracing::{span, Level};
 
@@ -1452,7 +1452,7 @@ impl SolverStrategy for SimpleSolver {
             engaged_orders: EngagedSolverOrders {
                 batch_order_id,
                 engaged_buys: engagenments,
-                trace_data: TracingData::from_current_context()
+                trace_data: TracingData::from_current_context(),
             },
             failed_orders: [failed_buys, failed_sells].concat(),
         }))

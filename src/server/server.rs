@@ -4,12 +4,10 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use thiserror::Error;
 
-use opentelemetry::propagation::Injector;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
     functional::IntoObservableManyVTable,
-    telemetry::WithBaggage,
 };
 
 use crate::solver::mint_invoice::MintInvoice;

@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use opentelemetry::propagation::Injector;
 use safe_math::safe;
 use std::collections::{hash_map::Entry, HashMap};
-use opentelemetry::propagation::Injector;
 
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
@@ -76,7 +76,6 @@ impl WithBaggage for OrderTrackerNotification {
         }
     }
 }
-
 
 #[derive(Clone, Copy)]
 pub enum OrderStatus {

@@ -1,7 +1,7 @@
 use crate::{core::decimal_ext::DecimalExt, string_id};
 use chrono::{DateTime, Utc};
 use safe_math::safe;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 pub type Symbol = string_cache::DefaultAtom; // asset or market name
 pub type Amount = rust_decimal::Decimal; // price, quantity, value, or rate

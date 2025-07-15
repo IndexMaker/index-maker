@@ -50,7 +50,7 @@ struct Cli {
 
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
-    
+
     #[arg(long, short)]
     bind_address: Option<String>,
 

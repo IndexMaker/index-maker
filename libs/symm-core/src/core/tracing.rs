@@ -8,13 +8,13 @@ use opentelemetry_sdk::Resource;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 /// Function sets-up open-telemetry integrated with tracing
-/// 
+///
 /// Provides:
 /// 1. tracer for data recorded using spans
 /// 2. logger for messages logged using warn!(), info!(), debug!(), ...
-/// 
+///
 /// TODO: This is only example setup code. Need to evaluate.
-/// 
+///
 pub fn setup_tracing() -> Result<(), Box<dyn std::error::Error>> {
     // --- OpenTelemetry Traces Setup (Existing) ---
     let otlp_trace_exporter = opentelemetry_otlp::SpanExporter::builder()

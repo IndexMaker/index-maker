@@ -15,7 +15,8 @@ use symm_core::{
             Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
             PriceType, Side, Symbol,
         },
-        decimal_ext::DecimalExt, telemetry::{TracingData, WithTracingContext, WithTracingData},
+        decimal_ext::DecimalExt,
+        telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -286,7 +287,7 @@ impl Solver {
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let engage_orders_span = span!(Level::INFO, "engage-more-orders");
         let _guard = engage_orders_span.enter();
-    
+
         let order_batch = self.get_order_batch();
 
         if order_batch.is_empty() {
@@ -355,7 +356,7 @@ impl Solver {
     fn manage_collateral(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
         let manage_collateral_span = span!(Level::INFO, "manage-collateral");
         let _guard = manage_collateral_span.enter();
-        
+
         solver_order.read().add_span_context_link();
 
         self.set_order_status(
@@ -406,7 +407,9 @@ impl Solver {
             }?;
         }
 
-        quote_requests.iter().for_each(|q| q.read().add_span_context_link());
+        quote_requests
+            .iter()
+            .for_each(|q| q.read().add_span_context_link());
 
         let result = self.strategy.solve_quotes(self, quote_requests)?;
 

@@ -121,7 +121,7 @@ impl CollateralManager {
     ) -> Result<()> {
         let process_collateral_span = span!(Level::INFO, "process-collateral");
         let _guard = process_collateral_span.enter();
-        
+
         let requests = VecDeque::from_iter(self.collateral_management_requests.drain(..));
 
         let (ready_to_route, check_later): (Vec<_>, Vec<_>) =
@@ -480,11 +480,14 @@ mod test {
     use symm_core::{
         assert_decimal_approx_eq,
         core::{
-            bits::{PaymentId, Side}, functional::IntoObservableSingle, telemetry::TracingData, test_util::{
+            bits::{PaymentId, Side},
+            functional::IntoObservableSingle,
+            telemetry::TracingData,
+            test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
                 get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
                 run_mock_deferred, test_mock_atomic_bool,
-            }
+            },
         },
     };
 

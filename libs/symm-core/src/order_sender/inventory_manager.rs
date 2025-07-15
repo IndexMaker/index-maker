@@ -76,7 +76,8 @@ impl WithBaggage for InventoryEvent {
             InventoryEvent::OpenLot {
                 order_id,
                 batch_order_id,
-                lot_id, ..
+                lot_id,
+                ..
             } => {
                 tracing_data.set("order_id", order_id.to_string());
                 tracing_data.set("batch_order_id", batch_order_id.to_string());
@@ -88,10 +89,14 @@ impl WithBaggage for InventoryEvent {
                 original_lot_id,
                 closing_order_id,
                 closing_batch_order_id,
-                closing_lot_id, ..
+                closing_lot_id,
+                ..
             } => {
                 tracing_data.set("original_order_id", original_order_id.to_string());
-                tracing_data.set("original_batch_order_id", original_batch_order_id.to_string());
+                tracing_data.set(
+                    "original_batch_order_id",
+                    original_batch_order_id.to_string(),
+                );
                 tracing_data.set("original_lot_id", original_lot_id.to_string());
 
                 tracing_data.set("order_id", closing_order_id.to_string());
@@ -100,7 +105,8 @@ impl WithBaggage for InventoryEvent {
             }
             InventoryEvent::Cancel {
                 order_id,
-                batch_order_id, ..
+                batch_order_id,
+                ..
             } => {
                 tracing_data.set("order_id", order_id.to_string());
                 tracing_data.set("batch_order_id", batch_order_id.to_string());

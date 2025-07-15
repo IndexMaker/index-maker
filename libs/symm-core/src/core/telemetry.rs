@@ -36,8 +36,7 @@ impl Extractor for TracingData {
     fn keys(&self) -> Vec<&str> {
         if let Some(ref map) = self.properties {
             map.keys().map(|s| s.as_str()).collect()
-        }
-        else {
+        } else {
             Vec::new()
         }
     }

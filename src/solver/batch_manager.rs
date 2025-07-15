@@ -914,7 +914,9 @@ impl BatchManager {
 
         let mintable_orders = self.get_mintable_batch(timestamp);
         if !mintable_orders.is_empty() {
-            mintable_orders.iter().for_each(|o| o.read().add_span_context_link());
+            mintable_orders
+                .iter()
+                .for_each(|o| o.read().add_span_context_link());
 
             self.observer
                 .publish_single(BatchEvent::BatchMintable { mintable_orders });

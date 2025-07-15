@@ -13,11 +13,11 @@ use serde::{Deserialize, Serialize};
 use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
-        decimal_ext::DecimalExt, telemetry::{TracingData, WithTracingContext, WithTracingData},
+        decimal_ext::DecimalExt,
+        telemetry::{TracingData, WithTracingData},
     },
     order_sender::position::LotId,
 };
-use tracing::Instrument;
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverOrderStatus {
