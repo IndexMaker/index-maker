@@ -16,12 +16,11 @@ pub struct FixResponse {
     pub chain_id: u32,
     pub address: Address,
     #[serde(flatten)]
-    pub body: Body,
+    pub body: ResponseBody,
     pub standard_trailer: FixTrailer,
 }
 
 impl FixResponse {
-    // New method to create a NAK response for errors
     pub fn create_nak(
         user_id: &(u32, Address),
         session_id: &SessionId,
@@ -33,9 +32,26 @@ impl FixResponse {
             standard_header: FixHeader::new("NAK".to_string()),
             chain_id: user_id.0,
             address: user_id.1,
-            body: Body::NAKBody {
+            body: ResponseBody::NAKBody {
                 ref_seq_num: seq_num,
                 reason: error_reason,
+            },
+            standard_trailer: FixTrailer::new(),
+        }
+    }
+
+    pub fn create_ack(
+        user_id: &(u32, Address),
+        session_id: &SessionId,
+        seq_num: u32,
+    ) -> Self {
+        FixResponse {
+            session_id: session_id.clone(),
+            standard_header: FixHeader::new("ACK".to_string()),
+            chain_id: user_id.0,
+            address: user_id.1,
+            body: ResponseBody::ACKBody {
+                ref_seq_num: seq_num,
             },
             standard_trailer: FixTrailer::new(),
         }
@@ -82,5 +98,13 @@ impl AxumServerResponse for FixResponse {
         ref_seq_num: u32,
     ) -> Self {
         FixResponse::create_nak(user_id, session_id, ref_seq_num, error_msg)
+    }
+
+    fn format_ack(
+        user_id: &(u32, Address),
+        session_id: &SessionId,
+        ref_seq_num: u32,
+    ) -> Self {
+        FixResponse::create_ack(user_id, session_id, ref_seq_num)
     }
 }

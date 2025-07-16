@@ -150,12 +150,22 @@ impl OrderTracker {
                         if !is_cancel {
                             Err(eyre!("Invalid order state for applying fill"))
                         } else {
+                            order_entry.set_status(OrderStatus::Cancelled {
+                                quantity_remaining: Amount::ZERO,
+                            });
                             Ok((order_entry.clone(), Amount::ZERO, true, true))
                         }
                     }
                     // It makes sense that only live orders can be filled or cancelled
                     OrderStatus::Live { quantity_remaining } => {
-                        if let Some(quantity_remaining) = safe!(quantity_remaining - quantity) {
+                        if is_cancel {
+                            order_entry.set_status(OrderStatus::Cancelled {
+                                quantity_remaining: Amount::ZERO,
+                            });
+                            Ok((order_entry.clone(), Amount::ZERO, true, true))
+                        } else if let Some(quantity_remaining) =
+                            safe!(quantity_remaining - quantity)
+                        {
                             // Should the remaining quantity on the order be zero, we deem it cancelled
                             if quantity_remaining < self.tolerance {
                                 order_entry

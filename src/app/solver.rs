@@ -521,7 +521,7 @@ impl SolverConfig {
                             tracing::trace!("Server quote event");
                             match quote_request_manager.write() {
                                 Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
-                                        tracing::warn!("Failed to handle index order event: {:?}", err);
+                                    tracing::warn!("Failed to handle index order event: {:?}", err);
                                 }
                                 Err(err) => {
                                     tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
@@ -566,6 +566,12 @@ impl SolverConfig {
         } else {
             Err(eyre!("Cannot stop quotes: Not started"))
         }
+    }
+
+    pub fn load_baskets(&self) -> Result<()> {
+        let basket_manager = self.with_basket_manager.try_get_basket_manager_cloned()?;
+        let basket_guard = basket_manager.read();
+        basket_guard.notify_baskets()
     }
 
     pub async fn run_solver(&mut self) -> Result<()> {
@@ -799,6 +805,7 @@ impl SolverConfig {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;
         self.run_solver().await?;
+        self.load_baskets()?;
         Ok(())
     }
 
@@ -814,6 +821,7 @@ impl SolverConfig {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;
         self.run_quotes_solver().await?;
+        self.load_baskets()?;
         Ok(())
     }
 

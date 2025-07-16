@@ -80,16 +80,6 @@
         "quantity": 2870.6082878141788
     },
     {
-        "id": 9,
-        "pair": "HYPEUSDT",
-        "listing": "Binance",
-        "assetname": "Hyperliquid",
-        "sector": "Decentralized Exchange (DEX)",
-        "market_cap": 13147211099,
-        "weights": "1.00",
-        "quantity": 52.52833725591818
-    },
-    {
         "id": 10,
         "pair": "SUIUSDC",
         "listing": "Binance",
@@ -280,16 +270,6 @@
         "quantity": 2314.075093818347
     },
     {
-        "id": 29,
-        "pair": "KASUSDT",
-        "listing": "Binance",
-        "assetname": "Kaspa",
-        "sector": "Smart Contract Platform",
-        "market_cap": 2064131592,
-        "weights": "1.00",
-        "quantity": 22555.255231859548
-    },
-    {
         "id": 30,
         "pair": "VETUSDC",
         "listing": "Binance",
@@ -430,16 +410,6 @@
         "quantity": 955.4300838601733
     },
     {
-        "id": 44,
-        "pair": "FARTCOINUSDT",
-        "listing": "Binance",
-        "assetname": "Fartcoin",
-        "sector": "Solana Ecosystem",
-        "market_cap": 1054035888,
-        "weights": "1.00",
-        "quantity": 1699.6757893556462
-    },
-    {
         "id": 45,
         "pair": "INJUSDC",
         "listing": "Binance",
@@ -518,16 +488,6 @@
         "market_cap": 868828074,
         "weights": "1.00",
         "quantity": 14711.701542609824
-    },
-    {
-        "id": 53,
-        "pair": "IPUSDC",
-        "listing": "Binance",
-        "assetname": "Story",
-        "sector": "Artificial Intelligence (AI)",
-        "market_cap": 864595066,
-        "weights": "1.00",
-        "quantity": 482.3035900997289
     },
     {
         "id": 54,
@@ -620,16 +580,6 @@
         "quantity": 2319.0769651822543
     },
     {
-        "id": 63,
-        "pair": "ZECUSDC",
-        "listing": "Binance",
-        "assetname": "Zcash",
-        "sector": "Smart Contract Platform",
-        "market_cap": 650830325,
-        "weights": "1.00",
-        "quantity": 40.33484824995025
-    },
-    {
         "id": 64,
         "pair": "JTOUSDC",
         "listing": "Binance",
@@ -680,26 +630,6 @@
         "quantity": 6949.27373943207
     },
     {
-        "id": 69,
-        "pair": "BTTUSDC",
-        "listing": "Binance",
-        "assetname": "BitTorrent",
-        "sector": "Storage",
-        "market_cap": 616263648,
-        "weights": "1.00",
-        "quantity": 2922075837.149809
-    },
-    {
-        "id": 70,
-        "pair": "AEROUSDT",
-        "listing": "Binance",
-        "assetname": "Aerodrome Finance",
-        "sector": "Decentralized Exchange (DEX)",
-        "market_cap": 605252923,
-        "weights": "1.00",
-        "quantity": 3710.4625014685607
-    },
-    {
         "id": 71,
         "pair": "JASMYUSDT",
         "listing": "Binance",
@@ -740,16 +670,6 @@
         "quantity": 3422.709242473714
     },
     {
-        "id": 75,
-        "pair": "WALUSDT",
-        "listing": "Binance",
-        "assetname": "Walrus",
-        "sector": "Infrastructure",
-        "market_cap": 561284843,
-        "weights": "1.00",
-        "quantity": 3796.015846554098
-    },
-    {
         "id": 76,
         "pair": "SYRUPUSDC",
         "listing": "Binance",
@@ -780,16 +700,6 @@
         "quantity": 6942.925921731101
     },
     {
-        "id": 79,
-        "pair": "BSVUSDT",
-        "listing": "Binance",
-        "assetname": "Bitcoin SV",
-        "sector": "Smart Contract Platform",
-        "market_cap": 491971204,
-        "weights": "1.00",
-        "quantity": 59.15556514424049
-    },
-    {
         "id": 80,
         "pair": "APEUSDC",
         "listing": "Binance",
@@ -808,36 +718,6 @@
         "market_cap": 479687450,
         "weights": "1.00",
         "quantity": 1166.5063310276587
-    },
-    {
-        "id": 82,
-        "pair": "XCNUSDT",
-        "listing": "Binance",
-        "assetname": "Onyxcoin",
-        "sector": "Smart Contract Platform",
-        "market_cap": 470504899,
-        "weights": "1.00",
-        "quantity": 130710.5950768897
-    },
-    {
-        "id": 83,
-        "pair": "MORPHOUSDT",
-        "listing": "Binance",
-        "assetname": "Morpho",
-        "sector": "Decentralized Finance (DeFi)",
-        "market_cap": 469503325,
-        "weights": "1.00",
-        "quantity": 1463.7079035584147
-    },
-    {
-        "id": 84,
-        "pair": "BRETTUSDT",
-        "listing": "Binance",
-        "assetname": "Brett",
-        "sector": "Meme",
-        "market_cap": 443533310,
-        "weights": "1.00",
-        "quantity": 36024.564650871376
     },
     {
         "id": 85,
@@ -878,15 +758,5 @@
         "market_cap": 383562373,
         "weights": "1.00",
         "quantity": 38.104266589038474
-    },
-    {
-        "id": 89,
-        "pair": "GRASSUSDT",
-        "listing": "Binance",
-        "assetname": "Grass",
-        "sector": "Artificial Intelligence (AI)",
-        "market_cap": 340592700,
-        "weights": "1.00",
-        "quantity": 969.5580541085009
     }
 ]
