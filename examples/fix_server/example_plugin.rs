@@ -59,6 +59,13 @@ where
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
         self.serde_plugin.process_outgoing(nak)
     }
+
+    fn process_ack(&self, user_id: &(u32, Address), session_id: &SessionId) -> Result<String> {
+        let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
+        let mut ack = Q::format_ack(&user_id, session_id, seq_num);
+        ack.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+        self.serde_plugin.process_outgoing(ack)
+    }
 }
 
 impl<R, Q> ServerPlugin<Q> for ExamplePlugin<R, Q>
@@ -66,7 +73,7 @@ where
     R: ServerRequest + WithSeqNumPlugin + WithUserPlugin,
     Q: ServerResponse + WithSeqNumPlugin + WithUserPlugin + Clone,
 {
-    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()> {
+    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
                 let user_id = &result.get_user_id();
@@ -75,7 +82,10 @@ where
                 let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
                 if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
                     self.observer_plugin.publish_request(&result);
-                    Ok(())
+                    match self.process_ack(user_id, session_id) {
+                        Ok(msg) => Ok(msg),
+                        Err(e) => Err(eyre::eyre!("Process ACK failed: {}", e)),
+                    }
                 } else {
                     let error_msg = format!(
                         "Invalid sequence number: {}; Last valid: {}",
