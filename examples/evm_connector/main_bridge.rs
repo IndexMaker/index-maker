@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives::address;
-use alloy_evm_connector::evm_bridge::{EvmCollateralBridge, EvmCollateralDesignation};
+use alloy_evm_connector::across_bridge::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use index_core::collateral::collateral_router::{CollateralBridge, CollateralRouterEvent};
 use rust_decimal::dec;
@@ -38,8 +38,8 @@ async fn main() {
         full_name: "EVM:BASE:USDC".into(),
     }));
 
-    // Create bridge using the new dependency injection pattern
-    let bridge = connector.create_bridge(source, destination);
+    // Create bridge using the factory method
+    let bridge = connector.create_across_bridge(source, destination);
 
     let chain_id = 42161;
     let address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");

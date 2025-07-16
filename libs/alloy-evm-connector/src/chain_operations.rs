@@ -1,10 +1,14 @@
 use eyre::Result;
+use parking_lot::RwLock as AtomicLock;
 use std::collections::HashMap;
+use std::sync::Arc;
+use symm_core::core::functional::SingleObserver;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::chain_operation::ChainOperation;
 use crate::commands::{ChainCommand, ChainOperationRequest, ChainOperationResult};
 use crate::credentials::EvmCredentials;
+use index_core::blockchain::chain_connector::ChainNotification;
 
 /// Chain operations manager
 /// Manages a pool of chain operation workers, one per blockchain
@@ -17,10 +21,12 @@ pub struct ChainOperations {
     result_receiver: Option<UnboundedReceiver<ChainOperationResult>>,
     /// Sender for operation results (shared among all workers)
     result_sender: UnboundedSender<ChainOperationResult>,
+    /// Observer for chain notifications (shared among all workers)
+    chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
 }
 
 impl ChainOperations {
-    pub fn new() -> Self {
+    pub fn new(chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>) -> Self {
         let (result_sender, result_receiver) = unbounded_channel();
 
         Self {
@@ -28,6 +34,7 @@ impl ChainOperations {
             command_senders: HashMap::new(),
             result_receiver: Some(result_receiver),
             result_sender,
+            chain_observer,
         }
     }
 
@@ -89,6 +96,7 @@ impl ChainOperations {
             rpc_url,
             private_key,
             self.result_sender.clone(),
+            self.chain_observer.clone(),
         );
 
         operation.start(command_receiver)?;

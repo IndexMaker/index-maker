@@ -122,7 +122,7 @@ impl Arbiter {
             }
             
             ChainOperationRequest::RemoveOperation { chain_id } => {
-                // Following senior dev's advice: extract operation while holding lock,
+                // Following sonia's advice: extract operation while holding lock,
                 // then call async method on cloned Arc outside the lock
                 let operation_to_stop = {
                     let mut operations = chain_operations.write();

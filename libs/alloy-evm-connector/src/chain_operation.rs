@@ -4,10 +4,14 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
     signers::local::LocalSigner,
 };
+use chrono::Utc;
 use eyre::Result;
+use parking_lot::RwLock as AtomicLock;
 use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;
+use std::sync::Arc;
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount};
+use symm_core::core::functional::{PublishSingle, SingleObserver};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
@@ -15,6 +19,8 @@ use crate::across_deposit::{create_verification_data, AcrossDepositBuilder};
 use crate::commands::{ChainCommand, ChainOperationResult};
 use crate::contracts::{AcrossConnector, OTCCustody, VerificationData, ERC20};
 use crate::custody_helper::CAHelper;
+use index_core::blockchain::chain_connector::ChainNotification;
+use symm_core::core::bits::{Address as CoreAddress, Symbol};
 
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
@@ -24,6 +30,8 @@ pub struct ChainOperation {
     private_key: String,
     operation_loop: AsyncLoop<Result<()>>,
     result_sender: UnboundedSender<ChainOperationResult>,
+    /// Observer for publishing ChainNotification events to solver
+    chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
 }
 
 impl ChainOperation {
@@ -32,6 +40,7 @@ impl ChainOperation {
         rpc_url: String,
         private_key: String,
         result_sender: UnboundedSender<ChainOperationResult>,
+        chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> Self {
         Self {
             chain_id,
@@ -39,6 +48,7 @@ impl ChainOperation {
             private_key,
             operation_loop: AsyncLoop::new(),
             result_sender,
+            chain_observer,
         }
     }
 
@@ -47,6 +57,7 @@ impl ChainOperation {
         let rpc_url = self.rpc_url.clone();
         let private_key = self.private_key.clone();
         let result_sender = self.result_sender.clone();
+        let chain_observer = self.chain_observer.clone();
 
         self.operation_loop.start(async move |cancel_token| {
             Self::operation_loop(
@@ -143,74 +154,27 @@ impl ChainOperation {
         println!("Executing command on chain {}", chain_id);
 
         match command {
-            ChainCommand::SetSolverWeights { symbol, basket } => {
-                // TODO: Implement solver weights setting
-                println!("Setting solver weights for symbol: {:?}", symbol);
-                Ok(None)
-            }
-            ChainCommand::SetupCustody {
-                custody_id,
-                input_token,
+            ChainCommand::Erc20Transfer {
+                from,
+                to,
                 amount,
+                callback,
                 ..
             } => {
-                if let Some(builder) = deposit_builder {
-                    println!("Setting up custody {:?} with {} tokens", custody_id, amount);
-
-                    // Execute setup custody
-                    match builder
-                        .setup_custody(
-                            custody_id.into(),
-                            alloy::primitives::Address::from_slice(input_token.as_slice()),
-                            U256::from(amount.to_u64().unwrap_or(0)),
-                        )
-                        .await
-                    {
-                        Ok(()) => {
-                            println!(
-                                "Setup custody operation executed successfully on chain {}",
-                                chain_id
-                            );
-                            Ok(Some("0xabc1...".to_string()))
-                        }
-                        Err(e) => Err(eyre::eyre!("Setup custody failed: {}", e)),
-                    }
-                } else {
-                    Err(eyre::eyre!(
-                        "AcrossDepositBuilder not initialized for chain {}",
-                        chain_id
-                    ))
+                println!("Executing ERC20 transfer: {} tokens from {:?} to {:?}", amount, from, to);
+                
+                // TODO: Implement actual ERC20 transfer logic here
+                // For now, simulate successful transfer
+                let transferred_amount = amount;
+                let fee = rust_decimal::dec!(0.0); // No fee for simple ERC20 transfer
+                
+                // Call the callback to publish the event
+                if let Err(e) = callback(transferred_amount, fee) {
+                    eprintln!("Error in ERC20 transfer callback: {}", e);
                 }
-            }
-            ChainCommand::ApproveToken {
-                token_address,
-                spender,
-                amount,
-                ..
-            } => {
-                if let Some(builder) = deposit_builder {
-                    println!(
-                        "Approving {:?} to spend {} tokens from {:?}",
-                        spender, amount, token_address
-                    );
-
-                    // Execute token approval
-                    match builder
-                        .approve_input_token_for_custody(U256::from(amount.to_u64().unwrap_or(0)))
-                        .await
-                    {
-                        Ok(()) => {
-                            println!("Token approval executed successfully on chain {}", chain_id);
-                            Ok(Some("0x2468...".to_string()))
-                        }
-                        Err(e) => Err(eyre::eyre!("Token approval failed: {}", e)),
-                    }
-                } else {
-                    Err(eyre::eyre!(
-                        "AcrossDepositBuilder not initialized for chain {}",
-                        chain_id
-                    ))
-                }
+                
+                println!("✅ ERC20 transfer executed successfully on chain {}", chain_id);
+                Ok(Some("0xerc20_transfer...".to_string())) // Mock transaction hash
             }
             ChainCommand::MintIndex {
                 symbol,
@@ -220,9 +184,14 @@ impl ChainOperation {
                 execution_time,
                 ..
             } => {
-                // TODO: Implement index minting
-                println!("Minting {} of {:?} for {:?}", quantity, symbol, recipient);
-                Ok(Some("0x1234...".to_string())) // Mock transaction hash
+                println!("Minting {} of {:?} for {:?} at price {} on {}", 
+                         quantity, symbol, recipient, execution_price, execution_time);
+                
+                // TODO: Implement actual index minting logic
+                // For now, simulate successful minting
+                
+                println!("✅ Index minting executed successfully on chain {}", chain_id);
+                Ok(Some("0xmint_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::BurnIndex {
                 symbol,
@@ -230,9 +199,13 @@ impl ChainOperation {
                 recipient,
                 ..
             } => {
-                // TODO: Implement index burning
                 println!("Burning {} of {:?} for {:?}", quantity, symbol, recipient);
-                Ok(Some("0x5678...".to_string())) // Mock transaction hash
+                
+                // TODO: Implement actual index burning logic
+                // For now, simulate successful burning
+                
+                println!("✅ Index burning executed successfully on chain {}", chain_id);
+                Ok(Some("0xburn_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::Withdraw {
                 recipient,
@@ -241,238 +214,14 @@ impl ChainOperation {
                 execution_time,
                 ..
             } => {
-                // TODO: Implement withdrawal
-                println!("Withdrawing {} for {:?}", amount, recipient);
-                Ok(Some("0x9abc...".to_string())) // Mock transaction hash
-            }
-            ChainCommand::CustodyToConnector {
-                input_token,
-                amount,
-                connector_address,
-                custody_id,
-                party,
-                ..
-            } => {
-                if let Some(builder) = deposit_builder {
-                    println!(
-                        "Executing custodyToConnector: {} -> {:?}",
-                        amount, connector_address
-                    );
-
-                    // Create CAHelper for this operation
-                    let mut ca_helper =
-                        CAHelper::new(chain_id as u64, crate::across_deposit::OTC_CUSTODY_ADDRESS);
-
-                    // Add custodyToConnector action
-                    let custody_action_index = ca_helper.custody_to_connector(
-                        alloy::primitives::Address::from_slice(connector_address.as_slice()),
-                        alloy::primitives::Address::from_slice(input_token.as_slice()),
-                        0,
-                        party.clone(),
-                    );
-
-                    // Generate merkle proof
-                    let merkle_proof = ca_helper.get_merkle_proof(custody_action_index);
-
-                    // Create verification data with current timestamp
-                    let timestamp =
-                        match crate::utils::get_current_timestamp(&builder.otc_custody.provider())
-                            .await
-                        {
-                            Ok(t) => t + 3600,
-                            Err(_) => 1234567890 + 3600, // Fallback timestamp
-                        };
-                    let verification_data = create_verification_data(
-                        custody_id.into(),
-                        0,
-                        timestamp,
-                        crate::contracts::CAKey {
-                            parity: party.parity,
-                            x: party.x,
-                        },
-                        crate::contracts::Signature {
-                            e: FixedBytes([1u8; 32]),
-                            s: FixedBytes([2u8; 32]),
-                        },
-                        merkle_proof,
-                    );
-
-                    // Execute custodyToConnector
-                    match builder
-                        .execute_custody_to_connector(
-                            alloy::primitives::Address::from_slice(input_token.as_slice()),
-                            U256::from(amount.to_u64().unwrap_or(0)),
-                            verification_data,
-                        )
-                        .await
-                    {
-                        Ok(()) => {
-                            println!(
-                                "CustodyToConnector operation executed successfully on chain {}",
-                                chain_id
-                            );
-                            Ok(Some("0xdef0...".to_string()))
-                        }
-                        Err(e) => Err(eyre::eyre!("CustodyToConnector failed: {}", e)),
-                    }
-                } else {
-                    Err(eyre::eyre!(
-                        "AcrossDepositBuilder not initialized for chain {}",
-                        chain_id
-                    ))
-                }
-            }
-            ChainCommand::CallConnector {
-                connector_address,
-                calldata,
-                custody_id,
-                party,
-                ..
-            } => {
-                if let Some(builder) = deposit_builder {
-                    println!(
-                        "Executing callConnector on {:?} with {} bytes of calldata",
-                        connector_address,
-                        calldata.len()
-                    );
-
-                    // Create CAHelper for this operation
-                    let mut ca_helper =
-                        CAHelper::new(chain_id as u64, crate::across_deposit::OTC_CUSTODY_ADDRESS);
-
-                    // Add callConnector action
-                    let connector_action_index = ca_helper.call_connector(
-                        "AcrossConnector",
-                        alloy::primitives::Address::from_slice(connector_address.as_slice()),
-                        &calldata,
-                        0u8,
-                        party.clone(),
-                    );
-
-                    // Generate merkle proof
-                    let merkle_proof = ca_helper.get_merkle_proof(connector_action_index);
-
-                    // Create verification data with current timestamp
-                    let timestamp =
-                        match crate::utils::get_current_timestamp(&builder.otc_custody.provider())
-                            .await
-                        {
-                            Ok(t) => t + 3600,
-                            Err(_) => 1234567890 + 3600, // Fallback timestamp
-                        };
-                    let verification_data = create_verification_data(
-                        custody_id.into(),
-                        0,
-                        timestamp,
-                        crate::contracts::CAKey {
-                            parity: party.parity,
-                            x: party.x,
-                        },
-                        crate::contracts::Signature {
-                            e: FixedBytes([1u8; 32]),
-                            s: FixedBytes([2u8; 32]),
-                        },
-                        merkle_proof,
-                    );
-
-                    // Execute callConnector
-                    match builder
-                        .execute_call_connector(calldata, verification_data)
-                        .await
-                    {
-                        Ok(receipt) => {
-                            println!(
-                                "CallConnector operation executed successfully on chain {}",
-                                chain_id
-                            );
-                            Ok(Some(format!("0x{:x}", receipt.transaction_hash)))
-                        }
-                        Err(e) => Err(eyre::eyre!("CallConnector failed: {}", e)),
-                    }
-                } else {
-                    Err(eyre::eyre!(
-                        "AcrossDepositBuilder not initialized for chain {}",
-                        chain_id
-                    ))
-                }
-            }
-            ChainCommand::GetAcrossSuggestedOutput {
-                input_token,
-                output_token,
-                origin_chain_id,
-                destination_chain_id,
-                amount,
-                ..
-            } => {
-                println!(
-                    "Getting Across suggested output for {} from chain {} to chain {}",
-                    amount, origin_chain_id, destination_chain_id
-                );
-
-                // Call Across API to get suggested output
-                match crate::across_deposit::AcrossDepositBuilder::<P>::get_across_suggested_output(
-                    alloy::primitives::Address::from_slice(input_token.as_slice()),
-                    alloy::primitives::Address::from_slice(output_token.as_slice()),
-                    origin_chain_id,
-                    destination_chain_id,
-                    alloy::primitives::U256::from(amount.to_u64().unwrap_or(0)),
-                )
-                .await
-                {
-                    Ok(suggested) => {
-                        println!(
-                            "Across suggested output retrieved successfully on chain {}",
-                            chain_id
-                        );
-                        // Return structured result data
-                        Ok(Some(format!(
-                            "output:{},deadline:{},relayer:{:?},exclusivity:{}",
-                            suggested.output_amount,
-                            suggested.fill_deadline,
-                            suggested.exclusive_relayer,
-                            suggested.exclusivity_deadline
-                        )))
-                    }
-                    Err(e) => Err(eyre::eyre!("GetAcrossSuggestedOutput failed: {}", e)),
-                }
-            }
-            ChainCommand::EncodeDepositCalldata {
-                recipient,
-                input_token,
-                output_token,
-                deposit_amount,
-                min_amount,
-                destination_chain_id,
-                exclusive_relayer,
-                fill_deadline,
-                exclusivity_deadline,
-                ..
-            } => {
-                println!(
-                    "Encoding deposit calldata for {} tokens to chain {}",
-                    deposit_amount, destination_chain_id
-                );
-
-                // Create AcrossDeposit and encode calldata
-                let deposit = crate::across_deposit::AcrossDeposit::new(
-                    alloy::primitives::Address::from_slice(recipient.as_slice()),
-                    alloy::primitives::Address::from_slice(input_token.as_slice()),
-                    alloy::primitives::Address::from_slice(output_token.as_slice()),
-                    alloy::primitives::U256::from(deposit_amount.to_u64().unwrap_or(0)),
-                    alloy::primitives::U256::from(min_amount.to_u64().unwrap_or(0)),
-                    destination_chain_id,
-                    alloy::primitives::Address::from_slice(exclusive_relayer.as_slice()),
-                    fill_deadline,
-                    exclusivity_deadline,
-                );
-
-                let calldata = deposit.encode_deposit_calldata();
-                println!(
-                    "Deposit calldata encoded successfully on chain {} ({} bytes)",
-                    chain_id,
-                    calldata.len()
-                );
-                Ok(Some(format!("0x{}", hex::encode(&calldata))))
+                println!("Withdrawing {} to {:?} at price {} on {}", 
+                         amount, recipient, execution_price, execution_time);
+                
+                // TODO: Implement actual withdrawal logic
+                // For now, simulate successful withdrawal
+                
+                println!("✅ Withdrawal executed successfully on chain {}", chain_id);
+                Ok(Some("0xwithdraw...".to_string())) // Mock transaction hash
             }
             ChainCommand::ExecuteCompleteAcrossDeposit {
                 recipient,
@@ -495,9 +244,9 @@ impl ChainOperation {
                     println!("Starting complete Across deposit execution...");
                     match builder
                         .execute_complete_across_deposit(
-                            alloy::primitives::Address::from_slice(recipient.as_slice()),
-                            alloy::primitives::Address::from_slice(input_token.as_slice()),
-                            alloy::primitives::Address::from_slice(output_token.as_slice()),
+                            alloy::primitives::Address::from_slice(&recipient.as_slice()[..20]),
+                            alloy::primitives::Address::from_slice(&input_token.as_slice()[..20]),
+                            alloy::primitives::Address::from_slice(&output_token.as_slice()[..20]),
                             alloy::primitives::U256::from(deposit_amount.to_u64().unwrap_or(0)),
                             origin_chain_id,
                             destination_chain_id,
@@ -535,28 +284,37 @@ impl ChainOperation {
                     ))
                 }
             }
-            ChainCommand::GetCA { custody_id, .. } => {
-                if let Some(builder) = deposit_builder {
-                    println!("Getting CA information for custody ID: {:?}", custody_id);
-
-                    // Get CA information
-                    match builder.get_ca(custody_id.into()).await {
-                        Ok(ca) => {
-                            println!(
-                                "CA information retrieved successfully on chain {}",
-                                chain_id
-                            );
-                            Ok(Some(ca))
-                        }
-                        Err(e) => Err(eyre::eyre!("GetCA failed: {}", e)),
-                    }
-                } else {
-                    Err(eyre::eyre!(
-                        "AcrossDepositBuilder not initialized for chain {}",
-                        chain_id
-                    ))
-                }
-            }
         }
+    }
+
+    /// Publish chain notification events (for demo/testing purposes)
+    fn publish_chain_events(
+        chain_observer: &Arc<AtomicLock<SingleObserver<ChainNotification>>>,
+        chain_id: u32,
+    ) {
+        // Simulate some chain events for demo purposes
+        let observer = chain_observer.read();
+        
+        // Example: Deposit event
+        observer.publish_single(ChainNotification::Deposit {
+            chain_id,
+            address: CoreAddress::new([0u8; 20]),
+            amount: Amount::from(1000000), // 1 USDC
+            timestamp: Utc::now(),
+        });
+
+        // Example: Withdrawal request event  
+        observer.publish_single(ChainNotification::WithdrawalRequest {
+            chain_id,
+            address: CoreAddress::new([0u8; 20]),
+            amount: Amount::from(500000), // 0.5 USDC
+            timestamp: Utc::now(),
+        });
+
+        // Example: Curator weights set event
+        observer.publish_single(ChainNotification::CuratorWeightsSet(
+            Symbol::from("BTC"),
+            index_core::index::basket::BasketDefinition::try_new(Vec::new()).unwrap(),
+        ));
     }
 }

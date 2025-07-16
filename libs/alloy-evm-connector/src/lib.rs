@@ -8,5 +8,6 @@ pub mod credentials;
 pub mod custody_helper;
 pub mod utils;
 
-pub mod evm_bridge;
+pub mod across_bridge;
+pub mod erc20_bridge;
 pub mod evm_connector;

@@ -40,9 +40,9 @@ pub struct EvmConnector {
 impl EvmConnector {
     pub fn new() -> Self {
         // Create shared state following binance pattern
-        let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new()));
         let observer = SingleObserver::new();
         let shared_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
+        let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new(shared_observer.clone())));
 
         Self {
             observer,
@@ -167,15 +167,30 @@ impl EvmConnector {
         &self.connected_chains
     }
 
-    /// Create a new EvmCollateralBridge with shared chain_operations
-    pub fn create_bridge(
+    /// Create a new AcrossCollateralBridge with shared chain_operations
+    pub fn create_across_bridge(
         &self,
-        source: Arc<std::sync::RwLock<crate::evm_bridge::EvmCollateralDesignation>>,
-        destination: Arc<std::sync::RwLock<crate::evm_bridge::EvmCollateralDesignation>>,
-    ) -> Arc<std::sync::RwLock<crate::evm_bridge::EvmCollateralBridge>> {
-        crate::evm_bridge::EvmCollateralBridge::new_with_shared_operations(
+        source: Arc<std::sync::RwLock<crate::across_bridge::EvmCollateralDesignation>>,
+        destination: Arc<std::sync::RwLock<crate::across_bridge::EvmCollateralDesignation>>,
+    ) -> Arc<std::sync::RwLock<crate::across_bridge::AcrossCollateralBridge>> {
+        crate::across_bridge::AcrossCollateralBridge::new_with_shared_operations(
             source,
             destination,
+            self.chain_operations.clone(),
+        )
+    }
+
+    /// Create a new Erc20CollateralBridge with shared chain_operations
+    pub fn create_erc20_bridge(
+        &self,
+        source: Arc<std::sync::RwLock<crate::erc20_bridge::EvmCollateralDesignation>>,
+        destination: Arc<std::sync::RwLock<crate::erc20_bridge::EvmCollateralDesignation>>,
+        token_address: symm_core::core::bits::Address,
+    ) -> Arc<std::sync::RwLock<crate::erc20_bridge::Erc20CollateralBridge>> {
+        crate::erc20_bridge::Erc20CollateralBridge::new_with_shared_operations(
+            source,
+            destination,
+            token_address,
             self.chain_operations.clone(),
         )
     }
@@ -257,17 +272,9 @@ impl ChainConnector for EvmConnector {
         // Send command to the first connected chain (or implement chain selection logic)
         if let Some(&chain_id) = self.connected_chains.first() {
             // Sadhbh: I made send_command sync, so it can be just called like that
-            if let Err(err) =
-                self.send_command(chain_id, ChainCommand::SetSolverWeights { symbol, basket })
-            {
-                // It returns result, so we just need to report it
-                // TODO: I know I stated to use println() an eprintln() but we
-                // have already selected tracing as our logging solution.
-                // You can run search and replace:
-                // eprintln! => tracing::warn!  <-- warn for errors that don't cause crash
-                // println! => trading::info! <-- informative messages as info, otherwise debug, use common sense
-                eprintln!("Error sending SetSolverWeights command: {:?}", err);
-            }
+            // SetSolverWeights command removed per sonia's feedback
+            // Only keeping the needed commands: ExecuteCompleteAcrossDeposit, Erc20Transfer, MintIndex, BurnIndex, Withdraw
+            println!("Solver weights set for symbol {:?} on chain {} (command removed)", symbol, chain_id);
         } else {
             println!("No connected chains available for solver weights set");
         }

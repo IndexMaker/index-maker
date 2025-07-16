@@ -14,10 +14,14 @@ use symm_core::core::functional::SingleObserver;
 /// Commands that can be sent to the chain operations arbiter
 #[derive(Clone)]
 pub enum ChainCommand {
-    /// Set solver weights for an index
-    SetSolverWeights {
-        symbol: Symbol,
-        basket: std::sync::Arc<Basket>,
+    /// Simple ERC20 transfer (wallet to wallet on same chain)
+    Erc20Transfer {
+        chain_id: u32,
+        token_address: Address,
+        from: Address,
+        to: Address,
+        amount: Amount,
+        callback: Arc<dyn Fn(Amount, Amount) -> eyre::Result<()> + Send + Sync>,
     },
     /// Mint index tokens
     MintIndex {
@@ -43,59 +47,6 @@ pub enum ChainCommand {
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     },
-    /// Execute custody to connector operation
-    CustodyToConnector {
-        chain_id: u32,
-        input_token: Address,
-        amount: Amount,
-        connector_address: Address,
-        custody_id: FixedBytes<32>,
-        party: Party,
-    },
-    /// Setup custody with input tokens
-    SetupCustody {
-        chain_id: u32,
-        custody_id: FixedBytes<32>,
-        input_token: Address,
-        amount: Amount,
-    },
-    /// Approve token for spending
-    ApproveToken {
-        chain_id: u32,
-        token_address: Address,
-        spender: Address,
-        amount: Amount,
-    },
-    /// Execute call connector operation
-    CallConnector {
-        chain_id: u32,
-        connector_address: Address,
-        calldata: Vec<u8>,
-        custody_id: FixedBytes<32>,
-        party: Party,
-    },
-    /// Get Across protocol suggested output (fees, deadlines)
-    GetAcrossSuggestedOutput {
-        chain_id: u32,
-        input_token: Address,
-        output_token: Address,
-        origin_chain_id: u64,
-        destination_chain_id: u64,
-        amount: Amount,
-    },
-    /// Encode deposit calldata for Across protocol
-    EncodeDepositCalldata {
-        chain_id: u32,
-        recipient: Address,
-        input_token: Address,
-        output_token: Address,
-        deposit_amount: Amount,
-        min_amount: Amount,
-        destination_chain_id: u64,
-        exclusive_relayer: Address,
-        fill_deadline: u64,
-        exclusivity_deadline: u64,
-    },
     /// Execute complete Across deposit flow (all 12 steps)
     ExecuteCompleteAcrossDeposit {
         chain_id: u32,
@@ -106,12 +57,7 @@ pub enum ChainCommand {
         origin_chain_id: u64,
         destination_chain_id: u64,
         party: Party,
-        callback: Arc<dyn Fn(Amount, Amount) -> eyre::Result<()> + Send + Sync>
-    },
-    /// Get CA (Custody Account) information
-    GetCA {
-        chain_id: u32,
-        custody_id: FixedBytes<32>,
+        callback: Arc<dyn Fn(Amount, Amount) -> eyre::Result<()> + Send + Sync>,
     },
 }
 

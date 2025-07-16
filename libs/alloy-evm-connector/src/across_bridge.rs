@@ -60,7 +60,7 @@ impl CollateralDesignation for EvmCollateralDesignation {
     }
 }
 
-pub struct EvmCollateralBridge {
+pub struct AcrossCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,
     source: Arc<ComponentLock<EvmCollateralDesignation>>,
     destination: Arc<ComponentLock<EvmCollateralDesignation>>,
@@ -69,25 +69,8 @@ pub struct EvmCollateralBridge {
     chain_operations: Arc<AtomicLock<ChainOperations>>,
 }
 
-impl EvmCollateralBridge {
-    pub fn new_arc(
-        source: Arc<ComponentLock<EvmCollateralDesignation>>,
-        destination: Arc<ComponentLock<EvmCollateralDesignation>>,
-    ) -> Arc<ComponentLock<Self>> {
-        Arc::new({
-            // Legacy constructor - creates its own chain_operations
-            let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new()));
-
-            ComponentLock::new(Self {
-                observer: Arc::new(AtomicLock::new(SingleObserver::new())),
-                source,
-                destination,
-                chain_operations,
-            })
-        })
-    }
-
-    /// New constructor that accepts shared chain_operations from EvmConnector
+impl AcrossCollateralBridge {
+    /// Constructor that accepts shared chain_operations from EvmConnector
     pub fn new_with_shared_operations(
         source: Arc<ComponentLock<EvmCollateralDesignation>>,
         destination: Arc<ComponentLock<EvmCollateralDesignation>>,
@@ -102,25 +85,15 @@ impl EvmCollateralBridge {
             })
         })
     }
-
-
 }
 
-impl IntoObservableSingleArc<CollateralRouterEvent> for EvmCollateralBridge {
-    fn get_single_observer_arc(
-        &mut self,
-    ) -> &Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>> {
-        &self.observer
-    }
-}
-
-impl IntoObservableSingleVTable<CollateralRouterEvent> for EvmCollateralBridge {
+impl IntoObservableSingleVTable<CollateralRouterEvent> for AcrossCollateralBridge {
     fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
         self.observer.write().set_observer(observer);
     }
 }
 
-impl CollateralBridge for EvmCollateralBridge {
+impl CollateralBridge for AcrossCollateralBridge {
     fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
         (self.source).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
     }
