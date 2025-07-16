@@ -3,12 +3,14 @@ use std::{collections::HashMap, sync::Arc};
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
 use itertools::partition;
+use opentelemetry::propagation::Injector;
 use parking_lot::RwLock;
 
 use crate::{
     core::{
         bits::{Amount, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        telemetry::WithBaggage,
     },
     order_sender::order_tracker::{OrderTracker, OrderTrackerNotification},
 };
@@ -66,6 +68,51 @@ pub enum InventoryEvent {
         is_cancelled: bool,
         cancel_timestamp: DateTime<Utc>,
     },
+}
+
+impl WithBaggage for InventoryEvent {
+    fn inject_baggage(&self, tracing_data: &mut crate::core::telemetry::TracingData) {
+        match self {
+            InventoryEvent::OpenLot {
+                order_id,
+                batch_order_id,
+                lot_id,
+                ..
+            } => {
+                tracing_data.set("order_id", order_id.to_string());
+                tracing_data.set("batch_order_id", batch_order_id.to_string());
+                tracing_data.set("lot_id", lot_id.to_string());
+            }
+            InventoryEvent::CloseLot {
+                original_order_id,
+                original_batch_order_id,
+                original_lot_id,
+                closing_order_id,
+                closing_batch_order_id,
+                closing_lot_id,
+                ..
+            } => {
+                tracing_data.set("original_order_id", original_order_id.to_string());
+                tracing_data.set(
+                    "original_batch_order_id",
+                    original_batch_order_id.to_string(),
+                );
+                tracing_data.set("original_lot_id", original_lot_id.to_string());
+
+                tracing_data.set("order_id", closing_order_id.to_string());
+                tracing_data.set("batch_order_id", closing_batch_order_id.to_string());
+                tracing_data.set("lot_id", closing_lot_id.to_string());
+            }
+            InventoryEvent::Cancel {
+                order_id,
+                batch_order_id,
+                ..
+            } => {
+                tracing_data.set("order_id", order_id.to_string());
+                tracing_data.set("batch_order_id", batch_order_id.to_string());
+            }
+        }
+    }
 }
 
 pub struct InventoryManager {

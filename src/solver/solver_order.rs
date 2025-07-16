@@ -14,6 +14,7 @@ use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
+        telemetry::{TracingData, WithTracingData},
     },
     order_sender::position::LotId,
 };
@@ -76,6 +77,19 @@ pub struct SolverOrder {
 
     /// All asset lots allocated to this Index Order
     pub lots: Vec<SolverOrderAssetLot>,
+
+    /// Telemetry data
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for SolverOrder {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 /// When we fill Index Orders from executed batches, we need to allocate some
@@ -210,8 +224,9 @@ impl SolverClientOrders {
                     timestamp,
                     status: SolverOrderStatus::Open,
                     lots: Vec::new(),
+                    tracing_data: TracingData::from_current_context(),
                 }));
-                entry.insert(solver_order.clone());
+                entry.insert(solver_order);
 
                 Ok(())
             }

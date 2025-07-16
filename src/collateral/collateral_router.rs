@@ -8,11 +8,13 @@ use itertools::Itertools;
 
 use eyre::{eyre, OptionExt, Result};
 
+use serde::Serialize;
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
     functional::{IntoObservableSingle, IntoObservableSingleVTable, PublishSingle, SingleObserver},
 };
 
+#[derive(Serialize)]
 pub enum CollateralTransferEvent {
     TransferComplete {
         chain_id: u32,
@@ -26,6 +28,7 @@ pub enum CollateralTransferEvent {
     },
 }
 
+#[derive(Serialize)]
 pub enum CollateralRouterEvent {
     HopComplete {
         chain_id: u32,

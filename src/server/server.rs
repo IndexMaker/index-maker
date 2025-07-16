@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use thiserror::Error;
+
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
@@ -10,6 +12,7 @@ use symm_core::core::{
 
 use crate::solver::mint_invoice::MintInvoice;
 
+#[derive(Serialize)]
 pub enum ServerEvent {
     NewIndexOrder {
         chain_id: u32,

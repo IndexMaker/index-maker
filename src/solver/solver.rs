@@ -16,6 +16,7 @@ use symm_core::{
             PriceType, Side, Symbol,
         },
         decimal_ext::DecimalExt,
+        telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -23,6 +24,7 @@ use symm_core::{
     },
     order_sender::inventory_manager::{InventoryEvent, InventoryManager},
 };
+use tracing::{span, Level};
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -70,6 +72,17 @@ pub struct EngagedSolverOrdersSide {
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
     pub engaged_buys: EngagedSolverOrdersSide, // TODO: sells we don't currently support
+    pub trace_data: TracingData,
+}
+
+impl WithTracingData for EngagedSolverOrders {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.trace_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.trace_data
+    }
 }
 
 pub struct SolveEngagementsResult {
@@ -89,6 +102,17 @@ pub struct CollateralManagement {
     pub side: Side,
     pub collateral_amount: Amount,
     pub asset_requirements: HashMap<Symbol, Amount>,
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for CollateralManagement {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 pub trait OrderIdProvider {
@@ -262,10 +286,16 @@ impl Solver {
 
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let order_batch = self.get_order_batch();
-
         if order_batch.is_empty() {
             return Ok(());
         }
+
+        let engage_orders_span = span!(Level::INFO, "engage-more-orders");
+        let _guard = engage_orders_span.enter();
+
+        order_batch
+            .iter()
+            .for_each(|order| order.read().add_span_context_link());
 
         let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch) {
             Err(err) => return Err(err),
@@ -323,15 +353,22 @@ impl Solver {
     }
 
     fn manage_collateral(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
+        let manage_collateral_span = span!(Level::INFO, "manage-collateral");
+        let _guard = manage_collateral_span.enter();
+
+        solver_order.read().add_span_context_link();
+
         self.set_order_status(
             &mut solver_order.write(),
             SolverOrderStatus::ManageCollateral,
         );
 
         // Compute amount of collateral required for each asset in the Index basket
-        let collateral_management = self
+        let mut collateral_management = self
             .strategy
             .query_collateral_management(self, solver_order)?;
+
+        collateral_management.inject_current_context();
 
         // Manage collateral to have it ready at trading designation(s)
         self.collateral_manager
@@ -366,6 +403,17 @@ impl Solver {
             }?;
         }
 
+        if quote_requests.is_empty() {
+            return Ok(());
+        }
+
+        let process_quotes_span = span!(Level::INFO, "process-more-quotes");
+        let _guard = process_quotes_span.enter();
+
+        quote_requests
+            .iter()
+            .for_each(|q| q.read().add_span_context_link());
+
         let result = self.strategy.solve_quotes(self, quote_requests)?;
 
         for quote in result.solved_quotes.iter() {
@@ -389,6 +437,11 @@ impl Solver {
         index_order: &mut SolverOrder,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let mint_index_span = span!(Level::INFO, "mint-index");
+        let _guard = mint_index_span.enter();
+
+        index_order.add_span_context_link();
+
         let total_cost = index_order
             .lots
             .iter()
@@ -432,6 +485,9 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
+        let solver_solve_span = span!(Level::TRACE, "solver-solve");
+        let _guard = solver_solve_span.enter();
+
         tracing::trace!("\n(solver) Begin solve");
 
         tracing::trace!("(solver) * Process collateral");
@@ -478,6 +534,9 @@ impl Solver {
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
+        let solver_solve_quotes_span = span!(Level::TRACE, "solver-solve-quotes");
+        let _guard = solver_solve_quotes_span.enter();
+
         tracing::trace!("\n(solver) Begin solve quotes");
 
         if let Err(err) = self.process_more_quotes(timestamp) {

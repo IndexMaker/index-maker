@@ -13,6 +13,7 @@ pub mod core {
     pub mod id_macros;
     pub mod limit;
     pub mod logging;
+    pub mod telemetry;
     pub mod test_util;
 }
 
@@ -32,3 +33,11 @@ pub mod order_sender {
     pub mod order_tracker;
     pub mod position;
 }
+
+pub mod tracing {
+    pub mod otlp_tracing;
+    pub mod otlp_log;
+    pub mod defer_log;
+    pub mod defer_span;
+}
+

@@ -5,6 +5,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use opentelemetry::propagation::Injector;
 use parking_lot::RwLock;
 use safe_math::safe;
 
@@ -19,6 +20,7 @@ use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
     decimal_ext::DecimalExt,
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    telemetry::WithBaggage,
 };
 
 use super::{
@@ -139,6 +141,56 @@ pub enum IndexOrderEvent {
         /// Tell the time when it was cancelled
         timestamp: DateTime<Utc>,
     },
+}
+
+impl WithBaggage for IndexOrderEvent {
+    fn inject_baggage(&self, tracing_data: &mut symm_core::core::telemetry::TracingData) {
+        match self {
+            IndexOrderEvent::NewIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+            }
+            IndexOrderEvent::EngageIndexOrder { batch_order_id, .. } => {
+                tracing_data.set("batch_order_id", batch_order_id.to_string());
+            }
+            IndexOrderEvent::CollateralReady {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+            }
+            IndexOrderEvent::UpdateIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+            }
+            IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => {
+                tracing_data.set("chain_id", chain_id.to_string());
+                tracing_data.set("address", address.to_string());
+                tracing_data.set("client_order_id", client_order_id.to_string());
+            }
+        }
+    }
 }
 
 /// Manages Incoming Index Orders

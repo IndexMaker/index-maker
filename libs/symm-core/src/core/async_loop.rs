@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use eyre::{eyre, Report, Result};
+use eyre::{eyre, OptionExt, Report, Result};
 use itertools::Either;
 use tokio::{
     spawn,
@@ -19,6 +19,10 @@ impl<T> AsyncTask<T> {
             join_handle,
             cancel_token,
         }
+    }
+
+    pub fn signal_stop(&self) {
+        self.cancel_token.cancel();
     }
 
     pub async fn stop(self) -> Result<T, JoinError> {
@@ -48,6 +52,10 @@ where
 
         self.async_task
             .replace(AsyncTask::new(spawn(f(cancel_token_cloned)), cancel_token));
+    }
+
+    pub fn signal_stop(&self) {
+        self.async_task.as_ref().inspect(|t| t.signal_stop());
     }
 
     pub async fn stop(&mut self) -> Result<T, Either<JoinError, Report>> {
