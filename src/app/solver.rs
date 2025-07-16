@@ -1,7 +1,7 @@
 use core::time;
 use std::{
     sync::{Arc, RwLock as ComponentLock},
-    thread,
+    thread::{self, JoinHandle},
 };
 
 use crate::{
@@ -53,7 +53,7 @@ use symm_core::{
         order_tracker::OrderTrackerNotification,
     },
 };
-use tokio::sync::oneshot;
+use tokio::{runtime::Runtime, sync::oneshot, task};
 use tracing::{span, Level};
 
 pub trait ChainConnectorConfig {
@@ -80,6 +80,16 @@ pub trait OrderIdProviderConfig {
     fn try_get_order_id_provider_cloned(
         &self,
     ) -> Result<Arc<RwLock<dyn OrderIdProvider + Send + Sync>>>;
+}
+
+pub fn spawn<F, T>(f: F)
+where
+    F: FnOnce() -> T,
+    F: Send + 'static,
+    T: Send + 'static,
+{
+    thread::spawn(f);
+    //task::spawn_blocking(f);
 }
 
 #[derive(Builder)]
@@ -201,7 +211,7 @@ impl SolverConfig {
                 }
             });
 
-        thread::spawn(move || {
+        spawn(move || {
             tracing::info!("Market data started");
             loop {
                 select! {
@@ -365,7 +375,7 @@ impl SolverConfig {
 
         order_server.write().add_observer_from(server_order_tx);
 
-        thread::spawn(move || {
+        spawn(move || {
             let orders_backend_span = span!(Level::INFO, "orders-backend");
             let _guard = orders_backend_span.enter();
 
@@ -523,7 +533,7 @@ impl SolverConfig {
 
         quote_server.write().add_observer_from(server_quote_tx);
 
-        thread::spawn(move || {
+        spawn(move || {
             let quotes_backend_span = span!(Level::INFO, "quotes-backend");
             let _guard = quotes_backend_span.enter();
 
@@ -646,7 +656,7 @@ impl SolverConfig {
             .take()
             .ok_or_eyre("Failed to obtain index order event receiver")?;
 
-        thread::spawn(move || {
+        spawn(move || {
             let solver_thread_span = span!(Level::INFO, "solver-thread");
             let _guard = solver_thread_span.enter();
 
@@ -772,7 +782,7 @@ impl SolverConfig {
                 .unwrap_or_default() as u64,
         );
 
-        thread::spawn(move || {
+        spawn(move || {
             tracing::info!("Solver started");
             loop {
                 select! {

@@ -82,9 +82,9 @@ intrusive-collections = "0.9.7"
 itertools = "0.14.0"
 market-data = { path = "libs/market-data" }
 openssl = { version = "^0.10" }
-opentelemetry = { version = "0.30", features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.30", features = ["trace", "http-proto", "reqwest-client", "tokio"] }
-opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio"] }
+opentelemetry = { version = "0.30", features = ["trace", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.30", default-features = false, features = ["trace", "http-proto", "reqwest-client", "tokio", "logs"] }
+opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio", "logs"] }
 opentelemetry-appender-tracing = "0.30.1"
 opentelemetry-semantic-conventions = "0.30"
 parking_lot = "0.12.4"
@@ -105,4 +105,4 @@ tokio-util = "0.7.15"
 tracing = "0.1"
 tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.31.0"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }

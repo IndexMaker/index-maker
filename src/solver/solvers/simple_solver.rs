@@ -14,7 +14,8 @@ use symm_core::core::{
     decimal_ext::DecimalExt,
     telemetry::TracingData,
 };
-use tracing::{span, Level};
+use tracing::{span, trace_span, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
     index::basket::Basket,

@@ -3071,7 +3071,6 @@ dependencies = [
  "reqwest",
  "thiserror 2.0.12",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -4275,6 +4274,7 @@ name = "symm-core"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-trait",
  "chrono",
  "crossbeam",
  "eyre",

@@ -62,6 +62,12 @@ struct Cli {
 
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
+
+    #[arg(long)]
+    with_otlp_trace: bool,
+
+    #[arg(long)]
+    with_otlp_log: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -200,7 +206,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    init_log!(cli.log_path.clone(), cli.term_log_off);
+    init_log!(
+        cli.log_path.clone(),
+        cli.term_log_off,
+        cli.with_otlp_trace,
+        cli.with_otlp_log
+    );
 
     match &cli.command {
         Commands::SendOrder {
@@ -394,8 +405,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let result = price_tracker
             .read()
             .get_prices(PriceType::BestAsk, &symbols);
+
         if result.missing_symbols.is_empty() {
             break;
+        } else {
+            tracing::info!(
+                "Awaiting market data for: {}",
+                result
+                    .missing_symbols
+                    .into_iter()
+                    .map(|s| format!("{}", s))
+                    .join(", ")
+            );
         }
     }
 

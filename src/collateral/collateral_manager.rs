@@ -119,7 +119,7 @@ impl CollateralManager {
         _host: &dyn CollateralManagerHost,
         _timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let process_collateral_span = span!(Level::INFO, "process-collateral");
+        let process_collateral_span = span!(Level::TRACE, "process-collateral");
         let _guard = process_collateral_span.enter();
 
         let requests = VecDeque::from_iter(self.collateral_management_requests.drain(..));

@@ -285,14 +285,13 @@ impl Solver {
     }
 
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let engage_orders_span = span!(Level::INFO, "engage-more-orders");
-        let _guard = engage_orders_span.enter();
-
         let order_batch = self.get_order_batch();
-
         if order_batch.is_empty() {
             return Ok(());
         }
+
+        let engage_orders_span = span!(Level::INFO, "engage-more-orders");
+        let _guard = engage_orders_span.enter();
 
         order_batch
             .iter()
@@ -392,9 +391,6 @@ impl Solver {
     }
 
     fn process_more_quotes(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let process_quotes_span = span!(Level::INFO, "process-more-quotes");
-        let _guard = process_quotes_span.enter();
-
         let mut quote_requests = Vec::new();
         while let Some(solver_quote) = self.client_quotes.write().get_next_client_quote(timestamp) {
             let side = solver_quote.read().side;
@@ -406,6 +402,13 @@ impl Solver {
                 Side::Sell => Err(eyre!("We don't support Sell yet!")),
             }?;
         }
+
+        if quote_requests.is_empty() {
+            return Ok(());
+        }
+
+        let process_quotes_span = span!(Level::INFO, "process-more-quotes");
+        let _guard = process_quotes_span.enter();
 
         quote_requests
             .iter()
@@ -482,7 +485,7 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        let solver_solve_span = span!(Level::INFO, "solver-solve");
+        let solver_solve_span = span!(Level::TRACE, "solver-solve");
         let _guard = solver_solve_span.enter();
 
         tracing::trace!("\n(solver) Begin solve");
@@ -531,7 +534,7 @@ impl Solver {
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
-        let solver_solve_quotes_span = span!(Level::INFO, "solver-solve-quotes");
+        let solver_solve_quotes_span = span!(Level::TRACE, "solver-solve-quotes");
         let _guard = solver_solve_quotes_span.enter();
 
         tracing::trace!("\n(solver) Begin solve quotes");

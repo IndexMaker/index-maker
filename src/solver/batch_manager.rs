@@ -909,7 +909,7 @@ impl BatchManager {
     }
 
     fn mint_more_orders(&mut self, timestamp: DateTime<Utc>) -> Result<()> {
-        let mint_orders_span = span!(Level::INFO, "manage-collateral");
+        let mint_orders_span = span!(Level::TRACE, "mint-orders");
         let _guard = mint_orders_span.enter();
 
         let mintable_orders = self.get_mintable_batch(timestamp);
@@ -930,7 +930,7 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let process_batches_span = span!(Level::INFO, "process-batches");
+        let process_batches_span = span!(Level::TRACE, "process-batches");
         let _guard = process_batches_span.enter();
 
         self.send_more_batches(host, timestamp)?;
