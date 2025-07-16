@@ -11,7 +11,7 @@ pub trait ServerPlugin<Q> {
     /// Consumes the incoming message and returns Ok or Err. The plugin implementation
     /// is responsible for validating the buffer, deserializing and publushing
     /// the resulting request to the application.  
-    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()>;
+    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String>;
 
     /// process_outgoing
     ///

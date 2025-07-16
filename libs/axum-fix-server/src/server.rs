@@ -170,12 +170,20 @@ where
                 .read()
                 .process_incoming(incoming_message, &session_id);
 
-            if let Err(err) = result {
-                tracing::warn!("Failed to process incoming message: {}", err);
+            match result {
+                Ok(result) => {
+                    if let Err(err) = ws.send(Message::Text(result.to_string())).await {
+                        tracing::warn!("Failed to send WebSocket message: {}", err);
+                        break;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to process incoming message: {}", err);
 
-                if let Err(err) = ws.send(Message::Text(err.to_string())).await {
-                    tracing::warn!("Failed to send WebSocket message: {}", err);
-                    break;
+                    if let Err(err) = ws.send(Message::Text(err.to_string())).await {
+                        tracing::warn!("Failed to send WebSocket message: {}", err);
+                        break;
+                    }
                 }
             }
         }

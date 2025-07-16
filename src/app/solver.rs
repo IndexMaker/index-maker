@@ -603,6 +603,12 @@ impl SolverConfig {
         }
     }
 
+    pub fn load_baskets(&self) -> Result<()> {
+        let basket_manager = self.with_basket_manager.try_get_basket_manager_cloned()?;
+        let basket_guard = basket_manager.read();
+        basket_guard.notify_baskets()
+    }
+
     pub async fn run_solver(&mut self) -> Result<()> {
         let solver = self.solver.clone().ok_or_eyre("Failed to get solver")?;
 
@@ -843,6 +849,7 @@ impl SolverConfig {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;
         self.run_solver().await?;
+        self.load_baskets()?;
         Ok(())
     }
 
@@ -858,6 +865,7 @@ impl SolverConfig {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;
         self.run_quotes_solver().await?;
+        self.load_baskets()?;
         Ok(())
     }
 

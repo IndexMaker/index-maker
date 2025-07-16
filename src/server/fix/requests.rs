@@ -21,7 +21,7 @@ pub struct FixRequest {
     pub chain_id: u32,
     pub address: Address,
     #[serde(flatten)]
-    pub body: Body,
+    pub body: RequestBody,
     pub standard_trailer: FixTrailer,
 }
 
@@ -110,7 +110,7 @@ impl<'de> Deserialize<'de> for FixRequest {
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("amount"))?;
 
-                        Body::NewIndexOrderBody {
+                        RequestBody::NewIndexOrderBody {
                             client_order_id,
                             symbol,
                             side,
@@ -134,7 +134,7 @@ impl<'de> Deserialize<'de> for FixRequest {
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("amount"))?;
 
-                        Body::CancelIndexOrderBody {
+                        RequestBody::CancelIndexOrderBody {
                             client_order_id,
                             symbol,
                             amount,
@@ -161,7 +161,7 @@ impl<'de> Deserialize<'de> for FixRequest {
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("amount"))?;
 
-                        Body::NewQuoteRequestBody {
+                        RequestBody::NewQuoteRequestBody {
                             client_quote_id,
                             symbol,
                             side,
@@ -179,7 +179,7 @@ impl<'de> Deserialize<'de> for FixRequest {
                             .and_then(|v| serde_json::from_value::<String>(v).ok())
                             .ok_or_else(|| de::Error::missing_field("symbol"))?;
 
-                        Body::CancelQuoteRequestBody {
+                        RequestBody::CancelQuoteRequestBody {
                             client_quote_id,
                             symbol,
                         }

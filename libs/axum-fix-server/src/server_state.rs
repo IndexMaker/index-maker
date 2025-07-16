@@ -115,7 +115,7 @@ where
         Ok(good)
     }
 
-    pub fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()> {
+    pub fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
         tracing::debug!("Received message on {}: {}", session_id, message);
         self.plugin.process_incoming(message, session_id)
     }

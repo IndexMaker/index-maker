@@ -1111,7 +1111,18 @@ impl Solver {
                 self.chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access chain connector {}", e))?
-                    .solver_weights_set(symbol, basket);
+                    .solver_weights_set(symbol.clone(), basket);
+
+                self.quote_request_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Quote Request manager {}", e))?
+                    .add_index_symbol(symbol.clone());
+
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Index Order manager {}", e))?
+                    .add_index_symbol(symbol.clone());
+
                 Ok(())
             }
             BasketNotification::BasketUpdated(symbol, basket) => {
@@ -1122,7 +1133,17 @@ impl Solver {
                 self.chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access chain connector {}", e))?
-                    .solver_weights_set(symbol, basket);
+                    .solver_weights_set(symbol.clone(), basket);
+
+                self.quote_request_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Quote Request manager {}", e))?
+                    .add_index_symbol(symbol.clone());
+
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Index Order manager {}", e))?
+                    .add_index_symbol(symbol.clone());
                 Ok(())
             }
             BasketNotification::BasketRemoved(symbol) => {
@@ -1130,6 +1151,15 @@ impl Solver {
                     "(solver) Handle Basket Notification BasketRemoved {}",
                     symbol
                 );
+                self.quote_request_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Quote Request manager {}", e))?
+                    .remove_index_symbol(symbol.clone());
+
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Index Order manager {}", e))?
+                    .remove_index_symbol(symbol.clone());
                 todo!()
             }
         }
@@ -2342,7 +2372,7 @@ mod test {
                 chain_id: _,
                 address: _,
                 client_order_id: _,
-                timestamp: _
+                timestamp: _,
             }
         ));
 

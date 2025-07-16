@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -44,6 +44,7 @@ pub enum QuoteRequestEvent {
 
 pub struct QuoteRequestManager {
     observer: SingleObserver<QuoteRequestEvent>,
+    index_symbols: HashSet<Symbol>,
     pub server: Arc<RwLock<dyn Server>>,
     pub quote_requests: HashMap<(u32, Address), HashMap<Symbol, Arc<RwLock<IndexQuote>>>>,
 }
@@ -51,9 +52,18 @@ impl QuoteRequestManager {
     pub fn new(server: Arc<RwLock<dyn Server>>) -> Self {
         Self {
             observer: SingleObserver::new(),
+            index_symbols: HashSet::new(),
             server,
             quote_requests: HashMap::new(),
         }
+    }
+
+    pub fn add_index_symbol(&mut self, symbol: Symbol) {
+        self.index_symbols.insert(symbol);
+    }
+
+    pub fn remove_index_symbol(&mut self, symbol: Symbol) {
+        self.index_symbols.remove(&symbol);
     }
 
     fn new_quote_request(
@@ -66,6 +76,16 @@ impl QuoteRequestManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexQuoteNakReason>> {
+        // Returns error if basket does not exist
+        if !self.index_symbols.contains(symbol) {
+            tracing::info!("Basket does not exist: {}", symbol);
+            return Err(ServerResponseReason::User(
+                NewIndexQuoteNakReason::InvalidSymbol {
+                    detail: symbol.to_string(),
+                },
+            ));
+        }
+
         // Create quote requests for user if not created yet
         let user_quote_requests = self
             .quote_requests
@@ -117,6 +137,16 @@ impl QuoteRequestManager {
         symbol: &Symbol,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<CancelIndexQuoteNakReason>> {
+        // Returns error if basket does not exist
+        if !self.index_symbols.contains(symbol) {
+            tracing::info!("Basket does not exist: {}", symbol);
+            return Err(ServerResponseReason::User(
+                CancelIndexQuoteNakReason::InvalidSymbol {
+                    detail: symbol.to_string(),
+                },
+            ));
+        }
+
         let user_quote_requests = self
             .quote_requests
             .get_mut(&(chain_id, address))
