@@ -6,13 +6,14 @@ use symm_core::core::{
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
+use crate::index::basket;
+
 use super::basket::{Basket, BasketDefinition};
 
 pub enum BasketNotification {
     BasketAdded(Symbol, Arc<Basket>),
     BasketUpdated(Symbol, Arc<Basket>),
     BasketRemoved(Symbol),
-    //BaketsImported
 }
 
 /// Manages baskets, add, remove, update
@@ -31,6 +32,21 @@ impl BasketManager {
 
     pub fn get_basket(&self, symbol: &Symbol) -> Option<&Arc<Basket>> {
         self.baskets.get(symbol)
+    }
+
+    pub fn notify_baskets(&self) -> Result<()> {
+        if self.observer.has_observer() {
+           for (symbol, basket) in &self.baskets {
+                let event = BasketNotification::BasketUpdated(
+                    symbol.clone(),
+                    basket.clone(),
+                );
+                self.observer.publish_single(event);
+            }
+            Ok(())
+        } else {
+            Err(eyre!("No observer set"))
+        }
     }
 
     pub fn set_basket(&mut self, symbol: &Symbol, basket: &Arc<Basket>) {

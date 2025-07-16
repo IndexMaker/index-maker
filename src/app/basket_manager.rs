@@ -1,4 +1,4 @@
-use std::{fs, path::Path, sync::Arc};
+use std::{fs, path::Path, sync::Arc, collections::HashSet};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
@@ -114,13 +114,12 @@ impl BasketManagerConfigBuilder {
                 std::process::exit(1);
             }
 
-            let mut unique_symbols: Vec<Symbol> = Vec::new();
+            let mut unique_symbols: HashSet<Symbol> = HashSet::new();
             for (index_symbol, basket) in indexes {
                 let symbols = basket
                     .basket_assets
                     .iter()
                     .map(|aw| aw.weight.asset.ticker.clone())
-                    .filter(|s| !unique_symbols.contains(s))
                     .collect_vec();
 
                 unique_symbols.extend(symbols);
@@ -131,7 +130,7 @@ impl BasketManagerConfigBuilder {
                     .write()
                     .set_basket(&index_symbol, &Arc::new(basket));
             }
-            config.symbols = unique_symbols;
+            config.symbols = unique_symbols.into_iter().collect::<Vec<_>>();
         }
 
         Ok(config)

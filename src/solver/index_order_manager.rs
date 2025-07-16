@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -154,6 +154,7 @@ pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
+    index_symbols: HashSet<Symbol>,
     tolerance: Amount,
 }
 
@@ -164,8 +165,17 @@ impl IndexOrderManager {
             observer: SingleObserver::new(),
             server,
             index_orders: HashMap::new(),
+            index_symbols: HashSet::new(),
             tolerance,
         }
+    }
+
+    pub fn add_index_symbol(&mut self, symbol: Symbol) {
+        self.index_symbols.insert(symbol);
+    }
+
+    pub fn remove_index_symbol(&mut self, symbol: Symbol) {
+        self.index_symbols.remove(&symbol);
     }
 
     /// We would've received NewOrder request from FIX server, and
@@ -180,12 +190,36 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
+        // Returns error if basket does not exist
+        if !self.index_symbols.contains(&symbol) {
+            tracing::info!("Basket does not exist: {}", symbol);
+            return Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::InvalidSymbol {
+                    detail: symbol.to_string(),
+                }
+            ));
+        }
+
         // Create index orders for user if not created yet
         let user_index_orders = self
             .index_orders
             .entry((chain_id, address))
             .or_insert_with(|| HashMap::new());
 
+        for index_order in user_index_orders.values() {
+            if index_order
+                .read()
+                .find_order_update(&client_order_id)
+                .is_some()
+            {
+                Err(ServerResponseReason::User(
+                    NewIndexOrderNakReason::DuplicateClientOrderId {
+                        detail: format!("Duplicate client order ID {}", client_order_id),
+                    },
+                ))?;
+            }
+        }
+        
         // Create index order if not created yet
         let index_order = user_index_orders
             .entry(symbol.clone())
@@ -199,18 +233,6 @@ impl IndexOrderManager {
                 )))
             })
             .clone();
-
-        if index_order
-            .read()
-            .find_order_update(&client_order_id)
-            .is_some()
-        {
-            Err(ServerResponseReason::User(
-                NewIndexOrderNakReason::DuplicateClientOrderId {
-                    detail: format!("Duplicate client order ID {}", client_order_id),
-                },
-            ))?;
-        }
 
         // Add update to index order
         let update_order_outcome = index_order

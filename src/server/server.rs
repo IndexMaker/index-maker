@@ -52,6 +52,10 @@ pub enum ServerEvent {
 pub enum NewIndexOrderNakReason {
     #[error("Duplicate client order ID: {detail:?}")]
     DuplicateClientOrderId { detail: String },
+
+    #[error("Invalid symbol: {detail:?}")]
+    InvalidSymbol { detail: String },
+    
     #[error("Other reason: {detail:?}")]
     OtherReason { detail: String },
 }
@@ -68,6 +72,9 @@ pub enum CancelIndexOrderNakReason {
 pub enum NewIndexQuoteNakReason {
     #[error("Duplicate client quote ID: {detail:?}")]
     DuplicateIndexQuoteId { detail: String },
+
+    #[error("Invalid symbol: {detail:?}")]
+    InvalidSymbol { detail: String },
     // #[error("Rate-limit error: {detail:?}")]
     // TODO: RateLimitError { detail: String},
     // ^^^ probably not an error that belongs to ServerError, and most likely this needs to
@@ -80,6 +87,10 @@ pub enum NewIndexQuoteNakReason {
 pub enum CancelIndexQuoteNakReason {
     #[error("Quote not found: {detail:?}")]
     IndexQuoteNotFound { detail: String },
+
+    #[error("Invalid symbol: {detail:?}")]
+    InvalidSymbol { detail: String },
+
     #[error("Other reason: {detail:?}")]
     OtherReason { detail: String },
 }
