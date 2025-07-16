@@ -268,9 +268,14 @@ impl SimpleSolver {
 
         let prices_len = get_prices.prices.len();
 
-        for (k, v) in &get_prices.prices {
-            tracing::info!("(simple-solver) Price: {:?} {} {}", side, k, v);
-        }
+        tracing::event!(
+            target: "asset-prices",
+            Level::INFO,
+            prices = format!("ticker,price\n{}", get_prices.prices.iter()
+                .map(|(k, v)| format!("{}, {}", k, v))
+                .join("\n")),
+            message = "Current asset prices"
+        );
 
         let price_limits: HashMap<_, _> = get_prices
             .prices
@@ -282,35 +287,56 @@ impl SimpleSolver {
             Err(eyre!("Math Problem: Failed to compute price limits"))?;
         }
 
-        for (k, v) in &price_limits {
-            tracing::info!("(simple-solver) Price Limit: {} {}", k, v);
-        }
+        tracing::event!(
+            target: "asset-price-limits",
+            Level::INFO,
+            price_factor = format!("{}", price_factor),
+            price_limits = format!("ticker,price\n{}", price_limits.iter()
+                .map(|(k, v)| format!("{}, {}", k, v))
+                .join("\n")),
+            message = "Asset price limits"
+        );
 
         Ok((price_limits, get_prices.missing_symbols))
     }
 
-    /// Write into log all the assets int the Index basket
-    /// 
-    /// Will print prices, quantities and volley
-    /// 
-    fn trace_log_basket(&self, basket: Arc<Basket>, asset_prices: &HashMap<Symbol, Amount>) {
+    /// Write into log index price with all the assets int the Index basket
+    ///
+    /// Will write prices, quantities and volley
+    ///
+    fn trace_log_index_price_with_basket_assets(
+        &self,
+        index_symbol: &Symbol,
+        index_price: Amount,
+        basket: Arc<Basket>,
+        asset_prices: &HashMap<Symbol, Amount>,
+    ) {
+        let mut basket_assets = Vec::new();
         for basket_asset in basket.basket_assets.iter() {
             let ticker = &basket_asset.weight.asset.ticker;
             let price = asset_prices.get(ticker).cloned();
             let quantity = basket_asset.quantity;
             let volley = safe!(price * quantity);
             if let (Some(price), Some(volley)) = (price, volley) {
-                tracing::info!(
-                    "(simple-solver) Basket Asset {}: {} x {} = {}",
-                    ticker,
-                    price,
-                    quantity,
-                    volley
-                );
+                basket_assets.push((ticker, price, quantity, volley));
             } else {
-                tracing::warn!("(simple-solver) Basket Asset {}: ! x {} = !", ticker, quantity,);
+                tracing::warn!(
+                    "(simple-solver) Basket Asset {}: ! x {} = !",
+                    ticker,
+                    quantity,
+                );
             }
         }
+        tracing::event!(
+            target: "index-price",
+            Level::INFO,
+            index_symbol = format!("{}", index_symbol),
+            index_price = format!("{}", index_price),
+            basket_assets = format!("ticker, quantity, price, volley\n{}", basket_assets.into_iter()
+                .map(|(t, p, q, v)| format!("{}, {}, {}, {}", t, q, p, v))
+                .join("\n ")),
+            message = "Index price limit"
+        );
     }
 
     /// Calculate prices of the Indexes using given prices of the Assets.
@@ -335,8 +361,12 @@ impl SimpleSolver {
             .partition_map(
                 |(symbol, basket, index_price_result)| match index_price_result {
                     Ok(price) => {
-                        self.trace_log_basket(basket, asset_prices);
-                        tracing::info!("(simple-solver) Index Price: {} {}", symbol, price);
+                        self.trace_log_index_price_with_basket_assets(
+                            &symbol,
+                            price,
+                            basket,
+                            asset_prices,
+                        );
                         Either::Left((symbol, price))
                     }
                     Err(err) => {
