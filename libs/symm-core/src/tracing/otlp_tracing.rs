@@ -8,11 +8,15 @@ use opentelemetry_sdk::Resource;
 
 use crate::tracing::defer_span::DeferSpanProcessor;
 
-pub fn create_otlp_trace_layer() -> eyre::Result<SdkTracer> {
+pub fn create_otlp_trace_layer(url: String) -> eyre::Result<SdkTracer> {
     // --- OpenTelemetry Traces Setup (Existing) ---
     let otlp_trace_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_endpoint("http://localhost:4318/v1/traces")
+        .with_endpoint(if url == "default" {
+            "http://localhost:4318/v1/traces"
+        } else {
+            &url
+        })
         .with_timeout(Duration::from_secs(3))
         .build()?;
 

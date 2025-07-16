@@ -7,11 +7,15 @@ use opentelemetry_sdk::Resource;
 
 use crate::tracing::defer_log::DeferLogProcessor;
 
-pub fn create_otlp_log_layer() -> eyre::Result<SdkLoggerProvider> {
+pub fn create_otlp_log_layer(url: String) -> eyre::Result<SdkLoggerProvider> {
     // --- OpenTelemetry Logs Setup (NEW) ---
     let otlp_log_exporter = opentelemetry_otlp::LogExporter::builder()
         .with_http()
-        .with_endpoint("http://localhost:4318/v1/logs") // OTLP Logs endpoint (often different port or path)
+        .with_endpoint(if url == "default" {
+            "http://localhost:4318/v1/logs"
+        } else {
+            &url
+        })
         .with_timeout(Duration::from_secs(3))
         .build()?;
 

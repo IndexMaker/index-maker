@@ -16,8 +16,8 @@ pub fn log_init(
     filter: String,
     log_path: Option<String>,
     disable_terminal_log: bool,
-    with_otlp_trace: bool,
-    with_otlp_log: bool,
+    otlp_trace_url: Option<String>,
+    otlp_log_url: Option<String>,
 ) {
     INIT_LOG.call_once(|| {
         // Set up the terminal output layer
@@ -63,18 +63,18 @@ pub fn log_init(
             None
         };
 
-        let otlp_trace_layer = if with_otlp_trace {
+        let otlp_trace_layer = if let Some(url) = otlp_trace_url {
             let tracer =
-                create_otlp_trace_layer().expect("Failed to create Open-Telemetry trace layer");
+                create_otlp_trace_layer(url).expect("Failed to create Open-Telemetry trace layer");
             let telemetry_trace_layer = tracing_opentelemetry::layer().with_tracer(tracer);
             Some(telemetry_trace_layer)
         } else {
             None
         };
 
-        let otlp_log_layer = if with_otlp_log {
+        let otlp_log_layer = if let Some(url) = otlp_log_url {
             let logger_provider =
-                create_otlp_log_layer().expect("Failed to create Open-Telemetry log layer");
+                create_otlp_log_layer(url).expect("Failed to create Open-Telemetry log layer");
             let telemetry_log_layer =
                 opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
                     &logger_provider,
@@ -132,8 +132,8 @@ macro_rules! init_log {
             format!("{}=info", env!("CARGO_CRATE_NAME")),
             None,
             false,
-            false,
-            false,
+            None,
+            None
         );
     };
     ($log_path:expr) => {
@@ -141,8 +141,8 @@ macro_rules! init_log {
             format!("{}=info", env!("CARGO_CRATE_NAME")),
             $log_path,
             false,
-            false,
-            false,
+            None,
+            None
         );
     };
     ($disable_terminal_log:expr) => {
@@ -150,8 +150,8 @@ macro_rules! init_log {
             format!("{}=info", env!("CARGO_CRATE_NAME")),
             None,
             $disable_terminal_log,
-            false,
-            false,
+            None,
+            None
         );
     };
     ($log_path:expr, $disable_terminal_log:expr) => {
@@ -159,17 +159,17 @@ macro_rules! init_log {
             format!("{}=info", env!("CARGO_CRATE_NAME")),
             $log_path,
             $disable_terminal_log,
-            false,
-            false,
+            None,
+            None
         );
     };
-    ($log_path:expr, $disable_terminal_log:expr, $with_otlp_trace:expr, $with_otlp_log:expr) => {
+    ($log_path:expr, $disable_terminal_log:expr, $otlp_trace_url:expr, $otlp_log_url:expr) => {
         log_init(
             format!("{}=info", env!("CARGO_CRATE_NAME")),
             $log_path,
             $disable_terminal_log,
-            $with_otlp_trace,
-            $with_otlp_log,
+            $otlp_trace_url,
+            $otlp_log_url,
         );
     };
 }

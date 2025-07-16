@@ -64,10 +64,10 @@ struct Cli {
     term_log_off: bool,
 
     #[arg(long)]
-    with_otlp_trace: bool,
+    otlp_trace_url: Option<String>,
 
     #[arg(long)]
-    with_otlp_log: bool,
+    otlp_log_url: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -209,8 +209,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_log!(
         cli.log_path.clone(),
         cli.term_log_off,
-        cli.with_otlp_trace,
-        cli.with_otlp_log
+        cli.otlp_trace_url,
+        cli.otlp_log_url
     );
 
     match &cli.command {
