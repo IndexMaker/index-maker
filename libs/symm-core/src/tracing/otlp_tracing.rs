@@ -31,7 +31,8 @@ pub fn create_otlp_trace_layer(url: String) -> eyre::Result<SdkTracer> {
         .with_resource(
             Resource::builder()
                 .with_service_name("index-maker")
-                .with_attribute(KeyValue::new("environment", "development"))
+                .with_attribute(KeyValue::new("service.version", "1.0.0"))
+                .with_attribute(KeyValue::new("deployment.environment", "production"))
                 .build(),
         )
         .build();

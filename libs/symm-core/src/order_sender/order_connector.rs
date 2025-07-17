@@ -1,34 +1,40 @@
 use std::sync::Arc;
 
 use crate::{
-    core::{
-        bits::{Amount, OrderId, Side, SingleOrder, Symbol},
-        telemetry::WithBaggage,
-    },
+    core::bits::{Amount, OrderId, Side, SingleOrder, Symbol},
     order_sender::position::LotId,
     string_id,
 };
 use chrono::{DateTime, Utc};
 use eyre::Result;
-use opentelemetry::propagation::Injector;
 use serde::{Deserialize, Serialize};
+
+use crate::core::telemetry::{TracingData, WithBaggage};
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
 
 string_id!(SessionId);
 
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
-#[derive(Debug)]
+#[derive(Debug, WithBaggage)]
 pub enum OrderConnectorNotification {
     SessionLogon {
+        #[baggage]
         session_id: SessionId,
+
         timestamp: DateTime<Utc>,
     },
     SessionLogout {
+        #[baggage]
         session_id: SessionId,
+
         reason: String,
         timestamp: DateTime<Utc>,
     },
     Rejected {
+        #[baggage]
         order_id: OrderId,
+
         symbol: Symbol,
         side: Side,
         price: Amount,
@@ -37,8 +43,12 @@ pub enum OrderConnectorNotification {
         timestamp: DateTime<Utc>,
     },
     Fill {
+        #[baggage]
         order_id: OrderId,
+
+        #[baggage]
         lot_id: LotId,
+
         symbol: Symbol,
         side: Side,
         price: Amount,
@@ -47,7 +57,9 @@ pub enum OrderConnectorNotification {
         timestamp: DateTime<Utc>,
     },
     NewOrder {
+        #[baggage]
         order_id: OrderId,
+
         symbol: Symbol,
         side: Side,
         price: Amount,
@@ -55,40 +67,14 @@ pub enum OrderConnectorNotification {
         timestamp: DateTime<Utc>,
     },
     Cancel {
+        #[baggage]
         order_id: OrderId,
+
         symbol: Symbol,
         side: Side,
         quantity: Amount,
         timestamp: DateTime<Utc>,
     },
-}
-
-impl WithBaggage for OrderConnectorNotification {
-    fn inject_baggage(&self, tracing_data: &mut crate::core::telemetry::TracingData) {
-        match self {
-            OrderConnectorNotification::SessionLogon { session_id, .. } => {
-                tracing_data.set("session_id", session_id.to_string());
-            }
-            OrderConnectorNotification::SessionLogout { session_id, .. } => {
-                tracing_data.set("session_id", session_id.to_string());
-            }
-            OrderConnectorNotification::Rejected { order_id, .. } => {
-                tracing_data.set("order_id", order_id.to_string());
-            }
-            OrderConnectorNotification::Fill {
-                order_id, lot_id, ..
-            } => {
-                tracing_data.set("order_id", order_id.to_string());
-                tracing_data.set("lot_id", lot_id.to_string());
-            }
-            OrderConnectorNotification::NewOrder { order_id, .. } => {
-                tracing_data.set("order_id", order_id.to_string());
-            }
-            OrderConnectorNotification::Cancel { order_id, .. } => {
-                tracing_data.set("order_id", order_id.to_string());
-            }
-        }
-    }
 }
 
 pub trait OrderConnector: Send + Sync {

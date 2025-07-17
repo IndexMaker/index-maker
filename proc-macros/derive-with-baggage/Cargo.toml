@@ -1,0 +1,12 @@
+[package]
+name = "derive-with-baggage"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = { workspace = true }
+syn = { workspace = true }
+eyre = { workspace = true }

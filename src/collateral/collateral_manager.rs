@@ -8,12 +8,14 @@ use itertools::{Either, Itertools};
 use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
+
+use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
+use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    telemetry::{WithBaggage, WithTracingContext},
 };
 use tracing::{span, Level};
 
@@ -24,71 +26,53 @@ use super::{
     collateral_router::{CollateralRouter, CollateralTransferEvent},
 };
 
+#[derive(WithBaggage)]
 pub enum CollateralEvent {
     CollateralReady {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_order_id: ClientOrderId,
+
         collateral_amount: Amount,
         fee: Amount,
         timestamp: DateTime<Utc>,
     },
     PreAuthResponse {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
+        #[baggage]
         client_order_id: ClientOrderId,
+
         amount_payable: Amount,
         timestamp: DateTime<Utc>,
         status: PreAuthStatus,
     },
     ConfirmResponse {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_order_id: ClientOrderId,
+        
+        #[baggage]
         payment_id: PaymentId,
+
         amount_paid: Amount,
         timestamp: DateTime<Utc>,
         status: ConfirmStatus,
     },
-}
-
-impl WithBaggage for CollateralEvent {
-    fn inject_baggage(&self, tracing_data: &mut symm_core::core::telemetry::TracingData) {
-        match self {
-            CollateralEvent::CollateralReady {
-                chain_id,
-                address,
-                client_order_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-            }
-            CollateralEvent::PreAuthResponse {
-                chain_id,
-                address,
-                client_order_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-            }
-            CollateralEvent::ConfirmResponse {
-                chain_id,
-                address,
-                client_order_id,
-                payment_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-                tracing_data.set("payment_id", payment_id.to_string());
-            }
-        }
-    }
 }
 
 pub trait CollateralManagerHost: SetSolverOrderStatus {

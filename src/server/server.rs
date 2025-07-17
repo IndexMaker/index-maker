@@ -4,6 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use thiserror::Error;
 
+use symm_core::core::telemetry::{TracingData, WithBaggage};
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
@@ -12,38 +15,62 @@ use symm_core::core::{
 
 use crate::solver::mint_invoice::MintInvoice;
 
-#[derive(Serialize)]
+#[derive(Serialize, WithBaggage)]
 pub enum ServerEvent {
     NewIndexOrder {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_order_id: ClientOrderId,
+
         symbol: Symbol,
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     },
     CancelIndexOrder {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_order_id: ClientOrderId,
+
         symbol: Symbol,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     },
     NewQuoteRequest {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_quote_id: ClientQuoteId,
+
         symbol: Symbol,
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     },
     CancelQuoteRequest {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_quote_id: ClientQuoteId,
+
         symbol: Symbol,
         timestamp: DateTime<Utc>,
     },

@@ -6,8 +6,6 @@ use symm_core::core::{
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
-use crate::index::basket;
-
 use super::basket::{Basket, BasketDefinition};
 
 pub enum BasketNotification {

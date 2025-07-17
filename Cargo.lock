@@ -1657,6 +1657,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-with-baggage"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "quote",
+ "syn 2.0.104",
+]
+
+[[package]]
 name = "derive_builder"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2520,6 +2529,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossbeam",
+ "derive-with-baggage",
  "derive_builder",
  "eyre",
  "futures-util",
@@ -4277,6 +4287,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "crossbeam",
+ "derive-with-baggage",
  "eyre",
  "futures-util",
  "intrusive-collections",
