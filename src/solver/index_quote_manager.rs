@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, Result};
 use parking_lot::RwLock;
 
-use serde::Serialize;
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use crate::{
     server::server::{
@@ -23,21 +25,33 @@ use symm_core::core::{
 
 use super::solver::SolveQuotesResult;
 
-#[derive(Serialize)]
+#[derive(WithBaggage)]
 pub enum QuoteRequestEvent {
     NewQuoteRequest {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
+        #[baggage]
         client_quote_id: ClientQuoteId,
+
         symbol: Symbol,
         side: Side,
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     },
     CancelQuoteRequest {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+        
+        #[baggage]
         client_quote_id: ClientQuoteId,
+
         timestamp: DateTime<Utc>,
     },
 }

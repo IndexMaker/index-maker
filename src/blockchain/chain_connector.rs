@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
+use symm_core::core::telemetry::{TracingData, WithBaggage};
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
     functional::IntoObservableSingleVTable,
@@ -12,17 +16,26 @@ use crate::index::basket::{Basket, BasketDefinition};
 /// call blockchain methods, receive blockchain events
 
 /// On-chain event
+#[derive(WithBaggage)]
 pub enum ChainNotification {
     CuratorWeightsSet(Symbol, BasketDefinition), // ...more
     Deposit {
+        #[baggage]
         chain_id: u32,
+        
+        #[baggage]
         address: Address,
+
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
     WithdrawalRequest {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
         amount: Amount,
         timestamp: DateTime<Utc>,
     },

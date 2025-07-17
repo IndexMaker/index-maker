@@ -1,11 +1,44 @@
+use itertools::Itertools;
 use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
 use opentelemetry::trace::TraceContextExt;
-use opentelemetry::Context;
+use opentelemetry::{Context, KeyValue};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use serde::Serialize;
+use std::any::type_name;
 use std::collections::HashMap;
-use tracing::Span;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use tracing::{span, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+const KNOWN_KEYS: &[&str] = &[
+    "chain_id",
+    "address",
+    "client_order_id",
+    "client_quote_id",
+    "payment_id",
+    "batch_order_id",
+    "order_id",
+    "lot_id",
+];
+
+fn extract_baggage(tracing_data: &TracingData) -> Vec<(String, String)> {
+    match tracing_data.properties.as_ref().map(|p| {
+        KNOWN_KEYS
+            .iter()
+            .filter_map(|&k| {
+                if let Some(val) = p.get(k).cloned() {
+                    Some((k.to_owned(), val))
+                } else {
+                    None
+                }
+            })
+            .collect_vec()
+    }) {
+        Some(x) => x,
+        _ => Vec::new(),
+    }
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct TracingData {
@@ -84,7 +117,10 @@ pub struct TraceableEvent<T> {
     tracing_data: TracingData,
 }
 
-impl<T> TraceableEvent<T> {
+impl<T> TraceableEvent<T>
+where
+    T: WithBaggage,
+{
     pub fn new(notification: T) -> Self {
         Self {
             notification,
@@ -92,15 +128,40 @@ impl<T> TraceableEvent<T> {
         }
     }
 
-    pub fn take(self) -> (T, Context) {
+    fn take(self) -> (T, Context) {
         let context = self.extract_context();
         (self.notification, context)
     }
 
     pub fn with_tracing<R>(self, f: impl FnOnce(T) -> R) -> R {
+        let baggage = extract_baggage(&self.tracing_data);
+
         let (notification, context) = self.take();
         let _guard = context.attach();
-        f(notification)
+
+        let s = span!(
+            Level::INFO,
+            "traceable-event",
+            notification_type = type_name::<T>(),
+            chain_id = tracing::field::Empty,
+            address = tracing::field::Empty,
+            client_order_id = tracing::field::Empty,
+            client_quote_id = tracing::field::Empty,
+            payment_id = tracing::field::Empty,
+            batch_order_id = tracing::field::Empty,
+            order_id = tracing::field::Empty,
+            lot_id = tracing::field::Empty,
+        );
+
+        for (k, v) in baggage {
+            s.record(k.as_str(), v);
+        }
+
+        s.in_scope(|| f(notification))
+    }
+
+    pub fn inject_baggage(&mut self) {
+        self.notification.inject_baggage(&mut self.tracing_data);
     }
 }
 
@@ -118,37 +179,12 @@ pub trait WithBaggage {
     fn inject_baggage(&self, tracing_data: &mut TracingData);
 }
 
-impl<T> WithBaggage for T
+impl<T> WithBaggage for Arc<T>
 where
-    T: Serialize,
+    T: WithBaggage,
 {
     fn inject_baggage(&self, tracing_data: &mut TracingData) {
-        let get_string_value = |v: &serde_json::Value| -> String {
-            if v.is_string() {
-                v.as_str().unwrap_or_default().to_string()
-            } else {
-                v.to_string()
-            }
-        };
-
-        let value = serde_json::json!(self);
-
-        let known_keys = [
-            "chain_id",
-            "address",
-            "client_order_id",
-            "client_quote_id",
-            "payment_id",
-            "batch_order_id",
-            "order_id",
-            "lot_id",
-        ];
-
-        for key in known_keys {
-            if let Some(val) = value.get(key) {
-                tracing_data.set(key, get_string_value(val));
-            }
-        }
+        self.as_ref().inject_baggage(tracing_data);
     }
 }
 
@@ -205,7 +241,7 @@ pub mod crossbeam {
     {
         fn handle_notification(&self, notification: T) {
             let mut traced_message = TraceableEvent::new(notification);
-            //traced_message.inject_baggage();
+            traced_message.inject_baggage();
             traced_message.inject_current_context();
 
             if let Err(err) = self.sender.send(traced_message) {
@@ -229,7 +265,7 @@ pub mod crossbeam {
     {
         fn handle_notification(&self, notification: &T) {
             let mut traced_message = TraceableEvent::new(notification.clone());
-            //traced_message.inject_baggage();
+            traced_message.inject_baggage();
             traced_message.inject_current_context();
 
             if let Err(err) = self.sender.send(traced_message) {

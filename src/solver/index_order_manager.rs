@@ -5,9 +5,12 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
-use opentelemetry::propagation::Injector;
 use parking_lot::RwLock;
 use safe_math::safe;
+
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
 
 use crate::{
     server::server::{
@@ -20,7 +23,6 @@ use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
     decimal_ext::DecimalExt,
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
-    telemetry::WithBaggage,
 };
 
 use super::{
@@ -54,15 +56,19 @@ pub struct EngagedIndexOrder {
     pub collateral_remaining: Amount,
 }
 
+#[derive(WithBaggage)]
 pub enum IndexOrderEvent {
     NewIndexOrder {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         // ID of the NewOrder request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Symbol of an Index
@@ -79,6 +85,7 @@ pub enum IndexOrderEvent {
     },
     EngageIndexOrder {
         // ID of the batch of engagement
+        #[baggage]
         batch_order_id: BatchOrderId,
 
         // A set of index orders in the engagement batch
@@ -89,12 +96,15 @@ pub enum IndexOrderEvent {
     },
     CollateralReady {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         // ID of the NewOrder request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Quantity remaining
@@ -111,12 +121,15 @@ pub enum IndexOrderEvent {
     },
     UpdateIndexOrder {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         // ID of the NewOrder request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Quantity removed
@@ -130,67 +143,20 @@ pub enum IndexOrderEvent {
     },
     CancelIndexOrder {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         /// ID of the Cancel request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Tell the time when it was cancelled
         timestamp: DateTime<Utc>,
     },
-}
-
-impl WithBaggage for IndexOrderEvent {
-    fn inject_baggage(&self, tracing_data: &mut symm_core::core::telemetry::TracingData) {
-        match self {
-            IndexOrderEvent::NewIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-            }
-            IndexOrderEvent::EngageIndexOrder { batch_order_id, .. } => {
-                tracing_data.set("batch_order_id", batch_order_id.to_string());
-            }
-            IndexOrderEvent::CollateralReady {
-                chain_id,
-                address,
-                client_order_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-            }
-            IndexOrderEvent::UpdateIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-            }
-            IndexOrderEvent::CancelIndexOrder {
-                chain_id,
-                address,
-                client_order_id,
-                ..
-            } => {
-                tracing_data.set("chain_id", chain_id.to_string());
-                tracing_data.set("address", address.to_string());
-                tracing_data.set("client_order_id", client_order_id.to_string());
-            }
-        }
-    }
 }
 
 /// Manages Incoming Index Orders
@@ -248,7 +214,7 @@ impl IndexOrderManager {
             return Err(ServerResponseReason::User(
                 NewIndexOrderNakReason::InvalidSymbol {
                     detail: symbol.to_string(),
-                }
+                },
             ));
         }
 
@@ -271,7 +237,7 @@ impl IndexOrderManager {
                 ))?;
             }
         }
-        
+
         // Create index order if not created yet
         let index_order = user_index_orders
             .entry(symbol.clone())

@@ -29,7 +29,8 @@ pub fn create_otlp_log_layer(url: String) -> eyre::Result<SdkLoggerProvider> {
         .with_resource(
             Resource::builder()
                 .with_service_name("index-maker")
-                .with_attribute(KeyValue::new("environment", "development"))
+                .with_attribute(KeyValue::new("service.version", "1.0.0"))
+                .with_attribute(KeyValue::new("deployment.environment", "production"))
                 .build(),
         )
         .build();

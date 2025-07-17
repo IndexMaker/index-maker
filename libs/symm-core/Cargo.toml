@@ -9,6 +9,7 @@ alloy = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 crossbeam = { workspace = true }
+derive-with-baggage = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
 intrusive-collections = { workspace = true }
