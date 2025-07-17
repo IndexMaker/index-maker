@@ -81,11 +81,11 @@ impl ChainOperations {
         private_key: String,
     ) -> Result<()> {
         if self.operations.contains_key(&chain_id) {
-            println!("Chain operation for chain {} already exists", chain_id);
+            tracing::warn!("Chain operation for chain {} already exists", chain_id);
             return Ok(());
         }
 
-        println!("Adding chain operation for chain {}", chain_id);
+        tracing::info!("Adding chain operation for chain {}", chain_id);
 
         // Create command channel for this chain
         let (command_sender, command_receiver) = unbounded_channel();
@@ -105,13 +105,13 @@ impl ChainOperations {
         self.operations.insert(chain_id, operation);
         self.command_senders.insert(chain_id, command_sender);
 
-        println!("Chain operation for chain {} started successfully", chain_id);
+        tracing::info!("Chain operation for chain {} started successfully", chain_id);
         Ok(())
     }
 
     /// Remove a chain operation (synchronous part)
     pub fn remove_operation_sync(&mut self, chain_id: u32) -> Option<ChainOperation> {
-        println!("Removing chain operation for chain {}", chain_id);
+        tracing::info!("Removing chain operation for chain {}", chain_id);
 
         // Remove command sender first
         self.command_senders.remove(&chain_id);
@@ -124,9 +124,9 @@ impl ChainOperations {
     pub async fn remove_operation(&mut self, chain_id: u32) -> Result<()> {
         if let Some(mut operation) = self.remove_operation_sync(chain_id) {
             operation.stop().await?;
-            println!("Chain operation for chain {} stopped successfully", chain_id);
+            tracing::info!("Chain operation for chain {} stopped successfully", chain_id);
         } else {
-            println!("Chain operation for chain {} not found", chain_id);
+            tracing::warn!("Chain operation for chain {} not found", chain_id);
         }
 
         Ok(())
@@ -138,7 +138,7 @@ impl ChainOperations {
             sender.send(command).map_err(|e| {
                 eyre::eyre!("Failed to send command to chain {}: {}", chain_id, e)
             })?;
-            println!("Command sent to chain {}", chain_id);
+            tracing::info!("Command sent to chain {}", chain_id);
         } else {
             return Err(eyre::eyre!(
                 "No active operation found for chain {}",
@@ -160,14 +160,14 @@ impl ChainOperations {
 
     /// Shutdown all operations
     pub async fn shutdown(&mut self) -> Result<()> {
-        println!("Shutting down all chain operations");
+        tracing::info!("Shutting down all chain operations");
 
         let chain_ids: Vec<u32> = self.operations.keys().copied().collect();
         for chain_id in chain_ids {
             self.remove_operation(chain_id).await?;
         }
 
-        println!("All chain operations shut down");
+        tracing::info!("All chain operations shut down");
         Ok(())
     }
 }
@@ -175,7 +175,7 @@ impl ChainOperations {
 impl Drop for ChainOperations {
     fn drop(&mut self) {
         if !self.operations.is_empty() {
-            println!(
+            tracing::error!(
                 "ChainOperations dropped with {} active operations",
                 self.operations.len()
             );

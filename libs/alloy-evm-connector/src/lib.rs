@@ -7,6 +7,8 @@ pub mod contracts;
 pub mod credentials;
 pub mod custody_helper;
 pub mod utils;
+pub mod designation_details;
+pub mod designation;
 
 pub mod across_bridge;
 pub mod erc20_bridge;

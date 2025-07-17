@@ -28,6 +28,7 @@ symm-core = { workspace = true, path = "../libs/symm-core" }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 
 [[example]]
@@ -65,3 +66,7 @@ path = "evm_connector/main.rs"
 [[example]]
 name = "evm-bridge"
 path = "evm_connector/main_bridge.rs"
+
+[[example]]
+name = "test-generic-bridge"
+path = "evm_connector/test_generic_bridge.rs"

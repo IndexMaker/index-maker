@@ -100,7 +100,7 @@ impl ChainOperation {
             match AcrossDepositBuilder::new(provider.clone(), wallet.address().clone()).await {
                 Ok(builder) => Some(builder),
                 Err(e) => {
-                    println!(
+                    tracing::error!(
                         "Failed to initialize AcrossDepositBuilder for chain {}: {}",
                         chain_id, e
                     );
@@ -111,7 +111,7 @@ impl ChainOperation {
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    println!("Chain operation {} cancelled", chain_id);
+                    tracing::info!("Chain operation {} cancelled", chain_id);
                     break;
                 }
                 Some(command) = command_receiver.recv() => {
@@ -135,7 +135,7 @@ impl ChainOperation {
                     };
 
                     if let Err(e) = result_sender.send(operation_result) {
-                        println!("Failed to send operation result: {}", e);
+                        tracing::error!("Failed to send operation result: {}", e);
                         break;
                     }
                 }
@@ -151,7 +151,7 @@ impl ChainOperation {
         deposit_builder: &Option<AcrossDepositBuilder<P>>,
         provider: &P,
     ) -> Result<Option<String>> {
-        println!("Executing command on chain {}", chain_id);
+        tracing::info!("Executing command on chain {}", chain_id);
 
         match command {
             ChainCommand::Erc20Transfer {
@@ -161,7 +161,7 @@ impl ChainOperation {
                 callback,
                 ..
             } => {
-                println!("Executing ERC20 transfer: {} tokens from {:?} to {:?}", amount, from, to);
+                tracing::info!("Executing ERC20 transfer: {} tokens from {:?} to {:?}", amount, from, to);
                 
                 // TODO: Implement actual ERC20 transfer logic here
                 // For now, simulate successful transfer
@@ -170,10 +170,10 @@ impl ChainOperation {
                 
                 // Call the callback to publish the event
                 if let Err(e) = callback(transferred_amount, fee) {
-                    eprintln!("Error in ERC20 transfer callback: {}", e);
+                    tracing::error!("Error in ERC20 transfer callback: {}", e);
                 }
                 
-                println!("✅ ERC20 transfer executed successfully on chain {}", chain_id);
+                tracing::info!("ERC20 transfer executed successfully on chain {}", chain_id);
                 Ok(Some("0xerc20_transfer...".to_string())) // Mock transaction hash
             }
             ChainCommand::MintIndex {
@@ -184,13 +184,13 @@ impl ChainOperation {
                 execution_time,
                 ..
             } => {
-                println!("Minting {} of {:?} for {:?} at price {} on {}", 
+                tracing::info!("Minting {} of {:?} for {:?} at price {} on {}", 
                          quantity, symbol, recipient, execution_price, execution_time);
                 
                 // TODO: Implement actual index minting logic
                 // For now, simulate successful minting
                 
-                println!("✅ Index minting executed successfully on chain {}", chain_id);
+                tracing::info!("Index minting executed successfully on chain {}", chain_id);
                 Ok(Some("0xmint_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::BurnIndex {
@@ -199,12 +199,12 @@ impl ChainOperation {
                 recipient,
                 ..
             } => {
-                println!("Burning {} of {:?} for {:?}", quantity, symbol, recipient);
+                tracing::info!("Burning {} of {:?} for {:?}", quantity, symbol, recipient);
                 
                 // TODO: Implement actual index burning logic
                 // For now, simulate successful burning
                 
-                println!("✅ Index burning executed successfully on chain {}", chain_id);
+                tracing::info!("Index burning executed successfully on chain {}", chain_id);
                 Ok(Some("0xburn_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::Withdraw {
@@ -214,13 +214,13 @@ impl ChainOperation {
                 execution_time,
                 ..
             } => {
-                println!("Withdrawing {} to {:?} at price {} on {}", 
+                tracing::info!("Withdrawing {} to {:?} at price {} on {}", 
                          amount, recipient, execution_price, execution_time);
                 
                 // TODO: Implement actual withdrawal logic
                 // For now, simulate successful withdrawal
                 
-                println!("✅ Withdrawal executed successfully on chain {}", chain_id);
+                tracing::info!("Withdrawal executed successfully on chain {}", chain_id);
                 Ok(Some("0xwithdraw...".to_string())) // Mock transaction hash
             }
             ChainCommand::ExecuteCompleteAcrossDeposit {
@@ -235,13 +235,13 @@ impl ChainOperation {
                 ..
             } => {
                 if let Some(builder) = deposit_builder {
-                    println!(
+                    tracing::info!(
                         "Executing complete Across deposit flow: {} tokens from chain {} to chain {}",
                         deposit_amount, origin_chain_id, destination_chain_id
                     );
 
                     // Execute the complete Across deposit flow
-                    println!("Starting complete Across deposit execution...");
+                    tracing::info!("Starting complete Across deposit execution...");
                     match builder
                         .execute_complete_across_deposit(
                             alloy::primitives::Address::from_slice(&recipient.as_slice()[..20]),
@@ -254,26 +254,28 @@ impl ChainOperation {
                         .await
                     {
                         Ok(()) => {
-                            println!(
-                                "✅ Complete Across deposit flow executed successfully on chain {}",
+                            tracing::info!(
+                                "Complete Across deposit flow executed successfully on chain {}",
                                 chain_id
                             );
-                            let total_routed = Amount::ZERO;
-                            let fee_deducted = Amount::ZERO;
+                            
+                            // For now, using the deposit amount as total routed and minimal fee
+                            // In a real implementation, these would come from the actual transaction results
+                            let total_routed = deposit_amount;
+                            let fee_deducted = Amount::from_str("0.1").unwrap_or(Amount::ZERO); // Minimal fee for demo
+                            
                             callback(total_routed, fee_deducted).map_err(|err| {
                                 eyre::eyre!(
                                     "ExecuteCompleteAcrossDeposit callback failed {:?}",
                                     err
                                 )
                             })?;
-                            todo!(
-                                "Provide total amount routed and fee deducted in this single hop"
-                            );
+                            
                             Ok(Some("0xacross_complete...".to_string()))
                         }
                         Err(e) => {
-                            eprintln!("❌ ExecuteCompleteAcrossDeposit failed with error: {}", e);
-                            eprintln!("Error details: {:?}", e);
+                            tracing::error!("ExecuteCompleteAcrossDeposit failed with error: {}", e);
+                            tracing::error!("Error details: {:?}", e);
                             Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e))
                         }
                     }

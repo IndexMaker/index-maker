@@ -37,18 +37,18 @@ impl Arbiter {
         max_chain_operations: usize,                            // Configuration
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
-            println!("Chain operations arbiter started");
+            tracing::info!("Chain operations arbiter started");
             
             let mut operation_rx = operation_rx; // Make it mutable in the async block
             
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
-                        println!("Chain operations arbiter cancelled");
+                        tracing::info!("Chain operations arbiter cancelled");
                         break;
                     }
                     Some(request) = operation_rx.recv() => {
-                        println!("Arbiter received request: {:?}", std::mem::discriminant(&request));
+                        tracing::debug!("Arbiter received request: {:?}", std::mem::discriminant(&request));
                         
                         // Handle the request using the state management pattern
                         match Self::handle_chain_operation_request(
@@ -61,7 +61,7 @@ impl Arbiter {
                                 // Request handled successfully
                             }
                             Err(e) => {
-                                eprintln!("Failed to handle chain operation request: {}", e);
+                                tracing::error!("Failed to handle chain operation request: {}", e);
                             }
                         }
                     }
@@ -72,10 +72,10 @@ impl Arbiter {
             {
                 let operations = chain_operations.read();
                 drop(operations); // Release the lock before async operation
-                println!("Chain operations cleanup completed");
+                tracing::info!("Chain operations cleanup completed");
             }
 
-            println!("Chain operations arbiter stopped");
+            tracing::info!("Chain operations arbiter stopped");
             operation_rx
         });
     }
@@ -98,7 +98,7 @@ impl Arbiter {
                 };
                 
                 if !can_add {
-                    eprintln!("Maximum number of chain operations ({}) reached", max_operations);
+                    tracing::error!("Maximum number of chain operations ({}) reached", max_operations);
                     return Ok(());
                 }
 
@@ -118,7 +118,7 @@ impl Arbiter {
                     });
                 }
                 
-                println!("Added chain operation for chain {}", chain_id);
+                tracing::info!("Added chain operation for chain {}", chain_id);
             }
             
             ChainOperationRequest::RemoveOperation { chain_id } => {
@@ -142,10 +142,10 @@ impl Arbiter {
                                 chain_id,
                                 timestamp: Utc::now(),
                             });
-                            println!("Removed chain operation for chain {}", chain_id);
+                            tracing::info!("Removed chain operation for chain {}", chain_id);
                         }
                         Err(e) => {
-                            eprintln!("Failed to stop chain operation for chain {}: {}", chain_id, e);
+                            tracing::error!("Failed to stop chain operation for chain {}: {}", chain_id, e);
                         }
                     }
                 } else {
@@ -155,14 +155,14 @@ impl Arbiter {
                         chain_id,
                         timestamp: Utc::now(),
                     });
-                    println!("Chain operation for chain {} not found", chain_id);
+                    tracing::warn!("Chain operation for chain {} not found", chain_id);
                 }
             }
             
             ChainOperationRequest::ExecuteCommand { chain_id, command } => {
                 // ExecuteCommand is no longer handled by Arbiter
                 // Commands should be sent directly to chain_operations
-                eprintln!("ExecuteCommand should not be sent to Arbiter. Use direct chain_operations.send_command() instead.");
+                tracing::error!("ExecuteCommand should not be sent to Arbiter. Use direct chain_operations.send_command() instead.");
             }
         }
 
@@ -172,7 +172,7 @@ impl Arbiter {
     /// Stop the arbiter and wait for completion
     /// Returns the input receiver following binance pattern
     pub async fn stop(&mut self) -> Result<UnboundedReceiver<ChainOperationRequest>, Either<JoinError, eyre::Report>> {
-        println!("Stopping chain operations arbiter");
+        tracing::info!("Stopping chain operations arbiter");
         self.arbiter_loop.stop().await
     }
 }

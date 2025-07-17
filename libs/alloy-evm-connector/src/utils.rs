@@ -8,7 +8,7 @@ pub async fn get_current_timestamp<P: Provider>(
     let block = provider.get_block_number().await?;
     let block_info = provider.get_block(block.into()).await?.unwrap();
     let timestamp = block_info.header.timestamp;
-    println!("  🔗 Current block timestamp: {}", timestamp);
+    tracing::info!("Current block timestamp: {}", timestamp);
     Ok(timestamp)
 }
 
@@ -38,6 +38,6 @@ pub async fn set_next_block_timestamp<P: Provider>(
         return Err(format!("RPC error: {}", error).into());
     }
     
-    println!("  ✅ Successfully set next block timestamp to: {}", timestamp);
+    tracing::info!("Successfully set next block timestamp to: {}", timestamp);
     Ok(())
 }

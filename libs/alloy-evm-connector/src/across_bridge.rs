@@ -9,17 +9,13 @@ use symm_core::core::functional::{
     IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
 };
 
-use crate::across_deposit::{
-    ARBITRUM_CHAIN_ID, BASE_CHAIN_ID, USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS,
-};
-use crate::arbiter::Arbiter;
 use crate::chain_operations::ChainOperations;
-use crate::commands::{ChainCommand, ChainOperationRequest};
-use crate::credentials::EvmCredentials;
+use crate::commands::ChainCommand;
 use crate::custody_helper::Party;
+use crate::designation::EvmCollateralDesignation;
+use crate::designation_details::EvmDesignationDetails;
 use alloy::primitives::B256;
-use chrono::{DateTime, Utc};
-use index_core::blockchain::chain_connector::ChainNotification;
+use chrono::Utc;
 use index_core::collateral::collateral_router::{
     CollateralBridge, CollateralDesignation, CollateralRouterEvent,
 };
@@ -27,38 +23,8 @@ use index_core::collateral::collateral_router::{
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Symbol},
     decimal_ext::DecimalExt,
-    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    functional::{PublishSingle, SingleObserver},
 };
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::{spawn, task::JoinHandle};
-
-const BRIDGE_TYPE: &str = "EVM";
-
-pub struct EvmCollateralDesignation {
-    pub name: Symbol,              //< e.g. "ARBITRUM", or "BASE"
-    pub collateral_symbol: Symbol, //< should be "USDC" (in future could also be "USDT")
-    pub full_name: Symbol,         //< e.g. "EVM:ARBITRUM:USDC"
-}
-
-impl CollateralDesignation for EvmCollateralDesignation {
-    fn get_type(&self) -> Symbol {
-        BRIDGE_TYPE.into()
-    }
-    fn get_name(&self) -> Symbol {
-        self.name.clone()
-    }
-    fn get_collateral_symbol(&self) -> Symbol {
-        self.collateral_symbol.clone()
-    }
-    fn get_full_name(&self) -> Symbol {
-        self.full_name.clone() //< for preformance better to pre-construct than format on-demand
-    }
-    fn get_balance(&self) -> Amount {
-        // TODO: Should enqueue ChainCommand to retrieve balance at given designation
-        // i.e. balance of our custody on network X in currency Y
-        todo!("Tell the balance of collateral symbol (e.g. USDC) in that designation")
-    }
-}
 
 pub struct AcrossCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,
@@ -116,17 +82,21 @@ impl CollateralBridge for AcrossCollateralBridge {
         let source = self.source.read().unwrap().get_full_name();
         let destination = self.destination.read().unwrap().get_full_name();
 
-        println!("🚀 Starting transfer using direct chain_operations...");
+        tracing::info!("Starting transfer using direct chain_operations...");
 
+        // Get designation details
+        let source_designation = self.source.read().unwrap();
+        let destination_designation = self.destination.read().unwrap();
+        
         // Use direct chain_operations.execute_command() instead of arbiter
         let command = ChainCommand::ExecuteCompleteAcrossDeposit {
-            chain_id: ARBITRUM_CHAIN_ID as u32,
+            chain_id: source_designation.get_chain_id() as u32,
             recipient: address,
-            input_token: USDC_ARBITRUM_ADDRESS,
-            output_token: USDC_BASE_ADDRESS,
+            input_token: source_designation.get_input_token_address(),
+            output_token: destination_designation.get_output_token_address(),
             deposit_amount: amount,
-            origin_chain_id: ARBITRUM_CHAIN_ID,
-            destination_chain_id: BASE_CHAIN_ID,
+            origin_chain_id: source_designation.get_chain_id(),
+            destination_chain_id: destination_designation.get_chain_id(),
             party: Party {
                 parity: 0,
                 x: B256::ZERO,
@@ -155,10 +125,10 @@ impl CollateralBridge for AcrossCollateralBridge {
         // Send the command directly to chain_operations
         {
             let operations = self.chain_operations.read();
-            operations.execute_command(ARBITRUM_CHAIN_ID as u32, command)?;
+            operations.execute_command(source_designation.get_chain_id() as u32, command)?;
         }
 
-        println!("✅ Command sent to chain_operations directly");
+        tracing::info!("Command sent to chain_operations directly");
 
         Ok(())
     }

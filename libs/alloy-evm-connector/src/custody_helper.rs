@@ -421,12 +421,12 @@ impl CAHelper {
 
     /// Debug function to print leaf hashes for comparison with TypeScript
     pub fn debug_leaves(&self) {
-        println!("=== Debug: CA Items and Leaf Hashes ===");
+        tracing::debug!("=== Debug: CA Items and Leaf Hashes ===");
         for (i, item) in self.ca_items.iter().enumerate() {
             let leaf_hash = Self::compute_leaf(item);
-            println!("Item {}: {:?}", i, item);
-            println!("Leaf {}: 0x{}", i, hex::encode(leaf_hash.as_ref()));
-            println!("---");
+            tracing::debug!("Item {}: {:?}", i, item);
+            tracing::debug!("Leaf {}: 0x{}", i, hex::encode(leaf_hash.as_ref()));
+            tracing::debug!("---");
         }
     }
 }
@@ -489,8 +489,8 @@ mod tests {
         let all_actions_with_proofs: Vec<_> = (0..all_items.len())
             .map(|i| (i, all_items[i].clone(), proofs[i].clone()))
             .collect();
-        println!("Total actions: {}", all_actions_with_proofs.len());
-        println!("Proofs: {:?}", proofs.clone());
+        tracing::debug!("Total actions: {}", all_actions_with_proofs.len());
+        tracing::debug!("Proofs: {:?}", proofs.clone());
 
         // Basic sanity: each proof should be non-empty (unless there is only one leaf)
         for (index, _item, proof) in all_actions_with_proofs {
@@ -585,7 +585,7 @@ mod tests {
 
         // Get the custody ID (merkle root)
         let custody_id = ca_helper.get_ca_root();
-        println!(
+        tracing::debug!(
             "Custody ID (merkle root): {:?}",
             hex::encode_prefixed(custody_id)
         );
@@ -595,9 +595,9 @@ mod tests {
         let call_connector_item = &all_items[call_connector_index];
         let call_connector_proof = ca_helper.get_merkle_proof(call_connector_index);
 
-        println!("CallConnector item: {:?}", call_connector_item);
-        println!("CallConnector proof length: {}", call_connector_proof.len());
-        println!("CallConnector proof: {:?}", call_connector_proof);
+        tracing::debug!("CallConnector item: {:?}", call_connector_item);
+        tracing::debug!("CallConnector proof length: {}", call_connector_proof.len());
+        tracing::debug!("CallConnector proof: {:?}", call_connector_proof);
 
         // Additional verification: check that the proof is not empty (unless it's the only item)
         if all_items.len() > 1 {
@@ -607,6 +607,6 @@ mod tests {
             );
         }
 
-        println!("CallConnector merkle proof extracted successfully!");
+        tracing::debug!("CallConnector merkle proof extracted successfully!");
     }
 }

@@ -19,6 +19,11 @@ use crate::arbiter::Arbiter;
 use crate::chain_operations::ChainOperations;
 use crate::commands::{ChainCommand, ChainOperationRequest};
 use crate::credentials::EvmCredentials;
+use crate::across_bridge::AcrossCollateralBridge;
+use crate::erc20_bridge::Erc20CollateralBridge;
+use crate::designation::{EvmCollateralDesignation};
+use crate::designation_details::EvmDesignationDetails;
+use index_core::collateral::collateral_router::{CollateralBridge, CollateralDesignation};
 
 /// EVM Chain Connector
 /// Follows the same pattern as binance connectors with public API + internal arbiter
@@ -73,7 +78,7 @@ impl EvmConnector {
         self.arbiter = Some(arbiter);
         self.request_sender = Some(request_sender);
 
-        println!("EVM Connector started with arbiter");
+        tracing::info!("EVM Connector started with arbiter");
         Ok(())
     }
 
@@ -83,7 +88,7 @@ impl EvmConnector {
         credentials: EvmCredentials,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id() as u32;
-        println!(
+        tracing::info!(
             "Connecting to chain {} at {}",
             chain_id,
             credentials.get_rpc_url()
@@ -103,7 +108,7 @@ impl EvmConnector {
             self.connected_chains.push(chain_id);
         }
 
-        println!("Chain {} connection initiated", chain_id);
+        tracing::info!("Chain {} connection initiated", chain_id);
         Ok(())
     }
 
@@ -144,7 +149,7 @@ impl EvmConnector {
 
     /// Disconnect from a blockchain network
     pub async fn disconnect_chain(&mut self, chain_id: u32) -> Result<()> {
-        println!("Disconnecting from chain {}", chain_id);
+        tracing::info!("Disconnecting from chain {}", chain_id);
 
         let request = ChainOperationRequest::RemoveOperation { chain_id };
 
@@ -158,7 +163,7 @@ impl EvmConnector {
 
         self.connected_chains.retain(|&id| id != chain_id);
 
-        println!("Chain {} disconnection initiated", chain_id);
+        tracing::info!("Chain {} disconnection initiated", chain_id);
         Ok(())
     }
 
@@ -167,42 +172,78 @@ impl EvmConnector {
         &self.connected_chains
     }
 
-    /// Create a new AcrossCollateralBridge with shared chain_operations
+    /// Generic bridge creation method - automatically selects bridge type based on designations
+    pub fn create_bridge(
+        &self,
+        source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
+        destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
+    ) -> Arc<std::sync::RwLock<dyn CollateralBridge>>
+    {
+        let source_name = source.read().unwrap().get_name();
+        let destination_name = destination.read().unwrap().get_name();
+        
+        // Determine bridge type based on cross-chain check
+        let is_cross_chain = source.read().unwrap().is_cross_chain(&*destination.read().unwrap());
+        
+        if is_cross_chain {
+            // Cross-chain transfer - use Across bridge
+            tracing::info!("Creating Across bridge for cross-chain transfer: {} -> {}", source_name, destination_name);
+            
+            let bridge = AcrossCollateralBridge::new_with_shared_operations(
+                source,
+                destination,
+                self.chain_operations.clone(),
+            );
+            
+            bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
+        } else {
+            // Same-chain transfer - use ERC20 bridge
+            tracing::info!("Creating ERC20 bridge for same-chain transfer: {} -> {}", source_name, destination_name);
+            
+            let bridge = Erc20CollateralBridge::new_with_shared_operations(
+                source,
+                destination,
+                self.chain_operations.clone(),
+            );
+            
+            bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
+        }
+    }
+
+    /// Create a new AcrossCollateralBridge with shared chain_operations (legacy method)
     pub fn create_across_bridge(
         &self,
-        source: Arc<std::sync::RwLock<crate::across_bridge::EvmCollateralDesignation>>,
-        destination: Arc<std::sync::RwLock<crate::across_bridge::EvmCollateralDesignation>>,
-    ) -> Arc<std::sync::RwLock<crate::across_bridge::AcrossCollateralBridge>> {
-        crate::across_bridge::AcrossCollateralBridge::new_with_shared_operations(
+        source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
+        destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
+    ) -> Arc<std::sync::RwLock<AcrossCollateralBridge>> {
+        AcrossCollateralBridge::new_with_shared_operations(
             source,
             destination,
             self.chain_operations.clone(),
         )
     }
 
-    /// Create a new Erc20CollateralBridge with shared chain_operations
+    /// Create a new Erc20CollateralBridge with shared chain_operations (legacy method)
     pub fn create_erc20_bridge(
         &self,
-        source: Arc<std::sync::RwLock<crate::erc20_bridge::EvmCollateralDesignation>>,
-        destination: Arc<std::sync::RwLock<crate::erc20_bridge::EvmCollateralDesignation>>,
-        token_address: symm_core::core::bits::Address,
-    ) -> Arc<std::sync::RwLock<crate::erc20_bridge::Erc20CollateralBridge>> {
-        crate::erc20_bridge::Erc20CollateralBridge::new_with_shared_operations(
+        source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
+        destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
+    ) -> Arc<std::sync::RwLock<Erc20CollateralBridge>> {
+        Erc20CollateralBridge::new_with_shared_operations(
             source,
             destination,
-            token_address,
             self.chain_operations.clone(),
         )
     }
 
     /// Stop the connector and all operations
     pub async fn stop(&mut self) -> Result<()> {
-        println!("Stopping EVM connector");
+        tracing::info!("Stopping EVM connector");
         if let Some(mut arbiter) = self.arbiter.take() {
             match arbiter.stop().await {
                 Ok(_) => Ok(()),
                 Err(e) => {
-                    println!("Error stopping arbiter: {:?}", e);
+                    tracing::error!("Error stopping arbiter: {:?}", e);
                     Ok(()) // Don't propagate join errors
                 }
             }
@@ -268,15 +309,15 @@ impl IntoObservableSingleVTable<ChainNotification> for EvmConnector {
 }
 
 impl ChainConnector for EvmConnector {
-    fn solver_weights_set(&self, symbol: Symbol, basket: std::sync::Arc<Basket>) {
+    fn solver_weights_set(&self, symbol: Symbol, _basket: std::sync::Arc<Basket>) {
         // Send command to the first connected chain (or implement chain selection logic)
         if let Some(&chain_id) = self.connected_chains.first() {
             // Sadhbh: I made send_command sync, so it can be just called like that
             // SetSolverWeights command removed per sonia's feedback
             // Only keeping the needed commands: ExecuteCompleteAcrossDeposit, Erc20Transfer, MintIndex, BurnIndex, Withdraw
-            println!("Solver weights set for symbol {:?} on chain {} (command removed)", symbol, chain_id);
+            tracing::info!("Solver weights set for symbol {:?} on chain {} (command removed)", symbol, chain_id);
         } else {
-            println!("No connected chains available for solver weights set");
+            tracing::warn!("No connected chains available for solver weights set");
         }
     }
 
@@ -299,7 +340,7 @@ impl ChainConnector for EvmConnector {
         };
 
         if let Err(e) = self.send_command(chain_id, command) {
-            eprintln!("Failed to send mint index command: {}", e);
+            tracing::error!("Failed to send mint index command: {}", e);
         }
     }
 
@@ -312,7 +353,7 @@ impl ChainConnector for EvmConnector {
         };
 
         if let Err(e) = self.send_command(chain_id, command) {
-            eprintln!("Failed to send burn index command: {}", e);
+            tracing::error!("Failed to send burn index command: {}", e);
         }
     }
 
@@ -333,7 +374,7 @@ impl ChainConnector for EvmConnector {
         };
 
         if let Err(e) = self.send_command(chain_id, command) {
-            println!("Failed to send withdraw command: {}", e);
+            tracing::error!("Failed to send withdraw command: {}", e);
         }
     }
 }
