@@ -381,11 +381,7 @@ impl Solver {
 
     fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
         while let Some(solver_order) = self.client_orders.write().get_next_client_order(timestamp) {
-            let side = solver_order.read().side;
-            match side {
-                Side::Buy => self.manage_collateral(solver_order),
-                Side::Sell => Err(eyre!("We don't support Sell yet!")),
-            }?;
+            self.manage_collateral(solver_order);
         }
         Ok(())
     }
@@ -393,14 +389,7 @@ impl Solver {
     fn process_more_quotes(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let mut quote_requests = Vec::new();
         while let Some(solver_quote) = self.client_quotes.write().get_next_client_quote(timestamp) {
-            let side = solver_quote.read().side;
-            match side {
-                Side::Buy => {
-                    quote_requests.push(solver_quote);
-                    Ok(())
-                }
-                Side::Sell => Err(eyre!("We don't support Sell yet!")),
-            }?;
+            quote_requests.push(solver_quote);
         }
 
         if quote_requests.is_empty() {

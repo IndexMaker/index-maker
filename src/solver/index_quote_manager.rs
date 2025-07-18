@@ -45,10 +45,10 @@ pub enum QuoteRequestEvent {
     CancelQuoteRequest {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_quote_id: ClientQuoteId,
 
@@ -90,6 +90,15 @@ impl QuoteRequestManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexQuoteNakReason>> {
+        // Temporary sell side block
+        if side == Side::Sell {
+            return Err(ServerResponseReason::User(
+                NewIndexQuoteNakReason::OtherReason {
+                    detail: "We don't support Sell yet!".to_string(),
+                },
+            ));
+        }
+
         // Returns error if basket does not exist
         if !self.index_symbols.contains(symbol) {
             tracing::info!("Basket does not exist: {}", symbol);

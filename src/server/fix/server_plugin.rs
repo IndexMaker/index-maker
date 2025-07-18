@@ -89,12 +89,22 @@ impl ServerPlugin {
                         || side == "BUY"
                         || side == "bid"
                         || side == "Bid"
-                        || side == "BID"
-                    {
+                        || side == "BID" {
                         Side::Buy
-                    } else {
+                    } else if side == "2"
+                        || side == "s"
+                        || side == "S"
+                        || side == "sell"
+                        || side == "Sell"
+                        || side == "SELL"
+                        || side == "ask"
+                        || side == "Ask"
+                        || side == "ASK" {
                         Side::Sell
-                    };
+                    } else {
+                        return Err(eyre!("Invalid side value"));
+                    }
+                    ;
                     let collateral_amount = amount
                         .parse()
                         .ok()
@@ -145,7 +155,29 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let side = if side == "1" { Side::Buy } else { Side::Sell };
+                    let side = if side == "1"
+                        || side == "b"
+                        || side == "B"
+                        || side == "buy"
+                        || side == "Buy"
+                        || side == "BUY"
+                        || side == "bid"
+                        || side == "Bid"
+                        || side == "BID" {
+                        Side::Buy
+                    } else if side == "2"
+                        || side == "s"
+                        || side == "S"
+                        || side == "sell"
+                        || side == "Sell"
+                        || side == "SELL"
+                        || side == "ask"
+                        || side == "Ask"
+                        || side == "ASK" {
+                        Side::Sell
+                    } else {
+                        return Err(eyre!("Invalid side value"));
+                    };
                     let collateral_amount = amount
                         .parse()
                         .ok()
