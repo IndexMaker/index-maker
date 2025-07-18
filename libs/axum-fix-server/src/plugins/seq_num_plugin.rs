@@ -67,7 +67,7 @@ where
         }
     }
 
-    pub fn create_session(&self, session_id: &SessionId) -> Result<(), Report> {
+    pub fn create_session(&self, session_id: &SessionId) -> Result<()> {
         let mut write_lock = self.last_received_seq_num.write().unwrap();
         write_lock.insert(session_id.clone(), 0);
         drop(write_lock);
@@ -79,7 +79,7 @@ where
         Ok(())
     }
 
-    pub fn destroy_session(&self, session_id: &SessionId) -> Result<(), Report> {
+    pub fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
         let mut write_lock = self.last_received_seq_num.write().unwrap();
         write_lock.remove(&session_id.clone());
         drop(write_lock);

@@ -500,6 +500,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     }
 
     fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
+        self.user_plugin.remove_session(session_id);
         self.seq_num_plugin.destroy_session(session_id)
     }
 }
