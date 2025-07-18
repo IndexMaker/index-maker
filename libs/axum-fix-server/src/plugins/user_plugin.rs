@@ -37,6 +37,24 @@ impl UserPlugin {
         }
     }
 
+
+    pub fn remove_session(&self, session_id: &SessionId) {
+        let user_id_option = {
+            let read_lock = self.users_sessions.read().unwrap();
+            read_lock.iter().find_map(|(key, values)| {
+                if values.contains(session_id) {
+                    Some(key.clone()) 
+                } else {
+                    None
+                }
+            })
+        };
+        
+        if let Some(user_id) = user_id_option {
+            self.remove_user_session(&user_id, session_id);
+        }
+    }
+
     pub fn get_user_sessions(&self, user_id: &(u32, Address)) -> Result<HashSet<SessionId>> {
         let read_lock = self.users_sessions.read().unwrap();
 
