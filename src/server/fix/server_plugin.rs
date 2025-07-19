@@ -8,6 +8,7 @@ use axum_fix_server::{
         seq_num_plugin::{SeqNumPlugin, WithSeqNumPlugin},
         serde_plugin::SerdePlugin,
         user_plugin::{UserPlugin, WithUserPlugin},
+        storage_plugin::StoragePlugin,
     },
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
@@ -32,6 +33,7 @@ pub struct ServerPlugin {
     serde_plugin: SerdePlugin<FixRequest, FixResponse>,
     seq_num_plugin: SeqNumPlugin<FixRequest, FixResponse>,
     user_plugin: UserPlugin,
+    storage_plugin: StoragePlugin,
 }
 
 impl ServerPlugin {
@@ -41,6 +43,7 @@ impl ServerPlugin {
             serde_plugin: SerdePlugin::new(),
             seq_num_plugin: SeqNumPlugin::new(),
             user_plugin: UserPlugin::new(),
+            storage_plugin: StoragePlugin::new(),
         }
     }
 
@@ -426,7 +429,7 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
 
 impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
-        match self.serde_plugin.process_incoming(message, session_id) {
+        match self.serde_plugin.process_incoming(message.clone(), session_id) {
             Ok(result) => {
                 let user_id = &result.get_user_id();
                 self.user_plugin.add_add_user_session(&user_id, session_id);
@@ -441,6 +444,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                         )
                     })?;
                     self.observer_plugin.publish_request(&Arc::new(event));
+                    self.storage_plugin.store_received_msg(*user_id, seq_num, message);
                     match self.process_ack(user_id, session_id) {
                         Ok(msg) => Ok(msg),
                         Err(e) => Err(eyre::eyre!("Process ACK failed: {}", e)),
@@ -476,7 +480,8 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                 response.set_seq_num(self.seq_num_plugin.next_seq_num(&session));
 
                 if let Ok(message) = self.serde_plugin.process_outgoing(response) {
-                    result.insert((session, message));
+                    result.insert((session.clone(), message.clone()));
+                    self.storage_plugin.store_sent_msg(user_id, self.seq_num_plugin.last_sent_seq_num(&session), message);
                 } else {
                     return Err(eyre::eyre!("Cannot serialize response."));
                 }
@@ -487,7 +492,8 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
             response.set_seq_num(self.seq_num_plugin.next_seq_num(&session_id.clone()));
 
             if let Ok(message) = self.serde_plugin.process_outgoing(response) {
-                result.insert((session_id.clone(), message));
+                result.insert((session_id.clone(), message.clone()));
+                self.storage_plugin.store_sent_msg(user_id, self.seq_num_plugin.last_sent_seq_num(&session_id), message);
             } else {
                 return Err(eyre::eyre!("Cannot serialize response."));
             }
