@@ -1,8 +1,8 @@
 # PROTOCOL
 
-All messages are of the fix-json type, using fix protocol logic with own message fields. Messages must be sent in sequence, with an increasing `seq_num`. Sequence numbers out-of-order will result in the message being considered invalid (`NAK`). A message that receives a `NAK` as response does not increase the `seq_num`. Both parties must track their sent and recieved sequence numbers. Messages which fields do not match their declared `msg_type` will also be responded with a `NAK`.
+The messages exchanged by the fix-server are of the fix-json type, using fix protocol logic in a json format and with own message fields. Messages must be sent in sequence, with an increasing `seq_num`. Sequence numbers out-of-order will result in the message being considered invalid (`NAK`). A message that receives a `NAK` as response does not increase the `seq_num`. Both parties must track their sent and received sequence numbers. Messages which fields do not match their declared `msg_type` will also be responded with a `NAK`.
 
-If the message is considered valid, an `ACK` response will be sent. This means the message is valid on the protocol scope, a message can still be rejected after receiving an `ACK` given the processing logic of the quote server. E.g. a quote request for an inexistent symbol can be `ACK`'d due to the message being protocol compliant, but later rejected for the symbol is not found.
+If the message is considered valid, an `ACK` response will be sent. This means the message is valid on the protocol scope, a message can still be rejected after receiving an `ACK` given the processing logic of the quote server. E.g. a quote request for a nonexistent symbol can be `ACK`'d due to the message being protocol compliant, but later rejected for the symbol is not found.
 
 
 ## MESSAGE STRUCTURE
