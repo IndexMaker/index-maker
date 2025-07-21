@@ -3,7 +3,7 @@
 Building for Alpine Linux using Docker:
 
 ```
-    docker-compose up --build -d
+docker-compose up --build -d
 ```
 
 Deploment to Staging:
