@@ -208,6 +208,15 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
+        // Temporary sell side block
+        if side == Side::Sell {
+            return Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::OtherReason {
+                    detail: "We don't support Sell yet!".to_string(),
+                },
+            ));
+        }
+
         // Returns error if basket does not exist
         if !self.index_symbols.contains(&symbol) {
             tracing::info!("Basket does not exist: {}", symbol);
