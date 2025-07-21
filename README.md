@@ -6,6 +6,13 @@ Building for Alpine Linux using Docker:
     docker-compose up --build -d
 ```
 
+Deploment to Staging:
+
+```
+IMAGE_VERSION=1.0.2 make
+```
+
+Required environment variables besides `IMAGE_VERSION`: `SSH_USER`, `ELASTIC_API_KEY`.
 
 # Developent Plan
 
