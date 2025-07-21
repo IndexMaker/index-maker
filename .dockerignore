@@ -5,6 +5,7 @@
 .github
 .gitignore
 .gitmodules
+.deploy
 README.md
 binance_trading_minting.log
 docs

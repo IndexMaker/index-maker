@@ -43,7 +43,7 @@ RUN RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=yes" \
 
 # Stage 2: Create the final, minimal runtime image
 # Use alpine as it's very small and compatible with musl binaries
-FROM alpine:latest
+FROM --platform=linux/amd64 alpine:latest
 
 # Install ca-certificates for HTTPS/TLS, crucial for network communication
 RUN apk add --no-cache ca-certificates
