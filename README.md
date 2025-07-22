@@ -1,16 +1,8 @@
-# Alpine Build
+# Index Maker
 
-Building for Alpine Linux using Docker:
+## Roadmap
 
-```
-docker-compose up --build -d
-```
-
-# Roadmap
-
-## Phase 1. Mocked I/O (FIX / Chain/ Market Data)
-
-### Goal
+### Phase 1. (Complete) Mocked I/O (FIX / Chain/ Market Data)
 
 The goal of this phase is to:
 - Understand the business requirements of the project
@@ -27,9 +19,7 @@ The resulting PoC should be able to demonstrate following activity:
 - User receives confirmations of each individual Index Order fill
 - User receives newly minted Index Token
 
-## Phase 2. Integration
-
-### Goal
+### Phase 2. (In-Progress) Integration
 
 The goal is to have working demoable MVP where we can send Index Orders over FIX, and we want to
 see Solver acquiring assets from Binance, and reporting mint.
@@ -41,13 +31,13 @@ The resulting MVP should be able to demonstrate following:
 - Solver responds to filled Asset Orders by assigning lots to Index Orders
 - Solver sends back to the user Fill Reports and eventually Mint Invoice
 
-### Binance Market Data
+#### Binance Market Data
 
 The goal is to integrate market data from Binance, and observe system behavior and accuracy dependant on changing market conditions.
 
 We will use Binance SDK provided directly by Binance to receive market data and track asset prices, and build books.
 
-### Binance Orders
+#### Binance Orders
 
 The goal is to integrate order sending with Binance, and to confirm that orders are sent, they don't exceed limits, they get
 executed, we track them correctly all the way up until minting.
@@ -55,7 +45,7 @@ executed, we track them correctly all the way up until minting.
 We will use Binance SDK to log onto Binance account, obtain exchange information about traded assets, and to send orders.
 The order sender will respect order rate limits and will apply price & quantity filters to orders before sending to Binance.
 
-### FIX/Json over Web Sockets
+#### FIX/Json over Web Sockets
 
 The goal is to have fully functional FIX server capable of receiving NewOrder, CancelOrder etc messages.
 
@@ -64,7 +54,7 @@ protocol to the users. The sever will have a plugin, which will translate from F
 application specific events and from application specific reponses into FIX/Json responses. Plugin will
 be provided by application, i.e. Solver (Index Maker).
 
-### EVM Network
+#### EVM Network
 
 The goal is to have fully functional chain integration so that we can receive on-chain events and invoke on-chain smart-contract methods.
 
@@ -72,14 +62,14 @@ We will use Alloy framework to provide interop with EVM chains, and on top of th
 Chain Connector implementation that will emit application events, and will provide application level methods, that will translate
 into chain specific smart-contract method calls. 
 
-### Collateral Routing
+#### Collateral Routing
 
 The goal is to have fully functional collateral routing implemented, so that collateral can be routed
 from Arbitrum to Binance via Base. The routing between Arbitrum and Base is to be done via Across bridge, while
 the routing from Base to Binance should happend between two EVM wallets. The wallet address for Binance account
 need to be obtained via Binance API call.
 
-## Phase X. Future Development
+### Phase X. Future Development
 
 After delivering working system, which is capable of accepting Index Orders, and sending order batches to Binance, we will
 look into robustness of the solution, performance, scalling, fixing bugs and adding more features.
