@@ -13,8 +13,7 @@ use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use crate::{
     server::server::{
-        CancelIndexQuoteNakReason, NewIndexQuoteNakReason, Server, ServerError, ServerEvent,
-        ServerResponse, ServerResponseReason,
+        CancelIndexQuoteNakReason, CancelQuoteSubscriptionNakReason, NewIndexQuoteNakReason, NewQuoteSubscriptionNakReason, Server, ServerError, ServerEvent, ServerResponse, ServerResponseReason
     },
     solver::index_quote::IndexQuote,
 };
@@ -54,6 +53,25 @@ pub enum QuoteRequestEvent {
 
         timestamp: DateTime<Utc>,
     },
+    QuoteSubscribe {
+        #[baggage]
+        chain_id: u32,
+
+        #[baggage]
+        address: Address,
+
+        timestamp: DateTime<Utc>,
+    },
+    QuoteUnsubscribe {
+        #[baggage]
+        chain_id: u32,
+
+        #[baggage]
+        address: Address,
+
+        reason: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 pub struct QuoteRequestManager {
@@ -61,6 +79,7 @@ pub struct QuoteRequestManager {
     index_symbols: HashSet<Symbol>,
     pub server: Arc<RwLock<dyn Server>>,
     pub quote_requests: HashMap<(u32, Address), HashMap<Symbol, Arc<RwLock<IndexQuote>>>>,
+    pub quote_subscriptions: HashMap<(u32, Address), HashSet<Symbol>>,
 }
 impl QuoteRequestManager {
     pub fn new(server: Arc<RwLock<dyn Server>>) -> Self {
@@ -69,6 +88,7 @@ impl QuoteRequestManager {
             index_symbols: HashSet::new(),
             server,
             quote_requests: HashMap::new(),
+            quote_subscriptions: HashMap::new(),
         }
     }
 
@@ -205,6 +225,95 @@ impl QuoteRequestManager {
                 address,
                 client_quote_id: client_quote_id.clone(),
                 timestamp,
+            });
+        Ok(())
+    }
+
+    fn new_quote_subscription(
+        &mut self,
+        chain_id: u32,
+        address: Address,
+        symbol: &Symbol,
+        timestamp: DateTime<Utc>,
+    ) -> Result<(), ServerResponseReason<NewQuoteSubscriptionNakReason>> {
+        // Returns error if basket does not exist
+        if !self.index_symbols.contains(symbol) {
+            tracing::info!("Basket does not exist: {}", symbol);
+            return Err(ServerResponseReason::User(
+                NewQuoteSubscriptionNakReason::InvalidSymbol {
+                    detail: symbol.to_string(),
+                },
+            ));
+        }
+
+        // Create quote subscriptions for user if not created yet
+        let user_quote_subcriptions = self
+            .quote_subscriptions
+            .entry((chain_id, address))
+            .or_insert_with(|| HashSet::new());
+
+        // Add subscription to HashSet if possible
+        if !user_quote_subcriptions.insert(symbol.clone()) {
+            return Err(ServerResponseReason::User(
+                NewQuoteSubscriptionNakReason::OtherReason {
+                    detail: format!("Already subscribed to quote: {}", symbol),
+                },
+            ));
+        }
+
+        self.observer
+            .publish_single(QuoteRequestEvent::QuoteSubscribe {
+                chain_id,
+                address,
+                timestamp,
+            });
+        Ok(())
+    }
+
+
+    fn cancel_quote_subscription(
+        &mut self,
+        chain_id: u32,
+        address: Address,
+        symbol: &Symbol,
+        reason: String,
+        timestamp: DateTime<Utc>,
+    ) -> Result<(), ServerResponseReason<CancelQuoteSubscriptionNakReason>> {
+        // Returns error if basket does not exist
+        if !self.index_symbols.contains(symbol) {
+            tracing::info!("Basket does not exist: {}", symbol);
+            return Err(ServerResponseReason::User(
+                CancelQuoteSubscriptionNakReason::InvalidSymbol {
+                    detail: symbol.to_string(),
+                },
+            ));
+        }
+
+        // Create quote subscriptions for user if not created yet
+        let user_quote_subcriptions = self
+            .quote_subscriptions
+            .get_mut(&(chain_id, address))
+            .ok_or_else(|| {
+                ServerResponseReason::User(CancelQuoteSubscriptionNakReason::IndexQuoteNotFound {
+                    detail: format!("No subscription found for user {}", address),
+                })
+            })?;
+
+        // Add subscription to HashSet if possible
+        if !user_quote_subcriptions.remove(&symbol) {
+            return Err(ServerResponseReason::User(
+                CancelQuoteSubscriptionNakReason::OtherReason {
+                    detail: format!("Subscribed not found: {}", symbol),
+                },
+            ));
+        }
+
+        self.observer
+            .publish_single(QuoteRequestEvent::QuoteUnsubscribe {
+                chain_id,
+                address,
+                timestamp,
+                reason,
             });
         Ok(())
     }
@@ -393,7 +502,90 @@ impl QuoteRequestManager {
                     Ok(())
                 }
             }
-
+            ServerEvent::QuoteSubscribe {
+                chain_id,
+                address,
+                symbol,
+                timestamp,
+            } => {
+                if let Err(reason) = self.new_quote_subscription(
+                    *chain_id,
+                    *address,
+                    symbol,
+                    *timestamp,
+                ) {
+                    let result = match &reason {
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => {
+                            Err(eyre!("Internal server error: {:?}", err))
+                        }
+                    };
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::NewQuoteSubscriptionNak {
+                            chain_id: *chain_id,
+                            address: *address,
+                            symbol: symbol.clone(),
+                            reason,
+                            timestamp: *timestamp,
+                        });
+                    result
+                } else {
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::NewQuoteSubscriptionAck {
+                            chain_id: *chain_id,
+                            address: *address,
+                            symbol: symbol.clone(),
+                            timestamp: *timestamp,
+                        });
+                    Ok(())
+                }
+            },
+            ServerEvent::QuoteUnsubscribe {
+                chain_id,
+                address,
+                symbol,
+                reason,
+                timestamp,
+            } => {
+                if let Err(err_reason) = self.cancel_quote_subscription(
+                    *chain_id,
+                    *address,
+                    symbol,
+                    reason.clone(),
+                    *timestamp,
+                ) {
+                    let result = match &err_reason {
+                        ServerResponseReason::User(..) => Ok(()),
+                        ServerResponseReason::Server(err) => {
+                            Err(eyre!("Internal server error: {:?}", err))
+                        }
+                    };
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::CancelQuoteSubscriptionNak {
+                            chain_id: *chain_id,
+                            address: *address,
+                            symbol: symbol.clone(),
+                            reason: err_reason,
+                            timestamp: *timestamp,
+                        });
+                    result
+                } else if *reason != "disconnect".to_string()  {
+                    self.server
+                        .write()
+                        .respond_with(ServerResponse::CancelQuoteSubscriptionAck {
+                            chain_id: *chain_id,
+                            address: *address,
+                            symbol: symbol.clone(),
+                            timestamp: *timestamp,
+                        });
+                    Ok(())
+                } else {
+                    Ok(())
+                }
+            },
             _ => Ok(()),
         }
     }

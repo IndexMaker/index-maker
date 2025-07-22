@@ -942,6 +942,8 @@ impl Solver {
                 .client_quotes
                 .write()
                 .cancel_client_quote(chain_id, address, client_quote_id),
+            QuoteRequestEvent::QuoteSubscribe { chain_id, address, timestamp } => Err(eyre!("")),
+            QuoteRequestEvent::QuoteUnsubscribe { chain_id, address, reason, timestamp } => Err(eyre!("")),
         }
     }
 

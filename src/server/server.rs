@@ -74,6 +74,31 @@ pub enum ServerEvent {
         symbol: Symbol,
         timestamp: DateTime<Utc>,
     },
+    QuoteSubscribe {
+        #[baggage]
+        chain_id: u32,
+
+        #[baggage]
+        address: Address,
+
+        #[baggage]
+        symbol: Symbol,
+
+        timestamp: DateTime<Utc>,
+    },
+    QuoteUnsubscribe {
+        #[baggage]
+        chain_id: u32,
+
+        #[baggage]
+        address: Address,
+
+        #[baggage]
+        symbol: Symbol,
+
+        reason: String,
+        timestamp: DateTime<Utc>,
+    },
     AccountToCustody,
     CustodyToAccount,
 }
@@ -115,6 +140,30 @@ pub enum NewIndexQuoteNakReason {
 
 #[derive(Error, Debug)]
 pub enum CancelIndexQuoteNakReason {
+    #[error("Quote not found: {detail:?}")]
+    IndexQuoteNotFound { detail: String },
+
+    #[error("Invalid symbol: {detail:?}")]
+    InvalidSymbol { detail: String },
+
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum NewQuoteSubscriptionNakReason {
+    #[error("Quote not found: {detail:?}")]
+    IndexQuoteNotFound { detail: String },
+
+    #[error("Invalid symbol: {detail:?}")]
+    InvalidSymbol { detail: String },
+
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug)]
+pub enum CancelQuoteSubscriptionNakReason {
     #[error("Quote not found: {detail:?}")]
     IndexQuoteNotFound { detail: String },
 
@@ -231,6 +280,40 @@ pub enum ServerResponse {
         address: Address,
         client_quote_id: ClientQuoteId,
         reason: ServerResponseReason<CancelIndexQuoteNakReason>,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("NewQuoteSubscriptionAck: ACK [{chain_id}:{address}] {symbol} {timestamp}")]
+    NewQuoteSubscriptionAck {
+        chain_id: u32,
+        address: Address,
+        symbol: Symbol,
+        timestamp: DateTime<Utc>,
+    },
+    #[error(
+        "NewQuoteSubscriptionNak: NAK [{chain_id}:{address}] {symbol} {timestamp}: {reason:?}"
+    )]
+    NewQuoteSubscriptionNak {
+        chain_id: u32,
+        address: Address,
+        symbol: Symbol,
+        reason: ServerResponseReason<NewQuoteSubscriptionNakReason>,
+        timestamp: DateTime<Utc>,
+    },
+    #[error("CancelQuoteSubscriptionAck: ACK [{chain_id}:{address}] {symbol} {timestamp}")]
+    CancelQuoteSubscriptionAck {
+        chain_id: u32,
+        address: Address,
+        symbol: Symbol,
+        timestamp: DateTime<Utc>,
+    },
+    #[error(
+        "CancelQuoteSubscriptionAck: NAK [{chain_id}:{address}] {symbol} {timestamp}: {reason:?}"
+    )]
+    CancelQuoteSubscriptionNak {
+        chain_id: u32,
+        address: Address,
+        symbol: Symbol,
+        reason: ServerResponseReason<CancelQuoteSubscriptionNakReason>,
         timestamp: DateTime<Utc>,
     },
 }
