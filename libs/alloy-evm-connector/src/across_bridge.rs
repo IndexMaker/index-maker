@@ -87,13 +87,13 @@ impl CollateralBridge for AcrossCollateralBridge {
         // Get designation details
         let source_designation = self.source.read().unwrap();
         let destination_designation = self.destination.read().unwrap();
-        
+
         // Use direct chain_operations.execute_command() instead of arbiter
         let command = ChainCommand::ExecuteCompleteAcrossDeposit {
             chain_id: source_designation.get_chain_id() as u32,
             recipient: address,
-            input_token: source_designation.get_input_token_address(),
-            output_token: destination_designation.get_output_token_address(),
+            input_token: source_designation.get_token_address(),
+            output_token: destination_designation.get_token_address(),
             deposit_amount: amount,
             origin_chain_id: source_designation.get_chain_id(),
             destination_chain_id: destination_designation.get_chain_id(),
@@ -101,9 +101,11 @@ impl CollateralBridge for AcrossCollateralBridge {
                 parity: 0,
                 x: B256::ZERO,
             },
+            // Pass the original cumulative fee from transfer_funds
+            cumulative_fee,
             callback: Arc::new(move |total_routed, fee_deducted| {
                 let timestamp = Utc::now();
-                let fee = safe!(cumulative_fee + fee_deducted).ok_or_eyre("Math problem")?;
+                // Callback receives the original routing amounts passed through from chain operation
                 observer
                     .read()
                     .publish_single(CollateralRouterEvent::HopComplete {
@@ -115,8 +117,8 @@ impl CollateralBridge for AcrossCollateralBridge {
                         destination: destination.clone(),
                         route_from: route_from.clone(),
                         route_to: route_to.clone(),
-                        amount: total_routed,
-                        fee,
+                        amount: total_routed, // Now receives original_amount from chain operation
+                        fee: fee_deducted, // Now receives original_cumulative_fee from chain operation
                     });
                 Ok(())
             }),

@@ -33,15 +33,11 @@ async fn main() {
     let arbitrum_usdc = Arc::new(ComponentLock::new(
         EvmCollateralDesignation::arbitrum_usdc(
             USDC_ARBITRUM_ADDRESS,
-            USDC_ARBITRUM_ADDRESS,
-            USDC_BASE_ADDRESS,
         )
     ));
 
     let base_usdc = Arc::new(ComponentLock::new(
         EvmCollateralDesignation::base_usdc(
-            USDC_BASE_ADDRESS,
-            USDC_ARBITRUM_ADDRESS,
             USDC_BASE_ADDRESS,
         )
     ));
@@ -55,8 +51,6 @@ async fn main() {
     let base_usdc_2 = Arc::new(ComponentLock::new(
         EvmCollateralDesignation::base_usdc(
             address!("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"), // Different address for demo
-            USDC_BASE_ADDRESS,
-            USDC_BASE_ADDRESS,
         )
     ));
 

@@ -158,18 +158,17 @@ impl ChainOperation {
                 from,
                 to,
                 amount,
+                cumulative_fee,
                 callback,
                 ..
             } => {
                 tracing::info!("Executing ERC20 transfer: {} tokens from {:?} to {:?}", amount, from, to);
                 
-                // TODO: Implement actual ERC20 transfer logic here
-                // For now, simulate successful transfer
-                let transferred_amount = amount;
-                let fee = rust_decimal::dec!(0.0); // No fee for simple ERC20 transfer
+                // Pass the original routing amounts from transfer_funds to the callback
+                tracing::info!("Using original routing amounts - amount: {}, fee: {}", amount, cumulative_fee);
                 
-                // Call the callback to publish the event
-                if let Err(e) = callback(transferred_amount, fee) {
+                // Call the callback with the original amounts from the routing system
+                if let Err(e) = callback(amount, cumulative_fee) {
                     tracing::error!("Error in ERC20 transfer callback: {}", e);
                 }
                 
@@ -231,6 +230,7 @@ impl ChainOperation {
                 origin_chain_id,
                 destination_chain_id,
                 party: _,
+                cumulative_fee,
                 callback,
                 ..
             } => {
@@ -259,12 +259,10 @@ impl ChainOperation {
                                 chain_id
                             );
                             
-                            // For now, using the deposit amount as total routed and minimal fee
-                            // In a real implementation, these would come from the actual transaction results
-                            let total_routed = deposit_amount;
-                            let fee_deducted = Amount::from_str("0.1").unwrap_or(Amount::ZERO); // Minimal fee for demo
+                            // Pass the original routing amounts from transfer_funds to the callback
+                            tracing::info!("Using original routing amounts - amount: {}, fee: {}", deposit_amount, cumulative_fee);
                             
-                            callback(total_routed, fee_deducted).map_err(|err| {
+                            callback(deposit_amount, cumulative_fee).map_err(|err| {
                                 eyre::eyre!(
                                     "ExecuteCompleteAcrossDeposit callback failed {:?}",
                                     err

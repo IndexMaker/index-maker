@@ -80,17 +80,20 @@ impl CollateralBridge for Erc20CollateralBridge {
 
         // Get designation details
         let source_designation = self.source.read().unwrap();
+        let destination_designation = self.destination.read().unwrap();
         
         // Use direct chain_operations.execute_command() for simple ERC20 transfer
         let command = ChainCommand::Erc20Transfer {
             chain_id: source_designation.get_chain_id() as u32,
             token_address: source_designation.get_token_address(),
-            from: address, // Assuming 'from' is the same as address for now
-            to: address,   // For simplicity, using same address - should be adjusted based on use case
+            from: source_designation.get_token_address(),
+            to: destination_designation.get_token_address(),
             amount,
+            // Pass the original cumulative fee from transfer_funds
+            cumulative_fee,
             callback: Arc::new(move |total_transferred, fee_deducted| {
                 let timestamp = Utc::now();
-                let fee = safe!(cumulative_fee + fee_deducted).ok_or_eyre("Math problem")?;
+                // Callback receives the original routing amounts passed through from chain operation
                 observer
                     .read()
                     .publish_single(CollateralRouterEvent::HopComplete {
@@ -102,8 +105,8 @@ impl CollateralBridge for Erc20CollateralBridge {
                         destination: destination.clone(),
                         route_from: route_from.clone(),
                         route_to: route_to.clone(),
-                        amount: total_transferred,
-                        fee,
+                        amount: total_transferred, // Now receives original_amount from chain operation
+                        fee: fee_deducted,         // Now receives original_cumulative_fee from chain operation
                     });
                 Ok(())
             }),

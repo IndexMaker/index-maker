@@ -21,6 +21,8 @@ pub enum ChainCommand {
         from: Address,
         to: Address,
         amount: Amount,
+        /// Original cumulative fee from transfer_funds
+        cumulative_fee: Amount,
         callback: Arc<dyn Fn(Amount, Amount) -> eyre::Result<()> + Send + Sync>,
     },
     /// Mint index tokens
@@ -57,6 +59,8 @@ pub enum ChainCommand {
         origin_chain_id: u64,
         destination_chain_id: u64,
         party: Party,
+        /// Original cumulative fee from transfer_funds
+        cumulative_fee: Amount,
         callback: Arc<dyn Fn(Amount, Amount) -> eyre::Result<()> + Send + Sync>,
     },
 }

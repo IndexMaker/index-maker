@@ -31,19 +31,15 @@ async fn main() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     tracing::info!("EvmConnector and chains initialized");
 
-    // Create designations with all required details
+    // Create designations with simplified factory methods
     let source = Arc::new(ComponentLock::new(
         EvmCollateralDesignation::arbitrum_usdc(
             USDC_ARBITRUM_ADDRESS,
-            USDC_ARBITRUM_ADDRESS,
-            USDC_BASE_ADDRESS,
         )
     ));
 
     let destination = Arc::new(ComponentLock::new(
         EvmCollateralDesignation::base_usdc(
-            USDC_BASE_ADDRESS,
-            USDC_ARBITRUM_ADDRESS,
             USDC_BASE_ADDRESS,
         )
     ));
