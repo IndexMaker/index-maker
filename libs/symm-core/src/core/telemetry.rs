@@ -8,7 +8,7 @@ use std::any::type_name;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tracing::{span, Level, Span};
+use tracing::{span, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 const KNOWN_KEYS: &[&str] = &[
@@ -134,11 +134,6 @@ where
     }
 
     pub fn with_tracing<R>(self, f: impl FnOnce(T) -> R) -> R {
-        let baggage = extract_baggage(&self.tracing_data);
-
-        let (notification, context) = self.take();
-        let _guard = context.attach();
-
         let s = span!(
             Level::INFO,
             "traceable-event",
@@ -153,11 +148,18 @@ where
             lot_id = tracing::field::Empty,
         );
 
+        let baggage = extract_baggage(&self.tracing_data);
+
         for (k, v) in baggage {
             s.record(k.as_str(), v);
         }
 
-        s.in_scope(|| f(notification))
+        s.in_scope(|| {
+            let (notification, context) = self.take();
+            let _guard = context.attach();
+
+            f(notification)
+        })
     }
 
     pub fn inject_baggage(&mut self) {

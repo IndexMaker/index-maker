@@ -7,7 +7,12 @@ services:
     ports:
        - "3000:3000"
 
-    command: ["./index-maker", "-b", "0.0.0.0:3000", "-c", "configs", "--otlp-trace-url", "http://otel-collector:4318/v1/traces", "quote-server"]
+    command: ["./index-maker", 
+              "-b", "0.0.0.0:3000",
+              "-c", "configs", 
+              "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
+              "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
+              "quote-server"]
 
     environment:
       RUST_LOG: info,binance_sdk=off
