@@ -40,6 +40,14 @@ impl Session {
     }
 
     pub fn send_response(&self, response: String) -> Result<()> {
+        if self.response_tx.is_closed() {
+            tracing::warn!(
+                target: "axum-fix-session",
+                json_data = %response,
+                message = "Cannot send to closed session");
+
+            Err(eyre!("Session is closed: {}", self.session_id))?;
+        }
         self.response_tx
             .send(response)
             .map_err(|err| eyre!("Error {:?}", err))
