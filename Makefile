@@ -59,6 +59,7 @@ build: \
 	build_docker_image
 
 prepare: \
+	clean \
 	save_docker_image \
 	docker_compose_yaml \
 	otel_collector_config_yaml \
@@ -113,8 +114,8 @@ build_service_sh: deploy_dir
 	cat $(TEMPLATES_DIR)/build-service.sh.template \
 	| sed -e "s/<IMAGE_VERSION>/$(IMAGE_VERSION)/g" \
 	| sed -e "s/<TAR_ARCHIVE_NAME>/$(TAR_ARCHIVE_NAME)/g" \
-	> $(DEPLOY_DIR)/build-service.sh
-	chmod a+x $(DEPLOY_DIR)/build-service.sh
+	> $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
+	chmod a+x $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
 
 stop_service_sh: deploy_dir
 	cat $(TEMPLATES_DIR)/stop-service.sh.template \
@@ -129,7 +130,7 @@ copy_to_remote: check_ssh_env
 	scp $(DEPLOY_DIR)/* $(SSH_USER)@index_maker:/home/$(SSH_USER)/$(REMOTE_DIR)
 
 run_build_service: check_ssh_env
-	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./build-service.sh"
+	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./build-service-$(IMAGE_VERSION).sh"
 
 run_stop_service: check_ssh_env
 	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./stop-service.sh"

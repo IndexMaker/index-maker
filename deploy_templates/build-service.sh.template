@@ -6,7 +6,7 @@ if [ -f ./stop-service.sh ]; then
 fi
 
 # Save *current* version of stop service script
-mv stop-service-<IMAGE_VERSION>.sh stop-service.sh
+cp stop-service-<IMAGE_VERSION>.sh stop-service.sh
 
 docker load -i <TAR_ARCHIVE_NAME> && \
 docker-compose -f docker-compose.prod-<IMAGE_VERSION>.yaml up -d --build

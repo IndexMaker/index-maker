@@ -1,7 +1,7 @@
 use core::time;
 use std::{
     sync::{Arc, RwLock as ComponentLock},
-    thread::{self, JoinHandle},
+    thread,
 };
 
 use crate::{
@@ -53,8 +53,7 @@ use symm_core::{
         order_tracker::OrderTrackerNotification,
     },
 };
-use tokio::{runtime::Runtime, sync::oneshot, task};
-use tracing::{span, Level};
+use tokio::sync::oneshot;
 
 pub trait ChainConnectorConfig {
     fn expect_chain_connector_cloned(&self)
@@ -376,9 +375,6 @@ impl SolverConfig {
         order_server.write().add_observer_from(server_order_tx);
 
         spawn(move || {
-            let orders_backend_span = span!(Level::INFO, "orders-backend");
-            let _guard = orders_backend_span.enter();
-
             tracing::info!("Backend started");
             loop {
                 select! {
@@ -534,9 +530,6 @@ impl SolverConfig {
         quote_server.write().add_observer_from(server_quote_tx);
 
         spawn(move || {
-            let quotes_backend_span = span!(Level::INFO, "quotes-backend");
-            let _guard = quotes_backend_span.enter();
-
             tracing::info!("Quotes started");
             loop {
                 select! {
@@ -663,9 +656,6 @@ impl SolverConfig {
             .ok_or_eyre("Failed to obtain index order event receiver")?;
 
         spawn(move || {
-            let solver_thread_span = span!(Level::INFO, "solver-thread");
-            let _guard = solver_thread_span.enter();
-
             tracing::info!("Solver started");
             loop {
                 select! {
@@ -789,7 +779,7 @@ impl SolverConfig {
         );
 
         spawn(move || {
-            tracing::info!("Solver started");
+            tracing::info!("Quotes Solver started");
             loop {
                 select! {
                     recv(stop_solver_rx) -> _ => {

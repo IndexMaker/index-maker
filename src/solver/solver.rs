@@ -24,7 +24,7 @@ use symm_core::{
     },
     order_sender::inventory_manager::{InventoryEvent, InventoryManager},
 };
-use tracing::{span, Level};
+use tracing::{span, Instrument, Level};
 
 use crate::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -474,9 +474,6 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        let solver_solve_span = span!(Level::TRACE, "solver-solve");
-        let _guard = solver_solve_span.enter();
-
         tracing::trace!("\n(solver) Begin solve");
 
         tracing::trace!("(solver) * Process collateral");
@@ -523,9 +520,6 @@ impl Solver {
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
-        let solver_solve_quotes_span = span!(Level::TRACE, "solver-solve-quotes");
-        let _guard = solver_solve_quotes_span.enter();
-
         tracing::trace!("\n(solver) Begin solve quotes");
 
         if let Err(err) = self.process_more_quotes(timestamp) {
@@ -914,7 +908,6 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, notification: QuoteRequestEvent) -> Result<()> {
-        tracing::info!("(solver) Handle Quote Request");
         match notification {
             QuoteRequestEvent::NewQuoteRequest {
                 chain_id,
@@ -924,24 +917,41 @@ impl Solver {
                 side,
                 collateral_amount,
                 timestamp,
-            } => self.client_quotes.write().add_client_quote(
-                chain_id,
-                address,
-                client_quote_id,
-                symbol,
-                side,
-                collateral_amount,
-                timestamp,
-            ),
+            } => {
+                tracing::info!(
+                    %chain_id,
+                    %address,
+                    %client_quote_id,
+                    message = "Handle New Quote Request"
+                );
+                self.client_quotes.write().add_client_quote(
+                    chain_id,
+                    address,
+                    client_quote_id,
+                    symbol,
+                    side,
+                    collateral_amount,
+                    timestamp,
+                )
+            }
             QuoteRequestEvent::CancelQuoteRequest {
                 chain_id,
                 address,
                 client_quote_id,
                 timestamp: _,
-            } => self
-                .client_quotes
-                .write()
-                .cancel_client_quote(chain_id, address, client_quote_id),
+            } => {
+                tracing::info!(
+                    %chain_id,
+                    %address,
+                    %client_quote_id,
+                    message = "Handle Cancel Quote Request"
+                );
+                self.client_quotes.write().cancel_client_quote(
+                    chain_id,
+                    address,
+                    client_quote_id,
+                )
+            }
         }
     }
 

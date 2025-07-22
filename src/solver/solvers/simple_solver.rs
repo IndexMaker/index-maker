@@ -9,6 +9,7 @@ use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
+use serde_json::json;
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
     decimal_ext::DecimalExt,
@@ -268,13 +269,11 @@ impl SimpleSolver {
 
         let prices_len = get_prices.prices.len();
 
-        tracing::event!(
-            target: "asset-prices",
-            Level::INFO,
-            prices = format!("ticker,price\n{}", get_prices.prices.iter()
-                .map(|(k, v)| format!("{}, {}", k, v))
-                .join("\n")),
-            message = "Current asset prices"
+        tracing::info!(
+            price_map = %json!(
+                get_prices.prices.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            message = "Asset Prices"
         );
 
         let price_limits: HashMap<_, _> = get_prices
@@ -287,14 +286,12 @@ impl SimpleSolver {
             Err(eyre!("Math Problem: Failed to compute price limits"))?;
         }
 
-        tracing::event!(
-            target: "asset-price-limits",
-            Level::INFO,
-            price_factor = format!("{}", price_factor),
-            price_limits = format!("ticker,price\n{}", price_limits.iter()
-                .map(|(k, v)| format!("{}, {}", k, v))
-                .join("\n")),
-            message = "Asset price limits"
+        tracing::info!(
+            price_factor = %price_factor,
+            price_limit_map = %json!(
+                price_limits.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            message = "Asset Price Limits"
         );
 
         Ok((price_limits, get_prices.missing_symbols))
@@ -327,15 +324,13 @@ impl SimpleSolver {
                 );
             }
         }
-        tracing::event!(
-            target: "index-price",
-            Level::INFO,
-            index_symbol = format!("{}", index_symbol),
-            index_price = format!("{}", index_price),
-            basket_assets = format!("ticker, quantity, price, volley\n{}", basket_assets.into_iter()
-                .map(|(t, p, q, v)| format!("{}, {}, {}, {}", t, q, p, v))
-                .join("\n ")),
-            message = "Index price limit"
+        tracing::info!(
+            %index_symbol,
+            %index_price,
+            basket_map = %json!(
+                basket_assets.into_iter().map(|(t, p, q, v)| (t, [p, q, v])).collect::<HashMap<_, _>>()
+            ),
+            message = "Index Price Limit"
         );
     }
 
