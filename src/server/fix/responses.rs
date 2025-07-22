@@ -84,6 +84,7 @@ impl AxumServerResponse for FixResponse {
         let json_str =
             serde_json::to_string(self).map_err(|e| eyre!("Failed to serialize message: {}", e))?;
         tracing::info!(
+            json_data = %json_str,
             "FIX server response sent to {}: {}",
             self.session_id,
             self.standard_header.msg_type
