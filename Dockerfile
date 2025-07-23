@@ -31,8 +31,9 @@ ENV RUSTC_WRAPPER=ccache
 # Set the maximum size of the cache (e.g., 5GB)
 ENV CCACHE_MAXSIZE=5G 
 
-# Copy Cargo.toml and Cargo.lock first to leverage Docker cache
-# This ensures dependencies are only recompiled if Cargo.toml/Cargo.lock change
+RUN mkdir -p ${CCACHE_DIR}
+
+# Copy codebase
 COPY . .
 
 # Build the final release binary for the musl target

@@ -159,9 +159,6 @@ where
             let incoming_message = match result {
                 Some(incoming_message) => incoming_message,
                 None => {
-                    if let Err(err) = server_state.write().close_session(session_id) {
-                        tracing::warn!("Failed to close session: {:?}", err);
-                    }
                     break;
                 }
             };
@@ -186,6 +183,10 @@ where
                     }
                 }
             }
+        }
+
+        if let Err(err) = server_state.write().close_session(session_id) {
+            tracing::warn!("Failed to close session: {:?}", err);
         }
     })
 }

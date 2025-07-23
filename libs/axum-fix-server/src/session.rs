@@ -47,6 +47,7 @@ impl Session {
                 message = "Cannot send to closed session");
 
             Err(eyre!("Session is closed: {}", self.session_id))?;
+            self.will_stop();
         }
         self.response_tx
             .send(response)
