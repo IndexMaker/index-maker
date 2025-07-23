@@ -20,6 +20,8 @@ REMOTE_DIR?=staging
 DOCKER_IMAGE_NAME=$(IMAGE_NAME):$(IMAGE_VERSION)
 TAR_ARCHIVE_NAME=$(IMAGE_NAME)-$(IMAGE_VERSION).tar
 
+DOCKER_BUILD_FLAGS?=
+
 
 .PHONY: \
 	check_ssh_env \
@@ -100,7 +102,7 @@ deploy_dir: check_image_version_env
 	mkdir -p $(DEPLOY_DIR)
 
 build_docker_image: check_image_version_env
-	docker buildx build --platform linux/amd64 -t $(DOCKER_IMAGE_NAME) .
+	docker buildx build $(DOCKER_BUILD_FLAGS) --platform linux/amd64 -t $(DOCKER_IMAGE_NAME) .
 
 save_docker_image: deploy_dir
 	docker save -o $(DEPLOY_DIR)/$(TAR_ARCHIVE_NAME) $(DOCKER_IMAGE_NAME)
