@@ -11,7 +11,6 @@
 # 
 #
 
-IMAGE_VERSION?=latest
 IMAGE_NAME?=index-maker-quote-server
 
 TEMPLATES_DIR?=deploy_templates
@@ -24,6 +23,7 @@ TAR_ARCHIVE_NAME=$(IMAGE_NAME)-$(IMAGE_VERSION).tar
 
 .PHONY: \
 	check_ssh_env \
+	check_image_version_env \
 	check_elastic_env \
 	build_docker_image \
 	save_docker_image \
@@ -53,6 +53,7 @@ all: \
 
 check_env: \
 	check_ssh_env \
+	check_image_version_env \
 	check_elastic_env
 
 build: \
@@ -79,11 +80,14 @@ purge: clean
 	docker image rm $(DOCKER_IMAGE_NAME)
 
 
-
-
 check_ssh_env:
 ifndef SSH_USER
 	$(error SSH_USER is undefined)
+endif
+
+check_image_version_env:
+ifndef IMAGE_VERSION
+	$(error IMAGE_VERSION is undefined)
 endif
 
 check_elastic_env:
@@ -91,16 +95,17 @@ ifndef ELASTIC_API_KEY
 	$(error ELASTIC_API_KEY is undefined)
 endif
 
-deploy_dir:
+
+deploy_dir: check_image_version_env
 	mkdir -p $(DEPLOY_DIR)
 
-build_docker_image:
+build_docker_image: check_image_version_env
 	docker buildx build --platform linux/amd64 -t $(DOCKER_IMAGE_NAME) .
 
 save_docker_image: deploy_dir
 	docker save -o $(DEPLOY_DIR)/$(TAR_ARCHIVE_NAME) $(DOCKER_IMAGE_NAME)
 
-docker_compose_yaml:
+docker_compose_yaml: deploy_dir
 	cat $(TEMPLATES_DIR)/docker-compose.prod.yaml.template \
 	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
 	> $(DEPLOY_DIR)/docker-compose.prod-$(IMAGE_VERSION).yaml
@@ -123,14 +128,14 @@ stop_service_sh: deploy_dir
 	> $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
 	chmod a+x $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
 
-dockerfile_oltp:
+dockerfile_oltp: deploy_dir
 	cp $(TEMPLATES_DIR)/Dockerfile.otlp.prod $(DEPLOY_DIR)
 
-copy_to_remote: check_ssh_env
+copy_to_remote: check_ssh_env deploy_dir
 	scp $(DEPLOY_DIR)/* $(SSH_USER)@index_maker:/home/$(SSH_USER)/$(REMOTE_DIR)
 
-run_build_service: check_ssh_env
+run_build_service: check_ssh_env check_image_version_env
 	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./build-service-$(IMAGE_VERSION).sh"
 
-run_stop_service: check_ssh_env
+run_stop_service: check_ssh_env check_image_version_env
 	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./stop-service.sh"
