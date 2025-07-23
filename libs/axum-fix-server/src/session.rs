@@ -1,15 +1,16 @@
-use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use eyre::{eyre, Result};
-use parking_lot::RwLock;
+use futures_util::pin_mut;
 use tokio::{
     select,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    time::{interval_at, sleep, Instant, MissedTickBehavior},
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::{messages::SessionId, server_plugin::ServerPlugin, server_state::ServerState};
+use crate::messages::SessionId;
 
 /// Session
 ///
@@ -68,10 +69,35 @@ impl Session {
         ws: &mut WebSocket,
         receiver: &mut UnboundedReceiver<String>,
     ) -> Result<Option<String>> {
+        let mut ping_interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
+        ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        
+        let mut waiting_pong = false;
+        let pong_timeout = Duration::from_secs(10);
+        let inactivity_timeout = sleep(pong_timeout);
+        pin_mut!(inactivity_timeout);
+        
         loop {
             select! {
                 _ = cancel_token.cancelled() => {
-                    break
+            tracing::info!("Session {} cancelled", session_id);
+                    break;
+                },
+                _ = ping_interval.tick() => {
+                    if let Err(err) = ws.send(Message::Ping(vec![])).await {
+                        tracing::warn!("Failed to send ping to session {}: {}", session_id, err);
+                        break;
+                    }
+                    tracing::debug!("Sent ping to session {}", session_id);
+                    // Reset inactivity timeout after sending ping
+                    waiting_pong = true;
+                    inactivity_timeout.as_mut().reset(Instant::now() + pong_timeout);
+                },
+                _ = &mut inactivity_timeout => {
+                    if waiting_pong {
+                        tracing::warn!("No activity from session {} within timeout, closing", session_id);
+                        break;
+                    }
                 },
                 res = ws.recv() => {
                     match res {
@@ -79,6 +105,11 @@ impl Session {
                             if let Message::Text(text) = message {
                                 return Ok(Some(text.to_string()));
                             }
+                            if let Message::Pong(_) = message {
+                                tracing::debug!("Received pong from session {}", session_id);
+                            }
+                            waiting_pong = false;
+                            ping_interval.reset();
                         }
                         Some(Err(err)) => {
                             return Err(eyre!("WebSocket error: {:?}", err));
