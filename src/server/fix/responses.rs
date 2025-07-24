@@ -40,11 +40,7 @@ impl FixResponse {
         }
     }
 
-    pub fn create_ack(
-        user_id: &(u32, Address),
-        session_id: &SessionId,
-        seq_num: u32,
-    ) -> Self {
+    pub fn create_ack(user_id: &(u32, Address), session_id: &SessionId, seq_num: u32) -> Self {
         FixResponse {
             session_id: session_id.clone(),
             standard_header: FixHeader::new("ACK".to_string()),
@@ -101,11 +97,7 @@ impl AxumServerResponse for FixResponse {
         FixResponse::create_nak(user_id, session_id, ref_seq_num, error_msg)
     }
 
-    fn format_ack(
-        user_id: &(u32, Address),
-        session_id: &SessionId,
-        ref_seq_num: u32,
-    ) -> Self {
+    fn format_ack(user_id: &(u32, Address), session_id: &SessionId, ref_seq_num: u32) -> Self {
         FixResponse::create_ack(user_id, session_id, ref_seq_num)
     }
 }

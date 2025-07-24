@@ -1,4 +1,4 @@
-use std::{fs, path::Path, sync::Arc, collections::HashSet};
+use std::{collections::HashSet, fs, path::Path, sync::Arc};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;

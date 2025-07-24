@@ -89,7 +89,8 @@ impl ServerPlugin {
                         || side == "BUY"
                         || side == "bid"
                         || side == "Bid"
-                        || side == "BID" {
+                        || side == "BID"
+                    {
                         Side::Buy
                     } else if side == "2"
                         || side == "s"
@@ -99,12 +100,12 @@ impl ServerPlugin {
                         || side == "SELL"
                         || side == "ask"
                         || side == "Ask"
-                        || side == "ASK" {
+                        || side == "ASK"
+                    {
                         Side::Sell
                     } else {
                         return Err(eyre!("Invalid side value"));
-                    }
-                    ;
+                    };
                     let collateral_amount = amount
                         .parse()
                         .ok()
@@ -163,7 +164,8 @@ impl ServerPlugin {
                         || side == "BUY"
                         || side == "bid"
                         || side == "Bid"
-                        || side == "BID" {
+                        || side == "BID"
+                    {
                         Side::Buy
                     } else if side == "2"
                         || side == "s"
@@ -173,7 +175,8 @@ impl ServerPlugin {
                         || side == "SELL"
                         || side == "ask"
                         || side == "Ask"
-                        || side == "ASK" {
+                        || side == "ASK"
+                    {
                         Side::Sell
                     } else {
                         return Err(eyre!("Invalid side value"));

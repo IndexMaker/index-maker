@@ -48,19 +48,19 @@ pub enum InventoryEvent {
     CloseLot {
         #[baggage]
         original_order_id: OrderId,
-        
+
         #[baggage]
         original_batch_order_id: BatchOrderId,
-        
+
         #[baggage]
         original_lot_id: LotId,
-        
+
         #[baggage]
         closing_order_id: OrderId,
-        
+
         #[baggage]
         closing_batch_order_id: BatchOrderId,
-        
+
         #[baggage]
         closing_lot_id: LotId,
 
@@ -80,7 +80,7 @@ pub enum InventoryEvent {
     Cancel {
         #[baggage]
         order_id: OrderId,
-        
+
         #[baggage]
         batch_order_id: BatchOrderId,
 

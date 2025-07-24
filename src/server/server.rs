@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use thiserror::Error;
 
-use symm_core::core::telemetry::{TracingData, WithBaggage};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
@@ -20,10 +20,10 @@ pub enum ServerEvent {
     NewIndexOrder {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_order_id: ClientOrderId,
 
@@ -35,10 +35,10 @@ pub enum ServerEvent {
     CancelIndexOrder {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_order_id: ClientOrderId,
 
@@ -49,10 +49,10 @@ pub enum ServerEvent {
     NewQuoteRequest {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_quote_id: ClientQuoteId,
 
@@ -64,10 +64,10 @@ pub enum ServerEvent {
     CancelQuoteRequest {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_quote_id: ClientQuoteId,
 
@@ -85,7 +85,7 @@ pub enum NewIndexOrderNakReason {
 
     #[error("Invalid symbol: {detail:?}")]
     InvalidSymbol { detail: String },
-    
+
     #[error("Other reason: {detail:?}")]
     OtherReason { detail: String },
 }

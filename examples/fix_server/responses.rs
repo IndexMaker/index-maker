@@ -42,19 +42,13 @@ impl Response {
         }
     }
 
-    pub fn create_ack(
-        user_id: &(u32, Address),
-        session_id: &SessionId,
-        seq_num: u32,
-    ) -> Self {
+    pub fn create_ack(user_id: &(u32, Address), session_id: &SessionId, seq_num: u32) -> Self {
         Response {
             session_id: session_id.clone(),
             standard_header: FixHeader::new("ACK".to_string()),
             chain_id: user_id.0,
             address: user_id.1,
-            body: Body::ACKBody {
-                RefSeqNum: seq_num,
-            },
+            body: Body::ACKBody { RefSeqNum: seq_num },
             standard_trailer: FixTrailer::new(),
         }
     }
@@ -96,12 +90,8 @@ impl AxumServerResponse for Response {
     ) -> Self {
         Response::create_nak(user_id, session_id, ref_seq_num, error_msg)
     }
-    
-    fn format_ack(
-        user_id: &(u32, Address),
-        session_id: &SessionId,
-        ref_seq_num: u32,
-    ) -> Self {
+
+    fn format_ack(user_id: &(u32, Address), session_id: &SessionId, ref_seq_num: u32) -> Self {
         Response::create_ack(user_id, session_id, ref_seq_num)
     }
 }

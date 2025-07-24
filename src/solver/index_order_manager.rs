@@ -10,7 +10,7 @@ use safe_math::safe;
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
-use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
+use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use crate::{
     server::server::{

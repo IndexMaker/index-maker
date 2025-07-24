@@ -9,9 +9,9 @@ use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
-use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
@@ -31,10 +31,10 @@ pub enum CollateralEvent {
     CollateralReady {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_order_id: ClientOrderId,
 
@@ -59,13 +59,13 @@ pub enum CollateralEvent {
     ConfirmResponse {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_order_id: ClientOrderId,
-        
+
         #[baggage]
         payment_id: PaymentId,
 

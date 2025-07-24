@@ -99,7 +99,6 @@ pub enum RequestBody {
     CustodyToAccountBody,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum ResponseBody {

@@ -19,7 +19,6 @@ pub fn derive_with_baggage(input: TokenStream) -> TokenStream {
     // Generate the implementation of the `WithBaggage` trait.
     let expanded = match &input.data {
         Data::Enum(data_enum) => {
-            
             // Iterate over each variant of the enum.
             let match_arms = data_enum.variants.iter().map(|variant| {
                 let variant_name = &variant.ident;
@@ -31,7 +30,7 @@ pub fn derive_with_baggage(input: TokenStream) -> TokenStream {
                     // We only support named fields
                     Fields::Named(fields) => {
                         for field in &fields.named {
-                            
+
                             // Get field name and its attributes
                             let field_name = field.ident.as_ref().unwrap();
                             let has_baggage_attr = field.attrs.iter().any(|attr| attr.path().is_ident("baggage"));

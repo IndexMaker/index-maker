@@ -133,7 +133,7 @@ macro_rules! init_log {
             None,
             false,
             None,
-            None
+            None,
         );
     };
     ($log_path:expr) => {
@@ -142,7 +142,7 @@ macro_rules! init_log {
             $log_path,
             false,
             None,
-            None
+            None,
         );
     };
     ($disable_terminal_log:expr) => {
@@ -151,7 +151,7 @@ macro_rules! init_log {
             None,
             $disable_terminal_log,
             None,
-            None
+            None,
         );
     };
     ($log_path:expr, $disable_terminal_log:expr) => {
@@ -160,7 +160,7 @@ macro_rules! init_log {
             $log_path,
             $disable_terminal_log,
             None,
-            None
+            None,
         );
     };
     ($log_path:expr, $disable_terminal_log:expr, $otlp_trace_url:expr, $otlp_log_url:expr) => {
