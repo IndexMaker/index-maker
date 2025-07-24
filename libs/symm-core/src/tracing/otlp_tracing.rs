@@ -20,7 +20,7 @@ pub fn create_otlp_trace_layer(url: String) -> eyre::Result<SdkTracer> {
         .with_timeout(Duration::from_secs(3))
         .build()?;
 
-    let mut span_processor = DeferSpanProcessor::new();
+    let mut span_processor = DeferSpanProcessor::new(512);
     span_processor
         .start(otlp_trace_exporter)
         .expect("Failed to start defer span processor");

@@ -1,25 +1,33 @@
 use std::fmt;
 
 use eyre::{eyre, OptionExt};
+use itertools::Itertools;
 use opentelemetry::InstrumentationScope;
 use opentelemetry_sdk::logs::{LogBatch, LogExporter, LogProcessor, SdkLogRecord};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::core::async_loop::AsyncLoop;
 
+enum DeferLogEvent {
+    Emit(Box<(SdkLogRecord, InstrumentationScope)>),
+    ForceFlush,
+}
+
 pub struct DeferLogProcessor {
     otlp_loop: AsyncLoop<()>,
-    record_tx: UnboundedSender<(SdkLogRecord, InstrumentationScope)>,
-    record_rx: Option<UnboundedReceiver<(SdkLogRecord, InstrumentationScope)>>,
+    record_tx: UnboundedSender<DeferLogEvent>,
+    record_rx: Option<UnboundedReceiver<DeferLogEvent>>,
+    batch_size: usize,
 }
 
 impl DeferLogProcessor {
-    pub fn new() -> Self {
+    pub fn new(batch_size: usize) -> Self {
         let (tx, rx) = unbounded_channel();
         Self {
             otlp_loop: AsyncLoop::new(),
             record_tx: tx,
             record_rx: Some(rx),
+            batch_size,
         }
     }
 
@@ -29,16 +37,37 @@ impl DeferLogProcessor {
             .take()
             .ok_or_eyre("Cannot start defer log processor")?;
 
+        let batch_size = self.batch_size;
+
         self.otlp_loop.start(async move |cancel_token| {
+            let mut cache = Vec::new();
+
+            let flush = async |cache: &mut Vec<_>| {
+                let buf = cache
+                    .iter()
+                    .map(|x: &Box<(SdkLogRecord, InstrumentationScope)>| (&x.0, &x.1))
+                    .collect_vec();
+                let _ = exporter.export(LogBatch::new(&buf)).await;
+                cache.clear();
+            };
+
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
-                    Some((ref record, ref instrumentation)) = record_rx.recv() => {
-                        let log_tuple = &[(record, instrumentation)];
-                        let result = exporter.export(LogBatch::new(log_tuple)).await;
-                        result.expect("Failed to export log message");
+                    Some(event) = record_rx.recv() => {
+                        match event {
+                            DeferLogEvent::Emit(boxed) => {
+                                cache.push(boxed);
+                                if cache.len() == batch_size {
+                                    flush(&mut cache).await;
+                                }
+                            },
+                            DeferLogEvent::ForceFlush => {
+                                flush(&mut cache).await;
+                            }
+                        }
                     }
                 }
             }
@@ -59,13 +88,14 @@ impl LogProcessor for DeferLogProcessor {
         record: &mut opentelemetry_sdk::logs::SdkLogRecord,
         instrumentation: &opentelemetry::InstrumentationScope,
     ) {
-        let val = (record.clone(), instrumentation.clone());
-        self.record_tx
-            .send(val)
-            .expect("Failed to send oltp record");
+        let _ = self.record_tx.send(DeferLogEvent::Emit(Box::new((
+            record.clone(),
+            instrumentation.clone(),
+        ))));
     }
 
     fn force_flush(&self) -> opentelemetry_sdk::error::OTelSdkResult {
+        let _ = self.record_tx.send(DeferLogEvent::ForceFlush);
         Ok(())
     }
 

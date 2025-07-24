@@ -19,7 +19,7 @@ pub fn create_otlp_log_layer(url: String) -> eyre::Result<SdkLoggerProvider> {
         .with_timeout(Duration::from_secs(3))
         .build()?;
 
-    let mut log_processor = DeferLogProcessor::new();
+    let mut log_processor = DeferLogProcessor::new(512);
     log_processor
         .start(otlp_log_exporter)
         .expect("Failed to start defer log processor");

@@ -1,24 +1,32 @@
 use std::fmt;
 
 use eyre::{eyre, OptionExt};
+use itertools::Itertools;
 use opentelemetry_sdk::trace::{SpanData, SpanExporter, SpanProcessor};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::core::async_loop::AsyncLoop;
 
+enum DeferSpanEvent {
+    SpanEnded(SpanData),
+    ForceFlush
+}
+
 pub struct DeferSpanProcessor {
     otlp_loop: AsyncLoop<()>,
-    record_tx: UnboundedSender<SpanData>,
-    record_rx: Option<UnboundedReceiver<SpanData>>,
+    record_tx: UnboundedSender<DeferSpanEvent>,
+    record_rx: Option<UnboundedReceiver<DeferSpanEvent>>,
+    batch_size: usize,
 }
 
 impl DeferSpanProcessor {
-    pub fn new() -> Self {
+    pub fn new(batch_size: usize) -> Self {
         let (tx, rx) = unbounded_channel();
         Self {
             otlp_loop: AsyncLoop::new(),
             record_tx: tx,
             record_rx: Some(rx),
+            batch_size,
         }
     }
 
@@ -28,15 +36,27 @@ impl DeferSpanProcessor {
             .take()
             .ok_or_eyre("Cannot start defer log processor")?;
 
+        let batch_size = self.batch_size;
+
         self.otlp_loop.start(async move |cancel_token| {
+            let mut cache = Vec::new();
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
-                    Some(span) = record_rx.recv() => {
-                        let result = exporter.export(vec![span]).await;
-                        result.expect("Failed to export log message");
+                    Some(event) = record_rx.recv() => {
+                        match event {
+                            DeferSpanEvent::SpanEnded(span) => {
+                                cache.push(span);
+                                if cache.len() == batch_size {
+                                    let _ = exporter.export(cache.drain(..).collect_vec()).await;
+                                }
+                            },
+                            DeferSpanEvent::ForceFlush => {
+                                let _ = exporter.export(cache.drain(..).collect_vec()).await;
+                            }
+                        }
                     }
                 }
             }
@@ -53,16 +73,15 @@ impl DeferSpanProcessor {
 
 impl SpanProcessor for DeferSpanProcessor {
     fn on_end(&self, span: SpanData) {
-        self.record_tx
-            .send(span)
-            .expect("Failed to send oltp record");
+        let _ = self.record_tx.send(DeferSpanEvent::SpanEnded(span));
     }
 
     fn force_flush(&self) -> opentelemetry_sdk::error::OTelSdkResult {
+        let _ = self.record_tx.send(DeferSpanEvent::ForceFlush);
         Ok(())
     }
 
-    fn on_start(&self, span: &mut opentelemetry_sdk::trace::Span, cx: &opentelemetry::Context) {
+    fn on_start(&self, _span: &mut opentelemetry_sdk::trace::Span, _cx: &opentelemetry::Context) {
         // Ignored
     }
 
@@ -73,7 +92,7 @@ impl SpanProcessor for DeferSpanProcessor {
 
     fn shutdown_with_timeout(
         &self,
-        timeout: std::time::Duration,
+        _timeout: std::time::Duration,
     ) -> opentelemetry_sdk::error::OTelSdkResult {
         self.otlp_loop.signal_stop();
         Ok(())
