@@ -12,7 +12,8 @@ services:
               "-c", "configs", 
               "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
               "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
-              "quote-server"]
+              "fix-server",
+              "20"]
 
     environment:
       RUST_LOG: info,binance_sdk=off

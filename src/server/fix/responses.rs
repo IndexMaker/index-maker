@@ -76,14 +76,14 @@ impl AxumServerResponse for FixResponse {
     }
 
     fn serialize_into_fix(&self) -> Result<FixMessage> {
-        // Serialize the response to JSON
         let json_str =
             serde_json::to_string(self).map_err(|e| eyre!("Failed to serialize message: {}", e))?;
+
         tracing::info!(
+            session_id = %self.session_id,
+            msg_type = %self.standard_header.msg_type,
             json_data = %json_str,
-            "FIX server response sent to {}: {}",
-            self.session_id,
-            self.standard_header.msg_type
+            "FIX server response sent",
         );
         Ok(FixMessage(json_str.to_owned()))
     }

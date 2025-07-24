@@ -13,7 +13,7 @@ use index_maker::{
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
-        simple_server::SimpleServerConfig,
+        simple_server::{SimpleServer, SimpleServerConfig},
         simple_solver::SimpleSolverConfig,
         solver::{
             ChainConnectorConfig, OrderIdProviderConfig, ServerConfig, SolverConfig,
@@ -22,7 +22,7 @@ use index_maker::{
         timestamp_ids::TimestampOrderIdsConfig,
     },
     blockchain::chain_connector::ChainNotification,
-    server::server::{Server, ServerEvent},
+    server::server::ServerEvent,
 };
 use itertools::Itertools;
 use parking_lot::RwLock;
@@ -88,8 +88,8 @@ enum AppMode {
         side: Side,
         symbol: Symbol,
         collateral_amount: Amount,
-        simple_server_config: Arc<dyn ServerConfig + Send + Sync>,
-        simple_server: Arc<RwLock<dyn Server + Send + Sync>>,
+        simple_server_config: Arc<SimpleServerConfig>,
+        simple_server: Arc<RwLock<SimpleServer>>,
     },
     FixServer {
         collateral_amount: Amount,
@@ -111,7 +111,8 @@ impl AppMode {
                 let config = SimpleServerConfig::builder()
                     .build_arc()
                     .expect("Failed to build server");
-                let server = config.expect_server_cloned();
+
+                let server = config.expect_simple_server_cloned();
 
                 AppMode::SendOrder {
                     side: *side,
@@ -448,7 +449,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             simple_server
                 .write()
-                .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+                .notify_server_event(&Arc::new(ServerEvent::NewIndexOrder {
                     chain_id: 1,
                     address: get_mock_address_1(),
                     client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),

@@ -247,6 +247,9 @@ impl CollateralRouter {
             .ok_or_eyre("Route not found")?;
 
         tracing::info!(
+            %source,
+            %route_from,
+            %route_to,
             "(collateral-router) Found route: {}",
             route.iter().join(", ")
         );
@@ -285,16 +288,10 @@ impl CollateralRouter {
                 fee,
             } => {
                 if route_to.eq(&destination) {
-                    tracing::info!(
-                        "(collateral-router) Route Complete for [{}:{}] {}: {} => {} {:0.5} {:0.5}",
-                        chain_id,
-                        address,
-                        client_order_id,
-                        route_from,
-                        route_to,
-                        amount,
-                        fee
-                    );
+                    tracing::info!(%chain_id, %address, %client_order_id, %route_from, %route_to,
+                        %amount, %fee,
+                        "Route Complete");
+
                     self.observer
                         .publish_single(CollateralTransferEvent::TransferComplete {
                             chain_id,
@@ -312,19 +309,15 @@ impl CollateralRouter {
                     let next_hop = next_hop
                         .write()
                         .map_err(|e| eyre!("Failed to access next hop {}", e))?;
-                    tracing::info!(
-                        "(collateral-router) Route Hop for [{}:{}] {}: ({}) {} .. [{}] => {} ({}) {:0.5} {:0.5}",
-                        chain_id,
-                        address,
-                        client_order_id,
-                        route_from,
-                        source,
-                        next_hop.get_source().read().map(|x| x.get_full_name()).unwrap_or_default(),
-                        next_hop.get_destination().read().map(|x| x.get_full_name()).unwrap_or_default(),
-                        route_to,
-                        amount,
-                        fee
-                    );
+
+                    tracing::info!(%chain_id, %address, %client_order_id, %route_from, %route_to,
+                        %source,
+                        next_source = %next_hop.get_source().read().map(|x| x.get_full_name()).unwrap_or_default(),
+                        next_destination = %next_hop.get_destination().read().map(|x| x.get_full_name()).unwrap_or_default(),
+                        %amount,
+                        %fee,
+                        "Route Hop");
+
                     next_hop.transfer_funds(
                         chain_id,
                         address,
