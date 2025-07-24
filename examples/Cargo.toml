@@ -70,3 +70,7 @@ path = "evm_connector/main_bridge.rs"
 [[example]]
 name = "test-generic-bridge"
 path = "evm_connector/test_generic_bridge.rs"
+
+[[example]]
+name = "test-erc20-transfer"
+path = "evm_connector/test_erc20_transfer.rs"

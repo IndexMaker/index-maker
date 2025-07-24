@@ -1,48 +1,50 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives::address;
+use alloy_evm_connector::across_deposit::{USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS};
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
-use alloy_evm_connector::across_deposit::{USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS};
 use index_core::collateral::collateral_router::{CollateralBridge, CollateralRouterEvent};
 use rust_decimal::dec;
 use symm_core::core::functional::{IntoObservableSingleFun, IntoObservableSingleVTable};
+use symm_core::{core::logging::log_init, init_log};
 use tokio::sync::watch;
-use symm_core::{init_log, core::logging::log_init};
 
 #[tokio::main]
 async fn main() {
     // Initialize logging to show in terminal
     init_log!();
-    
+
     // Create the EvmConnector first (new architecture)
     let mut connector = EvmConnector::new();
-    
+
     // Start the connector (this initializes the arbiter)
     tracing::info!("Starting EvmConnector...");
     connector.start().expect("Failed to start EvmConnector");
-    
+
     // Connect to chains
     tracing::info!("Connecting to Arbitrum and Base chains...");
-    connector.connect_arbitrum().await.expect("Failed to connect to Arbitrum");
-    connector.connect_base().await.expect("Failed to connect to Base");
-    
+    connector
+        .connect_arbitrum()
+        .await
+        .expect("Failed to connect to Arbitrum");
+    connector
+        .connect_base()
+        .await
+        .expect("Failed to connect to Base");
+
     // Give time for chain operations to be added
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     tracing::info!("EvmConnector and chains initialized");
 
     // Create designations with simplified factory methods
-    let source = Arc::new(ComponentLock::new(
-        EvmCollateralDesignation::arbitrum_usdc(
-            USDC_ARBITRUM_ADDRESS,
-        )
-    ));
+    let source = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
+        USDC_ARBITRUM_ADDRESS,
+    )));
 
-    let destination = Arc::new(ComponentLock::new(
-        EvmCollateralDesignation::base_usdc(
-            USDC_BASE_ADDRESS,
-        )
-    ));
+    let destination = Arc::new(ComponentLock::new(EvmCollateralDesignation::base_usdc(
+        USDC_BASE_ADDRESS,
+    )));
 
     // Create bridge using the generic method (it will automatically select Across bridge for cross-chain)
     let bridge = connector.create_bridge(source, destination);
@@ -52,7 +54,7 @@ async fn main() {
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();
     let route_to = "BASE".into();
-    let amount = dec!(1000000.0); // 1 USDC (6 decimals) = 1,000,000 wei
+    let amount = dec!(10000000.0); // 10 USDC (6 decimals) = 1,000,000 wei
     let cumulative_fee = dec!(0.0);
 
     let (end_tx, mut end_rx) = watch::channel(false);

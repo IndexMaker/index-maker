@@ -4,7 +4,7 @@ use serde_json::json;
 // Get current block timestamp
 pub async fn get_current_timestamp<P: Provider>(
     provider: &P,
-) -> Result<u64, Box<dyn std::error::Error>> {
+) -> eyre::Result<u64> {
     let block = provider.get_block_number().await?;
     let block_info = provider.get_block(block.into()).await?.unwrap();
     let timestamp = block_info.header.timestamp;
@@ -16,7 +16,7 @@ pub async fn get_current_timestamp<P: Provider>(
 pub async fn set_next_block_timestamp<P: Provider>(
     _provider: &P,
     timestamp: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> eyre::Result<()> {
     // For Anvil nodes, use direct RPC call
     let client = reqwest::Client::new();
     let rpc_url = "http://localhost:8545"; // Default Anvil URL
@@ -35,7 +35,7 @@ pub async fn set_next_block_timestamp<P: Provider>(
     let result: serde_json::Value = response.json().await?;
 
     if let Some(error) = result.get("error") {
-        return Err(format!("RPC error: {}", error).into());
+        return Err(eyre::eyre!("RPC error: {}", error));
     }
     
     tracing::info!("Successfully set next block timestamp to: {}", timestamp);
