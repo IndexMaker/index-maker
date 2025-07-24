@@ -118,22 +118,22 @@ impl CollateralManager {
                     };
                     if unconfirmed_balance < request.collateral_amount {
                         tracing::debug!(
-                            "(collateral-manager) Awaiting deposit [{}:{}] {}: ca={} ub={}",
-                            request.chain_id,
-                            request.address,
-                            request.client_order_id,
-                            request.collateral_amount,
-                            unconfirmed_balance
+                            chain_id = %request.chain_id,
+                            address = %request.address,
+                            client_order_id = %request.client_order_id,
+                            collateral_amount = %request.collateral_amount,
+                            %unconfirmed_balance,
+                            "Awaiting deposit",
                         );
                         Either::Right(request)
                     } else {
                         tracing::debug!(
-                            "(collateral-manager) Ready to route [{}:{}] {}: ca={} ub={}",
-                            request.chain_id,
-                            request.address,
-                            request.client_order_id,
-                            request.collateral_amount,
-                            unconfirmed_balance
+                            chain_id = %request.chain_id,
+                            address = %request.address,
+                            client_order_id = %request.client_order_id,
+                            collateral_amount = %request.collateral_amount,
+                            %unconfirmed_balance,
+                            "Ready to route",
                         );
                         Either::Left(request)
                     }
@@ -169,7 +169,7 @@ impl CollateralManager {
 
         if !failures.is_empty() {
             tracing::warn!(
-                "(collateral-manager) Errors in processing: {}",
+                "Errors in processing: {}",
                 failures
                     .into_iter()
                     .map(|(err, request)| {
@@ -190,9 +190,10 @@ impl CollateralManager {
 
     pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
         tracing::info!(
-            "(collateral-manager) ManageCollateral for {} {}",
-            collateral_management.address,
-            collateral_management.client_order_id
+            chain_id = %collateral_management.chain_id,
+            address = %collateral_management.address,
+            client_order_id = %collateral_management.client_order_id,
+            "Manage Collateral",
         );
         self.collateral_management_requests
             .push_back(collateral_management);
@@ -206,12 +207,8 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) Deposit from [{}:{}] {:0.5}",
-            chain_id,
-            address,
-            amount
-        );
+        tracing::info!(%chain_id, %address, %amount, "Deposit");
+
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
             .write()
@@ -226,12 +223,8 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
-            chain_id,
-            address,
-            amount
-        );
+        tracing::info!(%chain_id, %address, %amount, "Withdrawal");
+
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
             .write()
@@ -253,11 +246,7 @@ impl CollateralManager {
         side: Side,
         amount_payable: Amount,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) PreAuth Payment for {} {:0.5}",
-            address,
-            amount_payable
-        );
+        tracing::info!(%chain_id, %address, %amount_payable, "PreAuth Payment");
 
         let funds = self
             .get_position(chain_id, &address)
@@ -305,11 +294,7 @@ impl CollateralManager {
         side: Side,
         amount_paid: Amount,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) Confirm Payment for {} {:0.5}",
-            address,
-            amount_paid
-        );
+        tracing::info!(%chain_id, %address, %amount_paid, "Confirm Payment");
 
         let funds = self
             .get_position(chain_id, &address)
@@ -379,15 +364,9 @@ impl CollateralManager {
                 amount,
                 fee,
             } => {
-                tracing::info!(
-                    "(collateral-manager) Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
-                    chain_id,
-                    address,
-                    client_order_id,
-                    transfer_from,
-                    transfer_to,
-                    amount,
-                    fee
+                tracing::info!(%chain_id, %address, %client_order_id,
+                    %transfer_from, %transfer_to, %amount, %fee,
+                    "Transfer Complete"
                 );
                 let funds = self
                     .get_position(chain_id, &address)
