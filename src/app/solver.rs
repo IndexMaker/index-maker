@@ -340,8 +340,6 @@ impl SolverConfig {
 
         order_sender
             .write()
-            .get_single_observer_arc()
-            .write()
             .set_observer_from(order_event_tx);
 
         order_tracker
@@ -485,11 +483,10 @@ impl SolverConfig {
 
     async fn stop_orders_backend(&mut self) -> Result<()> {
         if let Some((stop_backend_tx, backend_stopped_rx)) = self.stopping_backend.take() {
-            let order_sender = self.with_order_sender.try_get_order_sender_cloned()?;
-            order_sender.write().stop().await.unwrap();
+            self.with_order_sender.stop().await?;
 
-            stop_backend_tx.send(()).unwrap();
-            backend_stopped_rx.await.unwrap();
+            stop_backend_tx.send(())?;
+            backend_stopped_rx.await?;
 
             Ok(())
         } else {

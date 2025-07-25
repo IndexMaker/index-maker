@@ -219,7 +219,9 @@ impl IndexOrderManager {
 
         // Returns error if basket does not exist
         if !self.index_symbols.contains(&symbol) {
-            tracing::info!("Basket does not exist: {}", symbol);
+            tracing::warn!(
+                %chain_id, %address, %client_order_id, %symbol, "Basket does not exist"
+            );
             return Err(ServerResponseReason::User(
                 NewIndexOrderNakReason::InvalidSymbol {
                     detail: symbol.to_string(),
@@ -510,18 +512,24 @@ impl IndexOrderManager {
                     let mut update_upread = update.upgradable_read();
 
                     let update_collateral_spent = safe!(update_upread.collateral_spent + fees)?;
-                    tracing::debug!("(index-order-manager) update_collateral_spent: {:0.5}", update_collateral_spent);
-                    tracing::debug!("(index-order-manager) fees: {:0.5}", fees);
                     let update_fee = safe!(update_upread.update_fee + fees)?;
-                    tracing::debug!("(index-order-manager) update_fee: {:0.5}", update_fee);
-                    let update_remaining_collateral =
-                        safe!(update_upread.remaining_collateral - fees)?;
-                    tracing::debug!("(index-order-manager) update_remaining_collateral: {:0.5}", update_remaining_collateral);
-                    tracing::debug!("(index-order-manager) collateral_amount: {:0.5}", collateral_amount);
+                    let update_remaining_collateral = safe!(update_upread.remaining_collateral - fees)?;
+
+                    tracing::info!(
+                            %chain_id, %address, %client_order_id,
+                            %update_collateral_spent,
+                            %fees,
+                            %update_fee,
+                            %update_remaining_collateral,
+                            %collateral_amount,
+                            "Update collateral Ready");
+
                     if update_remaining_collateral < safe!(collateral_amount - self.tolerance)? {
                         tracing::warn!(
-                            "(index-order-manager) Error updating collateral ready: {:0.5} < {:0.5}",
-                            update_remaining_collateral, collateral_amount
+                            %chain_id, %address, %client_order_id,
+                            %update_remaining_collateral,
+                            %collateral_amount,
+                            "Error updating collateral ready: update_remaining_collateral < collateral_amount",
                         );
                         return None;
                     }
@@ -582,33 +590,36 @@ impl IndexOrderManager {
                         })()?;
                         if should_remove {
                             tracing::info!(
-                                "(index-order-manager) Removing entry for [{}:{}] {}",
-                                chain_id,
-                                address,
-                                symbol
+                                %chain_id,
+                                %address,
+                                %symbol,
+                                %client_order_id,
+                                "Removing entry: No more updates"
                             );
                             inner_entry.remove();
                         }
                         Ok(())
                     }
                     Entry::Vacant(_) => Err(eyre!(
-                        "(index-order-manager) No Index orders found for: [{}:{}]",
+                        "No Index orders found for: [{}:{}]",
                         chain_id,
                         address
                     )),
                 }?;
                 if entry.get().is_empty() {
                     tracing::info!(
-                        "(index-order-manager) Removing entry for [{}:{}]",
-                        chain_id,
-                        address
+                        %chain_id,
+                        %address,
+                        %symbol,
+                        %client_order_id,
+                        "Removing entry: No more orders",
                     );
                     entry.remove();
                 }
                 Ok(())
             }
             Entry::Vacant(_) => Err(eyre!(
-                "(index-order-manager) No Index orders found for: [{}:{}]",
+                "No Index orders found for: [{}:{}]",
                 chain_id,
                 address
             )),
@@ -792,12 +803,13 @@ impl IndexOrderManager {
                     engage_order.collateral_amount,
                     self.tolerance,
                 )?;
+
                 tracing::info!(
-                    "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
-                    engage_order.client_order_id,
-                    engage_order.collateral_amount,
-                    index_order.engaged_collateral.unwrap_or_default(),
-                    index_order.remaining_collateral
+                    client_order_id = %engage_order.client_order_id,
+                    collateral_amount = %engage_order.collateral_amount,
+                    engaged_collateral = ?index_order.engaged_collateral,
+                    remaining_collateral = %index_order.remaining_collateral,
+                    "Engage orders",
                 );
 
                 let collateral_engaged = if let Some(unmatched_collateral) = unmatched_collateral {

@@ -127,7 +127,7 @@ impl CollateralManager {
                         );
                         Either::Right(request)
                     } else {
-                        tracing::debug!(
+                        tracing::info!(
                             chain_id = %request.chain_id,
                             address = %request.address,
                             client_order_id = %request.client_order_id,

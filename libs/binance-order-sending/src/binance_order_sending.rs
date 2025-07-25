@@ -5,7 +5,7 @@ use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
         bits::{SingleOrder, Symbol},
-        functional::{IntoObservableSingleArc, SingleObserver},
+        functional::{IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce, SingleObserver},
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };
@@ -91,5 +91,14 @@ impl IntoObservableSingleArc<OrderConnectorNotification> for BinanceOrderSending
         &mut self,
     ) -> &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>> {
         &self.observer
+    }
+}
+
+impl IntoObservableSingleVTable<OrderConnectorNotification> for BinanceOrderSending {
+    fn set_observer(
+        &mut self,
+        observer: Box<dyn NotificationHandlerOnce<OrderConnectorNotification>>,
+    ) {
+        self.observer.write().set_observer(observer);
     }
 }

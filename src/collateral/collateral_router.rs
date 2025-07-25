@@ -250,7 +250,7 @@ impl CollateralRouter {
             %source,
             %route_from,
             %route_to,
-            "(collateral-router) Found route: {}",
+            "Found route: {}",
             route.iter().join(", ")
         );
 

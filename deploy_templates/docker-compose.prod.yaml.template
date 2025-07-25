@@ -12,11 +12,12 @@ services:
               "-c", "configs", 
               "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
               "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
-              "fix-server",
-              "20"]
+              "--batch-size", "4",
+              "--simulate-sender",
+              "fix-server", "1000000"]
 
     environment:
-      RUST_LOG: info,binance_sdk=off
+      RUST_LOG: debug,binance_sdk=off,hyper=off
     
     depends_on:
       otel-collector:

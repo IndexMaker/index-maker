@@ -9,7 +9,7 @@ use index_maker::{
         fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
-        order_sender::OrderSenderConfig,
+        order_sender::{OrderSenderConfig, OrderSenderCredentials},
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
@@ -34,7 +34,6 @@ use symm_core::{
         logging::log_init,
         test_util::{get_mock_address_1, get_mock_address_2},
     },
-    init_log,
     market_data::market_data_connector::Subscription,
 };
 use tokio::{
@@ -50,6 +49,9 @@ struct Cli {
 
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
+
+    #[arg(long, short)]
+    simulate_sender: bool,
 
     #[arg(long, short)]
     bind_address: Option<String>,
@@ -68,6 +70,9 @@ struct Cli {
 
     #[arg(long)]
     otlp_log_url: Option<String>,
+
+    #[arg(long)]
+    batch_size: Option<usize>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -200,6 +205,18 @@ impl AppMode {
     }
 }
 
+fn get_otlp_url(value: Option<String>) -> Option<Option<String>> {
+    if let Some(value) = value {
+        if value.as_str().eq("default") {
+            Some(None)
+        } else {
+            Some(Some(value))
+        }
+    } else {
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Command line input
@@ -207,11 +224,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    init_log!(
+    log_init(
+        format!("{}=info,Binance=off", env!("CARGO_CRATE_NAME")),
         cli.log_path.clone(),
         cli.term_log_off,
-        cli.otlp_trace_url,
-        cli.otlp_log_url
+        get_otlp_url(cli.otlp_trace_url),
+        get_otlp_url(cli.otlp_log_url),
+        cli.batch_size,
     );
 
     match &cli.command {
@@ -261,14 +280,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap_or_default();
 
-    let credentials = Credentials::new(
-        String::from("BinanceAccount-1"),
-        trading_enabled,
-        move || env::var("BINANCE_API_KEY").ok(),
-        move || env::var("BINANCE_API_SECRET").ok(),
-        move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
-        move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
-    );
+    let credentials = if cli.simulate_sender {
+        tracing::warn!("Using simulated order sender");
+        OrderSenderCredentials::Simple
+    } else {
+        tracing::info!("Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading");
+        OrderSenderCredentials::Binance(vec![Credentials::new(
+            String::from("BinanceAccount-1"),
+            trading_enabled,
+            move || env::var("BINANCE_API_KEY").ok(),
+            move || env::var("BINANCE_API_SECRET").ok(),
+            move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
+            move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
+        )])
+    };
 
     // ==== Fake stuff
     // ----
@@ -321,7 +346,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let price_tracker = market_data_config.expect_price_tracker_cloned();
 
     let order_sender_config = OrderSenderConfig::builder()
-        .credentials(vec![credentials])
+        .credentials(credentials)
         .symbols(symbols.clone())
         .build()
         .expect("Failed to build order sender");
