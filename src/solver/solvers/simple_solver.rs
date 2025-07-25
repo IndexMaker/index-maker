@@ -1477,7 +1477,7 @@ impl SolverStrategy for SimpleSolver {
 
             tracing::info!(
                 client_order_id = %engagement.client_order_id,
-                symbols = %engagement.symbol,
+                symbol = %engagement.symbol,
                 engaged_quantity = %engagement.engaged_quantity,
                 engaged_price = %engagement.engaged_price,
                 engaged_collateral = %engagement.engaged_collateral,
