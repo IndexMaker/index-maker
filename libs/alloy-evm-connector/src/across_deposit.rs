@@ -105,8 +105,7 @@ pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
 /// Reads from .env file:
 /// - PRIVATE_KEY: Your wallet's private key
 /// - RPC_URL: RPC endpoint (optional, defaults to http://localhost:8545)
-pub async fn new_builder_from_env(
-) -> eyre::Result<AcrossDepositBuilder<impl Provider + Clone>> {
+pub async fn new_builder_from_env() -> eyre::Result<AcrossDepositBuilder<impl Provider + Clone>> {
     // Load environment variables from .env file in the libs/alloy-evm-connector directory
     dotenv().ok();
 
@@ -128,10 +127,7 @@ pub async fn new_builder_from_env(
 }
 
 impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
-    pub async fn new(
-        provider: P,
-        signer_address: Address,
-    ) -> eyre::Result<Self> {
+    pub async fn new(provider: P, signer_address: Address) -> eyre::Result<Self> {
         Ok(Self {
             signer_address,
             across_connector: AcrossConnector::AcrossConnectorInstance::new(
@@ -145,18 +141,19 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
     /// Step 2: Approve input token for OTCCustody
     /// Returns the gas used for the approval transaction
-    pub async fn approve_input_token_for_custody(
-        &self,
-        amount: U256,
-    ) -> eyre::Result<U256> {
+    pub async fn approve_input_token_for_custody(&self, amount: U256) -> eyre::Result<U256> {
         tracing::info!("Approving USDC for amount: {}", amount);
         tracing::info!("Target: OTC_CUSTODY_ADDRESS ({:?})", OTC_CUSTODY_ADDRESS);
-        
+
         let call = self.usdc.approve(OTC_CUSTODY_ADDRESS, amount);
         let receipt = call.send().await?.get_receipt().await?;
-        
+
         let gas_used = U256::from(receipt.gas_used);
-        tracing::info!("USDC approval transaction successful: {:?}, gas used: {}", receipt.transaction_hash, gas_used);
+        tracing::info!(
+            "USDC approval transaction successful: {:?}, gas used: {}",
+            receipt.transaction_hash,
+            gas_used
+        );
         Ok(gas_used)
     }
 
@@ -186,7 +183,11 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         // Check if this is an error response
         if let Some(code) = data.get("code") {
             if code == "AMOUNT_TOO_LOW" {
-                return Err(eyre::eyre!("Across API error: {}", data.get("message").unwrap_or(&serde_json::Value::String("Unknown error".to_string()))));
+                return Err(eyre::eyre!(
+                    "Across API error: {}",
+                    data.get("message")
+                        .unwrap_or(&serde_json::Value::String("Unknown error".to_string()))
+                ));
             }
         }
 
@@ -223,16 +224,18 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!("custody_id: {:?}", hex::encode_prefixed(custody_id));
         tracing::info!("input_token: {:?}", input_token);
         tracing::info!("amount: {}", amount);
-        
-        let call = self.otc_custody.addressToCustody(
-            FixedBytes(custody_id),
-            input_token,
-            amount,
-        );
+
+        let call = self
+            .otc_custody
+            .addressToCustody(FixedBytes(custody_id), input_token, amount);
         let receipt = call.send().await?.get_receipt().await?;
-        
+
         let gas_used = U256::from(receipt.gas_used);
-        tracing::info!("Custody setup transaction successful: {:?}, gas used: {}", receipt.transaction_hash, gas_used);
+        tracing::info!(
+            "Custody setup transaction successful: {:?}, gas used: {}",
+            receipt.transaction_hash,
+            gas_used
+        );
         Ok(gas_used)
     }
 
@@ -249,7 +252,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!("connector: {:?}", ACROSS_CONNECTOR_ADDRESS);
         tracing::info!("amount: {}", amount);
         tracing::info!("verification_data.id: {:?}", verification_data.id);
-        
+
         let call = self.otc_custody.custodyToConnector(
             input_token,
             ACROSS_CONNECTOR_ADDRESS,
@@ -257,9 +260,13 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             verification_data,
         );
         let receipt = call.send().await?.get_receipt().await?;
-        
+
         let gas_used = U256::from(receipt.gas_used);
-        tracing::info!("CustodyToConnector transaction successful: {:?}, gas used: {}", receipt.transaction_hash, gas_used);
+        tracing::info!(
+            "CustodyToConnector transaction successful: {:?}, gas used: {}",
+            receipt.transaction_hash,
+            gas_used
+        );
         Ok(gas_used)
     }
 
@@ -275,7 +282,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!("connector_address: {:?}", ACROSS_CONNECTOR_ADDRESS);
         tracing::info!("calldata_length: {} bytes", calldata.len());
         tracing::info!("verification_data.id: {:?}", verification_data.id);
-        
+
         let call = self.otc_custody.callConnector(
             "AcrossConnector".to_string(),
             ACROSS_CONNECTOR_ADDRESS,
@@ -284,18 +291,25 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             verification_data,
         );
         let receipt = call.send().await?.get_receipt().await?;
-        
+
         let gas_used = U256::from(receipt.gas_used);
-        tracing::info!("CallConnector transaction successful: {:?}, gas used: {}", receipt.transaction_hash, gas_used);
+        tracing::info!(
+            "CallConnector transaction successful: {:?}, gas used: {}",
+            receipt.transaction_hash,
+            gas_used
+        );
         Ok(receipt)
     }
 
     pub async fn get_ca(&self, custody_id: [u8; 32]) -> eyre::Result<String> {
-        tracing::info!("Calling getCA for custody_id: {:?}", hex::encode_prefixed(custody_id));
-        
+        tracing::info!(
+            "Calling getCA for custody_id: {:?}",
+            hex::encode_prefixed(custody_id)
+        );
+
         let call = self.otc_custody.getCA(FixedBytes(custody_id));
         let ca = call.call().await?.to_string();
-        
+
         tracing::info!("CA result: {}", ca);
         Ok(ca)
     }
@@ -304,6 +318,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     /// Returns the total gas used for the entire flow
     pub async fn execute_complete_across_deposit(
         &self,
+        sender: Address,
         recipient: Address,
         input_token: Address,
         output_token: Address,
@@ -325,10 +340,13 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!("Step 1: Approving input token for custody");
         let approval_gas = match self.approve_input_token_for_custody(deposit_amount).await {
             Ok(gas_used) => {
-                tracing::info!("Step 1 completed: Token approval successful, gas used: {}", gas_used);
+                tracing::info!(
+                    "Step 1 completed: Token approval successful, gas used: {}",
+                    gas_used
+                );
                 total_gas_used += gas_used;
                 gas_used
-            },
+            }
             Err(e) => {
                 tracing::error!("Step 1 failed: Token approval error: {}", e);
                 return Err(e);
@@ -339,9 +357,12 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!("Step 2: Setting up CAHelper");
         let chain_id_runtime = self.across_connector.provider().get_chain_id().await?;
         tracing::info!("Step 2a: Got chain ID: {}", chain_id_runtime);
-        
-        tracing::info!("Step 2b: Creating CAHelper with chain_id {} and custody address {:?}", 
-                 chain_id_runtime, OTC_CUSTODY_ADDRESS);
+
+        tracing::info!(
+            "Step 2b: Creating CAHelper with chain_id {} and custody address {:?}",
+            chain_id_runtime,
+            OTC_CUSTODY_ADDRESS
+        );
         let mut ca_helper = CAHelper::new(chain_id_runtime, OTC_CUSTODY_ADDRESS);
         tracing::info!("Step 2 completed: CAHelper created");
 
@@ -383,7 +404,10 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             suggested_output.exclusivity_deadline,
         );
         let calldata = deposit.encode_deposit_calldata();
-        tracing::info!("Step 5 completed: Deposit calldata encoded ({} bytes)", calldata.len());
+        tracing::info!(
+            "Step 5 completed: Deposit calldata encoded ({} bytes)",
+            calldata.len()
+        );
 
         // Step 6: Call callConnector of custody_helper
         tracing::info!("Step 6: Adding callConnector action to CAHelper");
@@ -397,7 +421,10 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 x: FixedBytes(address_to_bytes32(self.signer_address)),
             },
         );
-        tracing::info!("Step 6 completed: CallConnector action added (index: {})", connector_action_index);
+        tracing::info!(
+            "Step 6 completed: CallConnector action added (index: {})",
+            connector_action_index
+        );
 
         // Step 7: Fetch custodyId from custody_helper.get_custody_id()
         tracing::info!("Step 7: Getting custody ID");
@@ -407,10 +434,14 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Step 8: Call otc_custody.addressToCustody
         tracing::info!("Step 8: Setting up custody with input tokens");
-        let custody_gas = self.setup_custody(custody_id, input_token, deposit_amount)
+        let custody_gas = self
+            .setup_custody(custody_id, input_token, deposit_amount)
             .await?;
         total_gas_used += custody_gas;
-        tracing::info!("Step 8 completed: Custody setup successful, gas used: {}", custody_gas);
+        tracing::info!(
+            "Step 8 completed: Custody setup successful, gas used: {}",
+            custody_gas
+        );
 
         // Step 9: Setup verification data for custodyToConnector and get merkle proof
         tracing::info!("Step 9: Creating verification data for custodyToConnector");
@@ -438,10 +469,14 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Step 10: Call otc_custody.custodyToConnector
         tracing::info!("Step 10: Executing custodyToConnector");
-        let custody_to_connector_gas = self.execute_custody_to_connector(input_token, deposit_amount, custody_verification)
+        let custody_to_connector_gas = self
+            .execute_custody_to_connector(input_token, deposit_amount, custody_verification)
             .await?;
         total_gas_used += custody_to_connector_gas;
-        tracing::info!("Step 10 completed: custodyToConnector executed successfully, gas used: {}", custody_to_connector_gas);
+        tracing::info!(
+            "Step 10 completed: custodyToConnector executed successfully, gas used: {}",
+            custody_to_connector_gas
+        );
 
         // Step 11: Setup verification data for callConnector
         tracing::info!("Step 11: Creating verification data for callConnector");
@@ -472,12 +507,12 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             .await?;
         let call_connector_gas = U256::from(receipt.gas_used);
         total_gas_used += call_connector_gas;
-        tracing::info!("Step 12 completed: callConnector executed successfully, gas used: {}", call_connector_gas);
-        tracing::info!("Complete Across deposit flow finished successfully!");
         tracing::info!(
-            "Final transaction hash: {:?}",
-            receipt.transaction_hash
+            "Step 12 completed: callConnector executed successfully, gas used: {}",
+            call_connector_gas
         );
+        tracing::info!("Complete Across deposit flow finished successfully!");
+        tracing::info!("Final transaction hash: {:?}", receipt.transaction_hash);
         tracing::info!("Total gas used for complete flow: {}", total_gas_used);
 
         Ok(total_gas_used)
@@ -509,6 +544,7 @@ pub async fn example_complete_across_deposit_flow() -> eyre::Result<()> {
     let builder = new_builder_from_env().await?;
 
     // Example parameters
+    let sender = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
     let recipient = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
     let input_token = USDC_ARBITRUM_ADDRESS;
     let output_token = USDC_BASE_ADDRESS;
@@ -519,6 +555,7 @@ pub async fn example_complete_across_deposit_flow() -> eyre::Result<()> {
     // Execute the complete flow with all steps
     builder
         .execute_complete_across_deposit(
+            sender,
             recipient,
             input_token,
             output_token,

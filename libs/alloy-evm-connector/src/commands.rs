@@ -52,9 +52,8 @@ pub enum ChainCommand {
     /// Execute complete Across deposit flow (all 12 steps)
     ExecuteCompleteAcrossDeposit {
         chain_id: u32,
-        recipient: Address,
-        input_token: Address,
-        output_token: Address,
+        from: Address,
+        to: Address,
         deposit_amount: Amount,
         origin_chain_id: u64,
         destination_chain_id: u64,

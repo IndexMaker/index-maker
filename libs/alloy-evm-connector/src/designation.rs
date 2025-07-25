@@ -1,4 +1,5 @@
 use crate::designation_details::EvmDesignationDetails;
+use crate::across_deposit::{USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS};
 use index_core::collateral::collateral_router::CollateralDesignation;
 use symm_core::core::bits::{Address, Amount, Symbol};
 
@@ -9,7 +10,8 @@ pub struct EvmCollateralDesignation {
     pub collateral_symbol: Symbol, //< should be "USDC" (in future could also be "USDT")
     pub full_name: Symbol,         //< e.g. "EVM:ARBITRUM:USDC"
     pub chain_id: u64,             //< chain ID for this designation
-    pub token_address: Address,    //< token contract address for this designation
+    pub collateral_address: Address,    //< address of USDC contract
+    pub address: Address,          //< address of the designation (wallet or contract)
 }
 
 impl EvmCollateralDesignation {
@@ -17,7 +19,8 @@ impl EvmCollateralDesignation {
         name: Symbol,
         collateral_symbol: Symbol,
         chain_id: u64,
-        token_address: Address,
+        collateral_address: Address,
+        address: Address,
     ) -> Self {
         let full_name = format!("EVM:{}:{}", name, collateral_symbol).into();
         Self {
@@ -25,16 +28,21 @@ impl EvmCollateralDesignation {
             collateral_symbol,
             full_name,
             chain_id,
-            token_address,
+            collateral_address,
+            address,
         }
     }
 
-    pub fn arbitrum_usdc(token_address: Address) -> Self {
-        Self::new("ARBITRUM".into(), "USDC".into(), 42161, token_address)
+    pub fn arbitrum_usdc(address: Address) -> Self {
+        Self::new("ARBITRUM".into(), "USDC".into(), 42161, USDC_ARBITRUM_ADDRESS, address)
     }
 
-    pub fn base_usdc(token_address: Address) -> Self {
-        Self::new("BASE".into(), "USDC".into(), 8453, token_address)
+    pub fn base_usdc(address: Address) -> Self {
+        Self::new("BASE".into(), "USDC".into(), 8453, USDC_BASE_ADDRESS, address)
+    }
+
+    pub fn get_wallet_address(&self) -> Address {
+        self.address
     }
 }
 
@@ -64,7 +72,7 @@ impl EvmDesignationDetails for EvmCollateralDesignation {
     }
 
     fn get_token_address(&self) -> Address {
-        self.token_address
+        self.collateral_address
     }
 
     fn is_cross_chain(&self, other: &Self) -> bool {

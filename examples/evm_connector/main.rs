@@ -148,4 +148,9 @@ pub async fn main() {
     });
 
     sleep(Duration::from_secs(600));
+
+    // Properly shutdown the connector to avoid the error
+    tracing::info!("Shutting down EvmConnector...");
+    evm_connector.write().stop().await.expect("Failed to stop EvmConnector");
+    tracing::info!("EvmConnector shutdown complete");
 }

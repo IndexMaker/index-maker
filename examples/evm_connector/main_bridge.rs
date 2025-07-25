@@ -1,7 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives::address;
-use alloy_evm_connector::across_deposit::{USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS};
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use index_core::collateral::collateral_router::{CollateralBridge, CollateralRouterEvent};
@@ -38,12 +37,13 @@ async fn main() {
     tracing::info!("EvmConnector and chains initialized");
 
     // Create designations with simplified factory methods
+    let wallet_address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     let source = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
-        USDC_ARBITRUM_ADDRESS,
+        wallet_address,
     )));
 
     let destination = Arc::new(ComponentLock::new(EvmCollateralDesignation::base_usdc(
-        USDC_BASE_ADDRESS,
+        wallet_address,
     )));
 
     // Create bridge using the generic method (it will automatically select Across bridge for cross-chain)
@@ -110,4 +110,9 @@ async fn main() {
         .changed()
         .await
         .expect("Failed to await for transfer");
+
+    // Properly shutdown the connector to avoid the error
+    tracing::info!("Shutting down EvmConnector...");
+    connector.stop().await.expect("Failed to stop EvmConnector");
+    tracing::info!("EvmConnector shutdown complete");
 }

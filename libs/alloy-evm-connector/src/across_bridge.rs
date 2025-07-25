@@ -91,9 +91,8 @@ impl CollateralBridge for AcrossCollateralBridge {
         // Use direct chain_operations.execute_command() instead of arbiter
         let command = ChainCommand::ExecuteCompleteAcrossDeposit {
             chain_id: source_designation.get_chain_id() as u32,
-            recipient: address,
-            input_token: source_designation.get_token_address(),
-            output_token: destination_designation.get_token_address(),
+            from: source_designation.get_wallet_address(),
+            to: destination_designation.get_wallet_address(),
             deposit_amount: amount,
             origin_chain_id: source_designation.get_chain_id(),
             destination_chain_id: destination_designation.get_chain_id(),

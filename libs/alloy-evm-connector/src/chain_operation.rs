@@ -1,24 +1,29 @@
 use alloy::{
     hex,
-    primitives::{Address, FixedBytes, U256, utils::{format_units, parse_units}},
+    primitives::{
+        utils::{format_units, parse_units},
+        Address, FixedBytes, U256,
+    },
     providers::{Provider, ProviderBuilder},
     signers::local::LocalSigner,
 };
 use chrono::Utc;
+use eyre::OptionExt;
 use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use safe_math::safe;
 use std::str::FromStr;
 use std::sync::Arc;
-use safe_math::safe;
-use eyre::OptionExt;
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
-use crate::across_deposit::{create_verification_data, AcrossDepositBuilder};
+use crate::across_deposit::{
+    create_verification_data, AcrossDepositBuilder, USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS,
+};
 use crate::commands::{ChainCommand, ChainOperationResult};
 use crate::contracts::{AcrossConnector, OTCCustody, VerificationData, ERC20};
 use crate::custody_helper::CAHelper;
@@ -284,9 +289,8 @@ impl ChainOperation {
                 Ok(Some("0xwithdraw...".to_string())) // Mock transaction hash
             }
             ChainCommand::ExecuteCompleteAcrossDeposit {
-                recipient,
-                input_token,
-                output_token,
+                from,
+                to,
                 deposit_amount,
                 origin_chain_id,
                 destination_chain_id,
@@ -303,12 +307,19 @@ impl ChainOperation {
 
                     // Execute the complete Across deposit flow and get gas used
                     tracing::info!("Starting complete Across deposit execution...");
+                    // Use hardcoded USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
+                    let input_token = USDC_ARBITRUM_ADDRESS;
+                    let output_token = USDC_BASE_ADDRESS;
+
                     match builder
                         .execute_complete_across_deposit(
-                            alloy::primitives::Address::from_slice(&recipient.as_slice()[..20]),
-                            alloy::primitives::Address::from_slice(&input_token.as_slice()[..20]),
-                            alloy::primitives::Address::from_slice(&output_token.as_slice()[..20]),
-                            alloy::primitives::U256::from(deposit_amount.to_u64().unwrap_or(0)),
+                            from,
+                            to,
+                            input_token,
+                            output_token,
+                            alloy::primitives::U256::from(
+                                deposit_amount.to_u64().unwrap_or(1000000),
+                            ),
                             origin_chain_id,
                             destination_chain_id,
                         )
@@ -326,7 +337,8 @@ impl ChainOperation {
                             })?;
 
                             // Format gas price for display
-                            let gas_price_formatted = format_units(U256::from(gas_price), "gwei").map_err(|err| {
+                            let gas_price_formatted = format_units(U256::from(gas_price), "gwei")
+                                .map_err(|err| {
                                 eyre::eyre!("Failed to format gas price: {:?}", err)
                             })?;
                             tracing::info!("Current gas price: {} gwei", gas_price_formatted);
@@ -335,20 +347,22 @@ impl ChainOperation {
                             let fee_wei = U256::from(gas_price) * gas_used;
 
                             // Step 1: Format fee to 18 decimal places (ETH units) using alloy's format_units
-                            let fee_eth_formatted_str = format_units(fee_wei, "ether").map_err(|err| {
-                                eyre::eyre!("Failed to format gas fee to ETH units: {:?}", err)
-                            })?;
+                            let fee_eth_formatted_str =
+                                format_units(fee_wei, "ether").map_err(|err| {
+                                    eyre::eyre!("Failed to format gas fee to ETH units: {:?}", err)
+                                })?;
 
                             // Step 2: Convert ETH to USDC using exchange rate
                             // Parse the formatted ETH string back to a decimal for calculation
-                            let fee_eth_decimal = Decimal::from_str(&fee_eth_formatted_str).map_err(|err| {
-                                eyre::eyre!("Failed to parse ETH fee as decimal: {:?}", err)
-                            })?;
-                            
+                            let fee_eth_decimal = Decimal::from_str(&fee_eth_formatted_str)
+                                .map_err(|err| {
+                                    eyre::eyre!("Failed to parse ETH fee as decimal: {:?}", err)
+                                })?;
+
                             // For now, use a simple ETH/USDC conversion rate (around $3000 per ETH)
                             // In production, this should fetch from a price oracle or API
                             let eth_to_usdc_rate = Decimal::from(3000);
-                            
+
                             // Convert ETH to USDC: fee_eth_decimal * eth_price = USDC value
                             let fee_usdc_decimal = fee_eth_decimal * eth_to_usdc_rate;
 
@@ -356,19 +370,24 @@ impl ChainOperation {
                             // Round to 6 decimal places for USDC precision first
                             let fee_usdc_rounded = fee_usdc_decimal.round_dp(6);
                             let fee_usdc_str = fee_usdc_rounded.to_string();
-                            
+
                             // Parse to 6-decimal units (converts to U256 with 6 decimal precision)
                             let fee_usdc_u256 = parse_units(&fee_usdc_str, 6).map_err(|err| {
                                 eyre::eyre!("Failed to parse USDC fee to 6 decimals: {:?}", err)
                             })?;
 
                             // Convert fee from U256 to Amount (using the parsed 6-decimal value)
-                            let fee_amount = Amount::try_from(fee_usdc_u256.to_string().as_str()).map_err(|err| {
+                            let fee_amount = Amount::try_from(fee_usdc_u256.to_string().as_str())
+                                .map_err(|err| {
                                 eyre::eyre!("Failed to convert USDC fee to Amount: {:?}", err)
                             })?;
-                            
-                            tracing::info!("Gas fee calculation: {} ETH = {} USDC (at {} USD/ETH)", 
-                                fee_eth_formatted_str, fee_usdc_rounded, eth_to_usdc_rate);
+
+                            tracing::info!(
+                                "Gas fee calculation: {} ETH = {} USDC (at {} USD/ETH)",
+                                fee_eth_formatted_str,
+                                fee_usdc_rounded,
+                                eth_to_usdc_rate
+                            );
 
                             // Calculate updated deposit amount (subtract fee from original deposit amount)
                             let updated_deposit_amount = safe!(deposit_amount - fee_amount)
@@ -379,28 +398,35 @@ impl ChainOperation {
                                 .ok_or_eyre("Failed to compute cumulative fee")?;
 
                             // Format amounts for display using format_units(value, 6)
-                            let deposit_amount_u256 = U256::from(updated_deposit_amount.to_u64().unwrap_or(0));
-                            let formatted_deposit_amount = format_units(deposit_amount_u256, 6).map_err(|err| {
-                                eyre::eyre!("Failed to format deposit amount: {:?}", err)
-                            })?;
-                            
-                            let cumulative_fee_u256 = U256::from(updated_cumulative_fee.to_u64().unwrap_or(0));
-                            let formatted_cumulative_fee = format_units(cumulative_fee_u256, 6).map_err(|err| {
-                                eyre::eyre!("Failed to format cumulative fee: {:?}", err)
-                            })?;
+                            let deposit_amount_u256 =
+                                U256::from(updated_deposit_amount.to_u64().unwrap_or(0));
+                            let formatted_deposit_amount = format_units(deposit_amount_u256, 6)
+                                .map_err(|err| {
+                                    eyre::eyre!("Failed to format deposit amount: {:?}", err)
+                                })?;
+
+                            let cumulative_fee_u256 =
+                                U256::from(updated_cumulative_fee.to_u64().unwrap_or(0));
+                            let formatted_cumulative_fee = format_units(cumulative_fee_u256, 6)
+                                .map_err(|err| {
+                                    eyre::eyre!("Failed to format cumulative fee: {:?}", err)
+                                })?;
 
                             tracing::info!(
                                 "Final amounts - deposit: {} USDC, cumulative fee: {} USDC",
-                                formatted_deposit_amount, formatted_cumulative_fee
+                                formatted_deposit_amount,
+                                formatted_cumulative_fee
                             );
 
                             // Pass the updated amounts to the callback
-                            callback(updated_deposit_amount, updated_cumulative_fee).map_err(|err| {
-                                eyre::eyre!(
-                                    "ExecuteCompleteAcrossDeposit callback failed {:?}",
-                                    err
-                                )
-                            })?;
+                            callback(updated_deposit_amount, updated_cumulative_fee).map_err(
+                                |err| {
+                                    eyre::eyre!(
+                                        "ExecuteCompleteAcrossDeposit callback failed {:?}",
+                                        err
+                                    )
+                                },
+                            )?;
 
                             Ok(Some("0xacross_complete...".to_string()))
                         }

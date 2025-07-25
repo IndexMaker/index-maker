@@ -1,7 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives::address;
-use alloy_evm_connector::across_deposit::{USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS};
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use rust_decimal::dec;
@@ -36,12 +35,13 @@ async fn main() {
     tracing::info!("Testing same-chain ERC20 transfer (ARBITRUM -> ARBITRUM)");
 
     // Create source designation (Arbitrum USDC)
+    let wallet_address = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
     let source_designation = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
-        USDC_ARBITRUM_ADDRESS,
+        wallet_address,
     )));
 
     let destination_designation = Arc::new(ComponentLock::new(
-        EvmCollateralDesignation::arbitrum_usdc(USDC_ARBITRUM_ADDRESS),
+        EvmCollateralDesignation::arbitrum_usdc(wallet_address),
     ));
 
     // Create the bridge (should automatically select ERC20 bridge for same-chain)
@@ -98,6 +98,11 @@ async fn main() {
             tracing::error!("ERC20 transfer failed: {}", e);
         }
     }
+
+    // Properly shutdown the connector to avoid the error
+    tracing::info!("Shutting down EvmConnector...");
+    connector.stop().await.expect("Failed to stop EvmConnector");
+    tracing::info!("EvmConnector shutdown complete");
 
     tracing::info!("ERC20 transfer test completed!");
 }

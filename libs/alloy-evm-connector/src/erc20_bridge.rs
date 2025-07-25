@@ -86,8 +86,8 @@ impl CollateralBridge for Erc20CollateralBridge {
         let command = ChainCommand::Erc20Transfer {
             chain_id: source_designation.get_chain_id() as u32,
             token_address: source_designation.get_token_address(),
-            from: source_designation.get_token_address(),
-            to: destination_designation.get_token_address(),
+            from: source_designation.get_wallet_address(),
+            to: destination_designation.get_wallet_address(),
             amount,
             // Pass the original cumulative fee from transfer_funds
             cumulative_fee,

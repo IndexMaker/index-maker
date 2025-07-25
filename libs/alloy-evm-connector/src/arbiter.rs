@@ -69,11 +69,31 @@ impl Arbiter {
             }
 
             // Cleanup: shutdown all operations (following binance pattern)
-            {
+            tracing::info!("Shutting down all active chain operations...");
+            
+            // Get all active chain IDs first to avoid holding lock during async operations
+            let chain_ids: Vec<u32> = {
                 let operations = chain_operations.read();
-                drop(operations); // Release the lock before async operation
-                tracing::info!("Chain operations cleanup completed");
+                operations.active_chains()
+            };
+            
+            // Shutdown each chain operation individually
+            for chain_id in chain_ids {
+                let shutdown_result = {
+                    let mut operations = chain_operations.write();
+                    operations.remove_operation_sync(chain_id)
+                };
+                
+                if let Some(mut operation) = shutdown_result {
+                    if let Err(e) = operation.stop().await {
+                        tracing::error!("Error stopping chain operation {}: {}", chain_id, e);
+                    } else {
+                        tracing::info!("Successfully stopped chain operation {}", chain_id);
+                    }
+                }
             }
+            
+            tracing::info!("Chain operations cleanup completed");
 
             tracing::info!("Chain operations arbiter stopped");
             operation_rx
@@ -159,7 +179,7 @@ impl Arbiter {
                 }
             }
             
-            ChainOperationRequest::ExecuteCommand { chain_id, command } => {
+            ChainOperationRequest::ExecuteCommand { chain_id: _, command: _ } => {
                 // ExecuteCommand is no longer handled by Arbiter
                 // Commands should be sent directly to chain_operations
                 tracing::error!("ExecuteCommand should not be sent to Arbiter. Use direct chain_operations.send_command() instead.");
