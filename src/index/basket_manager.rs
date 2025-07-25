@@ -34,11 +34,8 @@ impl BasketManager {
 
     pub fn notify_baskets(&self) -> Result<()> {
         if self.observer.has_observer() {
-           for (symbol, basket) in &self.baskets {
-                let event = BasketNotification::BasketUpdated(
-                    symbol.clone(),
-                    basket.clone(),
-                );
+            for (symbol, basket) in &self.baskets {
+                let event = BasketNotification::BasketUpdated(symbol.clone(), basket.clone());
                 self.observer.publish_single(event);
             }
             Ok(())

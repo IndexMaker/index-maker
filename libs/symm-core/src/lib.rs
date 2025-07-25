@@ -35,9 +35,8 @@ pub mod order_sender {
 }
 
 pub mod tracing {
-    pub mod otlp_tracing;
-    pub mod otlp_log;
     pub mod defer_log;
     pub mod defer_span;
+    pub mod otlp_log;
+    pub mod otlp_tracing;
 }
-

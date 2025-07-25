@@ -168,9 +168,13 @@ impl CollateralSide {
             lot.unconfirmed_amount = unconfirmed_balance;
             lot.ready_amount = ready_balance;
             tracing::info!(
-                "(colateral-side) AddReady for {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial confirm)",
-                lot.payment_id, amount, lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
-            );
+                payment_id = %lot.payment_id,
+                %amount,
+                unconfirmed_amount = %lot.unconfirmed_amount,
+                ready_amount = %lot.ready_amount,
+                preauth_amount = %lot.preauth_amount,
+                spent_amount = %lot.spent_amount,
+                "AddReady (partial confirm)");
         }
 
         for lot in self.open_lots.iter_mut().take(pos) {
@@ -180,9 +184,13 @@ impl CollateralSide {
             lot.ready_amount = ready_balance;
             lot.last_update_timestamp = timestamp;
             tracing::info!(
-                "(colateral-side) AddReady for {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full confirm)",
-                lot.payment_id, amount, lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
-            );
+                payment_id = %lot.payment_id,
+                %amount,
+                unconfirmed_amount = %lot.unconfirmed_amount,
+                ready_amount = %lot.ready_amount,
+                preauth_amount = %lot.preauth_amount,
+                spent_amount = %lot.spent_amount,
+                "AddReady (full confirm)");
         }
 
         let ready_balance = safe!(self.ready_balance + amount_deliverable)?;
@@ -236,9 +244,15 @@ impl CollateralSide {
                 timestamp,
             };
             tracing::info!(
-                "(colateral-side) PreAuth for {} [{}] {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial preauth)",
-                lot.payment_id, spend.payment_id, spend.client_order_id, spend.preauth_amount,
-                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
+                payment_id = %lot.payment_id,
+                payment_id = %spend.payment_id,
+                client_order_id = %spend.client_order_id,
+                preauth_amount = %spend.preauth_amount,
+                unconfirmed_amount = %lot.unconfirmed_amount,
+                ready_amount = %lot.ready_amount,
+                preauth_amount = %lot.preauth_amount,
+                spent_amount = %lot.spent_amount,
+                "PreAuth (partial preauth)",
             );
             lot.spends.push(spend);
         }
@@ -257,9 +271,15 @@ impl CollateralSide {
                 timestamp,
             };
             tracing::info!(
-                "(colateral-side) PreAuth for {} [{}] {} {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full preauth)",
-                lot.payment_id, spend.payment_id, spend.client_order_id, spend.preauth_amount,
-                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
+                payment_id = %lot.payment_id,
+                payment_id = %spend.payment_id,
+                client_order_id = %spend.client_order_id,
+                preauth_amount = %spend.preauth_amount,
+                unconfirmed_amount = %lot.unconfirmed_amount,
+                ready_amount = %lot.ready_amount,
+                preauth_amount = %lot.preauth_amount,
+                spent_amount = %lot.spent_amount,
+                "PreAuth (full preauth)",
             );
             lot.spends.push(spend);
         }
@@ -341,18 +361,26 @@ impl CollateralSide {
                 && lot.preauth_amount < zero_threshold
             {
                 tracing::info!(
-                    "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (full spend)",
-                        lot.payment_id, payment_id, amount,
-                        lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
-                    );
+                    lot_payment_id = %lot.payment_id,
+                    %payment_id,
+                    %amount,
+                    unconfirmed_amount = %lot.unconfirmed_amount,
+                    ready_amount = %lot.ready_amount,
+                    preauth_amount = %lot.preauth_amount,
+                    spent_amount = %lot.spent_amount,
+                    "Spend (full spend)");
 
                 closed_lots.push_back(lot.payment_id.clone());
             } else {
                 tracing::info!(
-                    "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend)",
-                        lot.payment_id, payment_id, amount,
-                        lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
-                    );
+                    lot_payment_id = %lot.payment_id,
+                    payment_id = %payment_id,
+                    %amount,
+                    unconfirmed_amount = %lot.unconfirmed_amount,
+                    ready_amount = %lot.ready_amount,
+                    preauth_amount = %lot.preauth_amount,
+                    spent_amount = %lot.spent_amount,
+                    "Spend (partial spend)");
             }
         }
 
@@ -392,9 +420,14 @@ impl CollateralSide {
             lot.spent_amount = spent_balance;
 
             tracing::info!(
-                "(colateral-side) Spend for {} [{}] {:0.5} ua={:0.5} ra={:0.5} pa={:0.5} sa={:0.5} (partial spend *)",
-                lot.payment_id, payment_id, amount,
-                lot.unconfirmed_amount, lot.ready_amount, lot.preauth_amount, lot.spent_amount
+                lot_payment_id = %lot.payment_id,
+                %payment_id,
+                %amount,
+                unconfirmed_amount = %lot.unconfirmed_amount,
+                ready_amount = %lot.ready_amount,
+                preauth_amount = %lot.preauth_amount,
+                spent_amount = %lot.spent_amount,
+                "Spend (partial spend *)",
             );
         }
 

@@ -15,8 +15,7 @@ use symm_core::core::{
     decimal_ext::DecimalExt,
     telemetry::TracingData,
 };
-use tracing::{span, trace_span, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{span, Level};
 
 use crate::{
     index::basket::Basket,
@@ -113,9 +112,9 @@ impl SimpleSolver {
             }
             Err(err) => {
                 tracing::warn!(
-                    "(simple-solver) Error while {} for IndexOrder {}: {:?}",
-                    error_action,
-                    order_upread.client_order_id,
+                    client_order_id = %order_upread.client_order_id,
+                    %error_action,
+                    "Failed to scan order batch: {:?}",
                     err
                 );
                 set_order_status(order_upread, error_status);
@@ -273,7 +272,7 @@ impl SimpleSolver {
             price_map = %json!(
                 get_prices.prices.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
             ),
-            message = "Asset Prices"
+            "Asset Prices"
         );
 
         let price_limits: HashMap<_, _> = get_prices
@@ -291,7 +290,7 @@ impl SimpleSolver {
             price_limit_map = %json!(
                 price_limits.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
             ),
-            message = "Asset Price Limits"
+            "Asset Price Limits"
         );
 
         Ok((price_limits, get_prices.missing_symbols))
@@ -317,11 +316,7 @@ impl SimpleSolver {
             if let (Some(price), Some(volley)) = (price, volley) {
                 basket_assets.push((ticker, price, quantity, volley));
             } else {
-                tracing::warn!(
-                    "(simple-solver) Basket Asset {}: ! x {} = !",
-                    ticker,
-                    quantity,
-                );
+                tracing::warn!(%ticker, %quantity, ?price, "Failed to compute volley");
             }
         }
         tracing::info!(
@@ -330,7 +325,7 @@ impl SimpleSolver {
             basket_map = %json!(
                 basket_assets.into_iter().map(|(t, p, q, v)| (t, [p, q, v])).collect::<HashMap<_, _>>()
             ),
-            message = "Index Price Limit"
+            "Index Price Limit"
         );
     }
 
@@ -365,11 +360,7 @@ impl SimpleSolver {
                         Either::Left((symbol, price))
                     }
                     Err(err) => {
-                        tracing::warn!(
-                            "(simple-solver) Failed to compute index price for {}: {:?}",
-                            symbol,
-                            err
-                        );
+                        tracing::warn!(%symbol, "Failed to compute index price: {:?}", err);
                         Either::Right(symbol)
                     }
                 },
@@ -422,15 +413,15 @@ impl SimpleSolver {
             .ok_or_eyre("Index order quantity computation error")?;
 
         tracing::info!(
-            "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} cc={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
-            client_order_id,
-            collateral_amount,
-            order_upread.collateral_carried,
-            collateral_available,
-            collateral_usable,
-            index_price,
-            index_order_quantity,
-            self.fee_factor
+            %client_order_id,
+            %collateral_amount,
+            collateral_carried = %order_upread.collateral_carried,
+            %collateral_available,
+            %collateral_usable,
+            %index_price,
+            %index_order_quantity,
+            fee_factor = %self.fee_factor,
+            "Computed Index Order quantity from collateral"
         );
 
         let asset_quantities: HashMap<_, _> = basket
@@ -440,12 +431,12 @@ impl SimpleSolver {
                 let asset_symbol = &basket_asset.weight.asset.ticker;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
                 tracing::info!(
-                    "(simple-solver) Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
-                    client_order_id,
-                    asset_symbol,
-                    asset_quantity,
-                    basket_asset.quantity,
-                    index_order_quantity
+                    %client_order_id,
+                    %asset_symbol,
+                    %asset_quantity,
+                    %basket_asset.quantity,
+                    %index_order_quantity,
+                    "Computed Asset Order quantity for Index Order"
                 );
                 Some((asset_symbol.clone(), asset_quantity))
             })
@@ -481,12 +472,8 @@ impl SimpleSolver {
         let capped_order_quantity = safe!(order_quantity * volley_fraction)
             .ok_or_eyre("Cannot calculate capped order quantity")?;
 
-        tracing::info!(
-            "(simple-solver) Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
-            client_order_id,
-            order_quantity,
-            capped_order_quantity
-        );
+        tracing::info!(%client_order_id, %order_quantity, %capped_order_quantity,
+            "Capping volley size for Index Order");
 
         let mut capped_asset_quantities = HashMap::new();
 
@@ -497,12 +484,8 @@ impl SimpleSolver {
 
             capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
 
-            tracing::info!(
-                "(simple-solver) Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
-                asset_symbol,
-                asset_quantity,
-                capped_asset_quantity
-            );
+            tracing::info!(%asset_symbol, %asset_quantity, %capped_asset_quantity,
+                "Capping volley size for Asset");
         }
 
         Ok((capped_order_quantity, capped_asset_quantities))
@@ -694,15 +677,15 @@ impl SimpleSolver {
             fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
             tracing::info!(
-                "(simple-solver) Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",
-                client_order_id,
-                asset_symbol,
-                fitting_order_quantity,
-                total_asset_liquidity,
-                total_asset_quantity,
-                asset_contribution_fraction,
-                asset_liquidity_contribution,
-                possible_order_quantity
+                %client_order_id,
+                %asset_symbol,
+                %fitting_order_quantity,
+                %total_asset_liquidity,
+                %total_asset_quantity,
+                %asset_contribution_fraction,
+                %asset_liquidity_contribution,
+                %possible_order_quantity,
+                "Computed Index Order quantity fitting into liquidity"
             );
         }
 
@@ -808,11 +791,11 @@ impl SimpleSolver {
             asset_contribution_fractions.insert(asset_symbol.clone(), asset_contribution_fraction);
 
             tracing::info!(
-                "(simple-solver) Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
-                client_order_id,
-                asset_symbol,
-                total_asset_quantity,
-                asset_contribution_fraction,
+                %client_order_id,
+                %asset_symbol,
+                %total_asset_quantity,
+                %asset_contribution_fraction,
+                "Computed Asset contribution fractions for Index Order",
             );
         }
 
@@ -909,13 +892,13 @@ impl SimpleSolver {
                 .ok_or_else(|| eyre!("Cannot calculate quantity extra for an asset {}", symbol))?;
 
             tracing::info!(
-                "(simple-solver) Padding {}: {} => {}, {} => {} (+{})",
-                symbol,
-                asset_volley_size,
-                volley_size,
-                asset_quantity,
-                quantity,
-                quantity_extra
+                %symbol,
+                %asset_volley_size,
+                %volley_size,
+                %asset_quantity,
+                %quantity,
+                %quantity_extra,
+                "Computed padding for Asset Order",
             );
 
             padded_asset_quantites
@@ -1493,12 +1476,12 @@ impl SolverStrategy for SimpleSolver {
             };
 
             tracing::info!(
-                "(simple-solver) Solver Order Engagement: {} {} eq={:0.5} ep={:0.5} ec={:0.5}",
-                engagement.client_order_id,
-                engagement.symbol,
-                engagement.engaged_quantity,
-                engagement.engaged_price,
-                engagement.engaged_collateral
+                client_order_id = %engagement.client_order_id,
+                symbol = %engagement.symbol,
+                engaged_quantity = %engagement.engaged_quantity,
+                engaged_price = %engagement.engaged_price,
+                engaged_collateral = %engagement.engaged_collateral,
+                "Solver Order Engagement"
             );
 
             engagenments.engaged_orders.push(engagement);

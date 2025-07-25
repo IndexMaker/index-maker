@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use thiserror::Error;
 
-use symm_core::core::telemetry::{TracingData, WithBaggage};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
@@ -20,10 +20,10 @@ pub enum ServerEvent {
     NewIndexOrder {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_order_id: ClientOrderId,
 
@@ -35,10 +35,10 @@ pub enum ServerEvent {
     CancelIndexOrder {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_order_id: ClientOrderId,
 
@@ -49,10 +49,10 @@ pub enum ServerEvent {
     NewQuoteRequest {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_quote_id: ClientQuoteId,
 
@@ -64,10 +64,10 @@ pub enum ServerEvent {
     CancelQuoteRequest {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
-        
+
         #[baggage]
         client_quote_id: ClientQuoteId,
 
@@ -85,7 +85,7 @@ pub enum NewIndexOrderNakReason {
 
     #[error("Invalid symbol: {detail:?}")]
     InvalidSymbol { detail: String },
-    
+
     #[error("Other reason: {detail:?}")]
     OtherReason { detail: String },
 }
@@ -238,9 +238,6 @@ pub enum ServerResponse {
 pub trait Server: IntoObservableManyVTable<Arc<ServerEvent>> + Send + Sync {
     /// Provide methods for sending FIX responses
     fn respond_with(&mut self, response: ServerResponse);
-
-    /// Publish a server event
-    fn publish_event(&mut self, event: &Arc<ServerEvent>);
 }
 
 pub mod test_util {
@@ -284,10 +281,6 @@ pub mod test_util {
         /// provide methods for sending FIX responses
         fn respond_with(&mut self, response: ServerResponse) {
             self.implementor.publish_single(response);
-        }
-
-        fn publish_event(&mut self, event: &Arc<ServerEvent>) {
-            self.observer.publish_many(event);
         }
     }
 

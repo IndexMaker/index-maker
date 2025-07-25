@@ -48,19 +48,19 @@ pub enum InventoryEvent {
     CloseLot {
         #[baggage]
         original_order_id: OrderId,
-        
+
         #[baggage]
         original_batch_order_id: BatchOrderId,
-        
+
         #[baggage]
         original_lot_id: LotId,
-        
+
         #[baggage]
         closing_order_id: OrderId,
-        
+
         #[baggage]
         closing_batch_order_id: BatchOrderId,
-        
+
         #[baggage]
         closing_lot_id: LotId,
 
@@ -80,7 +80,7 @@ pub enum InventoryEvent {
     Cancel {
         #[baggage]
         order_id: OrderId,
-        
+
         #[baggage]
         batch_order_id: BatchOrderId,
 
@@ -322,7 +322,6 @@ impl InventoryManager {
 
     /// receive new order requests from Solver
     pub fn new_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
-        tracing::debug!("New order batch: {}", batch_order.batch_order_id);
         // Start writing to Order Tracker
         let mut guard = self.order_tracker.write();
         // Send all orders out
@@ -346,7 +345,6 @@ impl InventoryManager {
                     )
                 })?;
         }
-        tracing::debug!("No more asset orders");
         // All orders out
         Ok(())
     }

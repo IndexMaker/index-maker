@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
-use symm_core::core::telemetry::{TracingData, WithBaggage};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
@@ -22,7 +22,7 @@ pub enum ChainNotification {
     Deposit {
         #[baggage]
         chain_id: u32,
-        
+
         #[baggage]
         address: Address,
 

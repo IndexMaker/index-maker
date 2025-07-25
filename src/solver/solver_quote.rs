@@ -202,14 +202,14 @@ impl SolverClientQuotes {
                     }
                 } else {
                     tracing::warn!(
-                        "(solver) Cancel order found empty index order queue for the user"
+                        "Cancel order found empty index order queue for the user"
                     );
                     entry.remove();
                 }
                 notify
             }
             Entry::Vacant(_) => {
-                tracing::warn!("(solver) Cancel order cannot find any index orders for the user");
+                tracing::warn!("Cancel order cannot find any index orders for the user");
                 false
             }
         };

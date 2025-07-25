@@ -6,8 +6,8 @@ receivers:
 
 processors:
   batch:
-    send_batch_size: 100
-    timeout: 10s
+    send_batch_size: 4
+    timeout: 1s
 
 exporters:
   otlp/elastic:
@@ -16,18 +16,20 @@ exporters:
       Authorization: "<ELASTIC_API_KEY>"
     tls:
       insecure: false
+  debug:
+    verbosity: detailed
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/elastic]
+      exporters: [otlp/elastic,debug]
 
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/elastic]
+      exporters: [otlp/elastic,debug]
 
     metrics:
       receivers: [otlp]
