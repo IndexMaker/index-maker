@@ -689,13 +689,13 @@ impl BatchManager {
 
             // = Quantity available in this batch for this Index Order
             //  / Quantity required to fully fill the fraction of the whole Index Order requested in this batch
-            let avialable_fill_rate =
+            let available_fill_rate =
                 safe!(available_quantity / asset_quantity).ok_or_eyre("Math Problem")?;
 
             // We're finding lowest fill-rate for this Index Order across all assets, because
             // we cannot fill this Index Order more than least available asset fill-rate.
-            fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
-                Some(x.min(avialable_fill_rate))
+            fill_rate = fill_rate.map_or(Some(available_fill_rate), |x: Amount| {
+                Some(x.min(available_fill_rate))
             });
             tracing::info!(
                 chain_id = %index_order_write.chain_id,
@@ -703,10 +703,10 @@ impl BatchManager {
                 client_order_id = %index_order_write.client_order_id,
                 %asset_symbol,
                 %asset_quantity,
-                %position.position,
+                position = %position.position,
                 %available_quantity,
                 %contribution_fraction,
-                %avialable_fill_rate,
+                %available_fill_rate,
                 "Fill Basket Asset",
             );
         }

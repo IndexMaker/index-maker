@@ -87,7 +87,7 @@ impl OrderConnector for SimpleOrderSender {
                 order_id: order.order_id.clone(),
                 symbol: order.symbol.clone(),
                 side: order.side,
-                quantity: order.quantity,
+                quantity: Amount::ZERO,
                 timestamp: order.created_timestamp,
             });
 

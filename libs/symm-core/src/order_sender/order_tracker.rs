@@ -132,6 +132,8 @@ impl OrderTracker {
                     OrderStatus::Sent { order_quantity } => {
                         tracing::info!(
                             %order_id,
+                            asset_symbol = %order_entry.order.symbol,
+                            side = ?order_entry.order.side,
                             %order_quantity,
                             order_price = %order_entry.order.price,
                             %quantity,

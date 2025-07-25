@@ -415,7 +415,7 @@ impl SimpleSolver {
         tracing::info!(
             %client_order_id,
             %collateral_amount,
-            %order_upread.collateral_carried,
+            collateral_carried = %order_upread.collateral_carried,
             %collateral_available,
             %collateral_usable,
             %index_price,
