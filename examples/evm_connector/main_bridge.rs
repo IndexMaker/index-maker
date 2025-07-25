@@ -37,7 +37,7 @@ async fn main() {
     tracing::info!("EvmConnector and chains initialized");
 
     // Create designations with simplified factory methods
-    let wallet_address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
+    let wallet_address = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
     let source = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
         wallet_address,
     )));
@@ -50,7 +50,7 @@ async fn main() {
     let bridge = connector.create_bridge(source, destination);
 
     let chain_id = 42161;
-    let address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
+    let address = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();
     let route_to = "BASE".into();
