@@ -77,10 +77,17 @@ impl CollateralBridge for AcrossCollateralBridge {
         route_to: Symbol,
         amount: Amount,
         cumulative_fee: Amount,
-    ) -> Result<()> {
+    ) -> eyre::Result<()> {
         let observer = self.observer.clone();
         let source = self.source.read().unwrap().get_full_name();
         let destination = self.destination.read().unwrap().get_full_name();
+
+        if !(&source == "EVM:ARBITRUM:USDC" && &destination == "EVM:BASE:USDC") {
+            return Err(eyre::eyre!("Invalid source and destination"));
+        }
+
+        tracing::info!("source: {:?}", source);
+        tracing::info!("destination: {:?}", destination);
 
         tracing::info!("Starting transfer using direct chain_operations...");
 

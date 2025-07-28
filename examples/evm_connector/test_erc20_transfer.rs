@@ -18,16 +18,19 @@ async fn main() {
 
     tracing::info!("=== ERC20 Transfer End-to-End Test ===");
 
-    // Anvil forked node addresses and private keys
-    let _admin_private_key = "0xc18a8b7c72c2535bdbfc11912605e26491f3a7ba6e8e9f0e2cbcc51302128155";
-    let admin_address = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
+    // Connect to existing anvil instance
+    let rpc_url = "http://localhost:8545";
+    tracing::info!("Connecting to existing Anvil instance at: {}", rpc_url);
 
-    // Anvil test addresses (first two default anvil accounts)
-    let address1_private_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // anvil[1]
-    let address1 = address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+    // Use known anvil default addresses (these are deterministic)
+    let admin_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"); // anvil[0]
+    let admin_private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // anvil[0] private key
 
-    let _address2_private_key = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"; // anvil[2]
-    let address2 = address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
+    let address1 = address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"); // anvil[1]
+    let address1_private_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // anvil[1] private key
+
+    let address2 = address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"); // anvil[2]
+    let _address2_private_key = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"; // anvil[2] private key
 
     // USDC contract address on Arbitrum
     let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
@@ -37,16 +40,12 @@ async fn main() {
     tracing::info!("Address2 (final recipient): {:?}", address2);
     tracing::info!("USDC contract: {:?}", usdc_address);
 
-    // Setup provider for direct contract interactions
-    let rpc_url = "http://localhost:8545";
-
     // Step 0: Skip ETH funding for now - admin wallet should have ETH from anvil
     tracing::info!("\n=== Step 0: Checking admin ETH balance ===");
 
-    // Use anvil[0] (which has lots of ETH) to fund other accounts if needed
-    let anvil_funder_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5bfc68b1f1e7e2ba9c9e";
-    let anvil_funder_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"); // This is anvil[0]
-    let anvil_funder_signer: PrivateKeySigner = anvil_funder_key
+    // Use anvil[0] (admin) as the funder since it has lots of ETH
+    let anvil_funder_address = admin_address;
+    let anvil_funder_signer: PrivateKeySigner = admin_private_key
         .parse()
         .expect("Invalid funder private key");
     let anvil_funder_wallet = EthereumWallet::from(anvil_funder_signer);
@@ -59,20 +58,23 @@ async fn main() {
     // Check admin balance first
     let admin_balance = funder_provider.get_balance(admin_address).await.unwrap();
     tracing::info!("Admin ETH balance: {} wei", admin_balance);
-    
+
     // Check anvil[0] balance
-    let funder_balance = funder_provider.get_balance(anvil_funder_address).await.unwrap();
+    let funder_balance = funder_provider
+        .get_balance(anvil_funder_address)
+        .await
+        .unwrap();
     tracing::info!("Anvil[0] ETH balance: {} wei", funder_balance);
 
     // Only fund if admin has no ETH
     if admin_balance == U256::ZERO && funder_balance > U256::from(1000000000000000000u64) {
         tracing::info!("Admin needs funding, attempting transfer...");
-        
+
         let eth_amount = alloy::primitives::utils::parse_ether("0.1").unwrap();
         let simple_tx = TransactionRequest::default()
             .to(admin_address)
             .value(eth_amount);
-        
+
         match funder_provider.send_transaction(simple_tx).await {
             Ok(tx) => {
                 let receipt = tx.get_receipt().await.unwrap();
@@ -89,9 +91,9 @@ async fn main() {
     // Step 1: Fund address1 with USDC using a whale account impersonation
     tracing::info!("\n=== Step 1: Funding address1 with USDC using whale impersonation ===");
 
-    // Use a known whale address that has USDC on Arbitrum (Binance Hot Wallet)  
+    // Use a known whale address that has USDC on Arbitrum (Binance Hot Wallet)
     let whale_address = address!("0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D");
-    
+
     // Create provider without wallet for impersonation
     let provider_for_whale = ProviderBuilder::new()
         .connect(rpc_url)
@@ -135,7 +137,10 @@ async fn main() {
         panic!("Failed to impersonate whale account");
     }
 
-    tracing::info!("Successfully impersonated whale account: {:?}", whale_address);
+    tracing::info!(
+        "Successfully impersonated whale account: {:?}",
+        whale_address
+    );
 
     // Transfer 10 USDC from whale to address1 (10 * 10^6 for USDC decimals)
     let transfer_amount = U256::from(10_000_000u64); // 10 USDC
@@ -147,13 +152,13 @@ async fn main() {
     // Build transaction manually for impersonated account
     let transfer_call = usdc_contract_whale.transfer(address1, transfer_amount);
     let transfer_calldata = transfer_call.calldata().clone();
-    
+
     let transfer_tx = TransactionRequest::default()
         .to(usdc_address)
         .input(transfer_calldata.into())
         .from(whale_address)
         .gas_limit(100000);
-    
+
     let transfer_receipt = provider_for_whale
         .send_transaction(transfer_tx)
         .await

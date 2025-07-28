@@ -181,10 +181,7 @@ impl ChainOperation {
                 );
 
                 // Create ERC20 contract instance
-                let token_contract = ERC20::new(
-                    alloy::primitives::Address::from_slice(&token_address.as_slice()[..20]),
-                    provider.clone(),
-                );
+                let token_contract = ERC20::new(token_address, provider.clone());
 
                 let transfer_amount = U256::from(amount.to_u64().unwrap_or(0));
 

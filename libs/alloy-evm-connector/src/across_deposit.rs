@@ -544,8 +544,8 @@ pub async fn example_complete_across_deposit_flow() -> eyre::Result<()> {
     let builder = new_builder_from_env().await?;
 
     // Example parameters
-    let sender = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
-    let recipient = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
+    let sender = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+    let recipient = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
     let input_token = USDC_ARBITRUM_ADDRESS;
     let output_token = USDC_BASE_ADDRESS;
     let deposit_amount = U256::from(1_000_000u128); // 1 USDC (6 decimals)
