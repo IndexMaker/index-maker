@@ -4,7 +4,7 @@ use crate::core::bits::Symbol;
 
 #[derive(Serialize, Deserialize)]
 pub struct Asset {
-    #[serde(alias = "pair")]
+    #[serde(rename = "pair")]
     pub ticker: Symbol, // add things like:
     // precision: u8 - number of decimal places
     // ...(when required)

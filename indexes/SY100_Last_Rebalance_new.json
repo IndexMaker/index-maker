@@ -88,6 +88,17 @@
     "quantity": 3001.405247498481
   },
   {
+    "id": 66,
+    "ticker": "HYPE",
+    "pair": "HYPEUSDT",
+    "listing": "bi",
+    "assetname": "Hyperliquid",
+    "sector": "Decentralized Exchange (DEX)",
+    "market_cap": 15186368814,
+    "weights": "1.00",
+    "quantity": 45.05797713543357
+  },
+  {
     "id": 2,
     "ticker": "SUI",
     "pair": "SUIUSDC",
@@ -319,6 +330,17 @@
     "quantity": 76986961.12083112
   },
   {
+    "id": 15,
+    "ticker": "KAS",
+    "pair": "KASUSDT",
+    "listing": "bi",
+    "assetname": "Kaspa",
+    "sector": "Smart Contract Platform",
+    "market_cap": 2630299252,
+    "weights": "1.00",
+    "quantity": 23121.334387938547
+  },
+  {
     "id": 83,
     "ticker": "PENGU",
     "pair": "PENGUUSDC",
@@ -451,6 +473,17 @@
     "quantity": 4007.737182202666
   },
   {
+    "id": 35,
+    "ticker": "IP",
+    "pair": "IPUSDC",
+    "listing": "bi",
+    "assetname": "Story",
+    "sector": "Artificial Intelligence (AI)",
+    "market_cap": 1696856239,
+    "weights": "1.00",
+    "quantity": 546.1585106623204
+  },
+  {
     "id": 95,
     "ticker": "INJ",
     "pair": "INJUSDC",
@@ -493,6 +526,17 @@
     "market_cap": 1357856340,
     "weights": "1.00",
     "quantity": 3432.321186629769
+  },
+  {
+    "id": 44,
+    "ticker": "FARTCOIN",
+    "pair": "FARTCOINUSDT",
+    "listing": "bi",
+    "assetname": "Fartcoin",
+    "sector": "Solana Ecosystem",
+    "market_cap": 1325827316,
+    "weights": "1.00",
+    "quantity": 1587.4267538013282
   },
   {
     "id": 60,
@@ -715,6 +759,17 @@
     "quantity": 18203.610158847478
   },
   {
+    "id": 92,
+    "ticker": "AERO",
+    "pair": "AEROUSDT",
+    "listing": "bi",
+    "assetname": "Aerodrome Finance",
+    "sector": "Decentralized Exchange (DEX)",
+    "market_cap": 750989011,
+    "weights": "1.00",
+    "quantity": 2588.677419438094
+  },
+  {
     "id": 69,
     "ticker": "SAND",
     "pair": "SANDUSDC",
@@ -748,17 +803,6 @@
     "quantity": 930.5579029462635
   },
   {
-    "id": 5,
-    "ticker": "FLOW",
-    "pair": "FLOWUSDT",
-    "listing": "bi",
-    "assetname": "Flow",
-    "sector": "Smart Contract Platform",
-    "market_cap": 643019783,
-    "weights": "1.00",
-    "quantity": 5354.1122051531065
-  },
-  {
     "id": 59,
     "ticker": "BTT",
     "pair": "BTTUSDC",
@@ -781,6 +825,28 @@
     "quantity": 45.00510958168973
   },
   {
+    "id": 5,
+    "ticker": "FLOW",
+    "pair": "FLOWUSDT",
+    "listing": "bi",
+    "assetname": "Flow",
+    "sector": "Smart Contract Platform",
+    "market_cap": 643019783,
+    "weights": "1.00",
+    "quantity": 5354.1122051531065
+  },
+  {
+    "id": 52,
+    "ticker": "WAL",
+    "pair": "WALUSDT",
+    "listing": "bi",
+    "assetname": "Walrus",
+    "sector": "Infrastructure",
+    "market_cap": 626764383,
+    "weights": "1.00",
+    "quantity": 4338.342203216694
+  },
+  {
     "id": 16,
     "ticker": "SYRUP",
     "pair": "SYRUPUSDC",
@@ -801,6 +867,50 @@
     "market_cap": 596898172,
     "weights": "1.00",
     "quantity": 6611.589913333371
+  },
+  {
+    "id": 84,
+    "ticker": "BSV",
+    "pair": "BSVUSDT",
+    "listing": "bi",
+    "assetname": "Bitcoin SV",
+    "sector": "Smart Contract Platform",
+    "market_cap": 575275882,
+    "weights": "1.00",
+    "quantity": 69.44005956236836
+  },
+  {
+    "id": 64,
+    "ticker": "BRETT",
+    "pair": "BRETTUSDT",
+    "listing": "bi",
+    "assetname": "Brett",
+    "sector": "Meme",
+    "market_cap": 570177278,
+    "weights": "1.00",
+    "quantity": 41345.54149802651
+  },
+  {
+    "id": 22,
+    "ticker": "MORPHO",
+    "pair": "MORPHOUSDT",
+    "listing": "bi",
+    "assetname": "Morpho",
+    "sector": "Decentralized Finance (DeFi)",
+    "market_cap": 569421833,
+    "weights": "1.00",
+    "quantity": 1289.84322816398
+  },
+  {
+    "id": 31,
+    "ticker": "XCN",
+    "pair": "XCNUSDT",
+    "listing": "bi",
+    "assetname": "Onyxcoin",
+    "sector": "Smart Contract Platform",
+    "market_cap": 548467434,
+    "weights": "1.00",
+    "quantity": 127584.54914212966
   },
   {
     "id": 42,

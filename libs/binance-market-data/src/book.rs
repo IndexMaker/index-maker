@@ -7,6 +7,7 @@ use binance_sdk::spot::{
     rest_api::DepthResponse,
     websocket_streams::{BookTickerResponse, DiffBookDepthResponse},
 };
+use chrono::{DateTime, Duration, Utc};
 use eyre::{eyre, OptionExt, Report, Result};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
@@ -137,6 +138,11 @@ impl TryFrom<BookTickerResponse> for BookTickerUpdate {
     }
 }
 
+struct SnapshotRequest {
+    symbol: Symbol,
+    timestamp: DateTime<Utc>,
+}
+
 struct Book {
     observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     symbol: Symbol,
@@ -144,6 +150,7 @@ struct Book {
     pending_updates: VecDeque<DiffDepthUpdate>,
     last_update_id: Option<u64>,
     snapshot_requested: bool,
+    last_update_timestamp: DateTime<Utc>,
 }
 
 impl Book {
@@ -159,11 +166,30 @@ impl Book {
             pending_updates: VecDeque::new(),
             last_update_id: None,
             snapshot_requested: false,
+            last_update_timestamp: Utc::now(),
         }
     }
 
+    fn check_stale(&mut self, timeout: Duration) -> Result<()> {
+        if !self.snapshot_requested {
+            let now = Utc::now();
+            let age = now - self.last_update_timestamp;
+            if timeout < age {
+                tracing::debug!(
+                    "Check stale for {} is stale and snapshot is needed (now: {}, last_update_timestamp: {}, last_update_id: {:?})",
+                    self.symbol,
+                    now,
+                    self.last_update_timestamp,
+                    self.last_update_id,
+                );
+                self.request_snapshot()?;
+            }
+        }
+        Ok(())
+    }
+
     fn request_snapshot(&mut self) -> Result<()> {
-        tracing::info!("(binance-book) Requesting snapshot for {}", self.symbol);
+        tracing::info!("Requesting snapshot for {}", self.symbol);
         self.pending_updates.clear();
         self.snapshot_requested = true;
         self.snapshot_tx
@@ -184,6 +210,7 @@ impl Book {
             snapshot.last_update_id
         );
         self.last_update_id = Some(snapshot.last_update_id);
+        self.last_update_timestamp = Utc::now();
         self.snapshot_requested = false;
         self.observer
             .read()
@@ -239,6 +266,7 @@ impl Book {
                         diff_depth.final_update_id_in_event,
                     );
                     self.last_update_id = Some(diff_depth.final_update_id_in_event);
+                    self.last_update_timestamp = Utc::now();
                     self.observer
                         .read()
                         .publish_many(&Arc::new(MarketDataEvent::OrderBookDelta {
@@ -292,6 +320,12 @@ impl Books {
         Self {
             observer,
             books: HashMap::new(),
+        }
+    }
+
+    pub fn check_stale(&mut self, timeout: Duration) {
+        for book in self.books.values_mut() {
+            book.check_stale(timeout);
         }
     }
 

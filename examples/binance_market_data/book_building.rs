@@ -1,6 +1,6 @@
 use std::{sync::Arc, thread::spawn, time::Duration};
 
-use binance_market_data::binance_subscriber::BinanceOnlySubscriberTasks;
+use binance_market_data::binance_subscriber::{BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig};
 use crossbeam::{
     channel::{bounded, unbounded},
     select,
@@ -27,7 +27,15 @@ use tokio::time::sleep;
 async fn main() {
     init_log!();
 
-    let mut market_data = RealMarketData::new(2, Arc::new(BinanceOnlySubscriberTasks));
+    let binance_subscriber_config = BinanceSubscriberTaskConfig {
+        subscription_limit_rate: 3,
+        stale_check_period: std::time::Duration::from_secs(10),
+        stale_timeout: chrono::Duration::seconds(60),
+    };
+    let mut market_data = RealMarketData::new(
+        2,
+        Arc::new(BinanceOnlySubscriberTasks::new(binance_subscriber_config)),
+    );
 
     let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
     let book_manager = Arc::new(RwLock::new(PricePointBookManager::new(dec!(0.000000001))));

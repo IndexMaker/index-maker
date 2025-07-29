@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use super::config::ConfigBuildError;
-use binance_market_data::binance_subscriber::BinanceOnlySubscriberTasks;
+use binance_market_data::binance_subscriber::{
+    BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig,
+};
 use derive_builder::Builder;
 use eyre::{eyre, OptionExt, Result};
 use market_data::market_data::RealMarketData;
@@ -27,6 +29,15 @@ pub struct MarketDataConfig {
 
     #[builder(setter(into, strip_option), default)]
     pub max_subscriber_symbols: Option<usize>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub subscription_limit_rate: Option<usize>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub stale_check_period: Option<std::time::Duration>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub stale_timeout: Option<chrono::Duration>,
 
     #[builder(setter(into), default)]
     pub subscriptions: Vec<Subscription>,
@@ -115,7 +126,20 @@ impl MarketDataConfigBuilder {
     pub fn build(self) -> Result<MarketDataConfig, ConfigBuildError> {
         let mut config = self.try_build()?;
 
-        let subscriber_task_factory = Arc::new(BinanceOnlySubscriberTasks);
+        let binance_subscriber_config = BinanceSubscriberTaskConfig {
+            subscription_limit_rate: config.subscription_limit_rate.unwrap_or(3),
+
+            stale_check_period: config
+                .stale_check_period
+                .unwrap_or(std::time::Duration::from_secs(10)),
+
+            stale_timeout: config
+                .stale_timeout
+                .unwrap_or(chrono::Duration::seconds(60)),
+        };
+
+        let subscriber_task_factory =
+            Arc::new(BinanceOnlySubscriberTasks::new(binance_subscriber_config));
 
         config
             .market_data
