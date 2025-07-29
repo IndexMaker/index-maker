@@ -261,6 +261,12 @@ impl AxumServerRequest for FixRequest {
 
 impl FixRequest {
     pub fn verify_signature(&self) -> Result<()> {
+        let msg_type = self.standard_header.msg_type.to_ascii_lowercase();
+
+        // Skip signature verification checking for quote-related messages
+        if msg_type.contains("quote") {
+            return Ok(());
+        }
         let payload_json = json!({
             "standard_header": self.standard_header,
             "chain_id": self.chain_id,
