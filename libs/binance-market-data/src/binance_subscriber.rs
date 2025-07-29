@@ -97,7 +97,10 @@ impl SubscriberTask for BinanceSubscriberTask {
                         break;
                     },
                     _ = check_period.tick() => {
-                        books_clone_2.write().check_stale(config.stale_timeout);
+                        let expiry_time = Utc::now() - config.stale_timeout;
+                        if let Err(err) = books_clone_2.write().check_stale(expiry_time) {
+                            tracing::warn!("Failed to check stale books: {:?}", err);
+                        }
                     }
                 }
             }

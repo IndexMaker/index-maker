@@ -170,15 +170,13 @@ impl Book {
         }
     }
 
-    fn check_stale(&mut self, timeout: Duration) -> Result<()> {
+    fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<()> {
         if !self.snapshot_requested {
-            let now = Utc::now();
-            let age = now - self.last_update_timestamp;
-            if timeout < age {
+            if self.last_update_timestamp < expiry_time {
                 tracing::debug!(
-                    "Check stale for {} is stale and snapshot is needed (now: {}, last_update_timestamp: {}, last_update_id: {:?})",
+                    "Check stale for {} is stale and snapshot is needed (expiry_time: {}, last_update_timestamp: {}, last_update_id: {:?})",
                     self.symbol,
-                    now,
+                    expiry_time,
                     self.last_update_timestamp,
                     self.last_update_id,
                 );
@@ -323,10 +321,11 @@ impl Books {
         }
     }
 
-    pub fn check_stale(&mut self, timeout: Duration) {
+    pub fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<()> {
         for book in self.books.values_mut() {
-            book.check_stale(timeout);
+            book.check_stale(expiry_time)?;
         }
+        Ok(())
     }
 
     pub fn add_book(
