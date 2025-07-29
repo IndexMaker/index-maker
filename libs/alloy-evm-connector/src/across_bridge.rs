@@ -86,10 +86,6 @@ impl CollateralBridge for AcrossCollateralBridge {
             return Err(eyre::eyre!("Invalid source and destination"));
         }
 
-        tracing::info!("source: {:?}", source);
-        tracing::info!("destination: {:?}", destination);
-
-        tracing::info!("Starting transfer using direct chain_operations...");
 
         // Get designation details
         let source_designation = self.source.read().unwrap();
@@ -135,8 +131,6 @@ impl CollateralBridge for AcrossCollateralBridge {
             let operations = self.chain_operations.read();
             operations.execute_command(source_designation.get_chain_id() as u32, command)?;
         }
-
-        tracing::info!("Command sent to chain_operations directly");
 
         Ok(())
     }

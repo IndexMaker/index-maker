@@ -32,49 +32,45 @@ tracing-subscriber = { workspace = true }
 
 
 [[example]]
-name="binance-market-data"
-path="binance_market_data/market_data.rs"
+name = "binance-market-data"
+path = "binance_market_data/market_data.rs"
 
 [[example]]
-name="binance-order-book"
-path="binance_market_data/book_building.rs"
+name = "binance-order-book"
+path = "binance_market_data/book_building.rs"
 
 [[example]]
-name="binance-all-orders-rest"
-path="binance_order_sending/all_orders_rest.rs"
+name = "binance-all-orders-rest"
+path = "binance_order_sending/all_orders_rest.rs"
 
 [[example]]
-name="binance-all-orders-wsapi"
-path="binance_order_sending/all_orders_wsapi.rs"
+name = "binance-all-orders-wsapi"
+path = "binance_order_sending/all_orders_wsapi.rs"
 
 [[example]]
-name="binance-logon-wsapi"
-path="binance_order_sending/logon_wsapi.rs"
+name = "binance-logon-wsapi"
+path = "binance_order_sending/logon_wsapi.rs"
 
 [[example]]
-name="binance-order-sending"
-path="binance_order_sending/main.rs"
+name = "binance-order-sending"
+path = "binance_order_sending/main.rs"
 
 [[example]]
-name="fix-server"
-path="fix_server/main.rs"
+name = "fix-server"
+path = "fix_server/main.rs"
 
 [[example]]
 name = "evm-connector"
 path = "evm_connector/main.rs"
 
 [[example]]
-name = "evm-bridge"
-path = "evm_connector/main_bridge.rs"
-
-[[example]]
 name = "test-generic-bridge"
 path = "evm_connector/test_generic_bridge.rs"
 
 [[example]]
-name = "test-erc20-transfer"
-path = "evm_connector/test_erc20_transfer.rs"
+name = "erc20-bridge"
+path = "evm_connector/erc20_bridge.rs"
 
 [[example]]
-name = "test-erc20-bridge-end-to-end"
-path = "evm_connector/test_erc20_bridge_end_to_end.rs"
+name = "across-bridge"
+path = "evm_connector/across_bridge.rs"

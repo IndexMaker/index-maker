@@ -2,13 +2,10 @@ use alloy::providers::Provider;
 use serde_json::json;
 
 // Get current block timestamp
-pub async fn get_current_timestamp<P: Provider>(
-    provider: &P,
-) -> eyre::Result<u64> {
+pub async fn get_current_timestamp<P: Provider>(provider: &P) -> eyre::Result<u64> {
     let block = provider.get_block_number().await?;
     let block_info = provider.get_block(block.into()).await?.unwrap();
     let timestamp = block_info.header.timestamp;
-    tracing::info!("Current block timestamp: {}", timestamp);
     Ok(timestamp)
 }
 
@@ -37,7 +34,6 @@ pub async fn set_next_block_timestamp<P: Provider>(
     if let Some(error) = result.get("error") {
         return Err(eyre::eyre!("RPC error: {}", error));
     }
-    
-    tracing::info!("Successfully set next block timestamp to: {}", timestamp);
+
     Ok(())
 }

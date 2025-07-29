@@ -120,7 +120,6 @@ impl ChainOperation {
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    tracing::info!("Chain operation {} cancelled", chain_id);
                     break;
                 }
                 Some(command) = command_receiver.recv() => {
@@ -160,8 +159,6 @@ impl ChainOperation {
         deposit_builder: &Option<AcrossDepositBuilder<P>>,
         provider: &P,
     ) -> Result<Option<String>> {
-        tracing::info!("Executing command on chain {}", chain_id);
-
         match command {
             // ERC20 transfer: requires approval first
             ChainCommand::Erc20Transfer {
@@ -173,16 +170,8 @@ impl ChainOperation {
                 callback,
                 ..
             } => {
-                tracing::info!(
-                    "Executing ERC20 transfer: {} tokens from {:?} to {:?}",
-                    amount,
-                    from,
-                    to
-                );
-
                 // Create ERC20 contract instance
                 let token_contract = ERC20::new(token_address, provider.clone());
-
                 let transfer_amount = U256::from(amount.to_u64().unwrap_or(0));
 
                 match token_contract
@@ -191,25 +180,62 @@ impl ChainOperation {
                     .await
                 {
                     Ok(pending_tx) => {
-                        tracing::info!(
-                            "ERC20 transfer transaction sent, waiting for confirmation..."
-                        );
-
                         match pending_tx.get_receipt().await {
                             Ok(receipt) => {
                                 let tx_hash =
                                     format!("0x{}", hex::encode(receipt.transaction_hash));
-                                tracing::info!("ERC20 transfer confirmed with hash: {}", tx_hash);
 
-                                // Pass the original routing amounts from transfer_funds to the callback
+                                // Calculate gas fee
+                                let gas_used = U256::from(receipt.gas_used);
+                                let gas_price = provider.get_gas_price().await.map_err(|err| {
+                                    eyre::eyre!("Failed to get gas price: {:?}", err)
+                                })?;
+
+                                let fee_wei = U256::from(gas_price) * gas_used;
+                                let fee_eth_str =
+                                    format_units(fee_wei, "ether").map_err(|err| {
+                                        eyre::eyre!("Failed to format gas fee: {:?}", err)
+                                    })?;
+
+                                let fee_eth_decimal =
+                                    Decimal::from_str(&fee_eth_str).map_err(|err| {
+                                        eyre::eyre!("Failed to parse ETH fee: {:?}", err)
+                                    })?;
+
+                                // Convert ETH to USDC at $3000/ETH
+                                let eth_to_usdc_rate = Decimal::from(3000);
+                                let fee_usdc_decimal = fee_eth_decimal * eth_to_usdc_rate;
+                                let fee_usdc_rounded = fee_usdc_decimal.round_dp(6);
+
+                                let fee_usdc_u256 = parse_units(&fee_usdc_rounded.to_string(), 6)
+                                    .map_err(|err| {
+                                    eyre::eyre!("Failed to parse USDC fee: {:?}", err)
+                                })?;
+
+                                // Convert fee to proper Amount format (human-readable)
+                                let fee_usdc_formatted = format_units(fee_usdc_u256, 6)
+                                    .map_err(|err| eyre::eyre!("Failed to format fee: {:?}", err))?;
+                                let fee_amount = Amount::try_from(fee_usdc_formatted.as_str())
+                                    .map_err(|err| eyre::eyre!("Failed to convert fee to Amount: {:?}", err))?;
+
+                                // Calculate net amounts
+                                let updated_transfer_amount = safe!(amount - fee_amount)
+                                    .ok_or_eyre("Failed to compute net transfer amount")?;
+                                let updated_cumulative_fee = safe!(cumulative_fee + fee_amount)
+                                    .ok_or_eyre("Failed to compute cumulative fee")?;
+
+                                // Use Amount directly for display (now properly formatted)
                                 tracing::info!(
-                                    "Using original routing amounts - amount: {}, fee: {}",
-                                    amount,
-                                    cumulative_fee
+                                    "ERC20: {} USDC (fee: {}) tx: {}",
+                                    updated_transfer_amount,
+                                    updated_cumulative_fee,
+                                    tx_hash
                                 );
 
-                                // Call the callback with the original amounts from the routing system
-                                if let Err(e) = callback(amount, cumulative_fee) {
+                                // Call the callback with the updated amounts (net of gas fees)
+                                if let Err(e) =
+                                    callback(updated_transfer_amount, updated_cumulative_fee)
+                                {
                                     tracing::error!("Error in ERC20 transfer callback: {}", e);
                                 }
 
@@ -235,19 +261,8 @@ impl ChainOperation {
                 execution_time,
                 ..
             } => {
-                tracing::info!(
-                    "Minting {} of {:?} for {:?} at price {} on {}",
-                    quantity,
-                    symbol,
-                    recipient,
-                    execution_price,
-                    execution_time
-                );
-
                 // TODO: Implement actual index minting logic
                 // For now, simulate successful minting
-
-                tracing::info!("Index minting executed successfully on chain {}", chain_id);
                 Ok(Some("0xmint_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::BurnIndex {
@@ -256,12 +271,8 @@ impl ChainOperation {
                 recipient,
                 ..
             } => {
-                tracing::info!("Burning {} of {:?} for {:?}", quantity, symbol, recipient);
-
                 // TODO: Implement actual index burning logic
                 // For now, simulate successful burning
-
-                tracing::info!("Index burning executed successfully on chain {}", chain_id);
                 Ok(Some("0xburn_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::Withdraw {
@@ -271,18 +282,8 @@ impl ChainOperation {
                 execution_time,
                 ..
             } => {
-                tracing::info!(
-                    "Withdrawing {} to {:?} at price {} on {}",
-                    amount,
-                    recipient,
-                    execution_price,
-                    execution_time
-                );
-
                 // TODO: Implement actual withdrawal logic
                 // For now, simulate successful withdrawal
-
-                tracing::info!("Withdrawal executed successfully on chain {}", chain_id);
                 Ok(Some("0xwithdraw...".to_string())) // Mock transaction hash
             }
             ChainCommand::ExecuteCompleteAcrossDeposit {
@@ -297,13 +298,6 @@ impl ChainOperation {
                 ..
             } => {
                 if let Some(builder) = deposit_builder {
-                    tracing::info!(
-                        "Executing complete Across deposit flow: {} tokens from chain {} to chain {}",
-                        deposit_amount, origin_chain_id, destination_chain_id
-                    );
-
-                    // Execute the complete Across deposit flow and get gas used
-                    tracing::info!("Starting complete Across deposit execution...");
                     // Use hardcoded USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
                     let input_token = USDC_ARBITRUM_ADDRESS;
                     let output_token = USDC_BASE_ADDRESS;
@@ -323,97 +317,46 @@ impl ChainOperation {
                         .await
                     {
                         Ok(gas_used) => {
-                            tracing::info!(
-                                "Complete Across deposit flow executed successfully on chain {}, gas used: {}",
-                                chain_id, gas_used
-                            );
-
-                            // Get current gas price from provider
-                            let gas_price = provider.get_gas_price().await.map_err(|err| {
-                                eyre::eyre!("Failed to obtain current price of gas: {:?}", err)
-                            })?;
-
-                            // Format gas price for display
-                            let gas_price_formatted = format_units(U256::from(gas_price), "gwei")
-                                .map_err(|err| {
-                                eyre::eyre!("Failed to format gas price: {:?}", err)
-                            })?;
-                            tracing::info!("Current gas price: {} gwei", gas_price_formatted);
-
-                            // Calculate gas fee in wei (gas_price * gas_used)
+                            // Calculate gas fee
+                            let gas_price = provider
+                                .get_gas_price()
+                                .await
+                                .map_err(|err| eyre::eyre!("Failed to get gas price: {:?}", err))?;
                             let fee_wei = U256::from(gas_price) * gas_used;
 
-                            // Step 1: Format fee to 18 decimal places (ETH units) using alloy's format_units
-                            let fee_eth_formatted_str =
-                                format_units(fee_wei, "ether").map_err(|err| {
-                                    eyre::eyre!("Failed to format gas fee to ETH units: {:?}", err)
-                                })?;
+                            let fee_eth_str = format_units(fee_wei, "ether").map_err(|err| {
+                                eyre::eyre!("Failed to format gas fee: {:?}", err)
+                            })?;
 
-                            // Step 2: Convert ETH to USDC using exchange rate
-                            // Parse the formatted ETH string back to a decimal for calculation
-                            let fee_eth_decimal = Decimal::from_str(&fee_eth_formatted_str)
-                                .map_err(|err| {
-                                    eyre::eyre!("Failed to parse ETH fee as decimal: {:?}", err)
-                                })?;
+                            let fee_eth_decimal = Decimal::from_str(&fee_eth_str)
+                                .map_err(|err| eyre::eyre!("Failed to parse ETH fee: {:?}", err))?;
 
-                            // For now, use a simple ETH/USDC conversion rate (around $3000 per ETH)
-                            // In production, this should fetch from a price oracle or API
+                            // Convert ETH to USDC at $3000/ETH
                             let eth_to_usdc_rate = Decimal::from(3000);
-
-                            // Convert ETH to USDC: fee_eth_decimal * eth_price = USDC value
                             let fee_usdc_decimal = fee_eth_decimal * eth_to_usdc_rate;
-
-                            // Step 3: Parse USDC fee to 6 decimal units using parse_units
-                            // Round to 6 decimal places for USDC precision first
                             let fee_usdc_rounded = fee_usdc_decimal.round_dp(6);
-                            let fee_usdc_str = fee_usdc_rounded.to_string();
 
-                            // Parse to 6-decimal units (converts to U256 with 6 decimal precision)
-                            let fee_usdc_u256 = parse_units(&fee_usdc_str, 6).map_err(|err| {
-                                eyre::eyre!("Failed to parse USDC fee to 6 decimals: {:?}", err)
-                            })?;
-
-                            // Convert fee from U256 to Amount (using the parsed 6-decimal value)
-                            let fee_amount = Amount::try_from(fee_usdc_u256.to_string().as_str())
+                            let fee_usdc_u256 = parse_units(&fee_usdc_rounded.to_string(), 6)
                                 .map_err(|err| {
-                                eyre::eyre!("Failed to convert USDC fee to Amount: {:?}", err)
-                            })?;
+                                    eyre::eyre!("Failed to parse USDC fee: {:?}", err)
+                                })?;
 
-                            tracing::info!(
-                                "Gas fee calculation: {} ETH = {} USDC (at {} USD/ETH)",
-                                fee_eth_formatted_str,
-                                fee_usdc_rounded,
-                                eth_to_usdc_rate
-                            );
+                            // Convert fee to proper Amount format (human-readable)
+                            let fee_usdc_formatted = format_units(fee_usdc_u256, 6)
+                                .map_err(|err| eyre::eyre!("Failed to format fee: {:?}", err))?;
+                            let fee_amount = Amount::try_from(fee_usdc_formatted.as_str())
+                                .map_err(|err| eyre::eyre!("Failed to convert fee to Amount: {:?}", err))?;
 
-                            // Calculate updated deposit amount (subtract fee from original deposit amount)
+                            // Calculate net amounts
                             let updated_deposit_amount = safe!(deposit_amount - fee_amount)
                                 .ok_or_eyre("Failed to compute deposit amount")?;
-
-                            // Calculate cumulative fee (add gas fee to existing cumulative fee)
                             let updated_cumulative_fee = safe!(cumulative_fee + fee_amount)
                                 .ok_or_eyre("Failed to compute cumulative fee")?;
 
-                            // Format amounts for display using format_units(value, 6)
-                            let deposit_amount_u256 =
-                                U256::from(updated_deposit_amount.to_u64().unwrap_or(0));
-                            let formatted_deposit_amount = format_units(deposit_amount_u256, 6)
-                                .map_err(|err| {
-                                    eyre::eyre!("Failed to format deposit amount: {:?}", err)
-                                })?;
-
-                            let cumulative_fee_u256 =
-                                U256::from(updated_cumulative_fee.to_u64().unwrap_or(0));
-                            let formatted_cumulative_fee = format_units(cumulative_fee_u256, 6)
-                                .map_err(|err| {
-                                    eyre::eyre!("Failed to format cumulative fee: {:?}", err)
-                                })?;
-
-                            tracing::info!(
-                                "Final amounts - deposit: {} USDC, cumulative fee: {} USDC",
-                                formatted_deposit_amount,
-                                formatted_cumulative_fee
-                            );
+                            // Use Amount directly for display since it's already in human-readable format
+                            tracing::info!("Across: {} USDC (fee: {}) tx: 0xacross_complete", 
+                                          updated_deposit_amount, 
+                                          updated_cumulative_fee);
 
                             // Pass the updated amounts to the callback
                             callback(updated_deposit_amount, updated_cumulative_fee).map_err(

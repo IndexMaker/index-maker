@@ -76,8 +76,6 @@ impl CollateralBridge for Erc20CollateralBridge {
         let source = self.source.read().unwrap().get_full_name();
         let destination = self.destination.read().unwrap().get_full_name();
 
-        tracing::info!("Starting ERC20 transfer using direct chain_operations...");
-
         // Get designation details
         let source_designation = self.source.read().unwrap();
         let destination_designation = self.destination.read().unwrap();
@@ -117,8 +115,6 @@ impl CollateralBridge for Erc20CollateralBridge {
             let operations = self.chain_operations.read();
             operations.execute_command(source_designation.get_chain_id() as u32, command)?;
         }
-
-        tracing::info!("ERC20 transfer command sent to chain_operations directly");
 
         Ok(())
     }

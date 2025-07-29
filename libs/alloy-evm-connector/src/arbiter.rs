@@ -37,18 +37,15 @@ impl Arbiter {
         max_chain_operations: usize,                            // Configuration
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
-            tracing::info!("Chain operations arbiter started");
             
             let mut operation_rx = operation_rx; // Make it mutable in the async block
             
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
-                        tracing::info!("Chain operations arbiter cancelled");
                         break;
                     }
                     Some(request) = operation_rx.recv() => {
-                        tracing::debug!("Arbiter received request: {:?}", std::mem::discriminant(&request));
                         
                         // Handle the request using the state management pattern
                         match Self::handle_chain_operation_request(
@@ -69,7 +66,6 @@ impl Arbiter {
             }
 
             // Cleanup: shutdown all operations (following binance pattern)
-            tracing::info!("Shutting down all active chain operations...");
             
             // Get all active chain IDs first to avoid holding lock during async operations
             let chain_ids: Vec<u32> = {
@@ -87,15 +83,10 @@ impl Arbiter {
                 if let Some(mut operation) = shutdown_result {
                     if let Err(e) = operation.stop().await {
                         tracing::error!("Error stopping chain operation {}: {}", chain_id, e);
-                    } else {
-                        tracing::info!("Successfully stopped chain operation {}", chain_id);
                     }
                 }
             }
             
-            tracing::info!("Chain operations cleanup completed");
-
-            tracing::info!("Chain operations arbiter stopped");
             operation_rx
         });
     }
@@ -138,7 +129,6 @@ impl Arbiter {
                     });
                 }
                 
-                tracing::info!("Added chain operation for chain {}", chain_id);
             }
             
             ChainOperationRequest::RemoveOperation { chain_id } => {
@@ -162,7 +152,6 @@ impl Arbiter {
                                 chain_id,
                                 timestamp: Utc::now(),
                             });
-                            tracing::info!("Removed chain operation for chain {}", chain_id);
                         }
                         Err(e) => {
                             tracing::error!("Failed to stop chain operation for chain {}: {}", chain_id, e);
@@ -192,7 +181,6 @@ impl Arbiter {
     /// Stop the arbiter and wait for completion
     /// Returns the input receiver following binance pattern
     pub async fn stop(&mut self) -> Result<UnboundedReceiver<ChainOperationRequest>, Either<JoinError, eyre::Report>> {
-        tracing::info!("Stopping chain operations arbiter");
         self.arbiter_loop.stop().await
     }
 }

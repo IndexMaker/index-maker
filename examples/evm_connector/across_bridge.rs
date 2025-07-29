@@ -18,30 +18,22 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     tracing::info!("=== Cross-Chain Bridge Example ===");
-    tracing::info!("This example demonstrates cross-chain USDC transfer from Arbitrum to Base using Across protocol");
+    tracing::info!("Starting Arbitrum -> Base bridge operation...");
 
-    // Connect to manually started anvil instance
     let rpc_url = "http://localhost:8545";
-    tracing::info!("Connecting to anvil at: {}", rpc_url);
-
-    // Use known anvil default addresses (these are deterministic)
-    let admin_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"); // anvil[0]
-
-    tracing::info!("Using admin address: {:?}", admin_address);
+    let admin_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
 
     // USDC contract address on Arbitrum
     let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
     let whale_address = address!("0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D");
 
-    tracing::info!("=== Setting up USDC funding using whale impersonation ===");
+    // Setup USDC funding using whale impersonation;
 
     // Create provider for whale impersonation and balance checking
     let provider = ProviderBuilder::new()
         .connect(rpc_url)
         .await
         .expect("Failed to connect to anvil - make sure anvil is running at http://localhost:8545");
-
-    tracing::info!("Connected to anvil successfully");
 
     let usdc_contract = ERC20::new(usdc_address, &provider);
 
@@ -56,11 +48,8 @@ async fn main() {
     // Check if we need to fund admin with USDC
     let required_usdc = U256::from(10_000_000u64); // 10 USDC
     if admin_usdc_balance < required_usdc {
-        tracing::info!("Admin needs USDC funding for bridge operation");
-
         // Check whale USDC balance
         let whale_balance = usdc_contract.balanceOf(whale_address).call().await.unwrap();
-        tracing::info!("Whale USDC balance: {} (raw)", whale_balance);
 
         if whale_balance < U256::from(100_000_000u64) {
             tracing::error!("Whale account doesn't have enough USDC. Make sure anvil is forked from Arbitrum with: anvil --fork-url https://arb1.lava.build");
@@ -89,17 +78,8 @@ async fn main() {
             return;
         }
 
-        tracing::info!(
-            "Successfully impersonated whale account: {:?}",
-            whale_address
-        );
-
         // Transfer 100 USDC from whale to admin
         let transfer_amount = U256::from(100_000_000u64); // 100 USDC
-        tracing::info!(
-            "Transferring {} USDC from whale to admin...",
-            transfer_amount / U256::from(1_000_000u64)
-        );
 
         let transfer_call = usdc_contract.transfer(admin_address, transfer_amount);
         let transfer_calldata = transfer_call.calldata().clone();
@@ -128,25 +108,14 @@ async fn main() {
 
         // Verify the transfer
         let admin_balance_after = usdc_contract.balanceOf(admin_address).call().await.unwrap();
-        tracing::info!(
-            "Admin USDC balance after funding: {} USDC",
-            admin_balance_after / U256::from(1_000_000u64)
-        );
+        tracing::info!("Admin funded with {} USDC", admin_balance_after / U256::from(1_000_000u64));
     } else {
         tracing::info!("Admin already has sufficient USDC balance");
     }
 
-    tracing::info!("=== Starting Bridge Operation ===");
-
-    // Create the EvmConnector first (new architecture)
+    // Setup connector
     let mut connector = EvmConnector::new();
-
-    // Start the connector (this initializes the arbiter)
-    tracing::info!("🚀 Starting EvmConnector...");
     connector.start().expect("Failed to start EvmConnector");
-
-    // Connect to chains
-    tracing::info!("Connecting to Arbitrum and Base chains...");
     connector
         .connect_arbitrum()
         .await
@@ -155,10 +124,7 @@ async fn main() {
         .connect_base()
         .await
         .expect("Failed to connect to Base");
-
-    // Give time for chain operations to be added
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    tracing::info!("EvmConnector and chains initialized");
 
     // Create designations with admin address
     let source = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
@@ -198,22 +164,17 @@ async fn main() {
                 fee,
             } => {
                 tracing::info!(
-                    "(evm-bridge-main) Hop Complete {} {} {} {} {} {} {} {} {} {}",
-                    chain_id,
-                    address,
-                    client_order_id,
-                    timestamp,
-                    source,
-                    destination,
-                    route_from,
-                    route_to,
+                    "Bridge complete: {} USDC -> {} (fee: {})",
                     amount,
+                    destination,
                     fee,
                 );
                 end_tx.send(true).expect("Failed to send ok");
             }
         });
 
+    tracing::info!("Initiating cross-chain transfer: 10 USDC Arbitrum -> Base");
+    
     bridge
         .write()
         .unwrap()
@@ -234,10 +195,6 @@ async fn main() {
         .expect("Failed to await for transfer");
 
     // Properly shutdown the connector to avoid the error
-    tracing::info!("Shutting down EvmConnector...");
     connector.stop().await.expect("Failed to stop EvmConnector");
-    tracing::info!("EvmConnector shutdown complete");
-    tracing::info!("");
-    tracing::info!("Cross-chain bridge operation completed successfully!");
-    tracing::info!("Transferred 10 USDC from Arbitrum to Base using Across protocol");
+    tracing::info!("Cross-chain bridge completed");
 }

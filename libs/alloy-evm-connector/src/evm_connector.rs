@@ -88,11 +88,6 @@ impl EvmConnector {
         credentials: EvmCredentials,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id() as u32;
-        tracing::info!(
-            "Connecting to chain {} at {}",
-            chain_id,
-            credentials.get_rpc_url()
-        );
 
         let request = ChainOperationRequest::AddOperation { credentials };
 
@@ -108,7 +103,6 @@ impl EvmConnector {
             self.connected_chains.push(chain_id);
         }
 
-        tracing::info!("Chain {} connection initiated", chain_id);
         Ok(())
     }
 
@@ -149,8 +143,6 @@ impl EvmConnector {
 
     /// Disconnect from a blockchain network
     pub async fn disconnect_chain(&mut self, chain_id: u32) -> Result<()> {
-        tracing::info!("Disconnecting from chain {}", chain_id);
-
         let request = ChainOperationRequest::RemoveOperation { chain_id };
 
         if let Some(sender) = &self.request_sender {
@@ -163,7 +155,6 @@ impl EvmConnector {
 
         self.connected_chains.retain(|&id| id != chain_id);
 
-        tracing::info!("Chain {} disconnection initiated", chain_id);
         Ok(())
     }
 
@@ -197,9 +188,7 @@ impl EvmConnector {
             
             bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
         } else {
-            // Same-chain transfer - use ERC20 bridge
-            tracing::info!("Creating ERC20 bridge for same-chain transfer: {} -> {}", source_name, destination_name);
-            
+            // Same-chain transfer - use ERC20 bridge  
             let bridge = Erc20CollateralBridge::new_with_shared_operations(
                 source,
                 destination,
