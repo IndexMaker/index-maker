@@ -1,32 +1,26 @@
 use alloy::{
     hex,
-    primitives::{
-        utils::{format_units, parse_units},
-        Address, FixedBytes, U256,
-    },
+    primitives::U256,
     providers::{Provider, ProviderBuilder},
     signers::local::LocalSigner,
 };
+use std::str::FromStr;
 use chrono::Utc;
 use eyre::OptionExt;
 use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use safe_math::safe;
-use std::str::FromStr;
 use std::sync::Arc;
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
-use crate::across_deposit::{
-    create_verification_data, AcrossDepositBuilder, USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS,
-};
+use crate::across_deposit::AcrossDepositBuilder;
 use crate::commands::{ChainCommand, ChainOperationResult};
-use crate::contracts::{AcrossConnector, OTCCustody, VerificationData, ERC20};
-use crate::custody_helper::CAHelper;
+use crate::config::EvmConnectorConfig;
+use crate::contracts::ERC20;
+use crate::utils::{amount_to_u256, calculate_gas_fee_usdc};
 use index_core::blockchain::chain_connector::ChainNotification;
 use symm_core::core::bits::{Address as CoreAddress, Symbol};
 
@@ -60,12 +54,12 @@ impl ChainOperation {
         }
     }
 
-    pub fn start(&mut self, mut command_receiver: UnboundedReceiver<ChainCommand>) -> Result<()> {
+    pub fn start(&mut self, command_receiver: UnboundedReceiver<ChainCommand>) -> Result<()> {
         let chain_id = self.chain_id;
         let rpc_url = self.rpc_url.clone();
         let private_key = self.private_key.clone();
         let result_sender = self.result_sender.clone();
-        let chain_observer = self.chain_observer.clone();
+        let _chain_observer = self.chain_observer.clone();
 
         self.operation_loop.start(async move |cancel_token| {
             Self::operation_loop(
@@ -105,17 +99,9 @@ impl ChainOperation {
 
         // Initialize AcrossDepositBuilder for this chain
         let deposit_builder =
-            match AcrossDepositBuilder::new(provider.clone(), wallet.address().clone()).await {
-                Ok(builder) => Some(builder),
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to initialize AcrossDepositBuilder for chain {}: {}",
-                        chain_id,
-                        e
-                    );
-                    None
-                }
-            };
+            AcrossDepositBuilder::new(provider.clone(), wallet.address().clone())
+                .await
+                .ok();
 
         loop {
             tokio::select! {
@@ -150,6 +136,7 @@ impl ChainOperation {
             }
         }
 
+        tracing::info!("Chain operation for chain {} stopped successfully", chain_id);
         Ok(())
     }
 
@@ -172,7 +159,7 @@ impl ChainOperation {
             } => {
                 // Create ERC20 contract instance
                 let token_contract = ERC20::new(token_address, provider.clone());
-                let transfer_amount = U256::from(amount.to_u64().unwrap_or(0));
+                let transfer_amount = amount_to_u256(&amount)?;
 
                 match token_contract
                     .transferFrom(from, to, transfer_amount)
@@ -185,38 +172,9 @@ impl ChainOperation {
                                 let tx_hash =
                                     format!("0x{}", hex::encode(receipt.transaction_hash));
 
-                                // Calculate gas fee
+                                // Calculate gas fee using simplified utility
                                 let gas_used = U256::from(receipt.gas_used);
-                                let gas_price = provider.get_gas_price().await.map_err(|err| {
-                                    eyre::eyre!("Failed to get gas price: {:?}", err)
-                                })?;
-
-                                let fee_wei = U256::from(gas_price) * gas_used;
-                                let fee_eth_str =
-                                    format_units(fee_wei, "ether").map_err(|err| {
-                                        eyre::eyre!("Failed to format gas fee: {:?}", err)
-                                    })?;
-
-                                let fee_eth_decimal =
-                                    Decimal::from_str(&fee_eth_str).map_err(|err| {
-                                        eyre::eyre!("Failed to parse ETH fee: {:?}", err)
-                                    })?;
-
-                                // Convert ETH to USDC at $3000/ETH
-                                let eth_to_usdc_rate = Decimal::from(3000);
-                                let fee_usdc_decimal = fee_eth_decimal * eth_to_usdc_rate;
-                                let fee_usdc_rounded = fee_usdc_decimal.round_dp(6);
-
-                                let fee_usdc_u256 = parse_units(&fee_usdc_rounded.to_string(), 6)
-                                    .map_err(|err| {
-                                    eyre::eyre!("Failed to parse USDC fee: {:?}", err)
-                                })?;
-
-                                // Convert fee to proper Amount format (human-readable)
-                                let fee_usdc_formatted = format_units(fee_usdc_u256, 6)
-                                    .map_err(|err| eyre::eyre!("Failed to format fee: {:?}", err))?;
-                                let fee_amount = Amount::try_from(fee_usdc_formatted.as_str())
-                                    .map_err(|err| eyre::eyre!("Failed to convert fee to Amount: {:?}", err))?;
+                                let fee_amount = calculate_gas_fee_usdc(provider, gas_used).await?;
 
                                 // Calculate net amounts
                                 let updated_transfer_amount = safe!(amount - fee_amount)
@@ -241,24 +199,18 @@ impl ChainOperation {
 
                                 Ok(Some(tx_hash))
                             }
-                            Err(e) => {
-                                tracing::error!("Failed to get ERC20 transfer receipt: {}", e);
-                                Err(eyre::eyre!("ERC20 transfer receipt failed: {}", e))
-                            }
+                            Err(e) => Err(eyre::eyre!("ERC20 transfer receipt failed: {}", e))
                         }
                     }
-                    Err(e) => {
-                        tracing::error!("ERC20 transfer transaction failed: {}", e);
-                        Err(eyre::eyre!("ERC20 transfer failed: {}", e))
-                    }
+                    Err(e) => Err(eyre::eyre!("ERC20 transfer failed: {}", e))
                 }
             }
             ChainCommand::MintIndex {
-                symbol,
-                quantity,
-                recipient,
-                execution_price,
-                execution_time,
+                symbol: _,
+                quantity: _,
+                recipient: _,
+                execution_price: _,
+                execution_time: _,
                 ..
             } => {
                 // TODO: Implement actual index minting logic
@@ -266,9 +218,9 @@ impl ChainOperation {
                 Ok(Some("0xmint_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::BurnIndex {
-                symbol,
-                quantity,
-                recipient,
+                symbol: _,
+                quantity: _,
+                recipient: _,
                 ..
             } => {
                 // TODO: Implement actual index burning logic
@@ -276,10 +228,10 @@ impl ChainOperation {
                 Ok(Some("0xburn_index...".to_string())) // Mock transaction hash
             }
             ChainCommand::Withdraw {
-                recipient,
-                amount,
-                execution_price,
-                execution_time,
+                recipient: _,
+                amount: _,
+                execution_price: _,
+                execution_time: _,
                 ..
             } => {
                 // TODO: Implement actual withdrawal logic
@@ -298,9 +250,10 @@ impl ChainOperation {
                 ..
             } => {
                 if let Some(builder) = deposit_builder {
-                    // Use hardcoded USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
-                    let input_token = USDC_ARBITRUM_ADDRESS;
-                    let output_token = USDC_BASE_ADDRESS;
+                    // Use config USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
+                    let config = EvmConnectorConfig::default();
+                    let input_token = config.get_usdc_address(42161).unwrap_or_default();
+                    let output_token = config.get_usdc_address(8453).unwrap_or_default();
 
                     match builder
                         .execute_complete_across_deposit(
@@ -308,44 +261,15 @@ impl ChainOperation {
                             to,
                             input_token,
                             output_token,
-                            alloy::primitives::U256::from(
-                                deposit_amount.to_u64().unwrap_or(1000000),
-                            ),
+                            amount_to_u256(&deposit_amount)?,
                             origin_chain_id,
                             destination_chain_id,
                         )
                         .await
                     {
                         Ok(gas_used) => {
-                            // Calculate gas fee
-                            let gas_price = provider
-                                .get_gas_price()
-                                .await
-                                .map_err(|err| eyre::eyre!("Failed to get gas price: {:?}", err))?;
-                            let fee_wei = U256::from(gas_price) * gas_used;
-
-                            let fee_eth_str = format_units(fee_wei, "ether").map_err(|err| {
-                                eyre::eyre!("Failed to format gas fee: {:?}", err)
-                            })?;
-
-                            let fee_eth_decimal = Decimal::from_str(&fee_eth_str)
-                                .map_err(|err| eyre::eyre!("Failed to parse ETH fee: {:?}", err))?;
-
-                            // Convert ETH to USDC at $3000/ETH
-                            let eth_to_usdc_rate = Decimal::from(3000);
-                            let fee_usdc_decimal = fee_eth_decimal * eth_to_usdc_rate;
-                            let fee_usdc_rounded = fee_usdc_decimal.round_dp(6);
-
-                            let fee_usdc_u256 = parse_units(&fee_usdc_rounded.to_string(), 6)
-                                .map_err(|err| {
-                                    eyre::eyre!("Failed to parse USDC fee: {:?}", err)
-                                })?;
-
-                            // Convert fee to proper Amount format (human-readable)
-                            let fee_usdc_formatted = format_units(fee_usdc_u256, 6)
-                                .map_err(|err| eyre::eyre!("Failed to format fee: {:?}", err))?;
-                            let fee_amount = Amount::try_from(fee_usdc_formatted.as_str())
-                                .map_err(|err| eyre::eyre!("Failed to convert fee to Amount: {:?}", err))?;
+                            // Calculate gas fee using simplified utility
+                            let fee_amount = calculate_gas_fee_usdc(provider, gas_used).await?;
 
                             // Calculate net amounts
                             let updated_deposit_amount = safe!(deposit_amount - fee_amount)
@@ -370,14 +294,7 @@ impl ChainOperation {
 
                             Ok(Some("0xacross_complete...".to_string()))
                         }
-                        Err(e) => {
-                            tracing::error!(
-                                "ExecuteCompleteAcrossDeposit failed with error: {}",
-                                e
-                            );
-                            tracing::error!("Error details: {:?}", e);
-                            Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e))
-                        }
+                        Err(e) => Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e))
                     }
                 } else {
                     Err(eyre::eyre!(
@@ -401,7 +318,7 @@ impl ChainOperation {
         observer.publish_single(ChainNotification::Deposit {
             chain_id,
             address: CoreAddress::new([0u8; 20]),
-            amount: Amount::from(1000000), // 1 USDC
+            amount: Amount::from(EvmConnectorConfig::get_default_deposit_amount()), // 1 USDC
             timestamp: Utc::now(),
         });
 
@@ -409,7 +326,7 @@ impl ChainOperation {
         observer.publish_single(ChainNotification::WithdrawalRequest {
             chain_id,
             address: CoreAddress::new([0u8; 20]),
-            amount: Amount::from(500000), // 0.5 USDC
+            amount: Amount::from(EvmConnectorConfig::get_default_min_amount()), // 0.5 USDC
             timestamp: Utc::now(),
         });
 

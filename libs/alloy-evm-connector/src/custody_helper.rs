@@ -10,6 +10,7 @@ use ethers::{
 use merkle_tree_rs::core::{get_proof, make_merkle_tree};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::config::EvmConnectorConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum CAItemType {
@@ -561,11 +562,11 @@ mod tests {
         let call_data = serde_json::json!({
             "type": "deposit(address,address,uint256,uint256,uint256,address,uint32,uint32,bytes)",
             "args": [
-                "0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd",
-                "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
-                "1000000",
-                "999999",
-                "8453",
+                &EvmConnectorConfig::get_default_sender_address().to_string(),
+                &EvmConnectorConfig::default().get_usdc_address(42161).unwrap_or_default().to_string(),
+                &EvmConnectorConfig::get_default_deposit_amount().to_string(),
+                &EvmConnectorConfig::get_default_min_amount().to_string(),
+                &EvmConnectorConfig::default().get_chain_config(8453).map(|c| c.chain_id.to_string()).unwrap_or_else(|| "8453".to_string()),
                 "0x0000000000000000000000000000000000000000",
                 "0",
                 "0"

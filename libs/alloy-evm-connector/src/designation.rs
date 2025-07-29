@@ -1,5 +1,5 @@
 use crate::designation_details::EvmDesignationDetails;
-use crate::across_deposit::{USDC_ARBITRUM_ADDRESS, USDC_BASE_ADDRESS};
+use crate::config::EvmConnectorConfig;
 use index_core::collateral::collateral_router::CollateralDesignation;
 use symm_core::core::bits::{Address, Amount, Symbol};
 
@@ -34,11 +34,17 @@ impl EvmCollateralDesignation {
     }
 
     pub fn arbitrum_usdc(address: Address) -> Self {
-        Self::new("ARBITRUM".into(), "USDC".into(), 42161, USDC_ARBITRUM_ADDRESS, address)
+        let config = EvmConnectorConfig::default();
+        let chain_id = config.get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161);
+        let usdc_address = config.get_usdc_address(42161).unwrap_or_default();
+        Self::new("ARBITRUM".into(), "USDC".into(), chain_id, usdc_address, address)
     }
 
     pub fn base_usdc(address: Address) -> Self {
-        Self::new("BASE".into(), "USDC".into(), 8453, USDC_BASE_ADDRESS, address)
+        let config = EvmConnectorConfig::default();
+        let chain_id = config.get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453);
+        let usdc_address = config.get_usdc_address(8453).unwrap_or_default();
+        Self::new("BASE".into(), "USDC".into(), chain_id, usdc_address, address)
     }
 
     pub fn get_wallet_address(&self) -> Address {

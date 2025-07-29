@@ -1,6 +1,7 @@
 use std::env;
 use dotenv::dotenv;
 use eyre::Result;
+use crate::config::EvmConnectorConfig;
 
 /// EVM blockchain credentials for connecting to chains
 /// Follows the same pattern as binance credentials with lazy loading for security
@@ -48,12 +49,14 @@ impl EvmCredentials {
     /// Create credentials from environment variables
     /// Follows the binance pattern for environment variable loading
     pub fn from_env(chain_id: u64) -> Result<Self> {
-        // Load environment variables from .env file
-        dotenv().ok();
+        // Load environment variables from .env file (try multiple locations)
+        dotenv::from_path(".env").ok()
+            .or_else(|| dotenv::from_path("../.env").ok())
+            .or_else(|| dotenv::from_path("../../.env").ok());
         
         // Get RPC URL with fallback (following the current pattern)
         let rpc_url = env::var("RPC_URL")
-            .unwrap_or_else(|_| "http://localhost:8545".to_string());
+            .unwrap_or_else(|_| EvmConnectorConfig::get_default_rpc_url());
         
         // Validate that private key environment variable exists
         // This follows the binance pattern of early validation
@@ -68,8 +71,10 @@ impl EvmCredentials {
     /// Create credentials from environment variables with custom RPC URL
     /// Allows for chain-specific RPC endpoints
     pub fn from_env_with_rpc(chain_id: u64, rpc_url: String) -> Result<Self> {
-        // Load environment variables from .env file
-        dotenv().ok();
+        // Load environment variables from .env file (try multiple locations)
+        dotenv::from_path(".env").ok()
+            .or_else(|| dotenv::from_path("../.env").ok())
+            .or_else(|| dotenv::from_path("../../.env").ok());
         
         // Validate that private key environment variable exists
         env::var("PRIVATE_KEY")
@@ -87,11 +92,15 @@ impl EvmCredentials {
     }
 
     pub fn arbitrum() -> Result<Self> {
-        Self::from_env_with_chain_prefix(42161, "ARBITRUM")
+        let config = EvmConnectorConfig::default();
+        let chain_id = config.get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161);
+        Self::from_env_with_chain_prefix(chain_id, "ARBITRUM")
     }
 
     pub fn base() -> Result<Self> {
-        Self::from_env_with_chain_prefix(8453, "BASE")
+        let config = EvmConnectorConfig::default();
+        let chain_id = config.get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453);
+        Self::from_env_with_chain_prefix(chain_id, "BASE")
     }
 
     pub fn polygon() -> Result<Self> {
@@ -103,7 +112,9 @@ impl EvmCredentials {
     /// ETHEREUM_RPC_URL, ETHEREUM_PRIVATE_KEY
     /// ARBITRUM_RPC_URL, ARBITRUM_PRIVATE_KEY
     fn from_env_with_chain_prefix(chain_id: u64, prefix: &str) -> Result<Self> {
-        dotenv().ok();
+        dotenv::from_path(".env").ok()
+            .or_else(|| dotenv::from_path("../.env").ok())
+            .or_else(|| dotenv::from_path("../../.env").ok());
         
         let rpc_var = format!("{}_RPC_URL", prefix);
         let key_var = format!("{}_PRIVATE_KEY", prefix);
@@ -111,7 +122,7 @@ impl EvmCredentials {
         // Get RPC URL with fallback to generic RPC_URL
         let rpc_url = env::var(&rpc_var)
             .or_else(|_| env::var("RPC_URL"))
-            .unwrap_or_else(|_| "http://localhost:8545".to_string());
+            .unwrap_or_else(|_| EvmConnectorConfig::get_default_rpc_url());
         
         // Validate private key exists (chain-specific or generic)
         let has_chain_key = env::var(&key_var).is_ok();
@@ -150,12 +161,13 @@ mod tests {
 
     #[test]
     fn test_credentials_creation() {
-        let credentials = EvmCredentials::new(1, "http://localhost:8545".to_string(), || {
+        let rpc_url = EvmConnectorConfig::get_default_rpc_url();
+        let credentials = EvmCredentials::new(1, rpc_url.clone(), || {
             "test_private_key".to_string()
         });
 
         assert_eq!(credentials.get_chain_id(), 1);
-        assert_eq!(credentials.get_rpc_url(), "http://localhost:8545");
+        assert_eq!(credentials.get_rpc_url(), rpc_url);
         assert_eq!(credentials.get_private_key(), "test_private_key");
     }
 
@@ -181,7 +193,8 @@ mod tests {
 
         let arbitrum = EvmCredentials::arbitrum();
         assert!(arbitrum.is_ok());
-        assert_eq!(arbitrum.unwrap().get_chain_id(), 42161);
+        let expected_chain_id = EvmConnectorConfig::default().get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161);
+        assert_eq!(arbitrum.unwrap().get_chain_id(), expected_chain_id);
 
         // Clean up
         env::remove_var("PRIVATE_KEY");

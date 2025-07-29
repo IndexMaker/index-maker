@@ -4,10 +4,11 @@ use alloy::primitives::{address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
 use alloy_evm_connector::contracts::ERC20;
+use alloy_evm_connector::config::EvmConnectorConfig;
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use index_core::collateral::collateral_router::CollateralRouterEvent;
-use rust_decimal::dec;
+use symm_core::core::bits::Amount;
 use symm_core::core::functional::IntoObservableSingleFun;
 use tokio::sync::watch;
 use tracing_subscriber;
@@ -20,18 +21,19 @@ async fn main() {
     tracing::info!("=== Cross-Chain Bridge Example ===");
     tracing::info!("Starting Arbitrum -> Base bridge operation...");
 
-    let rpc_url = "http://localhost:8545";
-    let admin_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+    let config = EvmConnectorConfig::default();
+    let rpc_url = EvmConnectorConfig::get_default_rpc_url();
+    let admin_address = EvmConnectorConfig::get_default_sender_address();
 
     // USDC contract address on Arbitrum
-    let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
+    let usdc_address = config.get_usdc_address(42161).unwrap();
     let whale_address = address!("0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D");
 
     // Setup USDC funding using whale impersonation;
 
     // Create provider for whale impersonation and balance checking
     let provider = ProviderBuilder::new()
-        .connect(rpc_url)
+        .connect(&rpc_url)
         .await
         .expect("Failed to connect to anvil - make sure anvil is running at http://localhost:8545");
 
@@ -46,40 +48,41 @@ async fn main() {
     );
 
     // Check if we need to fund admin with USDC
-    let required_usdc = U256::from(10_000_000u64); // 10 USDC
+    let required_usdc = U256::from(EvmConnectorConfig::get_default_deposit_amount() * 10); // 10 USDC
     if admin_usdc_balance < required_usdc {
         // Check whale USDC balance
         let whale_balance = usdc_contract.balanceOf(whale_address).call().await.unwrap();
 
-        if whale_balance < U256::from(100_000_000u64) {
+        if whale_balance < U256::from(EvmConnectorConfig::get_default_deposit_amount() * 100) {
             tracing::error!("Whale account doesn't have enough USDC. Make sure anvil is forked from Arbitrum with: anvil --fork-url https://arb1.lava.build");
             return;
         }
 
         // Impersonate the whale account
-        let impersonate_cmd = format!(
-            r#"{{"jsonrpc":"2.0","method":"anvil_impersonateAccount","params":["{}"],"id":1}}"#,
-            whale_address
+        let impersonate_cmd = serde_json::json!(
+            {
+                "jsonrpc": "2.0",
+                "method": "anvil_impersonateAccount",
+                "params": [whale_address],
+                "id": 1
+            }
         );
 
-        let client = std::process::Command::new("curl")
-            .arg("-X")
-            .arg("POST")
-            .arg("-H")
-            .arg("Content-Type: application/json")
-            .arg("-d")
-            .arg(&impersonate_cmd)
-            .arg(rpc_url)
-            .output()
-            .expect("Failed to execute curl command");
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&rpc_url)
+            .json(&impersonate_cmd)
+            .send()
+            .await
+            .expect("Failed to send impersonate request");
 
-        if !client.status.success() {
+        if !response.status().is_success() {
             tracing::error!("Failed to impersonate whale account");
             return;
         }
 
         // Transfer 100 USDC from whale to admin
-        let transfer_amount = U256::from(100_000_000u64); // 100 USDC
+        let transfer_amount = U256::from(EvmConnectorConfig::get_default_deposit_amount() * 100); // 100 USDC
 
         let transfer_call = usdc_contract.transfer(admin_address, transfer_amount);
         let transfer_calldata = transfer_call.calldata().clone();
@@ -108,7 +111,10 @@ async fn main() {
 
         // Verify the transfer
         let admin_balance_after = usdc_contract.balanceOf(admin_address).call().await.unwrap();
-        tracing::info!("Admin funded with {} USDC", admin_balance_after / U256::from(1_000_000u64));
+        tracing::info!(
+            "Admin funded with {} USDC",
+            admin_balance_after / U256::from(1_000_000u64)
+        );
     } else {
         tracing::info!("Admin already has sufficient USDC balance");
     }
@@ -138,12 +144,12 @@ async fn main() {
     // Create bridge using the generic method (it will automatically select Across bridge for cross-chain)
     let bridge = connector.create_bridge(source, destination);
 
-    let chain_id = 42161;
+    let chain_id = config.get_chain_config(42161).map(|c| c.chain_id).unwrap_or(42161);
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();
     let route_to = "BASE".into();
-    let amount = dec!(10000000.0); // 10 USDC (6 decimals) = 10,000,000 wei
-    let cumulative_fee = dec!(0.0);
+    let amount = Amount::try_from("10.00").expect("Invalid amount"); // 10 USDC
+    let cumulative_fee = Amount::try_from("0.00").expect("Invalid cumulative fee");
 
     let (end_tx, mut end_rx) = watch::channel(false);
 
@@ -152,14 +158,14 @@ async fn main() {
         .unwrap()
         .set_observer_fn(move |event: CollateralRouterEvent| match event {
             CollateralRouterEvent::HopComplete {
-                chain_id,
-                address,
-                client_order_id,
-                timestamp,
-                source,
+                chain_id: _,
+                address: _,
+                client_order_id: _,
+                timestamp: _,
+                source: _,
                 destination,
-                route_from,
-                route_to,
+                route_from: _,
+                route_to: _,
                 amount,
                 fee,
             } => {
@@ -174,7 +180,7 @@ async fn main() {
         });
 
     tracing::info!("Initiating cross-chain transfer: 10 USDC Arbitrum -> Base");
-    
+
     bridge
         .write()
         .unwrap()

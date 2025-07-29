@@ -64,7 +64,9 @@ impl ChainOperations {
                 self.add_operation_with_credentials(credentials)?;
             }
             ChainOperationRequest::RemoveOperation { chain_id } => {
-                self.remove_operation(chain_id).await?;
+                if let Some(mut operation) = self.remove_operation(chain_id) {
+                    operation.stop().await?;
+                }
             }
             ChainOperationRequest::ExecuteCommand { chain_id, command } => {
                 self.execute_command(chain_id, command)?;
@@ -107,25 +109,13 @@ impl ChainOperations {
         Ok(())
     }
 
-    /// Remove a chain operation (synchronous part)
-    pub fn remove_operation_sync(&mut self, chain_id: u32) -> Option<ChainOperation> {
-
+    /// Remove a chain operation, returns it so user can call stop() on it
+    pub fn remove_operation(&mut self, chain_id: u32) -> Option<ChainOperation> {
         // Remove command sender first
         self.command_senders.remove(&chain_id);
 
-        // Remove the operation (returns it so we can stop it outside the lock)
+        // Remove the operation (returns it so user can stop it outside the lock)
         self.operations.remove(&chain_id)
-    }
-
-    /// Remove a chain operation (async version that handles the full process)
-    pub async fn remove_operation(&mut self, chain_id: u32) -> Result<()> {
-        if let Some(mut operation) = self.remove_operation_sync(chain_id) {
-            operation.stop().await?;
-        } else {
-            tracing::warn!("Chain operation for chain {} not found", chain_id);
-        }
-
-        Ok(())
     }
 
     /// Execute a command on a specific chain
@@ -143,24 +133,23 @@ impl ChainOperations {
         Ok(())
     }
 
-    /// Get list of active chain IDs
-    pub fn active_chains(&self) -> Vec<u32> {
+    /// Get list of connected chain IDs
+    pub fn connected_chain_ids(&self) -> Vec<u32> {
         self.operations.keys().copied().collect()
     }
 
-    /// Check if a chain operation is active
-    pub fn is_active(&self, chain_id: u32) -> bool {
+    /// Check if a chain operation is connected
+    pub fn is_connected(&self, chain_id: u32) -> bool {
         self.operations.contains_key(&chain_id)
     }
 
-    /// Shutdown all operations
-    pub async fn shutdown(&mut self) -> Result<()> {
+    /// Drain all operations, returns them so user can call stop() on each
+    pub fn drain_all(&mut self) -> Vec<ChainOperation> {
         let chain_ids: Vec<u32> = self.operations.keys().copied().collect();
-        for chain_id in chain_ids {
-            self.remove_operation(chain_id).await?;
-        }
-
-        Ok(())
+        chain_ids
+            .into_iter()
+            .filter_map(|chain_id| self.remove_operation(chain_id))
+            .collect()
     }
 }
 

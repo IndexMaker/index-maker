@@ -66,24 +66,15 @@ impl Arbiter {
             }
 
             // Cleanup: shutdown all operations (following binance pattern)
-            
-            // Get all active chain IDs first to avoid holding lock during async operations
-            let chain_ids: Vec<u32> = {
-                let operations = chain_operations.read();
-                operations.active_chains()
+            let operations_to_stop = {
+                let mut operations = chain_operations.write();
+                operations.drain_all()
             };
             
-            // Shutdown each chain operation individually
-            for chain_id in chain_ids {
-                let shutdown_result = {
-                    let mut operations = chain_operations.write();
-                    operations.remove_operation_sync(chain_id)
-                };
-                
-                if let Some(mut operation) = shutdown_result {
-                    if let Err(e) = operation.stop().await {
-                        tracing::error!("Error stopping chain operation {}: {}", chain_id, e);
-                    }
+            // Stop each chain operation individually
+            for mut operation in operations_to_stop {
+                if let Err(e) = operation.stop().await {
+                    tracing::error!("Error stopping chain operation: {}", e);
                 }
             }
             
@@ -136,7 +127,7 @@ impl Arbiter {
                 // then call async method on cloned Arc outside the lock
                 let operation_to_stop = {
                     let mut operations = chain_operations.write();
-                    operations.remove_operation_sync(chain_id)
+                    operations.remove_operation(chain_id)
                 };
                 
                 // Clone the observer Arc before async operation

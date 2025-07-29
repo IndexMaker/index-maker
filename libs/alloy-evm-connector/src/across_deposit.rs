@@ -15,18 +15,9 @@ use std::str::FromStr;
 use crate::contracts::{AcrossConnector, OTCCustody, ERC20};
 use crate::custody_helper::CAHelper;
 use crate::utils::{get_current_timestamp, set_next_block_timestamp};
+use crate::config::EvmConnectorConfig;
 
-pub const ACROSS_CONNECTOR_ADDRESS: Address =
-    address!("0x8350a9Ab669808BE1DDF24FAF9c14475321D0504");
-pub const ACROSS_SPOKE_POOL_ADDRESS: Address =
-    address!("0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A");
-pub const OTC_CUSTODY_ADDRESS: Address = address!("0x9F6754bB627c726B4d2157e90357282d03362BCd");
-pub const USDC_ARBITRUM_ADDRESS: Address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
-pub const USDC_BASE_ADDRESS: Address = address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
 pub const USDC_DECIMALS: u8 = 6;
-pub const DEPOSIT_AMOUNT: &str = "1000000";
-pub const ARBITRUM_CHAIN_ID: u64 = 42161; // Arbitrum
-pub const BASE_CHAIN_ID: u64 = 8453; // Base
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcrossSuggestedOutput {
@@ -100,20 +91,22 @@ pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
     pub usdc: ERC20::ERC20Instance<P>,
 }
 
-/// Create a new builder using environment variables
+/// Create a new builder using environment variables through config system
 ///
-/// Reads from .env file:
+/// Uses centralized configuration from config.rs which reads from .env file:
 /// - PRIVATE_KEY: Your wallet's private key
-/// - RPC_URL: RPC endpoint (optional, defaults to http://localhost:8545)
+/// - DEFAULT_RPC_URL: RPC endpoint (with fallback)
 pub async fn new_builder_from_env() -> eyre::Result<AcrossDepositBuilder<impl Provider + Clone>> {
-    // Load environment variables from .env file in the libs/alloy-evm-connector directory
-    dotenv().ok();
+    // Load environment variables from .env file (try multiple locations)
+    dotenv::from_path(".env").ok()
+        .or_else(|| dotenv::from_path("../.env").ok())
+        .or_else(|| dotenv::from_path("../../.env").ok());
 
-    // Read private key from environment variable
+    // Read private key from environment variable (still direct access as it's sensitive)
     let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set");
 
-    // Read RPC URL from environment variable with fallback
-    let rpc_url = env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
+    // Use config system for RPC URL
+    let rpc_url = EvmConnectorConfig::get_default_rpc_url();
 
     // Create wallet from private key
     let wallet = LocalSigner::from_str(&private_key)?;
@@ -128,21 +121,23 @@ pub async fn new_builder_from_env() -> eyre::Result<AcrossDepositBuilder<impl Pr
 
 impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     pub async fn new(provider: P, signer_address: Address) -> eyre::Result<Self> {
+        let config = EvmConnectorConfig::default();
         Ok(Self {
             signer_address,
             across_connector: AcrossConnector::AcrossConnectorInstance::new(
-                ACROSS_CONNECTOR_ADDRESS,
+                config.bridge.across.connector_address,
                 provider.clone(),
             ),
-            otc_custody: OTCCustody::OTCCustodyInstance::new(OTC_CUSTODY_ADDRESS, provider.clone()),
-            usdc: ERC20::ERC20Instance::new(USDC_ARBITRUM_ADDRESS, provider.clone()),
+            otc_custody: OTCCustody::OTCCustodyInstance::new(config.bridge.across.custody_address, provider.clone()),
+            usdc: ERC20::ERC20Instance::new(config.bridge.across.usdc_addresses.get(&42161).copied().unwrap_or_default(), provider.clone()),
         })
     }
 
     /// Step 2: Approve input token for OTCCustody
     /// Returns the gas used for the approval transaction
     pub async fn approve_input_token_for_custody(&self, amount: U256) -> eyre::Result<U256> {
-        let call = self.usdc.approve(OTC_CUSTODY_ADDRESS, amount);
+        let config = EvmConnectorConfig::default();
+        let call = self.usdc.approve(config.bridge.across.custody_address, amount);
         let receipt = call.send().await?.get_receipt().await?;
 
         let gas_used = U256::from(receipt.gas_used);
@@ -159,7 +154,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     ) -> eyre::Result<AcrossSuggestedOutput> {
         let client = reqwest::Client::new();
         let response = client
-            .get("https://app.across.to/api/suggested-fees")
+            .get(&EvmConnectorConfig::default().bridge.across.api_url)
             .query(&[
                 ("inputToken", &input_token.to_string()),
                 ("outputToken", &output_token.to_string()),
@@ -193,14 +188,14 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 .as_str()
                 .and_then(|s| s.parse::<u64>().ok())
                 .or_else(|| data["fillDeadline"].as_u64())
-                .unwrap_or((chrono::Utc::now().timestamp() + 3600) as u64),
+                .unwrap_or((chrono::Utc::now().timestamp() + EvmConnectorConfig::get_filldeadline_buffer() as i64) as u64),
             exclusive_relayer: data["exclusiveRelayer"]
                 .as_str()
                 .and_then(|s| Address::from_str(s).ok())
                 .unwrap_or(Address::ZERO),
             exclusivity_deadline: data["exclusivityDeadline"]
                 .as_u64()
-                .unwrap_or((chrono::Utc::now().timestamp() + 1800) as u64),
+                .unwrap_or((chrono::Utc::now().timestamp() + EvmConnectorConfig::get_exclusivity_deadline_buffer() as i64) as u64),
         })
     }
 
@@ -229,9 +224,10 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         amount: U256,
         verification_data: crate::contracts::VerificationData,
     ) -> eyre::Result<U256> {
+        let config = EvmConnectorConfig::default();
         let call = self.otc_custody.custodyToConnector(
             input_token,
-            ACROSS_CONNECTOR_ADDRESS,
+            config.bridge.across.connector_address,
             amount,
             verification_data,
         );
@@ -248,9 +244,10 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         calldata: Vec<u8>,
         verification_data: crate::contracts::VerificationData,
     ) -> eyre::Result<TransactionReceipt> {
+        let config = EvmConnectorConfig::default();
         let call = self.otc_custody.callConnector(
             "AcrossConnector".to_string(),
-            ACROSS_CONNECTOR_ADDRESS,
+            config.bridge.across.connector_address,
             calldata.into(),
             Vec::new().into(),
             verification_data,
@@ -292,12 +289,12 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!(
             "Starting Across deposit: {} USDC {} -> {}",
             format_units(deposit_amount, 6).unwrap_or_default(),
-            if origin_chain_id == 42161 {
+            if origin_chain_id == EvmConnectorConfig::default().get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161) {
                 "ARBITRUM"
             } else {
                 "UNKNOWN"
             },
-            if destination_chain_id == 8453 {
+            if destination_chain_id == EvmConnectorConfig::default().get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453) {
                 "BASE"
             } else {
                 "UNKNOWN"
@@ -310,11 +307,12 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Setup custody helper
         let chain_id_runtime = self.across_connector.provider().get_chain_id().await?;
-        let mut ca_helper = CAHelper::new(chain_id_runtime, OTC_CUSTODY_ADDRESS);
+        let config = EvmConnectorConfig::default();
+        let mut ca_helper = CAHelper::new(chain_id_runtime, config.bridge.across.custody_address);
 
         // Step 3: Call custodyToConnector of custody_helper
         let custody_action_index = ca_helper.custody_to_connector(
-            ACROSS_CONNECTOR_ADDRESS,
+            config.bridge.across.connector_address,
             input_token,
             0,
             crate::custody_helper::Party {
@@ -350,7 +348,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         // Step 6: Call callConnector of custody_helper
         let connector_action_index = ca_helper.call_connector(
             "AcrossConnector",
-            ACROSS_CONNECTOR_ADDRESS,
+            config.bridge.across.connector_address,
             &calldata,
             0u8,
             crate::custody_helper::Party {
@@ -374,7 +372,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         //     .duration_since(std::time::UNIX_EPOCH)?
         //     .as_secs();
         let custody_timestamp =
-            get_current_timestamp(self.across_connector.provider()).await? + 3600;
+            get_current_timestamp(self.across_connector.provider()).await? + EvmConnectorConfig::get_filldeadline_buffer();
         set_next_block_timestamp(self.across_connector.provider(), custody_timestamp).await?;
         let custody_verification = create_verification_data(
             custody_id,
@@ -399,7 +397,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Step 11: Setup verification data for callConnector
         // Use the same timestamp as custodyToConnector for consistency
-        let connector_timestamp = custody_timestamp + 3600;
+        let connector_timestamp = custody_timestamp + EvmConnectorConfig::get_filldeadline_buffer();
         set_next_block_timestamp(self.across_connector.provider(), connector_timestamp).await?;
         let connector_proof = ca_helper.get_merkle_proof(connector_action_index);
         let connector_verification = create_verification_data(
@@ -460,13 +458,14 @@ pub async fn example_complete_across_deposit_flow() -> eyre::Result<()> {
     let builder = new_builder_from_env().await?;
 
     // Example parameters
-    let sender = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
-    let recipient = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
-    let input_token = USDC_ARBITRUM_ADDRESS;
-    let output_token = USDC_BASE_ADDRESS;
-    let deposit_amount = U256::from(1_000_000u128); // 1 USDC (6 decimals)
-    let origin_chain_id = ARBITRUM_CHAIN_ID;
-    let destination_chain_id = BASE_CHAIN_ID;
+    let config = EvmConnectorConfig::default();
+    let sender = EvmConnectorConfig::get_default_sender_address();
+    let recipient = EvmConnectorConfig::get_default_recipient_address();
+    let input_token = config.get_usdc_address(42161).unwrap_or_default();
+    let output_token = config.get_usdc_address(8453).unwrap_or_default();
+    let deposit_amount = U256::from(EvmConnectorConfig::get_default_deposit_amount());
+    let origin_chain_id = config.get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161);
+    let destination_chain_id = config.get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453);
 
     // Execute the complete flow with all steps
     builder
@@ -504,9 +503,9 @@ mod tests {
             recipient: Address::ZERO,
             inputToken: Address::ZERO,
             outputToken: Address::ZERO,
-            amount: U256::from(1000000u128),
-            minAmount: U256::from(1000000u128),
-            destinationChainId: U256::from(42161u64),
+            amount: U256::from(EvmConnectorConfig::get_default_deposit_amount()),
+            minAmount: U256::from(EvmConnectorConfig::get_default_min_amount()),
+            destinationChainId: U256::from(EvmConnectorConfig::default().get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161)),
             exclusiveRelayer: Address::ZERO,
             fillDeadline: 0u32,
             exclusivityDeadline: 0u32,
@@ -526,8 +525,8 @@ mod tests {
             Address::ZERO,
             Address::ZERO,
             Address::ZERO,
-            U256::from(1000000u128),
-            U256::from(1000000u128),
+            U256::from(EvmConnectorConfig::get_default_deposit_amount()),
+            U256::from(EvmConnectorConfig::get_default_min_amount()),
             0u64,
             Address::ZERO,
             0u64,

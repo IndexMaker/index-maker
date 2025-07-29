@@ -3,6 +3,7 @@ pub mod arbiter;
 pub mod chain_operation;
 pub mod chain_operations;
 pub mod commands;
+pub mod config;
 pub mod contracts;
 pub mod credentials;
 pub mod custody_helper;
