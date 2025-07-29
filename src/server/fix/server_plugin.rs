@@ -463,6 +463,16 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
+                // verify signature before proceed anything
+                result.verify_signature().map_err(|e| {
+                    let user_id = result.get_user_id();
+                    let err_msg = format!("Signature verification failed: {}", e);
+                    self.process_error(&user_id, err_msg.clone(), session_id)
+                        .unwrap_or_else(|_| err_msg.clone());
+                    eyre::eyre!(err_msg)
+                })?;
+                // end verification part
+
                 let user_id = &result.get_user_id();
                 self.user_plugin.add_add_user_session(&user_id, session_id);
 

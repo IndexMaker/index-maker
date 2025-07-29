@@ -4,11 +4,16 @@ use axum_fix_server::{
     messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
     plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
 };
+use ethers_core::utils::keccak256;
 use eyre::{eyre, Result};
+use hex;
+use k256::ecdsa::{VerifyingKey};
+use k256::ecdsa::{signature::Verifier, Signature};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
 };
+use serde_json::json;
 use symm_core::core::bits::Address;
 
 use crate::server::fix::messages::*;
@@ -251,5 +256,113 @@ impl AxumServerRequest for FixRequest {
             "FIX server request received",
         );
         Ok(request)
+    }
+}
+
+impl FixRequest {
+    pub fn verify_signature(&self) -> Result<()> {
+        let payload_json = json!({
+            "standard_header": self.standard_header,
+            "chain_id": self.chain_id,
+            "address": self.address,
+            "body": self.body
+        });
+
+        let payload_bytes = serde_json::to_vec(&payload_json)
+            .map_err(|e| eyre!("Payload serialization failed: {}", e))?;
+
+        let hash = keccak256(payload_bytes);
+
+        let sig_hex = self
+            .standard_trailer
+            .signature
+            .get(0)
+            .ok_or_else(|| eyre!("Missing signature"))?;
+
+        let pub_key_hex = self
+            .standard_trailer
+            .public_key
+            .get(0)
+            .ok_or_else(|| eyre!("Missing public key"))?;
+
+        let sig_bytes = hex::decode(sig_hex).map_err(|e| eyre!("Bad signature hex: {}", e))?;
+        let pub_key_bytes = hex::decode(pub_key_hex).map_err(|e| eyre!("Bad pubkey hex: {}", e))?;
+
+        let verifying_key = VerifyingKey::from_sec1_bytes(&pub_key_bytes)
+            .map_err(|e| eyre!("Invalid pubkey bytes: {}", e))?;
+
+        let signature =
+            Signature::from_der(&sig_bytes).map_err(|e| eyre!("Signature parse failed: {}", e))?;
+
+        verifying_key
+            .verify(&hash, &signature)
+            .map_err(|_| eyre!("Signature verification failed"))?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ethers_core::utils::keccak256;
+    use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+    use rand_core::OsRng;
+
+    #[test]
+    fn test_signature_verification() {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let verifying_key = signing_key.verifying_key();
+
+        let encoded_point = verifying_key.to_encoded_point(false);
+        let pubkey_bytes = encoded_point.as_bytes();
+        let pubkey_hex = hex::encode(pubkey_bytes);
+
+        let dummy_address = Address::from_slice(&[0u8; 20]); // placeholder, not validated
+
+        let header = FixHeader {
+            msg_type: "NewIndexOrder".to_string(),
+            sender_comp_id: "client".to_string(),
+            target_comp_id: "server".to_string(),
+            seq_num: 1,
+            timestamp: chrono::Utc::now(),
+        };
+
+        let body = RequestBody::NewIndexOrderBody {
+            client_order_id: "ORD001".to_string(),
+            symbol: "ETHUSD".to_string(),
+            side: "buy".to_string(),
+            amount: "10".to_string(),
+        };
+
+        let chain_id = 1;
+
+        let payload = serde_json::json!({
+            "standard_header": header,
+            "chain_id": chain_id,
+            "address": dummy_address,
+            "body": body,
+        });
+
+        let hash = keccak256(serde_json::to_vec(&payload).unwrap());
+        let sig: Signature = signing_key.sign(&hash);
+        let sig_hex = hex::encode(sig.to_der().as_bytes());
+
+        let req = FixRequest {
+            session_id: SessionId::from("test-session"),
+            standard_header: header,
+            chain_id,
+            address: dummy_address,
+            body,
+            standard_trailer: FixTrailer {
+                public_key: vec![pubkey_hex],
+                signature: vec![sig_hex],
+            },
+        };
+
+        assert!(
+            req.verify_signature().is_ok(),
+            "Signature should verify when public key is included"
+        );
     }
 }

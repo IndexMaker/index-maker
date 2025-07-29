@@ -56,6 +56,10 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
+ethers-core = { workspace = true }
+k256 = { workspace = true }
+hex = { workspace = true }
+rand_core = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -109,3 +113,7 @@ tracing = "0.1"
 tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+ethers-core = "2.0"
+k256 = { version = "0.13.3", features = ["ecdsa", "arithmetic"] }
+hex = "0.4"
+rand_core = "0.6"
