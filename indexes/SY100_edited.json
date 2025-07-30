@@ -759,28 +759,6 @@
     "quantity": 5354.1122051531065
   },
   {
-    "id": 59,
-    "ticker": "BTT",
-    "pair": "BTTUSDC",
-    "listing": "bi",
-    "assetname": "BitTorrent",
-    "sector": "Storage",
-    "market_cap": 683596968,
-    "weights": "1.00",
-    "quantity": 2854357288.818422
-  },
-  {
-    "id": 18,
-    "ticker": "ZEC",
-    "pair": "ZECUSDC",
-    "listing": "bi",
-    "assetname": "Zcash",
-    "sector": "Smart Contract Platform",
-    "market_cap": 674563734,
-    "weights": "1.00",
-    "quantity": 45.00510958168973
-  },
-  {
     "id": 16,
     "ticker": "SYRUP",
     "pair": "SYRUPUSDC",
