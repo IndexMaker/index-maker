@@ -466,9 +466,11 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                 // verify signature before proceed anything
                 result.verify_signature().map_err(|e| {
                     let user_id = result.get_user_id();
-                    let err_msg = format!("Signature verification failed: {}", e);
-                    self.process_error(&user_id, err_msg.clone(), session_id)
-                        .unwrap_or_else(|_| err_msg.clone());
+                    let err_msg = "Not authorised".to_string();
+
+                    // Log and build a proper NAK
+                    let _ = self.process_error(&user_id, err_msg.clone(), session_id);
+
                     eyre::eyre!(err_msg)
                 })?;
                 // end verification part
