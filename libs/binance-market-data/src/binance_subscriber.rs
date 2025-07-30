@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use binance_sdk::config::{ConfigurationRestApi, ConfigurationWebsocketStreams};
@@ -28,16 +27,27 @@ use tokio::{
 
 use crate::book::Books;
 
+#[derive(Clone)]
+pub struct BinanceSubscriberTaskConfig {
+    pub subscription_limit_rate: usize,
+    pub stale_check_period: std::time::Duration,
+    pub stale_timeout: chrono::Duration,
+}
+
 pub struct BinanceSubscriberTask {
+    config: BinanceSubscriberTaskConfig,
     subscriber_loop: AsyncLoop<()>,
     snapshot_loop: AsyncLoop<()>,
+    watchdog_loop: AsyncLoop<()>,
 }
 
 impl BinanceSubscriberTask {
-    pub fn new() -> Self {
+    pub fn new(config: BinanceSubscriberTaskConfig) -> Self {
         Self {
+            config,
             subscriber_loop: AsyncLoop::new(),
             snapshot_loop: AsyncLoop::new(),
+            watchdog_loop: AsyncLoop::new(),
         }
     }
 }
@@ -45,7 +55,11 @@ impl BinanceSubscriberTask {
 #[async_trait]
 impl SubscriberTask for BinanceSubscriberTask {
     async fn stop(&mut self) -> Result<()> {
-        let stop_futures = [self.subscriber_loop.stop(), self.snapshot_loop.stop()];
+        let stop_futures = [
+            self.subscriber_loop.stop(),
+            self.snapshot_loop.stop(),
+            self.watchdog_loop.stop(),
+        ];
 
         let (_, failures): (Vec<_>, Vec<_>) =
             join_all(stop_futures).await.into_iter().partition_result();
@@ -69,6 +83,28 @@ impl SubscriberTask for BinanceSubscriberTask {
 
         let books = Arc::new(AtomicLock::new(Books::new_with_observer(observer)));
         let books_clone = books.clone();
+        let books_clone_2 = books.clone();
+
+        let config = self.config.clone();
+        let config_clone = config.clone();
+
+        self.watchdog_loop.start(async move |cancel_token| {
+            tracing::info!("Watchdog loop started");
+            let mut check_period = tokio::time::interval(config.stale_check_period);
+            loop {
+                select! {
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    },
+                    _ = check_period.tick() => {
+                        let expiry_time = Utc::now() - config.stale_timeout;
+                        if let Err(err) = books_clone_2.write().check_stale(expiry_time) {
+                            tracing::warn!("Failed to check stale books: {:?}", err);
+                        }
+                    }
+                }
+            }
+        });
 
         self.subscriber_loop.start(async move |cancel_token| {
             let ws_streams_conf = match ConfigurationWebsocketStreams::builder().build() {
@@ -99,7 +135,7 @@ impl SubscriberTask for BinanceSubscriberTask {
                 let period = rate_limiter.waiting_period_half_limit(now);
                 let millis = period.num_milliseconds() as u64;
                 tracing::info!("Subscription rate limit pause for {}ms", millis);
-                sleep(Duration::from_millis(millis)).await;
+                sleep(std::time::Duration::from_millis(millis)).await;
             };
 
             tracing::info!("Market-Data loop started");
@@ -115,7 +151,7 @@ impl SubscriberTask for BinanceSubscriberTask {
                         }
 
                         // We need to account for PING/PONG too
-                        limit_rate(3).await;
+                        limit_rate(config_clone.subscription_limit_rate).await;
 
                         let depth_params = match DiffBookDepthParams::builder(symbol.to_string()).build() {
                             Ok(x) => x,
@@ -229,7 +265,15 @@ impl SubscriberTask for BinanceSubscriberTask {
     }
 }
 
-pub struct BinanceOnlySubscriberTasks;
+pub struct BinanceOnlySubscriberTasks {
+    config: BinanceSubscriberTaskConfig,
+}
+
+impl BinanceOnlySubscriberTasks {
+    pub fn new(config: BinanceSubscriberTaskConfig) -> Self {
+        Self { config }
+    }
+}
 
 impl SubscriberTaskFactory for BinanceOnlySubscriberTasks {
     fn create_task_for(
@@ -239,6 +283,6 @@ impl SubscriberTaskFactory for BinanceOnlySubscriberTasks {
         if listing.ne("Binance") {
             Err(eyre!("Unsupported listing: {}", listing))?;
         }
-        Ok(Box::new(BinanceSubscriberTask::new()))
+        Ok(Box::new(BinanceSubscriberTask::new(self.config.clone())))
     }
 }

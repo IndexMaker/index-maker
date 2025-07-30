@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use binance_market_data::binance_subscriber::BinanceOnlySubscriberTasks;
+use binance_market_data::binance_subscriber::{BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig};
 use market_data::market_data::RealMarketData;
 use symm_core::{
     core::{bits::Symbol, functional::IntoObservableManyArc, logging::log_init},
@@ -13,7 +13,15 @@ use tokio::time::sleep;
 async fn main() {
     init_log!();
 
-    let mut market_data = RealMarketData::new(2, Arc::new(BinanceOnlySubscriberTasks));
+    let binance_subscriber_config = BinanceSubscriberTaskConfig {
+        subscription_limit_rate: 3,
+        stale_check_period: std::time::Duration::from_secs(10),
+        stale_timeout: chrono::Duration::seconds(60),
+    };
+    let mut market_data = RealMarketData::new(
+        2,
+        Arc::new(BinanceOnlySubscriberTasks::new(binance_subscriber_config)),
+    );
 
     market_data
         .get_multi_observer_arc()
