@@ -15,14 +15,14 @@ use symm_core::core::{
 
 use index_core::index::basket::{Basket, BasketDefinition};
 
+use crate::across_bridge::AcrossCollateralBridge;
 use crate::arbiter::Arbiter;
 use crate::chain_operations::ChainOperations;
 use crate::commands::{ChainCommand, ChainOperationRequest};
 use crate::credentials::EvmCredentials;
-use crate::across_bridge::AcrossCollateralBridge;
-use crate::erc20_bridge::Erc20CollateralBridge;
-use crate::designation::{EvmCollateralDesignation};
+use crate::designation::EvmCollateralDesignation;
 use crate::designation_details::EvmDesignationDetails;
+use crate::erc20_bridge::Erc20CollateralBridge;
 use index_core::collateral::collateral_router::{CollateralBridge, CollateralDesignation};
 
 /// EVM Chain Connector
@@ -47,7 +47,9 @@ impl EvmConnector {
         // Create shared state following binance pattern
         let observer = SingleObserver::new();
         let shared_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
-        let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new(shared_observer.clone())));
+        let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new(
+            shared_observer.clone(),
+        )));
 
         Self {
             observer,
@@ -96,7 +98,9 @@ impl EvmConnector {
                 .send(request)
                 .map_err(|e| eyre::eyre!("Failed to send connect request: {}", e))?;
         } else {
-            return Err(eyre::eyre!("EVM Connector not started. Call start() first."));
+            return Err(eyre::eyre!(
+                "EVM Connector not started. Call start() first."
+            ));
         }
 
         if !self.connected_chains.contains(&chain_id) {
@@ -119,13 +123,6 @@ impl EvmConnector {
         self.connect_chain_with_credentials(credentials).await
     }
 
-    /// Connect to predefined chains using environment variables
-    /// Following the binance pattern for easy chain connection
-    pub async fn connect_ethereum(&mut self) -> Result<()> {
-        let credentials = EvmCredentials::ethereum_mainnet()?;
-        self.connect_chain_with_credentials(credentials).await
-    }
-
     pub async fn connect_arbitrum(&mut self) -> Result<()> {
         let credentials = EvmCredentials::arbitrum()?;
         self.connect_chain_with_credentials(credentials).await
@@ -133,11 +130,6 @@ impl EvmConnector {
 
     pub async fn connect_base(&mut self) -> Result<()> {
         let credentials = EvmCredentials::base()?;
-        self.connect_chain_with_credentials(credentials).await
-    }
-
-    pub async fn connect_polygon(&mut self) -> Result<()> {
-        let credentials = EvmCredentials::polygon()?;
         self.connect_chain_with_credentials(credentials).await
     }
 
@@ -150,7 +142,9 @@ impl EvmConnector {
                 .send(request)
                 .map_err(|e| eyre::eyre!("Failed to send disconnect request: {}", e))?;
         } else {
-            return Err(eyre::eyre!("EVM Connector not started. Call start() first."));
+            return Err(eyre::eyre!(
+                "EVM Connector not started. Call start() first."
+            ));
         }
 
         self.connected_chains.retain(|&id| id != chain_id);
@@ -168,33 +162,39 @@ impl EvmConnector {
         &self,
         source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
         destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-    ) -> Arc<std::sync::RwLock<dyn CollateralBridge>>
-    {
+    ) -> Arc<std::sync::RwLock<dyn CollateralBridge>> {
         let source_name = source.read().unwrap().get_name();
         let destination_name = destination.read().unwrap().get_name();
-        
+
         // Determine bridge type based on cross-chain check
-        let is_cross_chain = source.read().unwrap().is_cross_chain(&*destination.read().unwrap());
-        
+        let is_cross_chain = source
+            .read()
+            .unwrap()
+            .is_cross_chain(&*destination.read().unwrap());
+
         if is_cross_chain {
             // Cross-chain transfer - use Across bridge
-            tracing::info!("Creating Across bridge for cross-chain transfer: {} -> {}", source_name, destination_name);
-            
+            tracing::info!(
+                "Creating Across bridge for cross-chain transfer: {} -> {}",
+                source_name,
+                destination_name
+            );
+
             let bridge = AcrossCollateralBridge::new_with_shared_operations(
                 source,
                 destination,
                 self.chain_operations.clone(),
             );
-            
+
             bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
         } else {
-            // Same-chain transfer - use ERC20 bridge  
+            // Same-chain transfer - use ERC20 bridge
             let bridge = Erc20CollateralBridge::new_with_shared_operations(
                 source,
                 destination,
                 self.chain_operations.clone(),
             );
-            
+
             bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
         }
     }
@@ -304,7 +304,11 @@ impl ChainConnector for EvmConnector {
             // Sadhbh: I made send_command sync, so it can be just called like that
             // SetSolverWeights command removed per sonia's feedback
             // Only keeping the needed commands: ExecuteCompleteAcrossDeposit, Erc20Transfer, MintIndex, BurnIndex, Withdraw
-            tracing::info!("Solver weights set for symbol {:?} on chain {} (command removed)", symbol, chain_id);
+            tracing::info!(
+                "Solver weights set for symbol {:?} on chain {} (command removed)",
+                symbol,
+                chain_id
+            );
         } else {
             tracing::warn!("No connected chains available for solver weights set");
         }

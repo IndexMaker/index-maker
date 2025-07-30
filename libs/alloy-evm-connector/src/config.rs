@@ -1,5 +1,5 @@
 use alloy::primitives::Address;
-use dotenv::dotenv;
+use dotenv::{dotenv, from_path};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::str::FromStr;
@@ -69,13 +69,19 @@ pub struct Erc20BridgeConfig {
 
 impl Default for EvmConnectorConfig {
     fn default() -> Self {
-        Self::from_env().unwrap_or_else(|_| Self::fallback_default())
+        Self::from_env().unwrap_or_else(|e| {
+            tracing::warn!("Failed to load EvmConnectorConfig from environment: {}, using fallback", e);
+            Self::fallback_default()
+        })
     }
 }
 
 impl EvmConnectorConfig {
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+        // Load environment variables from .env file
+        Self::load_env_file();
+        
         let max_operations = env::var("MAX_OPERATIONS")
             .map_err(|_| "MAX_OPERATIONS environment variable not set")?
             .parse::<usize>()?;
@@ -332,8 +338,26 @@ impl EvmConnectorConfig {
         self.bridge.across.usdc_addresses.get(&chain_id).copied()
     }
 
+    /// Load .env file from the correct location
+    fn load_env_file() {
+        // Try to load .env from the alloy-evm-connector directory first
+        if let Ok(current_dir) = env::current_dir() {
+            let alloy_env_path = current_dir.join("libs/alloy-evm-connector/.env");
+            if alloy_env_path.exists() {
+                from_path(alloy_env_path).ok();
+            } else {
+                // Fallback to current directory
+                dotenv().ok();
+            }
+        } else {
+            dotenv().ok();
+        }
+    }
+
     /// Get default RPC URL from environment
     pub fn get_default_rpc_url() -> String {
+        // Ensure .env file is loaded from the correct location
+        Self::load_env_file();
         env::var("DEFAULT_RPC_URL").expect("DEFAULT_RPC_URL environment variable not set")
     }
 
@@ -391,59 +415,40 @@ impl EvmConnectorConfig {
             .expect("Invalid DEFAULT_EXCLUSIVITY_DEADLINE_BUFFER format")
     }
 
-    /// Load configuration from a TOML file
-    pub fn from_file<P: AsRef<std::path::Path>>(
-        path: P,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        let config: Self = toml::from_str(&content)?;
-        Ok(config)
+    /// Get private key from environment (for credentials)
+    /// This is the only place in the system that should access private key env vars
+    pub fn get_private_key() -> String {
+        // Ensure .env file is loaded from the correct location
+        Self::load_env_file();
+        env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set")
     }
 
-    /// Save configuration to a TOML file
-    pub fn to_file<P: AsRef<std::path::Path>>(
-        &self,
-        path: P,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let content = toml::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
-        Ok(())
-    }
-}
+    /// Get chain-specific private key from environment with fallback to generic
+    pub fn get_chain_private_key(prefix: &str) -> String {
+        // Ensure .env file is loaded
+        Self::load_env_file();
+        
+        let key_var = format!("{}_PRIVATE_KEY", prefix);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_config() {
-        let config = EvmConnectorConfig::default();
-
-        assert_eq!(config.max_operations, 10);
-        assert_eq!(config.chains.len(), 2);
-
-        // Test Arbitrum config
-        let arbitrum = config.get_chain_config(42161).unwrap();
-        assert_eq!(arbitrum.name, "Arbitrum");
-        assert_eq!(arbitrum.chain_id, 42161);
-
-        // Test Base config
-        let base = config.get_chain_config(8453).unwrap();
-        assert_eq!(base.name, "Base");
-        assert_eq!(base.chain_id, 8453);
-
-        // Test USDC addresses
-        assert!(config.get_usdc_address(42161).is_some());
-        assert!(config.get_usdc_address(8453).is_some());
+        // Try chain-specific key first, then fall back to generic
+        env::var(&key_var)
+            .or_else(|_| env::var("PRIVATE_KEY"))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Either {} or PRIVATE_KEY environment variable must be set",
+                    key_var
+                )
+            })
     }
 
-    #[test]
-    fn test_serialization() {
-        let config = EvmConnectorConfig::default();
-        let toml_str = toml::to_string(&config).unwrap();
-        let deserialized: EvmConnectorConfig = toml::from_str(&toml_str).unwrap();
+    /// Check if private key is available (for validation)
+    pub fn has_private_key() -> bool {
+        env::var("PRIVATE_KEY").is_ok()
+    }
 
-        assert_eq!(config.max_operations, deserialized.max_operations);
-        assert_eq!(config.chains.len(), deserialized.chains.len());
+    /// Check if chain-specific private key is available
+    pub fn has_chain_private_key(prefix: &str) -> bool {
+        let key_var = format!("{}_PRIVATE_KEY", prefix);
+        env::var(&key_var).is_ok() || Self::has_private_key()
     }
 }

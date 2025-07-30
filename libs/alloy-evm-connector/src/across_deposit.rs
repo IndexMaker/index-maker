@@ -7,15 +7,13 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
     sol_types::SolCall,
 };
-use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::str::FromStr;
 
+use crate::config::EvmConnectorConfig;
 use crate::contracts::{AcrossConnector, OTCCustody, ERC20};
 use crate::custody_helper::CAHelper;
 use crate::utils::{get_current_timestamp, set_next_block_timestamp};
-use crate::config::EvmConnectorConfig;
 
 pub const USDC_DECIMALS: u8 = 6;
 
@@ -97,13 +95,9 @@ pub struct AcrossDepositBuilder<P: Provider + Clone + 'static> {
 /// - PRIVATE_KEY: Your wallet's private key
 /// - DEFAULT_RPC_URL: RPC endpoint (with fallback)
 pub async fn new_builder_from_env() -> eyre::Result<AcrossDepositBuilder<impl Provider + Clone>> {
-    // Load environment variables from .env file (try multiple locations)
-    dotenv::from_path(".env").ok()
-        .or_else(|| dotenv::from_path("../.env").ok())
-        .or_else(|| dotenv::from_path("../../.env").ok());
-
-    // Read private key from environment variable (still direct access as it's sensitive)
-    let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set");
+    // Use config system for private key (following the new architecture)
+    // Config system handles .env file loading and private key access
+    let private_key = EvmConnectorConfig::get_private_key();
 
     // Use config system for RPC URL
     let rpc_url = EvmConnectorConfig::get_default_rpc_url();
@@ -128,8 +122,20 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 config.bridge.across.connector_address,
                 provider.clone(),
             ),
-            otc_custody: OTCCustody::OTCCustodyInstance::new(config.bridge.across.custody_address, provider.clone()),
-            usdc: ERC20::ERC20Instance::new(config.bridge.across.usdc_addresses.get(&42161).copied().unwrap_or_default(), provider.clone()),
+            otc_custody: OTCCustody::OTCCustodyInstance::new(
+                config.bridge.across.custody_address,
+                provider.clone(),
+            ),
+            usdc: ERC20::ERC20Instance::new(
+                config
+                    .bridge
+                    .across
+                    .usdc_addresses
+                    .get(&42161)
+                    .copied()
+                    .unwrap_or_default(),
+                provider.clone(),
+            ),
         })
     }
 
@@ -137,7 +143,9 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     /// Returns the gas used for the approval transaction
     pub async fn approve_input_token_for_custody(&self, amount: U256) -> eyre::Result<U256> {
         let config = EvmConnectorConfig::default();
-        let call = self.usdc.approve(config.bridge.across.custody_address, amount);
+        let call = self
+            .usdc
+            .approve(config.bridge.across.custody_address, amount);
         let receipt = call.send().await?.get_receipt().await?;
 
         let gas_used = U256::from(receipt.gas_used);
@@ -188,14 +196,20 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 .as_str()
                 .and_then(|s| s.parse::<u64>().ok())
                 .or_else(|| data["fillDeadline"].as_u64())
-                .unwrap_or((chrono::Utc::now().timestamp() + EvmConnectorConfig::get_filldeadline_buffer() as i64) as u64),
+                .unwrap_or(
+                    (chrono::Utc::now().timestamp()
+                        + EvmConnectorConfig::get_filldeadline_buffer() as i64)
+                        as u64,
+                ),
             exclusive_relayer: data["exclusiveRelayer"]
                 .as_str()
                 .and_then(|s| Address::from_str(s).ok())
                 .unwrap_or(Address::ZERO),
-            exclusivity_deadline: data["exclusivityDeadline"]
-                .as_u64()
-                .unwrap_or((chrono::Utc::now().timestamp() + EvmConnectorConfig::get_exclusivity_deadline_buffer() as i64) as u64),
+            exclusivity_deadline: data["exclusivityDeadline"].as_u64().unwrap_or(
+                (chrono::Utc::now().timestamp()
+                    + EvmConnectorConfig::get_exclusivity_deadline_buffer() as i64)
+                    as u64,
+            ),
         })
     }
 
@@ -289,12 +303,22 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         tracing::info!(
             "Starting Across deposit: {} USDC {} -> {}",
             format_units(deposit_amount, 6).unwrap_or_default(),
-            if origin_chain_id == EvmConnectorConfig::default().get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161) {
+            if origin_chain_id
+                == EvmConnectorConfig::default()
+                    .get_chain_config(42161)
+                    .map(|c| c.chain_id as u64)
+                    .unwrap_or(42161)
+            {
                 "ARBITRUM"
             } else {
                 "UNKNOWN"
             },
-            if destination_chain_id == EvmConnectorConfig::default().get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453) {
+            if destination_chain_id
+                == EvmConnectorConfig::default()
+                    .get_chain_config(8453)
+                    .map(|c| c.chain_id as u64)
+                    .unwrap_or(8453)
+            {
                 "BASE"
             } else {
                 "UNKNOWN"
@@ -371,8 +395,8 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         // let custody_timestamp = std::time::SystemTime::now()
         //     .duration_since(std::time::UNIX_EPOCH)?
         //     .as_secs();
-        let custody_timestamp =
-            get_current_timestamp(self.across_connector.provider()).await? + EvmConnectorConfig::get_filldeadline_buffer();
+        let custody_timestamp = get_current_timestamp(self.across_connector.provider()).await?
+            + EvmConnectorConfig::get_filldeadline_buffer();
         set_next_block_timestamp(self.across_connector.provider(), custody_timestamp).await?;
         let custody_verification = create_verification_data(
             custody_id,
@@ -464,8 +488,14 @@ pub async fn example_complete_across_deposit_flow() -> eyre::Result<()> {
     let input_token = config.get_usdc_address(42161).unwrap_or_default();
     let output_token = config.get_usdc_address(8453).unwrap_or_default();
     let deposit_amount = U256::from(EvmConnectorConfig::get_default_deposit_amount());
-    let origin_chain_id = config.get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161);
-    let destination_chain_id = config.get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453);
+    let origin_chain_id = config
+        .get_chain_config(42161)
+        .map(|c| c.chain_id as u64)
+        .unwrap_or(42161);
+    let destination_chain_id = config
+        .get_chain_config(8453)
+        .map(|c| c.chain_id as u64)
+        .unwrap_or(8453);
 
     // Execute the complete flow with all steps
     builder
@@ -505,7 +535,12 @@ mod tests {
             outputToken: Address::ZERO,
             amount: U256::from(EvmConnectorConfig::get_default_deposit_amount()),
             minAmount: U256::from(EvmConnectorConfig::get_default_min_amount()),
-            destinationChainId: U256::from(EvmConnectorConfig::default().get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161)),
+            destinationChainId: U256::from(
+                EvmConnectorConfig::default()
+                    .get_chain_config(42161)
+                    .map(|c| c.chain_id as u64)
+                    .unwrap_or(42161),
+            ),
             exclusiveRelayer: Address::ZERO,
             fillDeadline: 0u32,
             exclusivityDeadline: 0u32,
