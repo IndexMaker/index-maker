@@ -195,7 +195,7 @@ impl Book {
             .map_err(|err| eyre!("Failed to request snapshot for {}: {:?}", self.symbol, err))
     }
 
-    fn apply_snapshot(&mut self, snapshot: DepthSnapshot) -> Result<()> {
+    fn apply_snapshot(&mut self, mut snapshot: DepthSnapshot) -> Result<()> {
         if !self.snapshot_requested {
             Err(eyre!(
                 "Received snapshot that was not requested for {}",
@@ -203,13 +203,23 @@ impl Book {
             ))?;
         }
         tracing::info!(
-            "(binance-book) Snapshot received for {} and will overwrite book (lastUpdateId: {})",
+            "Snapshot received for {} and will overwrite book (lastUpdateId: {})",
             self.symbol,
             snapshot.last_update_id
         );
         self.last_update_id = Some(snapshot.last_update_id);
         self.last_update_timestamp = Utc::now();
         self.snapshot_requested = false;
+        // Sort bids descending and asks ascending
+        snapshot
+            .bids
+            .sort_by(|PriceLevel(p1, _), PriceLevel(p2, _)| p1.cmp(p2).reverse());
+        snapshot
+            .asks
+            .sort_by(|PriceLevel(p1, _), PriceLevel(p2, _)| p1.cmp(p2));
+        // After sort TOB is at the front of bids and asks
+        let best_bid = snapshot.bids.first().cloned();
+        let best_ask = snapshot.asks.first().cloned();
         self.observer
             .read()
             .publish_many(&Arc::new(MarketDataEvent::OrderBookSnapshot {
@@ -226,10 +236,56 @@ impl Book {
                     .map(|PriceLevel(price, quantity)| PricePointEntry { price, quantity })
                     .collect_vec(),
             }));
+        // Note that for an illiquid market there won't be pending updates.
+        // We're basically assuming that if we didn't receive any book updates
+        // then we also wouldn't receive top updates. We don't track top updates
+        // directly, as that would impose performance impact. We believe that if
+        // we got book updates, then we also would get top updates.
         let pending_updates = self.pending_updates.drain(..).collect_vec();
-        for diff_depth in pending_updates {
-            self.apply_update(diff_depth)?;
+        if pending_updates.is_empty() {
+            // We didn't get any updates but we still want know best price, so
+            // we emit TOB based on snapshot
+            match (best_bid, best_ask) {
+                (
+                    Some(PriceLevel(best_bid_price, best_bid_quantity)),
+                    Some(PriceLevel(best_ask_price, best_ask_quantity)),
+                ) => {
+                    tracing::debug!(
+                        "TOB based off snapshot: {} {:?} {:.5} {:.5} - {:.5} {:.5}",
+                        self.symbol,
+                        self.last_update_id,
+                        best_bid_price,
+                        best_ask_price,
+                        best_bid_quantity,
+                        best_ask_quantity,
+                    );
+                    self.observer
+                        .read()
+                        .publish_many(&Arc::new(MarketDataEvent::TopOfBook {
+                            symbol: self.symbol.clone(),
+                            sequence_number: self.last_update_id.unwrap(),
+                            best_bid_price,
+                            best_ask_price,
+                            best_bid_quantity,
+                            best_ask_quantity,
+                        }));
+                }
+                (best_bid, best_ask) => {
+                    tracing::warn!(
+                        "Cannot emit TOB based off empty snapshot for {} {:?} - {:?}",
+                        self.symbol,
+                        best_bid,
+                        best_ask
+                    );
+                }
+            }
+        } else {
+            // Apply updates buffered while awaiting snapshot
+            for diff_depth in pending_updates {
+                self.apply_update(diff_depth)?;
+            }
         }
+
         Ok(())
     }
 
