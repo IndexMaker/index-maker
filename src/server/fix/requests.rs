@@ -9,6 +9,7 @@ use axum_fix_server::{
 use ethers_core::utils::keccak256;
 use eyre::{eyre, Result};
 use hex::FromHex;
+use k256::ecdsa::signature::DigestVerifier;
 use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use k256::elliptic_curve::generic_array::GenericArray;
 use serde::{
@@ -16,7 +17,6 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::{json, Map, Value};
-use k256::ecdsa::signature::DigestVerifier;
 use sha2::{Digest, Sha256};
 use symm_core::core::bits::Address;
 
@@ -292,8 +292,11 @@ impl FixRequest {
 
         // Decode signature
         let mut sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))?;
-        if sig_bytes.len() != 64 && sig_bytes.len() != 65 {
-            return Err(eyre!("Signature length must be 64 or 65 bytes"));
+        if sig_bytes.len() != 64 {
+            return Err(eyre!(
+                "Signature must be exactly 64 bytes, got {}",
+                sig_bytes.len()
+            ));
         }
         let sig_array: &GenericArray<u8, _> = GenericArray::from_slice(&sig_bytes);
         let signature =
@@ -327,7 +330,7 @@ impl FixRequest {
         let hash = hasher.finalize();
 
         let mut hasher = Sha256::new();
-        hasher.update(payload_str.as_bytes()); 
+        hasher.update(payload_str.as_bytes());
         verifying_key
             .verify_digest(hasher, &signature)
             .map_err(|_| eyre!("Signature verification failed"))?;
@@ -345,7 +348,7 @@ mod tests {
     #[test]
     fn test_signature_verification_with_static_data() {
         let pubkey_hex = "0x04bac1a969ad21dbb9928a4cc0824ac8b6631d44056b3ce7cb18a406d2e9c538bea50a11f7a3c51a913c5875da00f650b4739796742b15622fcbaed51b15a9da4c";
-        let signature_hex = "0xbf169e19c6cc1762ddeb0c8fbcd46d9e7b3131b8e277bc1e55aa841c6d81ab10234734410e6cb311f482e73e0eff6be7c2df5a92398fc4727cf59db4bb3534b1";
+        let signature_hex = "0xbf169e19c6cc1762ddeb0c8fbcd46d9e7b3131b8e277bc1e55aa841c6d81ab106768ca23071d0f9ae15fe50b72cd07e8ba4ffdd6320fbcd9839c5820fe27236a";
 
         let payload = json!({
           "standard_header": {
@@ -357,14 +360,14 @@ mod tests {
           },
           "chain_id": 1,
           "address": "0x1234567890abcdef1234567890abcdef12345678",
-          "client_order_id": "Q-1753872186442",
+          "client_order_id": "Q-1753953950462",
           "symbol": "SY100",
           "side": "1",
           "amount": "1000"
         });
 
         let payload_bytes = serde_json::to_vec(&payload).unwrap();
-        let hash = keccak256(payload_bytes);
+        let hash: [u8; 32] = keccak256(payload_bytes);
         let mut full_msg = payload.as_object().unwrap().clone();
         full_msg.insert(
             "standard_trailer".to_string(),

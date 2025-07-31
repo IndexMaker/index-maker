@@ -464,15 +464,20 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
                 // verify signature before proceed anything
-                result.verify_signature().map_err(|e| {
-                    let user_id = result.get_user_id();
-                    let err_msg = "Not authorised".to_string();
-
-                    // Log and build a proper NAK
-                    let _ = self.process_error(&user_id, err_msg.clone(), session_id);
-
-                    eyre::eyre!(err_msg)
-                })?;
+                match result.verify_signature() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        let user_id = result.get_user_id();
+                        let err_msg = "Not authorised".to_string();
+                        let nak = FixResponse::create_nak(
+                            &user_id,
+                            session_id,
+                            result.get_seq_num(),
+                            err_msg,
+                        );
+                        return Ok(serde_json::to_string(&nak)?);
+                    }
+                }
                 // end verification part
 
                 let user_id = &result.get_user_id();
