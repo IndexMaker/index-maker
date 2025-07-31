@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use symm_core::core::functional::SingleObserver;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use futures_util::future::join_all;
+use itertools::Itertools;
 
 use crate::chain_operation::ChainOperation;
 use crate::commands::{ChainCommand, ChainOperationRequest, ChainOperationResult};
@@ -145,11 +147,85 @@ impl ChainOperations {
 
     /// Drain all operations, returns them so user can call stop() on each
     pub fn drain_all(&mut self) -> Vec<ChainOperation> {
-        let chain_ids: Vec<u32> = self.operations.keys().copied().collect();
-        chain_ids
-            .into_iter()
-            .filter_map(|chain_id| self.remove_operation(chain_id))
-            .collect()
+        let _ = self.command_senders.drain().count();
+        self.operations.drain().map(|(_, v)| v).collect_vec()
+    }
+
+    /// Static method to stop all operations (following binance pattern)
+    pub async fn stop_all(mut operations: Vec<ChainOperation>) -> Result<()> {
+        let stop_futures = operations.iter_mut().map(|v| v.stop()).collect_vec();
+        
+        let (_, failures): (Vec<_>, Vec<_>) =
+            join_all(stop_futures).await.into_iter().partition_result();
+
+        if !failures.is_empty() {
+            Err(eyre::eyre!(
+                "Chain operations join failed {}",
+                failures.iter().map(|e| format!("{:?}", e)).join(";"),
+            ))?
+        }
+
+        Ok(())
+    }
+
+    /// Handle chain operation request (moved from Arbiter, following binance pattern)
+    pub async fn handle_chain_operation_request(
+        chain_operations: &Arc<AtomicLock<ChainOperations>>,
+        request: ChainOperationRequest,
+        max_operations: usize,
+    ) -> Result<()> {
+        match request {
+            ChainOperationRequest::AddOperation { credentials } => {
+                let chain_id = credentials.get_chain_id() as u32;
+                
+                // Check if we've reached the maximum number of operations
+                let can_add = {
+                    let operations = chain_operations.read();
+                    operations.operation_count() < max_operations
+                };
+                
+                if !can_add {
+                    tracing::error!("Maximum number of chain operations ({}) reached", max_operations);
+                    return Ok(());
+                }
+
+                // Add the new chain operation using credentials (following binance pattern)
+                // This is synchronous so no Arc cloning needed
+                {
+                    let mut operations = chain_operations.write();
+                    operations.add_operation_with_credentials(credentials)?;
+                }
+                
+                // Note: Connected event is now emitted by ChainOperation itself
+            }
+            
+            ChainOperationRequest::RemoveOperation { chain_id } => {
+                // Following sonia's advice: extract operation while holding lock,
+                // then call async method on cloned Arc outside the lock
+                let operation_to_stop = {
+                    let mut operations = chain_operations.write();
+                    operations.remove_operation(chain_id)
+                };
+                
+                // Handle async operation outside the lock
+                if let Some(mut operation) = operation_to_stop {
+                    if let Err(e) = operation.stop().await {
+                        tracing::error!("Failed to stop chain operation for chain {}: {}", chain_id, e);
+                    }
+                    // Note: Disconnected event is now emitted by ChainOperation itself
+                } else {
+                    tracing::warn!("Chain operation for chain {} not found", chain_id);
+                }
+            }
+            
+            ChainOperationRequest::ExecuteCommand { chain_id: _, command: _ } => {
+                // ExecuteCommand is no longer handled by Arbiter
+                // Commands should be sent directly to chain_operations
+                tracing::error!("ExecuteCommand should not be sent to Arbiter. Use direct chain_operations.send_command() instead.");
+            }
+        }
+
+        Ok(())
     }
 }
 

@@ -5,9 +5,6 @@ use itertools::Either;
 use tokio::task::JoinError;
 use std::sync::Arc;
 use parking_lot::RwLock as AtomicLock;
-use symm_core::core::functional::{SingleObserver, PublishSingle};
-use index_core::blockchain::chain_connector::ChainNotification;
-use chrono::Utc;
 
 use crate::chain_operations::ChainOperations;
 use crate::commands::ChainOperationRequest;
@@ -32,13 +29,11 @@ impl Arbiter {
     pub fn start(
         &mut self,
         chain_operations: Arc<AtomicLock<ChainOperations>>,      // State management
-        operation_rx: UnboundedReceiver<ChainOperationRequest>, // Input channel
-        observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>, // Event publisher
+        mut operation_rx: UnboundedReceiver<ChainOperationRequest>, // Input channel
         max_chain_operations: usize,                            // Configuration
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
-            
-            let mut operation_rx = operation_rx; // Make it mutable in the async block
+            tracing::info!("Loop started");
             
             loop {
                 tokio::select! {
@@ -47,11 +42,10 @@ impl Arbiter {
                     }
                     Some(request) = operation_rx.recv() => {
                         
-                        // Handle the request using the state management pattern
-                        match Self::handle_chain_operation_request(
+                        // Handle the request using ChainOperations methods
+                        match ChainOperations::handle_chain_operation_request(
                             &chain_operations,
                             request,
-                            &observer,
                             max_chain_operations,
                         ).await {
                             Ok(()) => {
@@ -65,109 +59,21 @@ impl Arbiter {
                 }
             }
 
-            // Cleanup: shutdown all operations (following binance pattern)
+            // Cleanup: shutdown all operations following binance pattern
             let operations_to_stop = {
                 let mut operations = chain_operations.write();
                 operations.drain_all()
             };
             
-            // Stop each chain operation individually
-            for mut operation in operations_to_stop {
-                if let Err(e) = operation.stop().await {
-                    tracing::error!("Error stopping chain operation: {}", e);
-                }
+            if let Err(err) = ChainOperations::stop_all(operations_to_stop).await {
+                tracing::warn!("Error stopping chain operations {:?}", err);
             }
             
+            tracing::info!("Loop exited");
             operation_rx
         });
     }
 
-    /// Handle chain operation request (following binance pattern)
-    async fn handle_chain_operation_request(
-        chain_operations: &Arc<AtomicLock<ChainOperations>>,
-        request: ChainOperationRequest,
-        observer: &Arc<AtomicLock<SingleObserver<ChainNotification>>>,
-        max_operations: usize,
-    ) -> Result<()> {
-        match request {
-            ChainOperationRequest::AddOperation { credentials } => {
-                let chain_id = credentials.get_chain_id() as u32;
-                
-                // Check if we've reached the maximum number of operations
-                let can_add = {
-                    let operations = chain_operations.read();
-                    operations.operation_count() < max_operations
-                };
-                
-                if !can_add {
-                    tracing::error!("Maximum number of chain operations ({}) reached", max_operations);
-                    return Ok(());
-                }
-
-                // Add the new chain operation using credentials (following binance pattern)
-                // This is synchronous so no Arc cloning needed
-                {
-                    let mut operations = chain_operations.write();
-                    operations.add_operation_with_credentials(credentials)?;
-                }
-                
-                // Notify via observer (following binance pattern)
-                {
-                    let obs = observer.read();
-                    obs.publish_single(ChainNotification::ChainConnected {
-                        chain_id,
-                        timestamp: Utc::now(),
-                    });
-                }
-                
-            }
-            
-            ChainOperationRequest::RemoveOperation { chain_id } => {
-                // Following sonia's advice: extract operation while holding lock,
-                // then call async method on cloned Arc outside the lock
-                let operation_to_stop = {
-                    let mut operations = chain_operations.write();
-                    operations.remove_operation(chain_id)
-                };
-                
-                // Clone the observer Arc before async operation
-                let observer_clone = observer.clone();
-                
-                // Handle async operation outside the lock
-                if let Some(mut operation) = operation_to_stop {
-                    match operation.stop().await {
-                        Ok(()) => {
-                            // Notify via observer
-                            let obs = observer_clone.read();
-                            obs.publish_single(ChainNotification::ChainDisconnected {
-                                chain_id,
-                                timestamp: Utc::now(),
-                            });
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to stop chain operation for chain {}: {}", chain_id, e);
-                        }
-                    }
-                } else {
-                    // Notify via observer anyway (operation was not found)
-                    let obs = observer_clone.read();
-                    obs.publish_single(ChainNotification::ChainDisconnected {
-                        chain_id,
-                        timestamp: Utc::now(),
-                    });
-                    tracing::warn!("Chain operation for chain {} not found", chain_id);
-                }
-            }
-            
-            ChainOperationRequest::ExecuteCommand { chain_id: _, command: _ } => {
-                // ExecuteCommand is no longer handled by Arbiter
-                // Commands should be sent directly to chain_operations
-                tracing::error!("ExecuteCommand should not be sent to Arbiter. Use direct chain_operations.send_command() instead.");
-            }
-        }
-
-        Ok(())
-    }
 
     /// Stop the arbiter and wait for completion
     /// Returns the input receiver following binance pattern

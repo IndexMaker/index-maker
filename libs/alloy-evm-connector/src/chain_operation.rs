@@ -58,7 +58,7 @@ impl ChainOperation {
         let rpc_url = self.rpc_url.clone();
         let private_key = self.private_key.clone();
         let result_sender = self.result_sender.clone();
-        let _chain_observer = self.chain_observer.clone();
+        let chain_observer = self.chain_observer.clone();
 
         self.operation_loop.start(async move |cancel_token| {
             Self::operation_loop(
@@ -67,6 +67,7 @@ impl ChainOperation {
                 private_key,
                 command_receiver,
                 result_sender,
+                chain_observer,
                 cancel_token,
             )
             .await
@@ -88,6 +89,7 @@ impl ChainOperation {
         private_key: String,
         mut command_receiver: UnboundedReceiver<ChainCommand>,
         result_sender: UnboundedSender<ChainOperationResult>,
+        chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
         cancel_token: CancellationToken,
     ) -> Result<()> {
         // Initialize provider and contracts
@@ -100,6 +102,15 @@ impl ChainOperation {
         let deposit_builder = AcrossDepositBuilder::new(provider.clone(), wallet.address())
             .await
             .ok();
+
+        // Emit connected event
+        {
+            let observer = chain_observer.read();
+            observer.publish_single(ChainNotification::ChainConnected {
+                chain_id,
+                timestamp: Utc::now(),
+            });
+        }
 
         loop {
             tokio::select! {
@@ -132,6 +143,15 @@ impl ChainOperation {
                     }
                 }
             }
+        }
+
+        // Emit disconnected event
+        {
+            let observer = chain_observer.read();
+            observer.publish_single(ChainNotification::ChainDisconnected {
+                chain_id,
+                timestamp: Utc::now(),
+            });
         }
 
         tracing::info!(

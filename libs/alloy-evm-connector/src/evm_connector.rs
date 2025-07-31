@@ -73,7 +73,6 @@ impl EvmConnector {
         arbiter.start(
             self.chain_operations.clone(),
             request_receiver,
-            self.shared_observer.clone(),
             max_chain_operations,
         );
 
