@@ -79,7 +79,7 @@ impl CollateralBridge for Erc20CollateralBridge {
         // Get designation details
         let source_designation = self.source.read().unwrap();
         let destination_designation = self.destination.read().unwrap();
-        
+
         // Use direct chain_operations.execute_command() for simple ERC20 transfer
         let command = ChainCommand::Erc20Transfer {
             chain_id: source_designation.get_chain_id() as u32,
@@ -104,7 +104,7 @@ impl CollateralBridge for Erc20CollateralBridge {
                         route_from: route_from.clone(),
                         route_to: route_to.clone(),
                         amount: total_transferred, // Now receives original_amount from chain operation
-                        fee: fee_deducted,         // Now receives original_cumulative_fee from chain operation
+                        fee: fee_deducted, // Now receives original_cumulative_fee from chain operation
                     });
                 Ok(())
             }),

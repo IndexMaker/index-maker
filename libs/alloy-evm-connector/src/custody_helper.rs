@@ -1,3 +1,4 @@
+use crate::utils::IntoEvmAmount;
 use alloy::{
     hex,
     primitives::{Address, B256},
@@ -8,9 +9,9 @@ use ethers::{
     types::{Address as EthAddress, Bytes as EBytes, U256},
 };
 use merkle_tree_rs::core::{get_proof, make_merkle_tree};
+use rust_decimal::dec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::config::EvmConnectorConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum CAItemType {
@@ -48,7 +49,7 @@ pub struct Party {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CAItem {
     pub item_type: CAItemType,
-    pub chain_id: u64,
+    pub chain_id: u32,
     pub otc_custody: Address,
     pub state: u8,
     pub args: String,
@@ -61,12 +62,12 @@ pub struct CAHelper {
     leaf_indices: Vec<usize>,         // original -> tree index
     args_to_types: HashMap<CAItemType, String>,
     custody_id: Option<[u8; 32]>,
-    chain_id: u64,
+    chain_id: u32,
     otc_custody_address: Address,
 }
 
 impl CAHelper {
-    pub fn new(chain_id: u64, otc_custody_address: Address) -> Self {
+    pub fn new(chain_id: u32, otc_custody_address: Address) -> Self {
         let mut args_to_types = HashMap::new();
         args_to_types.insert(
             CAItemType::DeployConnector,
@@ -361,7 +362,7 @@ impl CAHelper {
             Token::Address(EthAddress::from_slice(item.otc_custody.as_slice())),
             Token::Uint(U256::from(item.state)),
             {
-                let bytes = hex::decode(item.args.trim_start_matches("0x")).unwrap_or_default();
+                let bytes = hex::decode(item.args.trim_start_matches("0x")).unwrap();
                 Token::Bytes(bytes)
             },
             Token::Uint(U256::from(item.party.parity)),
@@ -435,6 +436,7 @@ impl CAHelper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::EvmConnectorConfig;
     use alloy::primitives::{Address, B256};
 
     #[test]
@@ -563,10 +565,10 @@ mod tests {
             "type": "deposit(address,address,uint256,uint256,uint256,address,uint32,uint32,bytes)",
             "args": [
                 &EvmConnectorConfig::get_default_sender_address().to_string(),
-                &EvmConnectorConfig::default().get_usdc_address(42161).unwrap_or_default().to_string(),
-                &EvmConnectorConfig::get_default_deposit_amount().to_string(),
-                &EvmConnectorConfig::get_default_min_amount().to_string(),
-                &EvmConnectorConfig::default().get_chain_config(8453).map(|c| c.chain_id.to_string()).unwrap_or_else(|| "8453".to_string()),
+                &EvmConnectorConfig::default().get_usdc_address("arbitrum").unwrap(),
+                dec!(10.0).into_evm_amount_usdc().unwrap().to_string(),
+                dec!(9.0).into_evm_amount_usdc().unwrap().to_string(),
+                &EvmConnectorConfig::default().get_chain_id("base").unwrap().to_string(),
                 "0x0000000000000000000000000000000000000000",
                 "0",
                 "0"

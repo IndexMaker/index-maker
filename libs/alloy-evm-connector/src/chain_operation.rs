@@ -1,15 +1,14 @@
 use alloy::{
     hex,
-    primitives::U256,
     providers::{Provider, ProviderBuilder},
     signers::local::LocalSigner,
 };
-use std::str::FromStr;
 use chrono::Utc;
 use eyre::OptionExt;
 use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
+use std::str::FromStr;
 use std::sync::Arc;
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
@@ -20,7 +19,7 @@ use crate::across_deposit::AcrossDepositBuilder;
 use crate::commands::{ChainCommand, ChainOperationResult};
 use crate::config::EvmConnectorConfig;
 use crate::contracts::ERC20;
-use crate::utils::{amount_to_u256, calculate_gas_fee_usdc};
+use crate::utils::{calculate_gas_fee_usdc, IntoEvmAmount};
 use index_core::blockchain::chain_connector::ChainNotification;
 use symm_core::core::bits::{Address as CoreAddress, Symbol};
 
@@ -98,10 +97,9 @@ impl ChainOperation {
             .connect_http(rpc_url.parse()?);
 
         // Initialize AcrossDepositBuilder for this chain
-        let deposit_builder =
-            AcrossDepositBuilder::new(provider.clone(), wallet.address().clone())
-                .await
-                .ok();
+        let deposit_builder = AcrossDepositBuilder::new(provider.clone(), wallet.address())
+            .await
+            .ok();
 
         loop {
             tokio::select! {
@@ -136,7 +134,10 @@ impl ChainOperation {
             }
         }
 
-        tracing::info!("Chain operation for chain {} stopped successfully", chain_id);
+        tracing::info!(
+            "Chain operation for chain {} stopped successfully",
+            chain_id
+        );
         Ok(())
     }
 
@@ -159,7 +160,7 @@ impl ChainOperation {
             } => {
                 // Create ERC20 contract instance
                 let token_contract = ERC20::new(token_address, provider.clone());
-                let transfer_amount = amount_to_u256(&amount)?;
+                let transfer_amount = amount.into_evm_amount(6)?;
 
                 match token_contract
                     .transferFrom(from, to, transfer_amount)
@@ -173,7 +174,7 @@ impl ChainOperation {
                                     format!("0x{}", hex::encode(receipt.transaction_hash));
 
                                 // Calculate gas fee using simplified utility
-                                let gas_used = U256::from(receipt.gas_used);
+                                let gas_used = receipt.gas_used.into_evm_amount(0)?;
                                 let fee_amount = calculate_gas_fee_usdc(provider, gas_used).await?;
 
                                 // Calculate net amounts
@@ -199,10 +200,10 @@ impl ChainOperation {
 
                                 Ok(Some(tx_hash))
                             }
-                            Err(e) => Err(eyre::eyre!("ERC20 transfer receipt failed: {}", e))
+                            Err(e) => Err(eyre::eyre!("ERC20 transfer receipt failed: {}", e)),
                         }
                     }
-                    Err(e) => Err(eyre::eyre!("ERC20 transfer failed: {}", e))
+                    Err(e) => Err(eyre::eyre!("ERC20 transfer failed: {}", e)),
                 }
             }
             ChainCommand::MintIndex {
@@ -252,8 +253,8 @@ impl ChainOperation {
                 if let Some(builder) = deposit_builder {
                     // Use config USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
                     let config = EvmConnectorConfig::default();
-                    let input_token = config.get_usdc_address(42161).unwrap_or_default();
-                    let output_token = config.get_usdc_address(8453).unwrap_or_default();
+                    let input_token = config.get_usdc_address("arbitrum").unwrap();
+                    let output_token = config.get_usdc_address("base").unwrap();
 
                     match builder
                         .execute_complete_across_deposit(
@@ -261,7 +262,7 @@ impl ChainOperation {
                             to,
                             input_token,
                             output_token,
-                            amount_to_u256(&deposit_amount)?,
+                            deposit_amount.into_evm_amount_usdc()?,
                             origin_chain_id,
                             destination_chain_id,
                         )
@@ -278,9 +279,11 @@ impl ChainOperation {
                                 .ok_or_eyre("Failed to compute cumulative fee")?;
 
                             // Use Amount directly for display since it's already in human-readable format
-                            tracing::info!("Across: {} USDC (fee: {}) tx: 0xacross_complete", 
-                                          updated_deposit_amount, 
-                                          updated_cumulative_fee);
+                            tracing::info!(
+                                "Across: {} USDC (fee: {})",
+                                updated_deposit_amount,
+                                updated_cumulative_fee
+                            );
 
                             // Pass the updated amounts to the callback
                             callback(updated_deposit_amount, updated_cumulative_fee).map_err(
@@ -294,7 +297,7 @@ impl ChainOperation {
 
                             Ok(Some("0xacross_complete...".to_string()))
                         }
-                        Err(e) => Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e))
+                        Err(e) => Err(eyre::eyre!("ExecuteCompleteAcrossDeposit failed: {}", e)),
                     }
                 } else {
                     Err(eyre::eyre!(
@@ -304,36 +307,5 @@ impl ChainOperation {
                 }
             }
         }
-    }
-
-    /// Publish chain notification events (for demo/testing purposes)
-    fn publish_chain_events(
-        chain_observer: &Arc<AtomicLock<SingleObserver<ChainNotification>>>,
-        chain_id: u32,
-    ) {
-        // Simulate some chain events for demo purposes
-        let observer = chain_observer.read();
-
-        // Example: Deposit event
-        observer.publish_single(ChainNotification::Deposit {
-            chain_id,
-            address: CoreAddress::new([0u8; 20]),
-            amount: Amount::from(EvmConnectorConfig::get_default_deposit_amount()), // 1 USDC
-            timestamp: Utc::now(),
-        });
-
-        // Example: Withdrawal request event
-        observer.publish_single(ChainNotification::WithdrawalRequest {
-            chain_id,
-            address: CoreAddress::new([0u8; 20]),
-            amount: Amount::from(EvmConnectorConfig::get_default_min_amount()), // 0.5 USDC
-            timestamp: Utc::now(),
-        });
-
-        // Example: Curator weights set event
-        observer.publish_single(ChainNotification::CuratorWeightsSet(
-            Symbol::from("BTC"),
-            index_core::index::basket::BasketDefinition::try_new(Vec::new()).unwrap(),
-        ));
     }
 }

@@ -86,14 +86,13 @@ impl CollateralBridge for AcrossCollateralBridge {
             return Err(eyre::eyre!("Invalid source and destination"));
         }
 
-
         // Get designation details
         let source_designation = self.source.read().unwrap();
         let destination_designation = self.destination.read().unwrap();
 
         // Use direct chain_operations.execute_command() instead of arbiter
         let command = ChainCommand::ExecuteCompleteAcrossDeposit {
-            chain_id: source_designation.get_chain_id() as u32,
+            chain_id: source_designation.get_chain_id(),
             from: source_designation.get_wallet_address(),
             to: destination_designation.get_wallet_address(),
             deposit_amount: amount,

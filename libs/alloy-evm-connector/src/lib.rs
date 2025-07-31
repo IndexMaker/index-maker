@@ -14,3 +14,6 @@ pub mod designation;
 pub mod across_bridge;
 pub mod erc20_bridge;
 pub mod evm_connector;
+
+// Re-export conversion traits for easy access
+pub use utils::{IntoEvmAmount, IntoAmount};

@@ -1,12 +1,12 @@
-use eyre::Result;
 use crate::config::EvmConnectorConfig;
+use eyre::Result;
 
 /// EVM blockchain credentials for connecting to chains
 /// Follows the same pattern as binance credentials with lazy loading for security
 #[derive(Clone)]
 pub struct EvmCredentials {
     /// Chain ID for this credential set
-    pub chain_id: u64,
+    pub chain_id: u32,
     /// RPC endpoint URL
     pub rpc_url: String,
     /// Lazy-loaded private key function for security
@@ -17,7 +17,7 @@ impl EvmCredentials {
     /// Create new EVM credentials with lazy private key loading
     /// Following the exact binance pattern for security
     pub fn new(
-        chain_id: u64,
+        chain_id: u32,
         rpc_url: String,
         get_private_key_fn: impl Fn() -> String + Send + Sync + 'static,
     ) -> Self {
@@ -34,7 +34,7 @@ impl EvmCredentials {
     }
 
     /// Get the chain ID
-    pub fn get_chain_id(&self) -> u64 {
+    pub fn get_chain_id(&self) -> u32 {
         self.chain_id
     }
 
@@ -46,27 +46,30 @@ impl EvmCredentials {
 
     /// Create credentials from config system
     /// Uses EvmConnectorConfig as the single source of truth for all configuration
-    pub fn from_env(chain_id: u64) -> Result<Self> {
+    pub fn from_env(chain_name: &str) -> Result<Self> {
         // Try to use config system first (recommended approach)
-        Self::from_config(chain_id)
-            .or_else(|_| {
-                // Fallback to generic configuration for unknown chains
-                let rpc_url = EvmConnectorConfig::get_default_rpc_url();
-                
-                // Validate that private key is available
-                if !EvmConnectorConfig::has_private_key() {
-                    return Err(eyre::eyre!("PRIVATE_KEY environment variable not set"));
-                }
+        Self::from_config(chain_name).or_else(|_| {
+            // Fallback to generic configuration for unknown chains
+            let rpc_url = EvmConnectorConfig::get_default_rpc_url();
 
-                Ok(Self::new(chain_id, rpc_url, move || {
-                    EvmConnectorConfig::get_private_key()
-                }))
-            })
+            // Validate that private key is available
+            if !EvmConnectorConfig::has_private_key() {
+                return Err(eyre::eyre!("PRIVATE_KEY environment variable not set"));
+            }
+
+            let chain_id = EvmConnectorConfig::default()
+                .get_chain_id(chain_name)
+                .unwrap();
+
+            Ok(Self::new(chain_id, rpc_url, move || {
+                EvmConnectorConfig::get_private_key()
+            }))
+        })
     }
 
     /// Create credentials with custom RPC URL
     /// Uses config system for private key management
-    pub fn from_env_with_rpc(chain_id: u64, rpc_url: String) -> Result<Self> {
+    pub fn from_env_with_rpc(chain_id: u32, rpc_url: String) -> Result<Self> {
         // Validate that private key is available through config system
         if !EvmConnectorConfig::has_private_key() {
             return Err(eyre::eyre!("PRIVATE_KEY environment variable not set"));
@@ -79,34 +82,30 @@ impl EvmCredentials {
 
     /// Create credentials from config system (recommended approach)
     /// Uses EvmConnectorConfig as the single source of truth for chain configurations
-    pub fn from_config(chain_id: u64) -> Result<Self> {
+    pub fn from_config(chain_name: &str) -> Result<Self> {
         let config = EvmConnectorConfig::default();
-        let chain_config = config.get_chain_config(chain_id as u32)
-            .ok_or_else(|| eyre::eyre!("Unsupported chain ID: {}", chain_id))?;
+        let chain_config = config
+            .get_chain_config(chain_name)
+            .ok_or_else(|| eyre::eyre!("Unsupported chain ID: {}", chain_name))?;
 
-        Self::from_env_with_rpc(chain_id, chain_config.rpc_url.clone())
-    }
-
-    /// Create credentials for specific chains using config system (recommended)
-    /// Falls back to environment variable patterns for backward compatibility
-    pub fn ethereum_mainnet() -> Result<Self> {
-        Self::from_config(1).or_else(|_| Self::from_env_with_chain_prefix(1, "ETHEREUM"))
+        Self::from_env_with_rpc(chain_config.chain_id, chain_config.rpc_url.clone())
     }
 
     pub fn arbitrum() -> Result<Self> {
-        Self::from_config(42161).or_else(|_| Self::from_env_with_chain_prefix(42161, "ARBITRUM"))
+        Self::from_config("arbitrum")
+            .or_else(|_| Self::from_env_with_chain_prefix("arbitrum", "ARBITRUM"))
     }
 
     pub fn base() -> Result<Self> {
-        Self::from_config(8453).or_else(|_| Self::from_env_with_chain_prefix(8453, "BASE"))
+        Self::from_config("base").or_else(|_| Self::from_env_with_chain_prefix("base", "BASE"))
     }
 
     /// Create credentials with chain-specific configuration
     /// Uses config system for both RPC URL and private key resolution
-    fn from_env_with_chain_prefix(chain_id: u64, prefix: &str) -> Result<Self> {
+    fn from_env_with_chain_prefix(chain_name: &str, prefix: &str) -> Result<Self> {
         // Get RPC URL from config system with fallback to default
         let rpc_url = EvmConnectorConfig::default()
-            .get_chain_config(chain_id as u32)
+            .get_chain_config(chain_name)
             .map(|config| config.rpc_url.clone())
             .unwrap_or_else(|| EvmConnectorConfig::get_default_rpc_url());
 
@@ -117,6 +116,10 @@ impl EvmCredentials {
                 prefix
             ));
         }
+
+        let chain_id = EvmConnectorConfig::default()
+            .get_chain_id(chain_name)
+            .unwrap();
 
         let prefix_owned = prefix.to_string();
         Ok(Self::new(chain_id, rpc_url, move || {

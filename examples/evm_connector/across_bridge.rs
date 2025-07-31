@@ -1,13 +1,15 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use alloy::primitives::{address, U256};
+use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
-use alloy_evm_connector::contracts::ERC20;
 use alloy_evm_connector::config::EvmConnectorConfig;
+use alloy_evm_connector::contracts::ERC20;
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
+use alloy_evm_connector::utils::{IntoAmount, IntoEvmAmount};
 use index_core::collateral::collateral_router::CollateralRouterEvent;
+use rust_decimal::dec;
 use symm_core::core::bits::Amount;
 use symm_core::core::functional::IntoObservableSingleFun;
 use tokio::sync::watch;
@@ -26,7 +28,7 @@ async fn main() {
     let admin_address = EvmConnectorConfig::get_default_sender_address();
 
     // USDC contract address on Arbitrum
-    let usdc_address = config.get_usdc_address(42161).unwrap();
+    let usdc_address = config.get_usdc_address("arbitrum").unwrap();
     let whale_address = address!("0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D");
 
     // Setup USDC funding using whale impersonation;
@@ -44,16 +46,16 @@ async fn main() {
 
     tracing::info!(
         "Admin initial USDC balance: {} USDC",
-        admin_usdc_balance / U256::from(1_000_000u64)
+        admin_usdc_balance.into_amount_usdc().unwrap()
     );
 
     // Check if we need to fund admin with USDC
-    let required_usdc = U256::from(EvmConnectorConfig::get_default_deposit_amount() * 10); // 10 USDC
+    let required_usdc = dec!(10.0).into_evm_amount_usdc().unwrap(); // 10 USDC
     if admin_usdc_balance < required_usdc {
         // Check whale USDC balance
         let whale_balance = usdc_contract.balanceOf(whale_address).call().await.unwrap();
 
-        if whale_balance < U256::from(EvmConnectorConfig::get_default_deposit_amount() * 100) {
+        if whale_balance < dec!(100.0).into_evm_amount_usdc().unwrap() {
             tracing::error!("Whale account doesn't have enough USDC. Make sure anvil is forked from Arbitrum with: anvil --fork-url https://arb1.lava.build");
             return;
         }
@@ -82,7 +84,7 @@ async fn main() {
         }
 
         // Transfer 100 USDC from whale to admin
-        let transfer_amount = U256::from(EvmConnectorConfig::get_default_deposit_amount() * 100); // 100 USDC
+        let transfer_amount = dec!(100.0).into_evm_amount_usdc().unwrap(); // 100 USDC
 
         let transfer_call = usdc_contract.transfer(admin_address, transfer_amount);
         let transfer_calldata = transfer_call.calldata().clone();
@@ -113,7 +115,7 @@ async fn main() {
         let admin_balance_after = usdc_contract.balanceOf(admin_address).call().await.unwrap();
         tracing::info!(
             "Admin funded with {} USDC",
-            admin_balance_after / U256::from(1_000_000u64)
+            admin_balance_after.into_amount_usdc().unwrap()
         );
     } else {
         tracing::info!("Admin already has sufficient USDC balance");
@@ -144,7 +146,9 @@ async fn main() {
     // Create bridge using the generic method (it will automatically select Across bridge for cross-chain)
     let bridge = connector.create_bridge(source, destination);
 
-    let chain_id = config.get_chain_config(42161).map(|c| c.chain_id).unwrap_or(42161);
+    let chain_id = config
+        .get_chain_id("arbitrum")
+        .unwrap();
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();
     let route_to = "BASE".into();

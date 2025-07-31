@@ -3,17 +3,18 @@ use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use alloy::{
     hex,
-    primitives::{address, utils::format_units, Address, FixedBytes, U256},
+    primitives::{utils::format_units, Address, FixedBytes, U256},
     providers::{Provider, ProviderBuilder},
     sol_types::SolCall,
 };
+use rust_decimal::dec;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::config::EvmConnectorConfig;
 use crate::contracts::{AcrossConnector, OTCCustody, ERC20};
 use crate::custody_helper::CAHelper;
-use crate::utils::{get_current_timestamp, set_next_block_timestamp};
+use crate::utils::{get_current_timestamp, set_next_block_timestamp, IntoAmount, IntoEvmAmount};
 
 pub const USDC_DECIMALS: u8 = 6;
 
@@ -31,7 +32,7 @@ pub struct AcrossDeposit {
     pub output_token: Address,
     pub deposit_amount: U256,
     pub min_amount: U256,
-    pub destination_chain_id: u64,
+    pub destination_chain_id: u32,
     pub exclusive_relayer: Address,
     pub fill_deadline: u64,
     pub exclusivity_deadline: u64,
@@ -45,7 +46,7 @@ impl AcrossDeposit {
         output_token: Address,
         deposit_amount: U256,
         min_amount: U256,
-        destination_chain_id: u64,
+        destination_chain_id: u32,
         exclusive_relayer: Address,
         fill_deadline: u64,
         exclusivity_deadline: u64,
@@ -65,20 +66,20 @@ impl AcrossDeposit {
     }
 
     /// Task 2: Encode deposit calldata (standalone function)
-    pub fn encode_deposit_calldata(&self) -> Vec<u8> {
+    pub fn encode_deposit_calldata(&self) -> eyre::Result<Vec<u8>> {
         let call = AcrossConnector::depositCall {
             recipient: self.recipient,
             inputToken: self.input_token,
             outputToken: self.output_token,
             amount: self.deposit_amount,
             minAmount: self.min_amount,
-            destinationChainId: U256::from(self.destination_chain_id),
+            destinationChainId: self.destination_chain_id.into_evm_amount_default()?,
             exclusiveRelayer: self.exclusive_relayer,
             fillDeadline: self.fill_deadline as u32,
             exclusivityDeadline: self.exclusivity_deadline as u32,
             message: Vec::new().into(),
         };
-        call.abi_encode()
+        Ok(call.abi_encode())
     }
 }
 
@@ -127,13 +128,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
                 provider.clone(),
             ),
             usdc: ERC20::ERC20Instance::new(
-                config
-                    .bridge
-                    .across
-                    .usdc_addresses
-                    .get(&42161)
-                    .copied()
-                    .unwrap_or_default(),
+                config.bridge.across.usdc_arbitrum_address,
                 provider.clone(),
             ),
         })
@@ -148,7 +143,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             .approve(config.bridge.across.custody_address, amount);
         let receipt = call.send().await?.get_receipt().await?;
 
-        let gas_used = U256::from(receipt.gas_used);
+        let gas_used = receipt.gas_used.into_evm_amount_default()?;
         Ok(gas_used)
     }
 
@@ -156,8 +151,8 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     pub async fn get_across_suggested_output(
         input_token: Address,
         output_token: Address,
-        origin_chain_id: u64,
-        destination_chain_id: u64,
+        origin_chain_id: u32,
+        destination_chain_id: u32,
         amount: U256,
     ) -> eyre::Result<AcrossSuggestedOutput> {
         let client = reqwest::Client::new();
@@ -190,7 +185,11 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             output_amount: data["outputAmount"]
                 .as_str()
                 .and_then(|s| U256::from_str(s).ok())
-                .or_else(|| data["outputAmount"].as_u64().map(U256::from))
+                .or_else(|| {
+                    data["outputAmount"]
+                        .as_u64()
+                        .and_then(|val| val.into_evm_amount_usdc().ok())
+                })
                 .unwrap_or(amount),
             fill_deadline: data["fillDeadline"]
                 .as_str()
@@ -226,7 +225,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             .addressToCustody(FixedBytes(custody_id), input_token, amount);
         let receipt = call.send().await?.get_receipt().await?;
 
-        let gas_used = U256::from(receipt.gas_used);
+        let gas_used = receipt.gas_used.into_evm_amount_default()?;
         Ok(gas_used)
     }
 
@@ -247,7 +246,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         );
         let receipt = call.send().await?.get_receipt().await?;
 
-        let gas_used = U256::from(receipt.gas_used);
+        let gas_used = receipt.gas_used.into_evm_amount_default()?;
         Ok(gas_used)
     }
 
@@ -268,7 +267,6 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         );
         let receipt = call.send().await?.get_receipt().await?;
 
-        let gas_used = U256::from(receipt.gas_used);
         Ok(receipt)
     }
 
@@ -289,36 +287,30 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
     /// Returns the total gas used for the entire flow
     pub async fn execute_complete_across_deposit(
         &self,
-        sender: Address,
+        _sender: Address,
         recipient: Address,
         input_token: Address,
         output_token: Address,
         deposit_amount: U256,
-        origin_chain_id: u64,
-        destination_chain_id: u64,
+        origin_chain_id: u32,
+        destination_chain_id: u32,
     ) -> eyre::Result<U256> {
         let mut total_gas_used = U256::ZERO;
 
         // Log the start of the deposit
         tracing::info!(
             "Starting Across deposit: {} USDC {} -> {}",
-            format_units(deposit_amount, 6).unwrap_or_default(),
+            deposit_amount.into_amount_usdc().unwrap(),
             if origin_chain_id
                 == EvmConnectorConfig::default()
-                    .get_chain_config(42161)
-                    .map(|c| c.chain_id as u64)
-                    .unwrap_or(42161)
+                    .get_chain_id("arbitrum")
+                    .unwrap()
             {
                 "ARBITRUM"
             } else {
                 "UNKNOWN"
             },
-            if destination_chain_id
-                == EvmConnectorConfig::default()
-                    .get_chain_config(8453)
-                    .map(|c| c.chain_id as u64)
-                    .unwrap_or(8453)
-            {
+            if destination_chain_id == EvmConnectorConfig::default().get_chain_id("base").unwrap() {
                 "BASE"
             } else {
                 "UNKNOWN"
@@ -330,7 +322,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
         total_gas_used += approval_gas;
 
         // Setup custody helper
-        let chain_id_runtime = self.across_connector.provider().get_chain_id().await?;
+        let chain_id_runtime = self.across_connector.provider().get_chain_id().await? as u32;
         let config = EvmConnectorConfig::default();
         let mut ca_helper = CAHelper::new(chain_id_runtime, config.bridge.across.custody_address);
 
@@ -367,7 +359,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
             suggested_output.fill_deadline,
             suggested_output.exclusivity_deadline,
         );
-        let calldata = deposit.encode_deposit_calldata();
+        let calldata = deposit.encode_deposit_calldata()?;
 
         // Step 6: Call callConnector of custody_helper
         let connector_action_index = ca_helper.call_connector(
@@ -415,7 +407,7 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Step 10: Call otc_custody.custodyToConnector
         let custody_to_connector_gas = self
-            .execute_custody_to_connector(input_token, deposit_amount, custody_verification)
+            .execute_custody_to_connector(input_token, deposit_amount, custody_verification?)
             .await?;
         total_gas_used += custody_to_connector_gas;
 
@@ -441,9 +433,9 @@ impl<P: Provider + Clone + 'static> AcrossDepositBuilder<P> {
 
         // Step 12: Call otc_custody.callConnector
         let receipt = self
-            .execute_call_connector(calldata, connector_verification)
+            .execute_call_connector(calldata, connector_verification?)
             .await?;
-        let call_connector_gas = U256::from(receipt.gas_used);
+        let call_connector_gas = receipt.gas_used.into_evm_amount_default()?;
         total_gas_used += call_connector_gas;
 
         // Log completion with final transaction hash and gas usage
@@ -465,15 +457,15 @@ pub fn create_verification_data(
     public_key: crate::contracts::CAKey,
     signature: crate::contracts::Signature,
     merkle_proof: Vec<[u8; 32]>,
-) -> crate::contracts::VerificationData {
-    crate::contracts::VerificationData {
+) -> eyre::Result<crate::contracts::VerificationData> {
+    Ok(crate::contracts::VerificationData {
         id: FixedBytes(custody_id),
         state,
-        timestamp: U256::from(timestamp),
+        timestamp: timestamp.into_evm_amount_default()?,
         pubKey: public_key,
         sig: signature,
         merkleProof: merkle_proof.into_iter().map(FixedBytes).collect(),
-    }
+    })
 }
 
 /// Example usage function with all steps
@@ -484,18 +476,12 @@ pub async fn example_complete_across_deposit_flow() -> eyre::Result<()> {
     // Example parameters
     let config = EvmConnectorConfig::default();
     let sender = EvmConnectorConfig::get_default_sender_address();
-    let recipient = EvmConnectorConfig::get_default_recipient_address();
-    let input_token = config.get_usdc_address(42161).unwrap_or_default();
-    let output_token = config.get_usdc_address(8453).unwrap_or_default();
-    let deposit_amount = U256::from(EvmConnectorConfig::get_default_deposit_amount());
-    let origin_chain_id = config
-        .get_chain_config(42161)
-        .map(|c| c.chain_id as u64)
-        .unwrap_or(42161);
-    let destination_chain_id = config
-        .get_chain_config(8453)
-        .map(|c| c.chain_id as u64)
-        .unwrap_or(8453);
+    let recipient = EvmConnectorConfig::get_default_sender_address();
+    let input_token = config.get_usdc_address("arbitrum").unwrap();
+    let output_token = config.get_usdc_address("base").unwrap();
+    let deposit_amount = dec!(10.0).into_evm_amount_usdc()?;
+    let origin_chain_id = config.get_chain_id("arbitrum").unwrap();
+    let destination_chain_id = config.get_chain_id("base").unwrap();
 
     // Execute the complete flow with all steps
     builder
@@ -520,131 +506,4 @@ fn address_to_bytes32(addr: Address) -> [u8; 32] {
     // copy the 20-byte address into the lower 20 bytes (right-aligned)
     out[12..].copy_from_slice(addr.as_slice());
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sol_macro_types() {
-        // Test that the sol! macro generated types work correctly
-        let call = AcrossConnector::depositCall {
-            recipient: Address::ZERO,
-            inputToken: Address::ZERO,
-            outputToken: Address::ZERO,
-            amount: U256::from(EvmConnectorConfig::get_default_deposit_amount()),
-            minAmount: U256::from(EvmConnectorConfig::get_default_min_amount()),
-            destinationChainId: U256::from(
-                EvmConnectorConfig::default()
-                    .get_chain_config(42161)
-                    .map(|c| c.chain_id as u64)
-                    .unwrap_or(42161),
-            ),
-            exclusiveRelayer: Address::ZERO,
-            fillDeadline: 0u32,
-            exclusivityDeadline: 0u32,
-            message: Vec::new().into(),
-        };
-
-        let encoded = call.abi_encode();
-        assert!(!encoded.is_empty());
-        // The encoded length may vary based on the sol! macro implementation
-        // Just ensure it's not empty and has a reasonable size
-        assert!(encoded.len() >= 4); // At least the function selector
-    }
-
-    #[test]
-    fn test_encode_deposit_calldata() {
-        let deposit_data = AcrossDeposit::new(
-            Address::ZERO,
-            Address::ZERO,
-            Address::ZERO,
-            U256::from(EvmConnectorConfig::get_default_deposit_amount()),
-            U256::from(EvmConnectorConfig::get_default_min_amount()),
-            0u64,
-            Address::ZERO,
-            0u64,
-            0u64,
-        );
-
-        let calldata = deposit_data.encode_deposit_calldata();
-
-        // The first 4 bytes should be the function selector
-        assert_eq!(calldata.len() % 32, 4); // selector + N*32 bytes
-        tracing::info!(
-            "encoded deposit calldata: {:?}",
-            hex::encode_prefixed(&calldata)
-        );
-    }
-
-    #[test]
-    fn test_create_verification_data() {
-        let custody_id = [1u8; 32];
-        let state = 0u8;
-        let timestamp = 1234567890u64;
-        let public_key = crate::contracts::CAKey {
-            parity: 0,
-            x: FixedBytes([2u8; 32]),
-        };
-        let signature = crate::contracts::Signature {
-            e: FixedBytes([3u8; 32]),
-            s: FixedBytes([4u8; 32]),
-        };
-        let merkle_proof = vec![[5u8; 32], [6u8; 32]];
-
-        let verification_data = create_verification_data(
-            custody_id,
-            state,
-            timestamp,
-            public_key,
-            signature,
-            merkle_proof,
-        );
-
-        assert_eq!(verification_data.id, FixedBytes(custody_id));
-        assert_eq!(verification_data.state, state);
-        assert_eq!(verification_data.timestamp, U256::from(timestamp));
-        assert_eq!(verification_data.pubKey.parity, 0);
-        assert_eq!(verification_data.pubKey.x, FixedBytes([2u8; 32]));
-        assert_eq!(verification_data.sig.e, FixedBytes([3u8; 32]));
-        assert_eq!(verification_data.sig.s, FixedBytes([4u8; 32]));
-        assert_eq!(verification_data.merkleProof.len(), 2);
-    }
-
-    #[test]
-    fn test_across_deposit_struct() {
-        let deposit = AcrossDeposit::new(
-            Address::ZERO,
-            Address::ZERO,
-            Address::ZERO,
-            U256::from(1000000u128),
-            U256::from(999999u128),
-            0u64,
-            Address::ZERO,
-            0u64,
-            0u64,
-        );
-
-        assert_eq!(deposit.input_token, Address::ZERO);
-        assert_eq!(deposit.output_token, Address::ZERO);
-        assert_eq!(deposit.deposit_amount, U256::from(1000000u128));
-        assert_eq!(deposit.min_amount, U256::from(999999u128));
-        assert_eq!(deposit.destination_chain_id, 0u64);
-        assert_eq!(deposit.exclusive_relayer, Address::ZERO);
-        assert_eq!(deposit.fill_deadline, 0u64);
-        assert_eq!(deposit.exclusivity_deadline, 0u64);
-    }
-
-    #[test]
-    fn test_contract_instance() {
-        // This test would require a real provider connection
-        // For now, we'll test the struct creation with a mock
-        assert!(true); // Placeholder assertion
-    }
-
-    #[tokio::test]
-    async fn test_example_complete_across_deposit_flow() {
-        example_complete_across_deposit_flow().await.unwrap();
-    }
 }

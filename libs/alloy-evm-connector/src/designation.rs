@@ -1,24 +1,24 @@
-use crate::designation_details::EvmDesignationDetails;
 use crate::config::EvmConnectorConfig;
+use crate::designation_details::EvmDesignationDetails;
 use index_core::collateral::collateral_router::CollateralDesignation;
 use symm_core::core::bits::{Address, Amount, Symbol};
 
 const BRIDGE_TYPE: &str = "EVM";
 
 pub struct EvmCollateralDesignation {
-    pub name: Symbol,              //< e.g. "ARBITRUM", or "BASE"
-    pub collateral_symbol: Symbol, //< should be "USDC" (in future could also be "USDT")
-    pub full_name: Symbol,         //< e.g. "EVM:ARBITRUM:USDC"
-    pub chain_id: u64,             //< chain ID for this designation
-    pub collateral_address: Address,    //< address of USDC contract
-    pub address: Address,          //< address of the designation (wallet or contract)
+    pub name: Symbol,                //< e.g. "ARBITRUM", or "BASE"
+    pub collateral_symbol: Symbol,   //< should be "USDC" (in future could also be "USDT")
+    pub full_name: Symbol,           //< e.g. "EVM:ARBITRUM:USDC"
+    pub chain_id: u32,               //< chain ID for this designation
+    pub collateral_address: Address, //< address of USDC contract
+    pub address: Address,            //< address of the designation (wallet or contract)
 }
 
 impl EvmCollateralDesignation {
     pub fn new(
         name: Symbol,
         collateral_symbol: Symbol,
-        chain_id: u64,
+        chain_id: u32,
         collateral_address: Address,
         address: Address,
     ) -> Self {
@@ -35,16 +35,28 @@ impl EvmCollateralDesignation {
 
     pub fn arbitrum_usdc(address: Address) -> Self {
         let config = EvmConnectorConfig::default();
-        let chain_id = config.get_chain_config(42161).map(|c| c.chain_id as u64).unwrap_or(42161);
-        let usdc_address = config.get_usdc_address(42161).unwrap_or_default();
-        Self::new("ARBITRUM".into(), "USDC".into(), chain_id, usdc_address, address)
+        let chain_id = config.get_chain_id("arbitrum").unwrap();
+        let usdc_address = config.get_usdc_address("arbitrum").unwrap();
+        Self::new(
+            "ARBITRUM".into(),
+            "USDC".into(),
+            chain_id,
+            usdc_address,
+            address,
+        )
     }
 
     pub fn base_usdc(address: Address) -> Self {
         let config = EvmConnectorConfig::default();
-        let chain_id = config.get_chain_config(8453).map(|c| c.chain_id as u64).unwrap_or(8453);
-        let usdc_address = config.get_usdc_address(8453).unwrap_or_default();
-        Self::new("BASE".into(), "USDC".into(), chain_id, usdc_address, address)
+        let chain_id = config.get_chain_id("base").unwrap();
+        let usdc_address = config.get_usdc_address("base").unwrap();
+        Self::new(
+            "BASE".into(),
+            "USDC".into(),
+            chain_id,
+            usdc_address,
+            address,
+        )
     }
 
     pub fn get_wallet_address(&self) -> Address {
@@ -73,7 +85,7 @@ impl CollateralDesignation for EvmCollateralDesignation {
 }
 
 impl EvmDesignationDetails for EvmCollateralDesignation {
-    fn get_chain_id(&self) -> u64 {
+    fn get_chain_id(&self) -> u32 {
         self.chain_id
     }
 

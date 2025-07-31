@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy::primitives::{address, Address};
 use dotenv::{dotenv, from_path};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -48,8 +48,8 @@ pub struct AcrossBridgeConfig {
     pub spoke_pool_address: Address,
     /// OTC custody contract address
     pub custody_address: Address,
-    /// USDC token addresses by chain ID
-    pub usdc_addresses: std::collections::HashMap<u32, Address>,
+    pub usdc_arbitrum_address: Address,
+    pub usdc_base_address: Address,
     /// API URL for fee suggestions
     pub api_url: String,
     /// Default timeout for transactions (seconds)
@@ -62,7 +62,8 @@ pub struct Erc20BridgeConfig {
     /// Default gas limit for ERC20 transfers
     pub default_gas_limit: u64,
     /// Token contract addresses by chain ID and symbol
-    pub token_addresses: std::collections::HashMap<u32, std::collections::HashMap<String, Address>>,
+    pub token_addresses:
+        std::collections::HashMap<String, std::collections::HashMap<String, Address>>,
     /// Default slippage tolerance (basis points)
     pub slippage_tolerance: u16,
 }
@@ -70,7 +71,10 @@ pub struct Erc20BridgeConfig {
 impl Default for EvmConnectorConfig {
     fn default() -> Self {
         Self::from_env().unwrap_or_else(|e| {
-            tracing::warn!("Failed to load EvmConnectorConfig from environment: {}, using fallback", e);
+            tracing::warn!(
+                "Failed to load EvmConnectorConfig from environment: {}, using fallback",
+                e
+            );
             Self::fallback_default()
         })
     }
@@ -81,7 +85,7 @@ impl EvmConnectorConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         // Load environment variables from .env file
         Self::load_env_file();
-        
+
         let max_operations = env::var("MAX_OPERATIONS")
             .map_err(|_| "MAX_OPERATIONS environment variable not set")?
             .parse::<usize>()?;
@@ -174,26 +178,6 @@ impl Default for AcrossBridgeConfig {
 impl AcrossBridgeConfig {
     /// Load Across bridge configuration from environment variables
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        let mut usdc_addresses = std::collections::HashMap::new();
-
-        let arbitrum_chain_id = env::var("ARBITRUM_CHAIN_ID")
-            .map_err(|_| "ARBITRUM_CHAIN_ID environment variable not set")?
-            .parse::<u32>()?;
-        let arbitrum_usdc = Address::from_str(
-            &env::var("USDC_ARBITRUM_ADDRESS")
-                .map_err(|_| "USDC_ARBITRUM_ADDRESS environment variable not set")?,
-        )?;
-        usdc_addresses.insert(arbitrum_chain_id, arbitrum_usdc);
-
-        let base_chain_id = env::var("BASE_CHAIN_ID")
-            .map_err(|_| "BASE_CHAIN_ID environment variable not set")?
-            .parse::<u32>()?;
-        let base_usdc = Address::from_str(
-            &env::var("USDC_BASE_ADDRESS")
-                .map_err(|_| "USDC_BASE_ADDRESS environment variable not set")?,
-        )?;
-        usdc_addresses.insert(base_chain_id, base_usdc);
-
         Ok(Self {
             connector_address: Address::from_str(
                 &env::var("ACROSS_CONNECTOR_ADDRESS")
@@ -207,7 +191,14 @@ impl AcrossBridgeConfig {
                 &env::var("OTC_CUSTODY_ADDRESS")
                     .map_err(|_| "OTC_CUSTODY_ADDRESS environment variable not set")?,
             )?,
-            usdc_addresses,
+            usdc_arbitrum_address: Address::from_str(
+                &env::var("USDC_ARBITRUM_ADDRESS")
+                    .map_err(|_| "USDC_ARBITRUM_ADDRESS environment variable not set")?,
+            )?,
+            usdc_base_address: Address::from_str(
+                &env::var("USDC_BASE_ADDRESS")
+                    .map_err(|_| "USDC_BASE_ADDRESS environment variable not set")?,
+            )?,
             api_url: env::var("ACROSS_API_URL")
                 .map_err(|_| "ACROSS_API_URL environment variable not set")?,
             transaction_timeout: env::var("DEFAULT_TRANSACTION_TIMEOUT")
@@ -218,31 +209,12 @@ impl AcrossBridgeConfig {
 
     /// Fallback default configuration
     fn fallback_default() -> Self {
-        let mut usdc_addresses = std::collections::HashMap::new();
-        usdc_addresses.insert(
-            42161,
-            "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
-                .parse()
-                .unwrap(),
-        );
-        usdc_addresses.insert(
-            8453,
-            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-                .parse()
-                .unwrap(),
-        );
-
         Self {
-            connector_address: "0x8350a9Ab669808BE1DDF24FAF9c14475321D0504"
-                .parse()
-                .unwrap(),
-            spoke_pool_address: "0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A"
-                .parse()
-                .unwrap(),
-            custody_address: "0x9F6754bB627c726B4d2157e90357282d03362BCd"
-                .parse()
-                .unwrap(),
-            usdc_addresses,
+            connector_address: address!("0x8350a9Ab669808BE1DDF24FAF9c14475321D0504"),
+            spoke_pool_address: address!("0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A"),
+            custody_address: address!("0x9F6754bB627c726B4d2157e90357282d03362BCd"),
+            usdc_arbitrum_address: address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831"),
+            usdc_base_address: address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
             api_url: "https://app.across.to/api/suggested-fees".to_string(),
             transaction_timeout: 3600,
         }
@@ -256,14 +228,23 @@ impl Default for Erc20BridgeConfig {
 }
 
 impl Erc20BridgeConfig {
+    /// Get token address by chain name and token symbol (case-insensitive)
+    pub fn get_token_address_by_name(
+        &self,
+        chain_name: &str,
+        token_symbol: &str,
+    ) -> Option<Address> {
+        self.token_addresses
+            .get(chain_name)?
+            .get(&token_symbol.to_uppercase())
+            .copied()
+    }
+
     /// Load ERC20 bridge configuration from environment variables
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         let mut token_addresses = std::collections::HashMap::new();
 
         // Arbitrum tokens
-        let arbitrum_chain_id = env::var("ARBITRUM_CHAIN_ID")
-            .map_err(|_| "ARBITRUM_CHAIN_ID environment variable not set")?
-            .parse::<u32>()?;
         let mut arbitrum_tokens = std::collections::HashMap::new();
         arbitrum_tokens.insert(
             "USDC".to_string(),
@@ -272,12 +253,9 @@ impl Erc20BridgeConfig {
                     .map_err(|_| "USDC_ARBITRUM_ADDRESS environment variable not set")?,
             )?,
         );
-        token_addresses.insert(arbitrum_chain_id, arbitrum_tokens);
+        token_addresses.insert("arbitrum".to_string(), arbitrum_tokens);
 
         // Base tokens
-        let base_chain_id = env::var("BASE_CHAIN_ID")
-            .map_err(|_| "BASE_CHAIN_ID environment variable not set")?
-            .parse::<u32>()?;
         let mut base_tokens = std::collections::HashMap::new();
         base_tokens.insert(
             "USDC".to_string(),
@@ -286,7 +264,7 @@ impl Erc20BridgeConfig {
                     .map_err(|_| "USDC_BASE_ADDRESS environment variable not set")?,
             )?,
         );
-        token_addresses.insert(base_chain_id, base_tokens);
+        token_addresses.insert("base".to_string(), base_tokens);
 
         Ok(Self {
             default_gas_limit: 100_000,
@@ -307,7 +285,7 @@ impl Erc20BridgeConfig {
                 .parse()
                 .unwrap(),
         );
-        token_addresses.insert(42161, arbitrum_tokens);
+        token_addresses.insert("arbitrum".to_string(), arbitrum_tokens);
 
         // Base tokens
         let mut base_tokens = std::collections::HashMap::new();
@@ -317,7 +295,7 @@ impl Erc20BridgeConfig {
                 .parse()
                 .unwrap(),
         );
-        token_addresses.insert(8453, base_tokens);
+        token_addresses.insert("base".to_string(), base_tokens);
 
         Self {
             default_gas_limit: 100_000,
@@ -328,14 +306,51 @@ impl Erc20BridgeConfig {
 }
 
 impl EvmConnectorConfig {
-    /// Get chain configuration by chain ID
-    pub fn get_chain_config(&self, chain_id: u32) -> Option<&ChainConfig> {
-        self.chains.iter().find(|chain| chain.chain_id == chain_id)
+    /// Get chain configuration by chain name (case-insensitive)
+    pub fn get_chain_config(&self, chain_name: &str) -> Option<&ChainConfig> {
+        self.chains
+            .iter()
+            .find(|chain| chain.name.to_lowercase() == chain_name.to_lowercase())
     }
 
-    /// Get USDC address for a specific chain
-    pub fn get_usdc_address(&self, chain_id: u32) -> Option<Address> {
-        self.bridge.across.usdc_addresses.get(&chain_id).copied()
+    /// Get chain ID by chain name (case-insensitive)
+    pub fn get_chain_id(&self, chain_name: &str) -> Option<u32> {
+        self.get_chain_config(chain_name)
+            .map(|config| config.chain_id)
+    }
+
+    /// Get RPC URL by chain name (case-insensitive)
+    pub fn get_rpc_url(&self, chain_name: &str) -> Option<String> {
+        self.get_chain_config(chain_name)
+            .map(|config| config.rpc_url.clone())
+    }
+
+    /// Get USDC address for a specific chain by chain name (case-insensitive)
+    pub fn get_usdc_address(&self, chain_name: &str) -> Option<Address> {
+        self.get_chain_config(chain_name).map(|config| {
+            if config.name.to_lowercase() == "arbitrum" {
+                self.bridge.across.usdc_arbitrum_address
+            } else {
+                self.bridge.across.usdc_base_address
+            }
+        })
+    }
+
+    /// Get ERC20 token address by chain name and token symbol (case-insensitive)
+    pub fn get_token_address(&self, chain_name: &str, token_symbol: &str) -> Option<Address> {
+        self.bridge
+            .erc20
+            .get_token_address_by_name(chain_name, token_symbol)
+    }
+
+    /// Get all supported chain names
+    pub fn get_supported_chain_names(&self) -> Vec<String> {
+        self.chains.iter().map(|chain| chain.name.clone()).collect()
+    }
+
+    /// Check if a chain name is supported (case-insensitive)
+    pub fn is_chain_supported(&self, chain_name: &str) -> bool {
+        self.get_chain_config(chain_name).is_some()
     }
 
     /// Load .env file from the correct location
@@ -366,29 +381,6 @@ impl EvmConnectorConfig {
         let addr_str = env::var("DEFAULT_SENDER_ADDRESS")
             .expect("DEFAULT_SENDER_ADDRESS environment variable not set");
         Address::from_str(&addr_str).expect("Invalid DEFAULT_SENDER_ADDRESS format")
-    }
-
-    /// Get default recipient address from environment (for testing)
-    pub fn get_default_recipient_address() -> Address {
-        let addr_str = env::var("DEFAULT_RECIPIENT_ADDRESS")
-            .expect("DEFAULT_RECIPIENT_ADDRESS environment variable not set");
-        Address::from_str(&addr_str).expect("Invalid DEFAULT_RECIPIENT_ADDRESS format")
-    }
-
-    /// Get default deposit amount from environment
-    pub fn get_default_deposit_amount() -> u64 {
-        env::var("DEFAULT_DEPOSIT_AMOUNT")
-            .expect("DEFAULT_DEPOSIT_AMOUNT environment variable not set")
-            .parse()
-            .expect("Invalid DEFAULT_DEPOSIT_AMOUNT format")
-    }
-
-    /// Get default minimum amount from environment
-    pub fn get_default_min_amount() -> u64 {
-        env::var("DEFAULT_MIN_AMOUNT")
-            .expect("DEFAULT_MIN_AMOUNT environment variable not set")
-            .parse()
-            .expect("Invalid DEFAULT_MIN_AMOUNT format")
     }
 
     /// Get ETH to USDC conversion rate from environment
@@ -427,7 +419,7 @@ impl EvmConnectorConfig {
     pub fn get_chain_private_key(prefix: &str) -> String {
         // Ensure .env file is loaded
         Self::load_env_file();
-        
+
         let key_var = format!("{}_PRIVATE_KEY", prefix);
 
         // Try chain-specific key first, then fall back to generic

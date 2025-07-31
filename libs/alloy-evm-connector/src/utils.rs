@@ -1,11 +1,82 @@
+use crate::config::EvmConnectorConfig;
+use alloy::primitives::{
+    utils::{format_units, parse_units},
+    U256,
+};
 use alloy::providers::Provider;
-use alloy::primitives::{utils::format_units, U256};
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use serde_json::json;
 use std::str::FromStr;
 use symm_core::core::bits::Amount;
-use crate::config::EvmConnectorConfig;
+
+/// Trait for converting types to EVM-compatible U256 amounts
+pub trait IntoEvmAmount {
+    /// Convert to U256 using specified decimal places
+    fn into_evm_amount(&self, decimals: u8) -> eyre::Result<U256>;
+
+    /// Convert to U256 using USDC decimals (6) as default
+    fn into_evm_amount_usdc(&self) -> eyre::Result<U256> {
+        self.into_evm_amount(6)
+    }
+
+    /// Convert to U256 using ETH decimals (18)
+    fn into_evm_amount_with_decimals(&self, decimals: u8) -> eyre::Result<U256> {
+        self.into_evm_amount(decimals)
+    }
+
+    fn into_evm_amount_default(&self) -> eyre::Result<U256> {
+        self.into_evm_amount(0)
+    }
+}
+
+/// Trait for converting U256 to Amount types
+pub trait IntoAmount {
+    /// Convert to Amount using specified decimal places
+    fn into_amount(&self, decimals: u8) -> eyre::Result<Amount>;
+
+    /// Convert to Amount using USDC decimals (6) as default
+    fn into_amount_usdc(&self) -> eyre::Result<Amount> {
+        self.into_amount(6)
+    }
+}
+
+/// Implementation for Amount -> U256 conversion
+impl IntoEvmAmount for Amount {
+    fn into_evm_amount(&self, decimals: u8) -> eyre::Result<U256> {
+        amount_to_u256_with_decimals(self, decimals)
+    }
+}
+
+// Note: Since Amount is a type alias for Decimal, this impl works for both
+// You can use dec!(10.0).into_evm_amount() or amount_var.into_evm_amount()
+
+impl IntoEvmAmount for u32 {
+    fn into_evm_amount(&self, _decimals: u8) -> eyre::Result<U256> {
+        Ok(U256::from(*self))
+    }
+}
+
+/// Implementation for numeric types -> U256 conversion
+impl IntoEvmAmount for u64 {
+    fn into_evm_amount(&self, _decimals: u8) -> eyre::Result<U256> {
+        // For raw numeric types, decimals parameter is ignored - they represent raw wei values
+        Ok(U256::from(*self))
+    }
+}
+
+impl IntoEvmAmount for u128 {
+    fn into_evm_amount(&self, _decimals: u8) -> eyre::Result<U256> {
+        // For raw numeric types, decimals parameter is ignored - they represent raw wei values
+        Ok(U256::from(*self))
+    }
+}
+
+/// Implementation for U256 -> Amount conversion
+impl IntoAmount for U256 {
+    fn into_amount(&self, decimals: u8) -> eyre::Result<Amount> {
+        u256_to_amount_with_decimals(*self, decimals)
+    }
+}
 
 // Get current block timestamp
 pub async fn get_current_timestamp<P: Provider>(provider: &P) -> eyre::Result<u64> {
@@ -44,79 +115,87 @@ pub async fn set_next_block_timestamp<P: Provider>(
     Ok(())
 }
 
-/// Convert Amount (decimal USDC) to U256 (wei format for 6 decimals)
-/// Example: Amount::from("100.50") -> U256::from(100_500_000u64)
-pub fn amount_to_u256(amount: &Amount) -> eyre::Result<U256> {
-    let decimal_str = amount.to_string();
-    let decimal = Decimal::from_str(&decimal_str)
-        .map_err(|e| eyre::eyre!("Failed to parse amount as decimal: {}", e))?;
-    
-    // Convert to USDC wei (6 decimals)
-    let usdc_wei = decimal * Decimal::from(1_000_000);
-    let usdc_wei_u64 = usdc_wei
-        .to_u64()
-        .ok_or_else(|| eyre::eyre!("Amount too large to convert to U256"))?;
-    
-    Ok(U256::from(usdc_wei_u64))
+/// Convert Amount to U256 with specified decimal places using alloy's parse_units
+/// Example: Amount::from("100.50"), 6 -> U256::from(100_500_000u64) (USDC format)
+/// Example: Amount::from("1.0"), 18 -> U256::from(1_000_000_000_000_000_000u64) (ETH format)
+pub fn amount_to_u256_with_decimals(amount: &Amount, decimals: u8) -> eyre::Result<U256> {
+    let amount_str = amount.to_string();
+
+    let parsed_units = parse_units(&amount_str, decimals).map_err(|e| {
+        eyre::eyre!(
+            "Failed to parse amount '{}' with {} decimals: {}",
+            amount_str,
+            decimals,
+            e
+        )
+    })?;
+
+    // Convert ParseUnits to U256
+    Ok(parsed_units.into())
 }
 
-/// Convert U256 (wei format for 6 decimals) to Amount (decimal USDC)  
-/// Example: U256::from(100_500_000u64) -> Amount::from("100.50")
-pub fn u256_to_amount(wei_amount: U256) -> eyre::Result<Amount> {
-    let formatted = format_units(wei_amount, 6)
-        .map_err(|e| eyre::eyre!("Failed to format U256 to units: {}", e))?;
-    
+/// Convert Amount to U256 (defaults to 6 decimals for USDC compatibility)
+/// Example: Amount::from("100.50") -> U256::from(100_500_000u64)
+pub fn amount_to_u256(amount: &Amount) -> eyre::Result<U256> {
+    amount_to_u256_with_decimals(amount, 6)
+}
+
+/// Convert U256 to Amount with specified decimal places
+/// Example: U256::from(100_500_000u64), 6 -> Amount::from("100.50") (USDC format)  
+/// Example: U256::from(1_000_000_000_000_000_000u64), 18 -> Amount::from("1.0") (ETH format)
+pub fn u256_to_amount_with_decimals(wei_amount: U256, decimals: u8) -> eyre::Result<Amount> {
+    let formatted = format_units(wei_amount, decimals).map_err(|e| {
+        eyre::eyre!(
+            "Failed to format U256 to units with {} decimals: {}",
+            decimals,
+            e
+        )
+    })?;
+
     Amount::try_from(formatted.as_str())
         .map_err(|e| eyre::eyre!("Failed to convert formatted string to Amount: {}", e))
 }
 
-/// Convert Decimal to U256 (wei format for 6 decimals)
-/// Example: Decimal::from_str("100.50") -> U256::from(100_500_000u64)  
-pub fn decimal_to_u256(decimal: Decimal) -> eyre::Result<U256> {
-    let usdc_wei = decimal * Decimal::from(1_000_000);
-    let usdc_wei_u64 = usdc_wei
-        .to_u64()
-        .ok_or_else(|| eyre::eyre!("Decimal too large to convert to U256"))?;
-    
-    Ok(U256::from(usdc_wei_u64))
+/// Convert U256 to Amount (defaults to 6 decimals for USDC compatibility)
+/// Example: U256::from(100_500_000u64) -> Amount::from("100.50")
+pub fn u256_to_amount(wei_amount: U256) -> eyre::Result<Amount> {
+    u256_to_amount_with_decimals(wei_amount, 6)
 }
 
-/// Convert U256 (wei format for 6 decimals) to Decimal
-/// Example: U256::from(100_500_000u64) -> Decimal::from_str("100.50")
-pub fn u256_to_decimal(wei_amount: U256) -> eyre::Result<Decimal> {
-    let formatted = format_units(wei_amount, 6)
-        .map_err(|e| eyre::eyre!("Failed to format U256 to units: {}", e))?;
-    
-    Decimal::from_str(&formatted)
-        .map_err(|e| eyre::eyre!("Failed to parse formatted string as decimal: {}", e))
-}
+// Note: These internal functions still use the underlying Decimal type
+// since Amount is just a type alias for Decimal. The public API uses Amount.
 
 /// Get gas price in USDC as Amount (simplified calculation)
 /// Uses a fixed ETH to USDC rate of $3000/ETH for simplicity
 pub async fn get_gas_price_usdc<P: Provider>(provider: &P) -> eyre::Result<Amount> {
-    let gas_price_wei = provider.get_gas_price().await
+    let gas_price_wei = provider
+        .get_gas_price()
+        .await
         .map_err(|e| eyre::eyre!("Failed to get gas price: {}", e))?;
-    
+
     // Convert gas price from wei to ETH
     let gas_price_eth_str = format_units(gas_price_wei, "ether")
         .map_err(|e| eyre::eyre!("Failed to format gas price: {}", e))?;
-    
+
     let gas_price_eth = Decimal::from_str(&gas_price_eth_str)
         .map_err(|e| eyre::eyre!("Failed to parse ETH gas price: {}", e))?;
-    
+
     // Convert ETH to USDC using configured rate
     let eth_to_usdc_rate = Decimal::from(EvmConnectorConfig::get_eth_to_usdc_rate());
     let gas_price_usdc = gas_price_eth * eth_to_usdc_rate;
-    
+
     Amount::try_from(gas_price_usdc.to_string().as_str())
         .map_err(|e| eyre::eyre!("Failed to convert gas price to Amount: {}", e))
 }
 
 /// Calculate total gas fee in USDC given gas used
-pub async fn calculate_gas_fee_usdc<P: Provider>(provider: &P, gas_used: U256) -> eyre::Result<Amount> {
+pub async fn calculate_gas_fee_usdc<P: Provider>(
+    provider: &P,
+    gas_used: U256,
+) -> eyre::Result<Amount> {
     let gas_price_usdc = get_gas_price_usdc(provider).await?;
-    let gas_price_u256 = amount_to_u256(&gas_price_usdc)?;
-    
+    let gas_price_u256 = gas_price_usdc.into_evm_amount(6)?;
+
     let total_fee_wei = gas_price_u256 * gas_used;
-    u256_to_amount(total_fee_wei)
+    total_fee_wei.into_amount(6)
 }

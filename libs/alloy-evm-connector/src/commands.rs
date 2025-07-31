@@ -49,14 +49,14 @@ pub enum ChainCommand {
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     },
-    /// Execute complete Across deposit flow (all 12 steps)
+    /// Execute complete Across deposit flow
     ExecuteCompleteAcrossDeposit {
         chain_id: u32,
         from: Address,
         to: Address,
         deposit_amount: Amount,
-        origin_chain_id: u64,
-        destination_chain_id: u64,
+        origin_chain_id: u32,
+        destination_chain_id: u32,
         party: Party,
         /// Original cumulative fee from transfer_funds
         cumulative_fee: Amount,

@@ -118,8 +118,7 @@ impl EvmConnector {
         rpc_url: String,
         private_key: String,
     ) -> Result<()> {
-        let credentials =
-            EvmCredentials::new(chain_id as u64, rpc_url, move || private_key.clone());
+        let credentials = EvmCredentials::new(chain_id, rpc_url, move || private_key.clone());
         self.connect_chain_with_credentials(credentials).await
     }
 
