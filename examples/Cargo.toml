@@ -65,8 +65,8 @@ name = "evm-connector"
 path = "evm_connector/main.rs"
 
 [[example]]
-name = "test-generic-bridge"
-path = "evm_connector/test_generic_bridge.rs"
+name = "generic-bridge"
+path = "evm_connector/generic_bridge.rs"
 
 [[example]]
 name = "erc20-bridge"

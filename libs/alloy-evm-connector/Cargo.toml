@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[[example]]
-name = "across_deposit_example"
-path = "examples/across_deposit_example.rs"
-
 [lints.clippy]
 too_many_arguments = "allow"
 
