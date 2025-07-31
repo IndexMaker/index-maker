@@ -17,12 +17,14 @@ pub struct RealMarketData {
     subscription_rx: Option<UnboundedReceiver<Subscription>>,
     arbiter: Arbiter,
     max_subscriber_symbols: usize,
+    subscription_check_period: std::time::Duration,
     subscriber_task_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
 }
 
 impl RealMarketData {
     pub fn new(
         max_subscriber_symbols: usize,
+        subscription_check_period: std::time::Duration,
         subscriber_task_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
     ) -> Self {
         let (subscription_sender, subscription_rx) = unbounded_channel();
@@ -32,6 +34,7 @@ impl RealMarketData {
             subscription_rx: Some(subscription_rx),
             arbiter: Arbiter::new(),
             max_subscriber_symbols,
+            subscription_check_period,
             subscriber_task_factory,
         }
     }
@@ -47,6 +50,7 @@ impl RealMarketData {
             subscription_rx,
             self.observer.clone(),
             self.max_subscriber_symbols,
+            self.subscription_check_period,
             self.subscriber_task_factory.clone(),
         );
 

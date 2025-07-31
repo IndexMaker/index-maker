@@ -284,7 +284,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("Using simulated order sender");
         OrderSenderCredentials::Simple
     } else {
-        tracing::info!("Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading");
+        tracing::info!(
+            "Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading"
+        );
         OrderSenderCredentials::Binance(vec![Credentials::new(
             String::from("BinanceAccount-1"),
             trading_enabled,

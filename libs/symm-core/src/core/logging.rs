@@ -3,9 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tracing_appender::rolling::{self, Builder};
-use tracing_subscriber::{
-    fmt::Layer, layer::SubscriberExt, util::SubscriberInitExt
-};
+use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::tracing::{otlp_log::create_otlp_log_layer, otlp_tracing::create_otlp_trace_layer};
 
@@ -65,8 +63,8 @@ pub fn log_init(
         };
 
         let otlp_trace_layer = if let Some(url) = otlp_trace_url {
-            let tracer =
-                create_otlp_trace_layer(url, batch_size).expect("Failed to create Open-Telemetry trace layer");
+            let tracer = create_otlp_trace_layer(url, batch_size)
+                .expect("Failed to create Open-Telemetry trace layer");
             let telemetry_trace_layer = tracing_opentelemetry::layer().with_tracer(tracer);
             Some(telemetry_trace_layer)
         } else {
@@ -74,8 +72,8 @@ pub fn log_init(
         };
 
         let otlp_log_layer = if let Some(url) = otlp_log_url {
-            let logger_provider =
-                create_otlp_log_layer(url, batch_size).expect("Failed to create Open-Telemetry log layer");
+            let logger_provider = create_otlp_log_layer(url, batch_size)
+                .expect("Failed to create Open-Telemetry log layer");
             let telemetry_log_layer =
                 opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
                     &logger_provider,

@@ -306,9 +306,7 @@ impl SolverClientOrders {
                 } else {
                     // This is rather unexpected, as we would remove queue from map
                     // when it becomes empty.
-                    tracing::warn!(
-                        "Cancel order found empty index order queue for the user"
-                    );
+                    tracing::warn!("Cancel order found empty index order queue for the user");
                     entry.remove();
                 }
                 notify

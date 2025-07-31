@@ -20,6 +20,8 @@ pub trait SubscriberTask {
     ) -> Result<()>;
 
     async fn stop(&mut self) -> Result<()>;
+
+    fn has_stopped(&self) -> bool;
 }
 
 pub trait SubscriberTaskFactory {
@@ -53,12 +55,20 @@ impl Subscriber {
         self.subscriptions.read().get_subscription_count()
     }
 
+    pub fn get_subscriptions(&self) -> Arc<AtomicLock<Subscriptions>> {
+        self.subscriptions.clone()
+    }
+
     pub fn subscribe(&self, subscription: &[Subscription]) -> Result<()> {
         self.subscriptions.write().subscribe(subscription)
     }
 
     pub async fn stop(&mut self) -> Result<()> {
         self.subscriber_task.stop().await
+    }
+
+    pub fn has_stopped(&self) -> bool {
+        self.subscriber_task.has_stopped()
     }
 
     pub fn start(

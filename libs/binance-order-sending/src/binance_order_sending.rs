@@ -5,7 +5,10 @@ use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
         bits::{SingleOrder, Symbol},
-        functional::{IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce, SingleObserver},
+        functional::{
+            IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
+            SingleObserver,
+        },
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };

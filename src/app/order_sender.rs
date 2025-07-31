@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::config::ConfigBuildError;
 use binance_order_sending::{
     binance_order_sending::BinanceOrderSending,
-    credentials::{self, Credentials},
+    credentials::Credentials,
 };
 use chrono::Utc;
 use derive_builder::Builder;
@@ -13,19 +13,16 @@ use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     core::{
-        self,
-        bits::{self, Amount, SingleOrder, Symbol},
+        bits::{Amount, SingleOrder, Symbol},
         functional::{
-            self, IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle,
+            IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle,
             SingleObserver,
         },
     },
     order_sender::{
-        self,
         inventory_manager::InventoryManager,
-        order_connector::{self, OrderConnector, OrderConnectorNotification, SessionId},
+        order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
         order_tracker::OrderTracker,
-        position::LotId,
     },
 };
 

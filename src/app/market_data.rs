@@ -31,6 +31,9 @@ pub struct MarketDataConfig {
     pub max_subscriber_symbols: Option<usize>,
 
     #[builder(setter(into, strip_option), default)]
+    pub subscription_check_period: Option<std::time::Duration>,
+
+    #[builder(setter(into, strip_option), default)]
     pub subscription_limit_rate: Option<usize>,
 
     #[builder(setter(into, strip_option), default)]
@@ -145,6 +148,9 @@ impl MarketDataConfigBuilder {
             .market_data
             .replace(Arc::new(RwLock::new(RealMarketData::new(
                 config.max_subscriber_symbols.unwrap_or(10),
+                config
+                    .subscription_check_period
+                    .unwrap_or(std::time::Duration::from_secs(20)),
                 subscriber_task_factory,
             ))));
 

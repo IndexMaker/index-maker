@@ -39,8 +39,7 @@ use symm_core::{
     core::{
         bits::Amount,
         functional::{
-            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
-            IntoObservableSingleArc, IntoObservableSingleFun,
+            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle, IntoObservableSingleFun,
         },
         telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
     },
@@ -338,9 +337,7 @@ impl SolverConfig {
                 .set_observer_from(router_event_tx.clone());
         }
 
-        order_sender
-            .write()
-            .set_observer_from(order_event_tx);
+        order_sender.write().set_observer_from(order_event_tx);
 
         order_tracker
             .write()

@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use crate::{
-    core::{bits::{Amount, OrderId, Side, SingleOrder, Symbol}, functional::IntoObservableSingleVTable},
+    core::{
+        bits::{Amount, OrderId, Side, SingleOrder, Symbol},
+        functional::IntoObservableSingleVTable,
+    },
     order_sender::position::LotId,
     string_id,
 };
@@ -77,7 +80,9 @@ pub enum OrderConnectorNotification {
     },
 }
 
-pub trait OrderConnector: IntoObservableSingleVTable<OrderConnectorNotification> + Send + Sync {
+pub trait OrderConnector:
+    IntoObservableSingleVTable<OrderConnectorNotification> + Send + Sync
+{
     // Send order to exchange (-> Binance)
     fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()>;
 }
@@ -91,7 +96,12 @@ pub mod test_util {
 
     use crate::{
         core::{
-            self, bits::{Amount, OrderId, Side, SingleOrder, Symbol}, functional::{self, IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver}
+            self,
+            bits::{Amount, OrderId, Side, SingleOrder, Symbol},
+            functional::{
+                self, IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
+                PublishSingle, SingleObserver,
+            },
         },
         order_sender::{order_connector::SessionId, position::LotId},
     };
@@ -223,7 +233,10 @@ pub mod test_util {
     }
 
     impl IntoObservableSingleVTable<OrderConnectorNotification> for MockOrderConnector {
-        fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<OrderConnectorNotification>>) {
+        fn set_observer(
+            &mut self,
+            observer: Box<dyn NotificationHandlerOnce<OrderConnectorNotification>>,
+        ) {
             self.observer.set_observer(observer);
         }
     }

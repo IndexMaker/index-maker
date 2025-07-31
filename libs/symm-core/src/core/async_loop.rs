@@ -29,6 +29,10 @@ impl<T> AsyncTask<T> {
         self.cancel_token.cancel();
         self.join_handle.await
     }
+
+    pub fn has_stopped(&self) -> bool {
+        self.join_handle.is_finished()
+    }
 }
 
 pub struct AsyncLoop<T> {
@@ -47,7 +51,16 @@ where
     where
         Fut: Future<Output = T> + Send + 'static,
     {
-        let cancel_token = CancellationToken::new();
+        self.start_with_cancel_token(CancellationToken::new(), f);
+    }
+
+    pub fn start_with_cancel_token<Fut>(
+        &mut self,
+        cancel_token: CancellationToken,
+        f: impl FnOnce(CancellationToken) -> Fut,
+    ) where
+        Fut: Future<Output = T> + Send + 'static,
+    {
         let cancel_token_cloned = cancel_token.clone();
 
         self.async_task
@@ -56,6 +69,10 @@ where
 
     pub fn signal_stop(&self) {
         self.async_task.as_ref().inspect(|t| t.signal_stop());
+    }
+
+    pub fn has_stopped(&self) -> bool {
+        self.async_task.as_ref().map_or(false, |x| x.has_stopped())
     }
 
     pub async fn stop(&mut self) -> Result<T, Either<JoinError, Report>> {

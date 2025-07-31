@@ -24,6 +24,7 @@ use tokio::{
     select,
     sync::mpsc::{unbounded_channel, UnboundedReceiver},
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::book::Books;
 
@@ -38,7 +39,6 @@ pub struct BinanceSubscriberTask {
     config: BinanceSubscriberTaskConfig,
     subscriber_loop: AsyncLoop<()>,
     snapshot_loop: AsyncLoop<()>,
-    watchdog_loop: AsyncLoop<()>,
 }
 
 impl BinanceSubscriberTask {
@@ -47,7 +47,6 @@ impl BinanceSubscriberTask {
             config,
             subscriber_loop: AsyncLoop::new(),
             snapshot_loop: AsyncLoop::new(),
-            watchdog_loop: AsyncLoop::new(),
         }
     }
 }
@@ -55,11 +54,7 @@ impl BinanceSubscriberTask {
 #[async_trait]
 impl SubscriberTask for BinanceSubscriberTask {
     async fn stop(&mut self) -> Result<()> {
-        let stop_futures = [
-            self.subscriber_loop.stop(),
-            self.snapshot_loop.stop(),
-            self.watchdog_loop.stop(),
-        ];
+        let stop_futures = [self.subscriber_loop.stop(), self.snapshot_loop.stop()];
 
         let (_, failures): (Vec<_>, Vec<_>) =
             join_all(stop_futures).await.into_iter().partition_result();
@@ -74,6 +69,10 @@ impl SubscriberTask for BinanceSubscriberTask {
         Ok(())
     }
 
+    fn has_stopped(&self) -> bool {
+        self.subscriber_loop.has_stopped()
+    }
+
     fn start(
         &mut self,
         mut subscription_rx: UnboundedReceiver<Subscription>,
@@ -81,32 +80,15 @@ impl SubscriberTask for BinanceSubscriberTask {
     ) -> Result<()> {
         let (snapshot_tx, mut snapshot_rx) = unbounded_channel::<Symbol>();
 
+        let cancel_token = CancellationToken::new();
+
         let books = Arc::new(AtomicLock::new(Books::new_with_observer(observer)));
         let books_clone = books.clone();
-        let books_clone_2 = books.clone();
 
         let config = self.config.clone();
         let config_clone = config.clone();
 
-        self.watchdog_loop.start(async move |cancel_token| {
-            tracing::info!("Watchdog loop started");
-            let mut check_period = tokio::time::interval(config.stale_check_period);
-            loop {
-                select! {
-                    _ = cancel_token.cancelled() => {
-                        break;
-                    },
-                    _ = check_period.tick() => {
-                        let expiry_time = Utc::now() - config.stale_timeout;
-                        if let Err(err) = books_clone_2.write().check_stale(expiry_time) {
-                            tracing::warn!("Failed to check stale books: {:?}", err);
-                        }
-                    }
-                }
-            }
-        });
-
-        self.subscriber_loop.start(async move |cancel_token| {
+        self.subscriber_loop.start_with_cancel_token(cancel_token.clone(), async move |cancel_token| {
             let ws_streams_conf = match ConfigurationWebsocketStreams::builder().build() {
                 Ok(x) => x,
                 Err(err) => {
@@ -138,12 +120,32 @@ impl SubscriberTask for BinanceSubscriberTask {
                 sleep(std::time::Duration::from_millis(millis)).await;
             };
 
+            let mut check_period = tokio::time::interval(config.stale_check_period);
+
             tracing::info!("Market-Data loop started");
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
+                    _ = check_period.tick() => {
+                        let expiry_time = Utc::now() - config.stale_timeout;
+                        match books.write().check_stale(expiry_time) {
+                            Err(err) => {
+                                tracing::warn!("Failed to check stale books: {:?}", err);
+                            },
+                            Ok((num_stale, num_subscriptions)) => {
+                                if num_stale == num_subscriptions {
+                                    tracing::warn!("Will reset subscriber: All subscriptions are stale");
+
+                                    // This will terminate also snapshot tasks,
+                                    // because we share that token with them.
+                                    cancel_token.cancel();
+                                    break;
+                                }
+                            }
+                        };
+                    }
                     Some(Subscription { ticker: symbol, listing: _ }) = subscription_rx.recv() => {
                         if let Err(err) = books.write().add_book(&symbol, snapshot_tx.clone(), false) {
                             tracing::warn!("Error adding book {:?}", err);
@@ -212,7 +214,7 @@ impl SubscriberTask for BinanceSubscriberTask {
             tracing::info!("Market-Data loop exited");
         });
 
-        self.snapshot_loop.start(async move |cancel_token| {
+        self.snapshot_loop.start_with_cancel_token(cancel_token.clone(), async move |cancel_token| {
             tracing::info!("Snapshot loop started");
             let rest_conf = match ConfigurationRestApi::builder().build() {
                 Ok(x) => x,
