@@ -373,6 +373,7 @@ impl SolverConfig {
         spawn(move || {
             tracing::info!("Backend started");
             loop {
+                tracing::debug!("Backend tick!");
                 select! {
                     recv(stop_backend_rx) -> _ => {
                         if let Err(err) = backend_stopped_tx.send(()) {
@@ -450,7 +451,7 @@ impl SolverConfig {
                                 tracing::trace!("Server order event");
                                 match index_order_manager.write() {
                                     Ok(mut manager) => if let Err(err) = manager.handle_server_message(&notification) {
-                                            tracing::warn!("Failed to handle index order event: {:?}", err);
+                                        tracing::warn!("Failed to handle index order event: {:?}", err);
                                     }
                                     Err(err) => {
                                         tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);

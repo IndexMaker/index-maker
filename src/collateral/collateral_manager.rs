@@ -19,7 +19,7 @@ use symm_core::core::{
 };
 use tracing::{span, Level};
 
-use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
+use crate::{server::fix::requests, solver::solver::{CollateralManagement, SetSolverOrderStatus}};
 
 use index_core::collateral::collateral_router::{CollateralRouter, CollateralTransferEvent};
 
@@ -122,7 +122,7 @@ impl CollateralManager {
                             client_order_id = %request.client_order_id,
                             collateral_amount = %request.collateral_amount,
                             %unconfirmed_balance,
-                            "Awaiting deposit",
+                            "Awaiting more deposit",
                         );
                         Either::Right(request)
                     } else {
@@ -137,6 +137,13 @@ impl CollateralManager {
                         Either::Left(request)
                     }
                 } else {
+                    tracing::debug!(
+                        chain_id = %request.chain_id,
+                        address = %request.address,
+                        client_order_id = %request.client_order_id,
+                        collateral_amount = %request.collateral_amount,
+                        "Awaiting deposit",
+                    );
                     Either::Right(request)
                 }
             });
