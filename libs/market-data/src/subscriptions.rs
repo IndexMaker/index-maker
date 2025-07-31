@@ -1,6 +1,6 @@
 use std::{collections::HashSet, usize};
 
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Result};
 use itertools::Itertools;
 use symm_core::market_data::market_data_connector::Subscription;
 use tokio::sync::mpsc::UnboundedSender;
@@ -8,7 +8,6 @@ use tokio::sync::mpsc::UnboundedSender;
 pub struct Subscriptions {
     subscription_sender: UnboundedSender<Subscription>,
     subscriptions: HashSet<Subscription>,
-    subscriptions_taken: HashSet<Subscription>,
 }
 
 impl Subscriptions {
@@ -16,7 +15,6 @@ impl Subscriptions {
         Self {
             subscription_sender,
             subscriptions: HashSet::new(),
-            subscriptions_taken: HashSet::new(),
         }
     }
 
@@ -26,22 +24,6 @@ impl Subscriptions {
 
     pub fn get_subscription_count(&self) -> usize {
         self.subscriptions.len()
-    }
-
-    pub fn get_subscriptions_taken(&self) -> usize {
-        self.subscriptions_taken.len()
-    }
-
-    pub fn add_subscription_taken(&mut self, subscription: Subscription) -> Result<()> {
-        self.subscriptions
-            .contains(&subscription)
-            .then_some(())
-            .ok_or_eyre("Subscription not found")?;
-        self.subscriptions_taken
-            .insert(subscription)
-            .then_some(())
-            .ok_or_eyre("Subscription already taken")?;
-        Ok(())
     }
 
     pub fn subscribe(&mut self, subscriptions: &[Subscription]) -> Result<()> {

@@ -201,9 +201,7 @@ impl SolverClientQuotes {
                         queue.retain(|x| !x.eq(&client_quote_id));
                     }
                 } else {
-                    tracing::warn!(
-                        "Cancel order found empty index order queue for the user"
-                    );
+                    tracing::warn!("Cancel order found empty index order queue for the user");
                     entry.remove();
                 }
                 notify

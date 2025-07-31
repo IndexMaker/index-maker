@@ -1,6 +1,8 @@
 use std::{sync::Arc, thread::spawn, time::Duration};
 
-use binance_market_data::binance_subscriber::{BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig};
+use binance_market_data::binance_subscriber::{
+    BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig,
+};
 use crossbeam::{
     channel::{bounded, unbounded},
     select,
@@ -34,6 +36,7 @@ async fn main() {
     };
     let mut market_data = RealMarketData::new(
         2,
+        std::time::Duration::from_secs(20),
         Arc::new(BinanceOnlySubscriberTasks::new(binance_subscriber_config)),
     );
 

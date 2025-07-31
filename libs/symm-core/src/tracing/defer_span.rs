@@ -9,7 +9,7 @@ use crate::core::async_loop::AsyncLoop;
 
 enum DeferSpanEvent {
     SpanEnded(SpanData),
-    ForceFlush
+    ForceFlush,
 }
 
 pub struct DeferSpanProcessor {
