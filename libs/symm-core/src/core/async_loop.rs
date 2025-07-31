@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use eyre::{eyre, Report, Result};
+use eyre::{eyre, OptionExt, Report, Result};
 use itertools::Either;
 use tokio::{
     spawn,
@@ -21,9 +21,17 @@ impl<T> AsyncTask<T> {
         }
     }
 
+    pub fn signal_stop(&self) {
+        self.cancel_token.cancel();
+    }
+
     pub async fn stop(self) -> Result<T, JoinError> {
         self.cancel_token.cancel();
         self.join_handle.await
+    }
+
+    pub fn has_stopped(&self) -> bool {
+        self.join_handle.is_finished()
     }
 }
 
@@ -43,11 +51,28 @@ where
     where
         Fut: Future<Output = T> + Send + 'static,
     {
-        let cancel_token = CancellationToken::new();
+        self.start_with_cancel_token(CancellationToken::new(), f);
+    }
+
+    pub fn start_with_cancel_token<Fut>(
+        &mut self,
+        cancel_token: CancellationToken,
+        f: impl FnOnce(CancellationToken) -> Fut,
+    ) where
+        Fut: Future<Output = T> + Send + 'static,
+    {
         let cancel_token_cloned = cancel_token.clone();
 
         self.async_task
             .replace(AsyncTask::new(spawn(f(cancel_token_cloned)), cancel_token));
+    }
+
+    pub fn signal_stop(&self) {
+        self.async_task.as_ref().inspect(|t| t.signal_stop());
+    }
+
+    pub fn has_stopped(&self) -> bool {
+        self.async_task.as_ref().map_or(false, |x| x.has_stopped())
     }
 
     pub async fn stop(&mut self) -> Result<T, Either<JoinError, Report>> {

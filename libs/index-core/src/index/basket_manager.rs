@@ -32,9 +32,20 @@ impl BasketManager {
         self.baskets.get(symbol)
     }
 
+    pub fn notify_baskets(&self) -> Result<()> {
+        if self.observer.has_observer() {
+            for (symbol, basket) in &self.baskets {
+                let event = BasketNotification::BasketUpdated(symbol.clone(), basket.clone());
+                self.observer.publish_single(event);
+            }
+            Ok(())
+        } else {
+            Err(eyre!("No observer set"))
+        }
+    }
+
     pub fn set_basket(&mut self, symbol: &Symbol, basket: &Arc<Basket>) {
         let mut event: Option<BasketNotification> = None;
-
         self.baskets
             .entry(symbol.clone())
             .and_modify(|value| {
@@ -120,9 +131,9 @@ mod tests {
         let symbol_index: Symbol = "IDX1".into();
 
         // Define some assets - they will stay
-        let asset_btc = Arc::new(Asset::new("BTC".into()));
-        let asset_eth = Arc::new(Asset::new("ETH".into()));
-        let asset_sol = Arc::new(Asset::new("SOL".into()));
+        let asset_btc = Arc::new(Asset::new("BTC".into(), "BINANCE".into()));
+        let asset_eth = Arc::new(Asset::new("ETH".into(), "BINANCE".into()));
+        let asset_sol = Arc::new(Asset::new("SOL".into(), "BINANCE".into()));
 
         // Define basket - it will be consumed when we create Basket
         let basket_definition = BasketDefinition::try_new([
@@ -134,8 +145,8 @@ mod tests {
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices: HashMap<Symbol, Amount> = [
-            (asset_btc.name.clone(), "50000.0".try_into()?),
-            (asset_eth.name.clone(), "6000.0".try_into()?),
+            (asset_btc.ticker.clone(), "50000.0".try_into()?),
+            (asset_eth.ticker.clone(), "6000.0".try_into()?),
         ]
         .into();
 
@@ -182,7 +193,7 @@ mod tests {
             let quantites: HashMap<Symbol, Amount> = basket
                 .basket_assets
                 .iter()
-                .map(|ba| (ba.weight.asset.name.clone(), ba.quantity))
+                .map(|ba| (ba.weight.asset.ticker.clone(), ba.quantity))
                 .collect();
 
             assert_hashmap_amounts_eq!(quantites, expected, assert_tolerance);
@@ -190,9 +201,9 @@ mod tests {
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices_updated: HashMap<Symbol, Amount> = [
-            (asset_btc.name.clone(), "55000.0".try_into()?),
-            (asset_eth.name.clone(), "6250.0".try_into()?),
-            (asset_sol.name.clone(), "250.0".try_into()?),
+            (asset_btc.ticker.clone(), "55000.0".try_into()?),
+            (asset_eth.ticker.clone(), "6250.0".try_into()?),
+            (asset_sol.ticker.clone(), "250.0".try_into()?),
         ]
         .into();
 
@@ -241,7 +252,7 @@ mod tests {
             let quantites: HashMap<Symbol, Amount> = basket
                 .basket_assets
                 .iter()
-                .map(|ba| (ba.weight.asset.name.clone(), ba.quantity))
+                .map(|ba| (ba.weight.asset.ticker.clone(), ba.quantity))
                 .collect();
 
             assert_hashmap_amounts_eq!(quantites, expected, assert_tolerance);

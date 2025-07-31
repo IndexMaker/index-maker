@@ -1,16 +1,20 @@
 use std::sync::Arc;
 
 use super::config::ConfigBuildError;
-use binance_market_data::binance_market_data::BinanceMarketData;
+use binance_market_data::binance_subscriber::{
+    BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig,
+};
 use derive_builder::Builder;
 use eyre::{eyre, OptionExt, Result};
+use market_data::market_data::RealMarketData;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::bits::{Amount, Symbol},
+    core::bits::Amount,
     market_data::{
-        market_data_connector::MarketDataConnector,
-        order_book::order_book_manager::PricePointBookManager, price_tracker::PriceTracker,
+        market_data_connector::{MarketDataConnector, Subscription},
+        order_book::order_book_manager::PricePointBookManager,
+        price_tracker::PriceTracker,
     },
 };
 
@@ -26,8 +30,20 @@ pub struct MarketDataConfig {
     #[builder(setter(into, strip_option), default)]
     pub max_subscriber_symbols: Option<usize>,
 
+    #[builder(setter(into, strip_option), default)]
+    pub subscription_check_period: Option<std::time::Duration>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub subscription_limit_rate: Option<usize>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub stale_check_period: Option<std::time::Duration>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub stale_timeout: Option<chrono::Duration>,
+
     #[builder(setter(into), default)]
-    pub symbols: Vec<Symbol>,
+    pub subscriptions: Vec<Subscription>,
 
     #[builder(setter(into, strip_option), default)]
     pub with_price_tracker: Option<bool>,
@@ -36,7 +52,7 @@ pub struct MarketDataConfig {
     pub with_book_manager: Option<bool>,
 
     #[builder(setter(skip))]
-    market_data: Option<Arc<RwLock<BinanceMarketData>>>,
+    market_data: Option<Arc<RwLock<RealMarketData>>>,
 
     #[builder(setter(skip))]
     price_tracker: Option<Arc<RwLock<PriceTracker>>>,
@@ -51,14 +67,14 @@ impl MarketDataConfig {
         MarketDataConfigBuilder::default()
     }
 
-    pub fn expect_market_data_cloned(&self) -> Arc<RwLock<BinanceMarketData>> {
+    pub fn expect_market_data_cloned(&self) -> Arc<RwLock<RealMarketData>> {
         self.market_data
             .clone()
             .ok_or(())
             .expect("Failed to get market data")
     }
 
-    pub fn try_get_market_data_cloned(&self) -> Result<Arc<RwLock<BinanceMarketData>>> {
+    pub fn try_get_market_data_cloned(&self) -> Result<Arc<RwLock<RealMarketData>>> {
         self.market_data
             .clone()
             .ok_or_eyre("Failed to get market data")
@@ -99,7 +115,7 @@ impl MarketDataConfig {
 
             market_data
                 .write()
-                .subscribe(&self.symbols)
+                .subscribe(&self.subscriptions)
                 .map_err(|err| eyre!("Failed to subscribe for market data: {:?}", err))?;
 
             Ok(())
@@ -113,10 +129,29 @@ impl MarketDataConfigBuilder {
     pub fn build(self) -> Result<MarketDataConfig, ConfigBuildError> {
         let mut config = self.try_build()?;
 
+        let binance_subscriber_config = BinanceSubscriberTaskConfig {
+            subscription_limit_rate: config.subscription_limit_rate.unwrap_or(3),
+
+            stale_check_period: config
+                .stale_check_period
+                .unwrap_or(std::time::Duration::from_secs(10)),
+
+            stale_timeout: config
+                .stale_timeout
+                .unwrap_or(chrono::Duration::seconds(60)),
+        };
+
+        let subscriber_task_factory =
+            Arc::new(BinanceOnlySubscriberTasks::new(binance_subscriber_config));
+
         config
             .market_data
-            .replace(Arc::new(RwLock::new(BinanceMarketData::new(
-                config.max_subscriber_symbols.unwrap_or(100),
+            .replace(Arc::new(RwLock::new(RealMarketData::new(
+                config.max_subscriber_symbols.unwrap_or(10),
+                config
+                    .subscription_check_period
+                    .unwrap_or(std::time::Duration::from_secs(20)),
+                subscriber_task_factory,
             ))));
 
         if config.with_price_tracker.unwrap_or(true) {

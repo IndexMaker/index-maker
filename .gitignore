@@ -6,3 +6,4 @@ contracts/
 CLAUDE.md
 .claude
 /logs
+.deploy

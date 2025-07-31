@@ -317,15 +317,27 @@ impl MintInvoice {
     ) -> Result<Self> {
         let lots_clone = lots.clone();
 
-        print_mint_invoice(index_order_read, update_read, payment_id, amount_paid, lots, timestamp)?;
-        
-        let total_amount: Amount = lots_clone.iter().map(|x| x.quantity * x.price + x.fee).sum();
-        Ok(Self{
+        print_mint_invoice(
+            index_order_read,
+            update_read,
+            payment_id,
+            amount_paid,
+            lots,
+            timestamp,
+        )?;
+
+        let total_amount: Amount = lots_clone
+            .iter()
+            .map(|x| x.quantity * x.price + x.fee)
+            .sum();
+        Ok(Self {
             timestamp,
             order_id: update_read.client_order_id.clone(),
             index_id: index_order_read.symbol.clone(),
             collateral_spent: index_order_read.collateral_spent,
-            total_collateral: total_amount + update_read.update_fee + index_order_read.engaged_collateral.unwrap_or_default(),
+            total_collateral: total_amount
+                + update_read.update_fee
+                + index_order_read.engaged_collateral.unwrap_or_default(),
             engaged_collateral: index_order_read.engaged_collateral.unwrap_or_default(),
             management_fee: update_read.update_fee,
             payment_id: payment_id.clone(),

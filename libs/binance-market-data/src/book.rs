@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    num,
     sync::Arc,
 };
 
@@ -7,6 +8,7 @@ use binance_sdk::spot::{
     rest_api::DepthResponse,
     websocket_streams::{BookTickerResponse, DiffBookDepthResponse},
 };
+use chrono::{DateTime, Duration, Utc};
 use eyre::{eyre, OptionExt, Report, Result};
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
@@ -137,6 +139,11 @@ impl TryFrom<BookTickerResponse> for BookTickerUpdate {
     }
 }
 
+struct SnapshotRequest {
+    symbol: Symbol,
+    timestamp: DateTime<Utc>,
+}
+
 struct Book {
     observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     symbol: Symbol,
@@ -144,6 +151,7 @@ struct Book {
     pending_updates: VecDeque<DiffDepthUpdate>,
     last_update_id: Option<u64>,
     snapshot_requested: bool,
+    last_update_timestamp: DateTime<Utc>,
 }
 
 impl Book {
@@ -159,11 +167,31 @@ impl Book {
             pending_updates: VecDeque::new(),
             last_update_id: None,
             snapshot_requested: false,
+            last_update_timestamp: Utc::now(),
         }
     }
 
+    fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<bool> {
+        if expiry_time < self.last_update_timestamp {
+            return Ok(false);
+        }
+
+        if !self.snapshot_requested {
+            tracing::debug!(
+                "Check stale for {} is stale and snapshot is needed (expiry_time: {}, last_update_timestamp: {}, last_update_id: {:?})",
+                self.symbol,
+                expiry_time,
+                self.last_update_timestamp,
+                self.last_update_id,
+            );
+            self.request_snapshot()?;
+        }
+
+        Ok(true)
+    }
+
     fn request_snapshot(&mut self) -> Result<()> {
-        tracing::info!("(binance-book) Requesting snapshot for {}", self.symbol);
+        tracing::info!("Requesting snapshot for {}", self.symbol);
         self.pending_updates.clear();
         self.snapshot_requested = true;
         self.snapshot_tx
@@ -171,7 +199,7 @@ impl Book {
             .map_err(|err| eyre!("Failed to request snapshot for {}: {:?}", self.symbol, err))
     }
 
-    fn apply_snapshot(&mut self, snapshot: DepthSnapshot) -> Result<()> {
+    fn apply_snapshot(&mut self, mut snapshot: DepthSnapshot) -> Result<()> {
         if !self.snapshot_requested {
             Err(eyre!(
                 "Received snapshot that was not requested for {}",
@@ -179,12 +207,23 @@ impl Book {
             ))?;
         }
         tracing::info!(
-            "(binance-book) Snapshot received for {} and will overwrite book (lastUpdateId: {})",
+            "Snapshot received for {} and will overwrite book (lastUpdateId: {})",
             self.symbol,
             snapshot.last_update_id
         );
         self.last_update_id = Some(snapshot.last_update_id);
+        self.last_update_timestamp = Utc::now();
         self.snapshot_requested = false;
+        // Sort bids descending and asks ascending
+        snapshot
+            .bids
+            .sort_by(|PriceLevel(p1, _), PriceLevel(p2, _)| p1.cmp(p2).reverse());
+        snapshot
+            .asks
+            .sort_by(|PriceLevel(p1, _), PriceLevel(p2, _)| p1.cmp(p2));
+        // After sort TOB is at the front of bids and asks
+        let best_bid = snapshot.bids.first().cloned();
+        let best_ask = snapshot.asks.first().cloned();
         self.observer
             .read()
             .publish_many(&Arc::new(MarketDataEvent::OrderBookSnapshot {
@@ -201,10 +240,56 @@ impl Book {
                     .map(|PriceLevel(price, quantity)| PricePointEntry { price, quantity })
                     .collect_vec(),
             }));
+        // Note that for an illiquid market there won't be pending updates.
+        // We're basically assuming that if we didn't receive any book updates
+        // then we also wouldn't receive top updates. We don't track top updates
+        // directly, as that would impose performance impact. We believe that if
+        // we got book updates, then we also would get top updates.
         let pending_updates = self.pending_updates.drain(..).collect_vec();
-        for diff_depth in pending_updates {
-            self.apply_update(diff_depth)?;
+        if pending_updates.is_empty() {
+            // We didn't get any updates but we still want know best price, so
+            // we emit TOB based on snapshot
+            match (best_bid, best_ask) {
+                (
+                    Some(PriceLevel(best_bid_price, best_bid_quantity)),
+                    Some(PriceLevel(best_ask_price, best_ask_quantity)),
+                ) => {
+                    tracing::debug!(
+                        "TOB based off snapshot: {} {:?} {:.5} {:.5} - {:.5} {:.5}",
+                        self.symbol,
+                        self.last_update_id,
+                        best_bid_price,
+                        best_ask_price,
+                        best_bid_quantity,
+                        best_ask_quantity,
+                    );
+                    self.observer
+                        .read()
+                        .publish_many(&Arc::new(MarketDataEvent::TopOfBook {
+                            symbol: self.symbol.clone(),
+                            sequence_number: self.last_update_id.unwrap(),
+                            best_bid_price,
+                            best_ask_price,
+                            best_bid_quantity,
+                            best_ask_quantity,
+                        }));
+                }
+                (best_bid, best_ask) => {
+                    tracing::warn!(
+                        "Cannot emit TOB based off empty snapshot for {} {:?} - {:?}",
+                        self.symbol,
+                        best_bid,
+                        best_ask
+                    );
+                }
+            }
+        } else {
+            // Apply updates buffered while awaiting snapshot
+            for diff_depth in pending_updates {
+                self.apply_update(diff_depth)?;
+            }
         }
+
         Ok(())
     }
 
@@ -239,6 +324,7 @@ impl Book {
                         diff_depth.final_update_id_in_event,
                     );
                     self.last_update_id = Some(diff_depth.final_update_id_in_event);
+                    self.last_update_timestamp = Utc::now();
                     self.observer
                         .read()
                         .publish_many(&Arc::new(MarketDataEvent::OrderBookDelta {
@@ -295,18 +381,42 @@ impl Books {
         }
     }
 
+    pub fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<(usize, usize)> {
+        let (successes, failures): (Vec<_>, Vec<_>) = self
+            .books
+            .values_mut()
+            .map(|book| book.check_stale(expiry_time))
+            .partition_result();
+
+        if !failures.is_empty() {
+            Err(eyre!(
+                "Check stale failed {}",
+                failures.into_iter().map(|e| format!("{:?}", e)).join(";"),
+            ))?;
+        }
+
+        let num_stale = successes.iter().filter(|&&b| b).count();
+        let num_books = self.books.len();
+
+        Ok((num_stale, num_books))
+    }
+
     pub fn add_book(
         &mut self,
         symbol: &Symbol,
         snapshot_tx: UnboundedSender<Symbol>,
+        request_snapshot: bool,
     ) -> Result<()> {
         match self.books.entry(symbol.clone()) {
             Entry::Vacant(entry) => {
-                entry.insert(Book::new_with_observer(
+                let book = entry.insert(Book::new_with_observer(
                     symbol.clone(),
                     snapshot_tx.clone(),
                     self.observer.clone(),
                 ));
+                if request_snapshot {
+                    return book.request_snapshot();
+                }
                 Ok(())
             }
             Entry::Occupied(_) => Err(eyre!("Book already exists {}", symbol)),

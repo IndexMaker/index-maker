@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -7,6 +7,10 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 use safe_math::safe;
+
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use crate::{
     server::server::{
@@ -23,7 +27,7 @@ use symm_core::core::{
 
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
-    mint_invoice::{print_fill_report, print_mint_invoice, IndexOrderUpdateReport},
+    mint_invoice::{print_fill_report, IndexOrderUpdateReport},
     solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
@@ -52,15 +56,19 @@ pub struct EngagedIndexOrder {
     pub collateral_remaining: Amount,
 }
 
+#[derive(WithBaggage)]
 pub enum IndexOrderEvent {
     NewIndexOrder {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         // ID of the NewOrder request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Symbol of an Index
@@ -77,6 +85,7 @@ pub enum IndexOrderEvent {
     },
     EngageIndexOrder {
         // ID of the batch of engagement
+        #[baggage]
         batch_order_id: BatchOrderId,
 
         // A set of index orders in the engagement batch
@@ -87,12 +96,15 @@ pub enum IndexOrderEvent {
     },
     CollateralReady {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         // ID of the NewOrder request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Quantity remaining
@@ -109,12 +121,15 @@ pub enum IndexOrderEvent {
     },
     UpdateIndexOrder {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         // ID of the NewOrder request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Quantity removed
@@ -128,12 +143,15 @@ pub enum IndexOrderEvent {
     },
     CancelIndexOrder {
         // Chain ID
+        #[baggage]
         chain_id: u32,
 
         /// On-chain address of the User
+        #[baggage]
         address: Address,
 
         /// ID of the Cancel request
+        #[baggage]
         client_order_id: ClientOrderId,
 
         /// Tell the time when it was cancelled
@@ -154,6 +172,7 @@ pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
+    index_symbols: HashSet<Symbol>,
     tolerance: Amount,
 }
 
@@ -164,8 +183,17 @@ impl IndexOrderManager {
             observer: SingleObserver::new(),
             server,
             index_orders: HashMap::new(),
+            index_symbols: HashSet::new(),
             tolerance,
         }
+    }
+
+    pub fn add_index_symbol(&mut self, symbol: Symbol) {
+        self.index_symbols.insert(symbol);
+    }
+
+    pub fn remove_index_symbol(&mut self, symbol: Symbol) {
+        self.index_symbols.remove(&symbol);
     }
 
     /// We would've received NewOrder request from FIX server, and
@@ -180,11 +208,46 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
+        // Temporary sell side block
+        if side == Side::Sell {
+            return Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::OtherReason {
+                    detail: "We don't support Sell yet!".to_string(),
+                },
+            ));
+        }
+
+        // Returns error if basket does not exist
+        if !self.index_symbols.contains(&symbol) {
+            tracing::warn!(
+                %chain_id, %address, %client_order_id, %symbol, "Basket does not exist"
+            );
+            return Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::InvalidSymbol {
+                    detail: symbol.to_string(),
+                },
+            ));
+        }
+
         // Create index orders for user if not created yet
         let user_index_orders = self
             .index_orders
             .entry((chain_id, address))
             .or_insert_with(|| HashMap::new());
+
+        for index_order in user_index_orders.values() {
+            if index_order
+                .read()
+                .find_order_update(&client_order_id)
+                .is_some()
+            {
+                Err(ServerResponseReason::User(
+                    NewIndexOrderNakReason::DuplicateClientOrderId {
+                        detail: format!("Duplicate client order ID {}", client_order_id),
+                    },
+                ))?;
+            }
+        }
 
         // Create index order if not created yet
         let index_order = user_index_orders
@@ -199,18 +262,6 @@ impl IndexOrderManager {
                 )))
             })
             .clone();
-
-        if index_order
-            .read()
-            .find_order_update(&client_order_id)
-            .is_some()
-        {
-            Err(ServerResponseReason::User(
-                NewIndexOrderNakReason::DuplicateClientOrderId {
-                    detail: format!("Duplicate client order ID {}", client_order_id),
-                },
-            ))?;
-        }
 
         // Add update to index order
         let update_order_outcome = index_order
@@ -461,18 +512,24 @@ impl IndexOrderManager {
                     let mut update_upread = update.upgradable_read();
 
                     let update_collateral_spent = safe!(update_upread.collateral_spent + fees)?;
-                    tracing::debug!("(index-order-manager) update_collateral_spent: {:0.5}", update_collateral_spent);
-                    tracing::debug!("(index-order-manager) fees: {:0.5}", fees);
                     let update_fee = safe!(update_upread.update_fee + fees)?;
-                    tracing::debug!("(index-order-manager) update_fee: {:0.5}", update_fee);
-                    let update_remaining_collateral =
-                        safe!(update_upread.remaining_collateral - fees)?;
-                    tracing::debug!("(index-order-manager) update_remaining_collateral: {:0.5}", update_remaining_collateral);
-                    tracing::debug!("(index-order-manager) collateral_amount: {:0.5}", collateral_amount);
+                    let update_remaining_collateral = safe!(update_upread.remaining_collateral - fees)?;
+
+                    tracing::info!(
+                            %chain_id, %address, %client_order_id,
+                            %update_collateral_spent,
+                            %fees,
+                            %update_fee,
+                            %update_remaining_collateral,
+                            %collateral_amount,
+                            "Update collateral Ready");
+
                     if update_remaining_collateral < safe!(collateral_amount - self.tolerance)? {
                         tracing::warn!(
-                            "(index-order-manager) Error updating collateral ready: {:0.5} < {:0.5}",
-                            update_remaining_collateral, collateral_amount
+                            %chain_id, %address, %client_order_id,
+                            %update_remaining_collateral,
+                            %collateral_amount,
+                            "Error updating collateral ready: update_remaining_collateral < collateral_amount",
                         );
                         return None;
                     }
@@ -533,33 +590,36 @@ impl IndexOrderManager {
                         })()?;
                         if should_remove {
                             tracing::info!(
-                                "(index-order-manager) Removing entry for [{}:{}] {}",
-                                chain_id,
-                                address,
-                                symbol
+                                %chain_id,
+                                %address,
+                                %symbol,
+                                %client_order_id,
+                                "Removing entry: No more updates"
                             );
                             inner_entry.remove();
                         }
                         Ok(())
                     }
                     Entry::Vacant(_) => Err(eyre!(
-                        "(index-order-manager) No Index orders found for: [{}:{}]",
+                        "No Index orders found for: [{}:{}]",
                         chain_id,
                         address
                     )),
                 }?;
                 if entry.get().is_empty() {
                     tracing::info!(
-                        "(index-order-manager) Removing entry for [{}:{}]",
-                        chain_id,
-                        address
+                        %chain_id,
+                        %address,
+                        %symbol,
+                        %client_order_id,
+                        "Removing entry: No more orders",
                     );
                     entry.remove();
                 }
                 Ok(())
             }
             Entry::Vacant(_) => Err(eyre!(
-                "(index-order-manager) No Index orders found for: [{}:{}]",
+                "No Index orders found for: [{}:{}]",
                 chain_id,
                 address
             )),
@@ -743,12 +803,13 @@ impl IndexOrderManager {
                     engage_order.collateral_amount,
                     self.tolerance,
                 )?;
+
                 tracing::info!(
-                    "(index-order-manager) Engage {} eca=+{:0.5} iec={:0.5} irc={:0.5}",
-                    engage_order.client_order_id,
-                    engage_order.collateral_amount,
-                    index_order.engaged_collateral.unwrap_or_default(),
-                    index_order.remaining_collateral
+                    client_order_id = %engage_order.client_order_id,
+                    collateral_amount = %engage_order.collateral_amount,
+                    engaged_collateral = ?index_order.engaged_collateral,
+                    remaining_collateral = %index_order.remaining_collateral,
+                    "Engage orders",
                 );
 
                 let collateral_engaged = if let Some(unmatched_collateral) = unmatched_collateral {

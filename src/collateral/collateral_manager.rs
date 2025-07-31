@@ -9,10 +9,15 @@ use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
+
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
+use tracing::{span, Level};
 
 use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
 
@@ -20,28 +25,49 @@ use index_core::collateral::collateral_router::{CollateralRouter, CollateralTran
 
 use super::collateral_position::*;
 
+#[derive(WithBaggage)]
 pub enum CollateralEvent {
     CollateralReady {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
+        #[baggage]
         client_order_id: ClientOrderId,
+
         collateral_amount: Amount,
         fee: Amount,
         timestamp: DateTime<Utc>,
     },
     PreAuthResponse {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
+        #[baggage]
         client_order_id: ClientOrderId,
+
         amount_payable: Amount,
         timestamp: DateTime<Utc>,
         status: PreAuthStatus,
     },
     ConfirmResponse {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
+        #[baggage]
         client_order_id: ClientOrderId,
+
+        #[baggage]
         payment_id: PaymentId,
+
         amount_paid: Amount,
         timestamp: DateTime<Utc>,
         status: ConfirmStatus,
@@ -76,6 +102,9 @@ impl CollateralManager {
         _host: &dyn CollateralManagerHost,
         _timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let process_collateral_span = span!(Level::TRACE, "process-collateral");
+        let _guard = process_collateral_span.enter();
+
         let requests = VecDeque::from_iter(self.collateral_management_requests.drain(..));
 
         let (ready_to_route, check_later): (Vec<_>, Vec<_>) =
@@ -88,22 +117,22 @@ impl CollateralManager {
                     };
                     if unconfirmed_balance < request.collateral_amount {
                         tracing::debug!(
-                            "(collateral-manager) Awaiting deposit [{}:{}] {}: ca={} ub={}",
-                            request.chain_id,
-                            request.address,
-                            request.client_order_id,
-                            request.collateral_amount,
-                            unconfirmed_balance
+                            chain_id = %request.chain_id,
+                            address = %request.address,
+                            client_order_id = %request.client_order_id,
+                            collateral_amount = %request.collateral_amount,
+                            %unconfirmed_balance,
+                            "Awaiting deposit",
                         );
                         Either::Right(request)
                     } else {
-                        tracing::debug!(
-                            "(collateral-manager) Ready to route [{}:{}] {}: ca={} ub={}",
-                            request.chain_id,
-                            request.address,
-                            request.client_order_id,
-                            request.collateral_amount,
-                            unconfirmed_balance
+                        tracing::info!(
+                            chain_id = %request.chain_id,
+                            address = %request.address,
+                            client_order_id = %request.client_order_id,
+                            collateral_amount = %request.collateral_amount,
+                            %unconfirmed_balance,
+                            "Ready to route",
                         );
                         Either::Left(request)
                     }
@@ -117,6 +146,7 @@ impl CollateralManager {
         let failures = ready_to_route
             .into_iter()
             .filter_map(|request| {
+                request.add_span_context_link();
                 match self
                     .router
                     .write()
@@ -138,7 +168,7 @@ impl CollateralManager {
 
         if !failures.is_empty() {
             tracing::warn!(
-                "(collateral-manager) Errors in processing: {}",
+                "Errors in processing: {}",
                 failures
                     .into_iter()
                     .map(|(err, request)| {
@@ -159,9 +189,10 @@ impl CollateralManager {
 
     pub fn manage_collateral(&mut self, collateral_management: CollateralManagement) {
         tracing::info!(
-            "(collateral-manager) ManageCollateral for {} {}",
-            collateral_management.address,
-            collateral_management.client_order_id
+            chain_id = %collateral_management.chain_id,
+            address = %collateral_management.address,
+            client_order_id = %collateral_management.client_order_id,
+            "Manage Collateral",
         );
         self.collateral_management_requests
             .push_back(collateral_management);
@@ -175,12 +206,8 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) Deposit from [{}:{}] {:0.5}",
-            chain_id,
-            address,
-            amount
-        );
+        tracing::info!(%chain_id, %address, %amount, "Deposit");
+
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
             .write()
@@ -195,12 +222,8 @@ impl CollateralManager {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) Withdrawal from [{}:{}] {:0.5}",
-            chain_id,
-            address,
-            amount
-        );
+        tracing::info!(%chain_id, %address, %amount, "Withdrawal");
+
         let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
             .write()
@@ -222,11 +245,7 @@ impl CollateralManager {
         side: Side,
         amount_payable: Amount,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) PreAuth Payment for {} {:0.5}",
-            address,
-            amount_payable
-        );
+        tracing::info!(%chain_id, %address, %amount_payable, "PreAuth Payment");
 
         let funds = self
             .get_position(chain_id, &address)
@@ -274,11 +293,7 @@ impl CollateralManager {
         side: Side,
         amount_paid: Amount,
     ) -> Result<()> {
-        tracing::info!(
-            "(collateral-manager) Confirm Payment for {} {:0.5}",
-            address,
-            amount_paid
-        );
+        tracing::info!(%chain_id, %address, %amount_paid, "Confirm Payment");
 
         let funds = self
             .get_position(chain_id, &address)
@@ -348,15 +363,9 @@ impl CollateralManager {
                 amount,
                 fee,
             } => {
-                tracing::info!(
-                    "(collateral-manager) Transfer Complete for {} {} {}: {} => {} {:0.5} {:0.5}",
-                    chain_id,
-                    address,
-                    client_order_id,
-                    transfer_from,
-                    transfer_to,
-                    amount,
-                    fee
+                tracing::info!(%chain_id, %address, %client_order_id,
+                    %transfer_from, %transfer_to, %amount, %fee,
+                    "Transfer Complete"
                 );
                 let funds = self
                     .get_position(chain_id, &address)
@@ -435,6 +444,7 @@ mod test {
         core::{
             bits::{PaymentId, Side},
             functional::IntoObservableSingle,
+            telemetry::TracingData,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
                 get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
@@ -593,6 +603,7 @@ mod test {
                 (get_mock_asset_name_1(), dec!(800.0)),
                 (get_mock_asset_name_2(), dec!(200.0)),
             ]),
+            tracing_data: TracingData::default(),
         };
 
         collateral_manager

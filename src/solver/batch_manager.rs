@@ -8,6 +8,8 @@ use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
+use serde_json::json;
+use tracing::{span, Level};
 
 use crate::solver::solver_order::SolverOrderStatus;
 use symm_core::{
@@ -18,6 +20,7 @@ use symm_core::{
         },
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        telemetry::WithTracingContext,
     },
     order_sender::position::LotId,
 };
@@ -177,13 +180,13 @@ impl BatchAssetPosition {
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
             tracing::info!(
-                "(batch-asset-position) IndexOrder allocation for {} {} {} q={:0.5} p={:0.5} fee={:0.5}",
-                index_order.client_order_id,
-                asset_allocation.lot_id,
-                asset_allocation.symbol,
-                asset_allocation.quantity,
-                asset_allocation.price,
-                asset_allocation.fee
+                client_order_id = %index_order.client_order_id,
+                lot_id = %asset_allocation.lot_id,
+                symbol = %asset_allocation.symbol,
+                quantity = %asset_allocation.quantity,
+                price = %asset_allocation.price,
+                fee = %asset_allocation.fee,
+                "IndexOrder allocation",
             );
             index_order.lots.push(asset_allocation);
             Some(())
@@ -340,24 +343,24 @@ impl BatchOrderStatus {
         .ok_or_eyre("Math Problem")?;
 
         tracing::info!(
-            "(batch-manager) Batch Position: {:?} {:5} total={:0.5} volley={:0.5} pos={:0.5} real={:0.5} + fee={:0.5}",
-            position.side,
-            position.symbol,
-            position.order_quantity,
-            position.volley_size,
-            position.position,
-            position.realized_value,
-            position.fee
+            side = ?position.side,
+            symbol = %position.symbol,
+            order_quantity = %position.order_quantity,
+            volley_size = %position.volley_size,
+            position = %position.position,
+            realized_value = %position.realized_value,
+            fee = %position.fee,
+            "Batch Position",
         );
 
         tracing::info!(
-            "(batch-manager) Batch Status: {} volley={:0.5} fill={:0.5} frac={:0.5} real={:0.5} fee={:0.5}",
-            batch_order_id,
-            self.volley_size,
-            self.filled_volley,
-            self.filled_fraction,
-            self.realized_value,
-            self.fee
+            batch_order_id = %batch_order_id,
+            volley_size = %self.volley_size,
+            filled_volley = %self.filled_volley,
+            filled_fraction = %self.filled_fraction,
+            realized_value = %self.realized_value,
+            fee = %self.fee,
+            "Batch Status"
         );
 
         Ok(())
@@ -387,8 +390,8 @@ impl BatchOrderStatus {
             .all(|position| position.is_cancelled)
         {
             tracing::info!(
-                "(batch-manager) Batch is all cancelled {}",
-                self.batch_order_id
+                batch_order_id = %self.batch_order_id,
+                "Batch is all cancelled",
             );
             self.is_cancelled = true;
         }
@@ -409,10 +412,10 @@ impl BatchOrderStatus {
                     let carried_position =
                         carried_lots.iter().map(|lot| lot.remaining_quantity).sum();
                     tracing::info!(
-                        "(batch-order-status) Carried over {} {:?} {:0.5}",
-                        symbol,
-                        side,
-                        carried_position
+                        symbol = %symbol,
+                        side = ?side,
+                        carried_position = %carried_position,
+                        "Carried over",
                     );
 
                     match carry_overs.entry((symbol.clone(), *side)) {
@@ -593,6 +596,16 @@ impl BatchManager {
         engaged_orders: &EngagedSolverOrders,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let send_batch_span = span!(Level::INFO, "send-batch");
+        let _guard = send_batch_span.enter();
+
+        engaged_orders.add_span_context_link();
+        engaged_orders
+            .engaged_buys
+            .engaged_orders
+            .iter()
+            .for_each(|o| o.index_order.read().add_span_context_link());
+
         let mut batch = self.build_batch_order(host, engaged_orders, timestamp)?;
         let mut batch_order_status =
             BatchOrderStatus::new(batch.batch_order_id.clone(), batch.created_timestamp);
@@ -607,16 +620,11 @@ impl BatchManager {
         self.adjust_order_batch(&mut batch, carried_positions)?;
 
         tracing::info!(
-            "(batch-manager) Sending Batch: {}",
-            batch
-                .asset_orders
-                .iter()
-                .map(|ba| format!(
-                    "{:?} {}: {:0.5} @ {:0.5}",
-                    ba.side, ba.symbol, ba.quantity, ba.price
-                ))
-                .join("; ")
-        );
+            batch = %json!(batch.asset_orders.iter()
+                .map(|ba| (ba.side, json!(ba.symbol), ba.quantity, ba.price))
+                .collect_vec()
+            ),
+            "Sending Batch");
 
         *self.total_volley_size.write() += batch_order_status.volley_size;
 
@@ -639,9 +647,14 @@ impl BatchManager {
         batch: &mut BatchOrderStatus,
         engaged_order: &mut SolverOrderEngagement,
     ) -> Result<()> {
+        let fill_index_order_span = span!(Level::INFO, "fill-index-order");
+        let _guard = fill_index_order_span.enter();
+
         let engaged_quantity = engaged_order.engaged_quantity;
         let index_order = engaged_order.index_order.clone();
         let mut index_order_write = index_order.write();
+
+        index_order_write.add_span_context_link();
 
         // We search for fill-rate of this Index Order matching against
         // available lots in this batch. Note that this is fill-rate in
@@ -657,7 +670,7 @@ impl BatchManager {
             let asset_quantity =
                 safe!(asset.quantity * engaged_quantity).ok_or_eyre("Math Problem")?;
 
-            let asset_symbol = &asset.weight.asset.name;
+            let asset_symbol = &asset.weight.asset.ticker;
             let key = (asset_symbol.clone(), index_order_write.side);
             let position = batch
                 .positions
@@ -676,22 +689,25 @@ impl BatchManager {
 
             // = Quantity available in this batch for this Index Order
             //  / Quantity required to fully fill the fraction of the whole Index Order requested in this batch
-            let avialable_fill_rate =
+            let available_fill_rate =
                 safe!(available_quantity / asset_quantity).ok_or_eyre("Math Problem")?;
 
             // We're finding lowest fill-rate for this Index Order across all assets, because
             // we cannot fill this Index Order more than least available asset fill-rate.
-            fill_rate = fill_rate.map_or(Some(avialable_fill_rate), |x: Amount| {
-                Some(x.min(avialable_fill_rate))
+            fill_rate = fill_rate.map_or(Some(available_fill_rate), |x: Amount| {
+                Some(x.min(available_fill_rate))
             });
             tracing::info!(
-                "(batch-manager) Fill Basket Asset: {:5} q={:0.5} pos={:0.5} aq={:0.5} cf={:0.5} afr={:0.5}",
-                asset_symbol,
-                asset_quantity,
-                position.position,
-                available_quantity,
-                contribution_fraction,
-                avialable_fill_rate
+                chain_id = %index_order_write.chain_id,
+                address = %index_order_write.address,
+                client_order_id = %index_order_write.client_order_id,
+                %asset_symbol,
+                %asset_quantity,
+                position = %position.position,
+                %available_quantity,
+                %contribution_fraction,
+                %available_fill_rate,
+                "Fill Basket Asset",
             );
         }
 
@@ -726,7 +742,7 @@ impl BatchManager {
             let asset_quantity =
                 safe!(asset.quantity * filled_quantity_delta).ok_or_eyre("Math Problem")?;
 
-            let asset_symbol = &asset.weight.asset.name;
+            let asset_symbol = &asset.weight.asset.ticker;
             let key = (asset_symbol.clone(), index_order_write.side);
             let position = batch
                 .positions
@@ -793,15 +809,18 @@ impl BatchManager {
             .ok_or_eyre("Math Problem")?;
 
         tracing::info!(
-            "(batch-manager) Fill Index Order: ifq={:0.5} irc={:0.5} iec={:0.5} ics={:0.5} cs={:0.5} rc={:0.5} bfr={:0.3}% ofr={:0.3}%",
-            index_order_write.filled_quantity,
-            index_order_write.remaining_collateral,
-            index_order_write.engaged_collateral,
-            index_order_write.collateral_spent,
-            collateral_spent,
-            remaining_collateral,
-            safe!(fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
-            safe!(order_fill_rate * Amount::ONE_HUNDRED).unwrap_or_default(),
+            chain_id = %index_order_write.chain_id,
+            address = %index_order_write.address,
+            client_order_id = %index_order_write.client_order_id,
+            filled_quantity = %index_order_write.filled_quantity,
+            remaining_collateral = %index_order_write.remaining_collateral,
+            engaged_collateral = %index_order_write.engaged_collateral,
+            collateral_spent = %index_order_write.collateral_spent,
+            calculated_collateral_spent = %collateral_spent,
+            calculated_remaining_collateral = %remaining_collateral,
+            %fill_rate,
+            %order_fill_rate,
+            "Fill Index Order",
         );
 
         host.fill_order_request(
@@ -826,10 +845,12 @@ impl BatchManager {
 
         if self.fill_threshold < order_fill_rate {
             tracing::info!(
-                "(batch-manager) Index Order {} fill-rate {:0.5} is above fill threshold {:0.5}",
-                index_order_write.client_order_id,
-                order_fill_rate,
-                self.fill_threshold
+                chain_id = %index_order_write.chain_id,
+                address = %index_order_write.address,
+                client_order_id = %index_order_write.client_order_id,
+                %order_fill_rate,
+                fill_threshold = %self.fill_threshold,
+                "Index Order fill-rate is above fill threshold",
             );
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
         }
@@ -848,6 +869,8 @@ impl BatchManager {
             .get(&batch_order_id)
             .ok_or_else(|| eyre!("Engagement not found {}", batch_order_id))?;
 
+        engagement.read().add_span_context_link();
+
         for engaged_order in engagement.write().engaged_buys.engaged_orders.iter_mut() {
             self.fill_index_order(host, &mut batch.write(), engaged_order)?
         }
@@ -855,7 +878,7 @@ impl BatchManager {
         Ok(())
     }
 
-    pub fn cleanup_batches(&mut self) -> Result<()> {
+    fn cleanup_batches(&mut self) -> Result<()> {
         self.batches.retain(|key, batch| {
             if batch.read().is_cancelled {
                 let _ = self.engagements.remove(key);
@@ -867,7 +890,7 @@ impl BatchManager {
         Ok(())
     }
 
-    pub fn send_more_batches(
+    fn send_more_batches(
         &mut self,
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
@@ -889,19 +912,34 @@ impl BatchManager {
         Ok(())
     }
 
+    fn mint_more_orders(&mut self, timestamp: DateTime<Utc>) -> Result<()> {
+        let mint_orders_span = span!(Level::TRACE, "mint-orders");
+        let _guard = mint_orders_span.enter();
+
+        let mintable_orders = self.get_mintable_batch(timestamp);
+        if !mintable_orders.is_empty() {
+            mintable_orders
+                .iter()
+                .for_each(|o| o.read().add_span_context_link());
+
+            self.observer
+                .publish_single(BatchEvent::BatchMintable { mintable_orders });
+        }
+
+        Ok(())
+    }
+
     pub fn process_batches(
         &mut self,
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let process_batches_span = span!(Level::TRACE, "process-batches");
+        let _guard = process_batches_span.enter();
+
         self.send_more_batches(host, timestamp)?;
         self.cleanup_batches()?;
-
-        let mintable_orders = self.get_mintable_batch(timestamp);
-        if !mintable_orders.is_empty() {
-            self.observer
-                .publish_single(BatchEvent::BatchMintable { mintable_orders });
-        }
+        self.mint_more_orders(timestamp)?;
 
         Ok(())
     }
@@ -945,12 +983,17 @@ impl BatchManager {
         engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let handle_engage_span = span!(Level::INFO, "handle-engage-index-order");
+        let _guard = handle_engage_span.enter();
+
         tracing::info!(
-            "(batch-manager) Handle Index Order EngageIndexOrder {}",
-            batch_order_id
+            %batch_order_id,
+            "Handle Index Order EngageIndexOrder",
         );
         match self.engagements.get(&batch_order_id) {
             Some(engaged_orders_stored) => {
+                engaged_orders_stored.read().add_span_context_link();
+
                 engaged_orders_stored
                     .write()
                     .engaged_buys
@@ -959,6 +1002,8 @@ impl BatchManager {
                     .for_each(|engaged_order_stored| {
                         let index_order = engaged_order_stored.index_order.clone();
                         let mut index_order_stored = index_order.write();
+
+                        index_order_stored.add_span_context_link();
 
                         match engaged_orders.get(&(
                             engaged_order_stored.address,
@@ -1028,6 +1073,9 @@ impl BatchManager {
         fee: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let handle_lot_span = span!(Level::INFO, "handle-new-lot");
+        let _guard = handle_lot_span.enter();
+
         let batch = self
             .batches
             .get(&batch_order_id)
@@ -1077,6 +1125,9 @@ impl BatchManager {
 
         let is_all_cancelled = batch.read().is_cancelled;
         if is_all_cancelled {
+            let batch_complete_span = span!(Level::INFO, "handle-batch-complete");
+            let _guard = batch_complete_span.enter();
+
             //
             // TODO: Inventory Manager will let us know if batch is complete, and
             // we should use that information to:
@@ -1094,24 +1145,30 @@ impl BatchManager {
                 .cloned()
                 .ok_or_eyre("Missing engagement")?;
 
+            engagement.read().add_span_context_link();
+
             let mut continued_orders = Vec::new();
 
             for engaged_order in engagement.read().engaged_buys.engaged_orders.iter() {
                 let mut index_order = engaged_order.index_order.upgradable_read();
                 let collateral_carried = index_order.engaged_collateral;
 
+                index_order.add_span_context_link();
+
                 if self.zero_threshold < collateral_carried {
                     if let SolverOrderStatus::FullyMintable = index_order.status {
                         tracing::info!(
-                            "(batch-manager) Index Order is Fully Mintable {} cc={:0.5}",
-                            engaged_order.client_order_id,
-                            collateral_carried
+                            chain_id = %engaged_order.chain_id,
+                            address = %engaged_order.address,
+                            client_order_id = %engaged_order.client_order_id,
+                            %collateral_carried,
+                            "Index Order is Fully Mintable",
                         );
                     } else {
                         tracing::info!(
-                            "(batch-manager) Will continue Index Order {} cc={:0.5}",
-                            engaged_order.client_order_id,
-                            collateral_carried
+                            client_order_id = %engaged_order.client_order_id,
+                            %collateral_carried,
+                            "Will continue Index Order",
                         );
                         index_order.with_upgraded(|index_order_write| {
                             index_order_write.collateral_carried = collateral_carried;
@@ -1162,6 +1219,7 @@ mod test {
                 Symbol,
             },
             functional::IntoObservableSingle,
+            telemetry::TracingData,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
@@ -1283,6 +1341,7 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),
+            tracing_data: TracingData::default(),
         };
 
         // this is what we sent to exchange (order)
@@ -1551,6 +1610,7 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),
+            tracing_data: TracingData::default(),
         }));
 
         let index_order_clone = index_order.clone();
@@ -1593,6 +1653,7 @@ mod test {
                     filled_quantity: dec!(0.0),
                 }],
             },
+            trace_data: TracingData::default(),
         }));
 
         // Engagement confirmation would be built by Index Order Manager

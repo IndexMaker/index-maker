@@ -9,10 +9,13 @@ use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use safe_math::safe;
 
+use serde_json::json;
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
     decimal_ext::DecimalExt,
+    telemetry::TracingData,
 };
+use tracing::{span, Level};
 
 use crate::solver::{
     solver::{
@@ -106,9 +109,9 @@ impl SimpleSolver {
             }
             Err(err) => {
                 tracing::warn!(
-                    "(simple-solver) Error while {} for IndexOrder {}: {:?}",
-                    error_action,
-                    order_upread.client_order_id,
+                    client_order_id = %order_upread.client_order_id,
+                    %error_action,
+                    "Failed to scan order batch: {:?}",
                     err
                 );
                 set_order_status(order_upread, error_status);
@@ -262,9 +265,12 @@ impl SimpleSolver {
 
         let prices_len = get_prices.prices.len();
 
-        for (k, v) in &get_prices.prices {
-            tracing::info!("(simple-solver) Price: {:?} {} {}", side, k, v);
-        }
+        tracing::info!(
+            price_map = %json!(
+                get_prices.prices.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            "Asset Prices"
+        );
 
         let price_limits: HashMap<_, _> = get_prices
             .prices
@@ -276,11 +282,48 @@ impl SimpleSolver {
             Err(eyre!("Math Problem: Failed to compute price limits"))?;
         }
 
-        for (k, v) in &price_limits {
-            tracing::info!("(simple-solver) Price Limit: {} {}", k, v);
-        }
+        tracing::info!(
+            price_factor = %price_factor,
+            price_limit_map = %json!(
+                price_limits.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            "Asset Price Limits"
+        );
 
         Ok((price_limits, get_prices.missing_symbols))
+    }
+
+    /// Write into log index price with all the assets int the Index basket
+    ///
+    /// Will write prices, quantities and volley
+    ///
+    fn trace_log_index_price_with_basket_assets(
+        &self,
+        index_symbol: &Symbol,
+        index_price: Amount,
+        basket: Arc<Basket>,
+        asset_prices: &HashMap<Symbol, Amount>,
+    ) {
+        let mut basket_assets = Vec::new();
+        for basket_asset in basket.basket_assets.iter() {
+            let ticker = &basket_asset.weight.asset.ticker;
+            let price = asset_prices.get(ticker).cloned();
+            let quantity = basket_asset.quantity;
+            let volley = safe!(price * quantity);
+            if let (Some(price), Some(volley)) = (price, volley) {
+                basket_assets.push((ticker, price, quantity, volley));
+            } else {
+                tracing::warn!(%ticker, %quantity, ?price, "Failed to compute volley");
+            }
+        }
+        tracing::info!(
+            %index_symbol,
+            %index_price,
+            basket_map = %json!(
+                basket_assets.into_iter().map(|(t, p, q, v)| (t, [p, q, v])).collect::<HashMap<_, _>>()
+            ),
+            "Index Price Limit"
+        );
     }
 
     /// Calculate prices of the Indexes using given prices of the Assets.
@@ -295,21 +338,30 @@ impl SimpleSolver {
     ) -> (HashMap<Symbol, Amount>, Vec<Symbol>) {
         let (index_prices, bad): (Vec<_>, Vec<_>) = baskets
             .iter()
-            .map(|(symbol, basket)| (symbol.clone(), basket.get_current_price(asset_prices)))
-            .partition_map(|(symbol, index_price_result)| match index_price_result {
-                Ok(price) => {
-                    tracing::info!("(simple-solver) Index Price: {} {}", symbol, price);
-                    Either::Left((symbol, price))
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        "(simple-solver) Failed to compute index price for {}: {:?}",
-                        symbol,
-                        err
-                    );
-                    Either::Right(symbol)
-                }
-            });
+            .map(|(symbol, basket)| {
+                (
+                    symbol.clone(),
+                    basket.clone(),
+                    basket.get_current_price(asset_prices),
+                )
+            })
+            .partition_map(
+                |(symbol, basket, index_price_result)| match index_price_result {
+                    Ok(price) => {
+                        self.trace_log_index_price_with_basket_assets(
+                            &symbol,
+                            price,
+                            basket,
+                            asset_prices,
+                        );
+                        Either::Left((symbol, price))
+                    }
+                    Err(err) => {
+                        tracing::warn!(%symbol, "Failed to compute index price: {:?}", err);
+                        Either::Right(symbol)
+                    }
+                },
+            );
 
         (HashMap::from_iter(index_prices), bad)
     }
@@ -358,30 +410,30 @@ impl SimpleSolver {
             .ok_or_eyre("Index order quantity computation error")?;
 
         tracing::info!(
-            "(simple-solver) Collateral to Quantity for Index Order: {} c={:0.5} cc={:0.5} ca={:0.5} cu={:0.5} p={:0.5} q={:0.5} ff={:0.5}",
-            client_order_id,
-            collateral_amount,
-            order_upread.collateral_carried,
-            collateral_available,
-            collateral_usable,
-            index_price,
-            index_order_quantity,
-            self.fee_factor
+            %client_order_id,
+            %collateral_amount,
+            collateral_carried = %order_upread.collateral_carried,
+            %collateral_available,
+            %collateral_usable,
+            %index_price,
+            %index_order_quantity,
+            fee_factor = %self.fee_factor,
+            "Computed Index Order quantity from collateral"
         );
 
         let asset_quantities: HashMap<_, _> = basket
             .basket_assets
             .iter()
             .map_while(|basket_asset| {
-                let asset_symbol = &basket_asset.weight.asset.name;
+                let asset_symbol = &basket_asset.weight.asset.ticker;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
                 tracing::info!(
-                    "(simple-solver) Asset Quantity for Index Order: {} {} q={:0.5} baq={:0.5} oq={:0.5}",
-                    client_order_id,
-                    asset_symbol,
-                    asset_quantity,
-                    basket_asset.quantity,
-                    index_order_quantity
+                    %client_order_id,
+                    %asset_symbol,
+                    %asset_quantity,
+                    %basket_asset.quantity,
+                    %index_order_quantity,
+                    "Computed Asset Order quantity for Index Order"
                 );
                 Some((asset_symbol.clone(), asset_quantity))
             })
@@ -417,12 +469,8 @@ impl SimpleSolver {
         let capped_order_quantity = safe!(order_quantity * volley_fraction)
             .ok_or_eyre("Cannot calculate capped order quantity")?;
 
-        tracing::info!(
-            "(simple-solver) Capping Volley Size for Index Order: {} oq={:0.5} coq={:0.5}",
-            client_order_id,
-            order_quantity,
-            capped_order_quantity
-        );
+        tracing::info!(%client_order_id, %order_quantity, %capped_order_quantity,
+            "Capping volley size for Index Order");
 
         let mut capped_asset_quantities = HashMap::new();
 
@@ -433,12 +481,8 @@ impl SimpleSolver {
 
             capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
 
-            tracing::info!(
-                "(simple-solver) Capping Volley Size for Asset: {} aq={:0.5} caq={:0.5}",
-                asset_symbol,
-                asset_quantity,
-                capped_asset_quantity
-            );
+            tracing::info!(%asset_symbol, %asset_quantity, %capped_asset_quantity,
+                "Capping volley size for Asset");
         }
 
         Ok((capped_order_quantity, capped_asset_quantities))
@@ -630,15 +674,15 @@ impl SimpleSolver {
             fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
             tracing::info!(
-                "(simple-solver) Fitting Quantity for Index Order: {} {} {:0.5} tal={:0.5} taq={:0.5} acf={:0.5} alc={:0.5} poq={:0.5}",
-                client_order_id,
-                asset_symbol,
-                fitting_order_quantity,
-                total_asset_liquidity,
-                total_asset_quantity,
-                asset_contribution_fraction,
-                asset_liquidity_contribution,
-                possible_order_quantity
+                %client_order_id,
+                %asset_symbol,
+                %fitting_order_quantity,
+                %total_asset_liquidity,
+                %total_asset_quantity,
+                %asset_contribution_fraction,
+                %asset_liquidity_contribution,
+                %possible_order_quantity,
+                "Computed Index Order quantity fitting into liquidity"
             );
         }
 
@@ -676,7 +720,7 @@ impl SimpleSolver {
             .ok_or_else(|| eyre!("Missing basket for {} {}", client_order_id, index_symbol))?;
 
         for basket_asset in basket.basket_assets.iter() {
-            let asset_symbol = &basket_asset.weight.asset.name;
+            let asset_symbol = &basket_asset.weight.asset.ticker;
             let asset_quantity =
                 safe!(basket_asset.quantity * order_quantity).ok_or_else(|| {
                     eyre!(
@@ -744,11 +788,11 @@ impl SimpleSolver {
             asset_contribution_fractions.insert(asset_symbol.clone(), asset_contribution_fraction);
 
             tracing::info!(
-                "(simple-solver) Asset Fractions for Index Order: {} {} taq={:0.5} acf={:0.5}",
-                client_order_id,
-                asset_symbol,
-                total_asset_quantity,
-                asset_contribution_fraction,
+                %client_order_id,
+                %asset_symbol,
+                %total_asset_quantity,
+                %asset_contribution_fraction,
+                "Computed Asset contribution fractions for Index Order",
             );
         }
 
@@ -845,13 +889,13 @@ impl SimpleSolver {
                 .ok_or_else(|| eyre!("Cannot calculate quantity extra for an asset {}", symbol))?;
 
             tracing::info!(
-                "(simple-solver) Padding {}: {} => {}, {} => {} (+{})",
-                symbol,
-                asset_volley_size,
-                volley_size,
-                asset_quantity,
-                quantity,
-                quantity_extra
+                %symbol,
+                %asset_volley_size,
+                %volley_size,
+                %asset_quantity,
+                %quantity,
+                %quantity_extra,
+                "Computed padding for Asset Order",
             );
 
             padded_asset_quantites
@@ -977,7 +1021,7 @@ impl SimpleSolver {
                     basket
                         .basket_assets
                         .iter()
-                        .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                        .map(|basket_asset| basket_asset.weight.asset.ticker.clone()),
                 )
             })
             .concat();
@@ -1039,7 +1083,7 @@ impl SimpleSolver {
                     basket
                         .basket_assets
                         .iter()
-                        .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                        .map(|basket_asset| basket_asset.weight.asset.ticker.clone()),
                 )
             })
             .concat();
@@ -1176,6 +1220,9 @@ impl SolverStrategy for SimpleSolver {
         strategy_host: &dyn SolverStrategyHost,
         order: Arc<RwLock<SolverOrder>>,
     ) -> Result<CollateralManagement> {
+        let query_collateral_management_span = span!(Level::INFO, "query-collateral-management");
+        let _guard = query_collateral_management_span.enter();
+
         let order = order.read();
         let collateral_amount = order.remaining_collateral;
         let index_symbol = &order.symbol;
@@ -1188,7 +1235,7 @@ impl SolverStrategy for SimpleSolver {
             basket
                 .basket_assets
                 .iter()
-                .map(|basket_asset| basket_asset.weight.asset.name.clone()),
+                .map(|basket_asset| basket_asset.weight.asset.ticker.clone()),
         );
 
         let symbols = basket_assets.into_iter().collect_vec();
@@ -1225,10 +1272,11 @@ impl SolverStrategy for SimpleSolver {
             side: order.side,
             collateral_amount,
             asset_requirements: HashMap::new(),
+            tracing_data: TracingData::from_current_context(),
         };
 
         for basket_asset in &basket.basket_assets {
-            let asset_symbol = &basket_asset.weight.asset.name;
+            let asset_symbol = &basket_asset.weight.asset.ticker;
             let asset_price = *prices.get(asset_symbol).ok_or_eyre("Missing asset price")?;
 
             // We calculate how big is the portion of the collateral that needs
@@ -1315,6 +1363,9 @@ impl SolverStrategy for SimpleSolver {
         strategy_host: &dyn SolverStrategyHost,
         order_batch: Vec<Arc<RwLock<SolverOrder>>>,
     ) -> Result<Option<SolveEngagementsResult>> {
+        let solve_engagements_span = span!(Level::INFO, "solve-engagements");
+        let _guard = solve_engagements_span.enter();
+
         let total_volley_size = strategy_host.get_total_volley_size()?;
 
         let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
@@ -1422,12 +1473,12 @@ impl SolverStrategy for SimpleSolver {
             };
 
             tracing::info!(
-                "(simple-solver) Solver Order Engagement: {} {} eq={:0.5} ep={:0.5} ec={:0.5}",
-                engagement.client_order_id,
-                engagement.symbol,
-                engagement.engaged_quantity,
-                engagement.engaged_price,
-                engagement.engaged_collateral
+                client_order_id = %engagement.client_order_id,
+                symbol = %engagement.symbol,
+                engaged_quantity = %engagement.engaged_quantity,
+                engaged_price = %engagement.engaged_price,
+                engaged_collateral = %engagement.engaged_collateral,
+                "Solver Order Engagement"
             );
 
             engagenments.engaged_orders.push(engagement);
@@ -1440,6 +1491,7 @@ impl SolverStrategy for SimpleSolver {
             engaged_orders: EngagedSolverOrders {
                 batch_order_id,
                 engaged_buys: engagenments,
+                trace_data: TracingData::from_current_context(),
             },
             failed_orders: [failed_buys, failed_sells].concat(),
         }))
@@ -1463,6 +1515,7 @@ mod test {
         core::{
             bits::*,
             logging::log_init,
+            telemetry::TracingData,
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_3_arc, get_mock_asset_name_1, get_mock_asset_name_2,
@@ -1556,7 +1609,6 @@ mod test {
         Arc::new(Basket {
             basket_assets: vec![
                 BasketAsset {
-                    price: dec!(100.0),
                     quantity: dec!(8.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
@@ -1564,7 +1616,6 @@ mod test {
                     },
                 },
                 BasketAsset {
-                    price: dec!(200.0),
                     quantity: dec!(1.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_2_arc(),
@@ -1572,7 +1623,6 @@ mod test {
                     },
                 },
             ],
-            target_price: dec!(1000.0),
         })
     }
 
@@ -1580,7 +1630,6 @@ mod test {
         Arc::new(Basket {
             basket_assets: vec![
                 BasketAsset {
-                    price: dec!(100.0),
                     quantity: dec!(5.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_1_arc(),
@@ -1588,7 +1637,6 @@ mod test {
                     },
                 },
                 BasketAsset {
-                    price: dec!(10.0),
                     quantity: dec!(50.0),
                     weight: AssetWeight {
                         asset: get_mock_asset_3_arc(),
@@ -1596,7 +1644,6 @@ mod test {
                     },
                 },
             ],
-            target_price: dec!(1000.0),
         })
     }
 
@@ -1632,6 +1679,7 @@ mod test {
             timestamp,
             status: SolverOrderStatus::Open,
             lots: Vec::new(),
+            tracing_data: TracingData::default(),
         }))
     }
 
@@ -1654,6 +1702,7 @@ mod test {
             quantity_possible: Amount::ZERO,
             timestamp,
             status: SolverQuoteStatus::Open,
+            tracing_data: TracingData::default(),
         }))
     }
 

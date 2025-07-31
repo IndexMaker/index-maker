@@ -33,7 +33,7 @@ pub fn handle_chain_event(event: &ChainNotification) {
                 basket_definition
                     .weights
                     .iter()
-                    .map(|w| format!("{}:{}", w.asset.name, w.weight))
+                    .map(|w| format!("{}:{}", w.asset.ticker, w.weight))
                     .join(", ")
             );
         }

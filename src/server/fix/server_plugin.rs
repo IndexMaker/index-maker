@@ -19,7 +19,7 @@ use symm_core::core::{
 
 use crate::server::{
     fix::{
-        messages::{Body, FixHeader, FixTrailer},
+        messages::{FixHeader, FixTrailer, RequestBody, ResponseBody},
         requests::FixRequest,
         responses::FixResponse,
     },
@@ -57,6 +57,13 @@ impl ServerPlugin {
         self.serde_plugin.process_outgoing(nak)
     }
 
+    fn process_ack(&self, user_id: &(u32, Address), session_id: &SessionId) -> Result<String> {
+        let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
+        let mut ack = FixResponse::format_ack(&user_id, session_id, seq_num);
+        ack.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+        self.serde_plugin.process_outgoing(ack)
+    }
+
     /// fix_request_to_server_event
     ///
     /// Converts a FixRequest into a ServerEvent
@@ -67,7 +74,7 @@ impl ServerPlugin {
 
         match request.standard_header.msg_type.as_str() {
             "NewIndexOrder" => {
-                if let Body::NewIndexOrderBody {
+                if let RequestBody::NewIndexOrderBody {
                     client_order_id,
                     symbol,
                     side,
@@ -85,8 +92,19 @@ impl ServerPlugin {
                         || side == "BID"
                     {
                         Side::Buy
-                    } else {
+                    } else if side == "2"
+                        || side == "s"
+                        || side == "S"
+                        || side == "sell"
+                        || side == "Sell"
+                        || side == "SELL"
+                        || side == "ask"
+                        || side == "Ask"
+                        || side == "ASK"
+                    {
                         Side::Sell
+                    } else {
+                        return Err(eyre!("Invalid side value"));
                     };
                     let collateral_amount = amount
                         .parse()
@@ -107,7 +125,7 @@ impl ServerPlugin {
                 }
             }
             "CancelIndexOrder" => {
-                if let Body::CancelIndexOrderBody {
+                if let RequestBody::CancelIndexOrderBody {
                     client_order_id,
                     symbol,
                     amount,
@@ -131,14 +149,38 @@ impl ServerPlugin {
                 }
             }
             "NewQuoteRequest" => {
-                if let Body::NewQuoteRequestBody {
+                if let RequestBody::NewQuoteRequestBody {
                     client_quote_id,
                     symbol,
                     side,
                     amount,
                 } = request.body
                 {
-                    let side = if side == "1" { Side::Buy } else { Side::Sell };
+                    let side = if side == "1"
+                        || side == "b"
+                        || side == "B"
+                        || side == "buy"
+                        || side == "Buy"
+                        || side == "BUY"
+                        || side == "bid"
+                        || side == "Bid"
+                        || side == "BID"
+                    {
+                        Side::Buy
+                    } else if side == "2"
+                        || side == "s"
+                        || side == "S"
+                        || side == "sell"
+                        || side == "Sell"
+                        || side == "SELL"
+                        || side == "ask"
+                        || side == "Ask"
+                        || side == "ASK"
+                    {
+                        Side::Sell
+                    } else {
+                        return Err(eyre!("Invalid side value"));
+                    };
                     let collateral_amount = amount
                         .parse()
                         .ok()
@@ -158,7 +200,7 @@ impl ServerPlugin {
                 }
             }
             "CancelQuoteRequest" => {
-                if let Body::CancelQuoteRequestBody {
+                if let RequestBody::CancelQuoteRequestBody {
                     client_quote_id,
                     symbol,
                 } = request.body
@@ -175,14 +217,14 @@ impl ServerPlugin {
                 }
             }
             "AccountToCustody" => {
-                if let Body::AccountToCustodyBody { .. } = request.body {
+                if let RequestBody::AccountToCustodyBody { .. } = request.body {
                     Ok(ServerEvent::AccountToCustody)
                 } else {
                     Err(eyre!("Invalid body for AccountToCustody message type"))
                 }
             }
             "CustodyToAccount" => {
-                if let Body::CustodyToAccountBody { .. } = request.body {
+                if let RequestBody::CustodyToAccountBody { .. } = request.body {
                     Ok(ServerEvent::CustodyToAccount)
                 } else {
                     Err(eyre!("Invalid body for CustodyToAccount message type"))
@@ -206,8 +248,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "ACK".to_string(),
-                Body::OrderACKBody {
+                "NewIndexOrder".to_string(),
+                ResponseBody::NewOrderBody {
+                    status: "new".to_string(),
                     client_order_id: client_order_id.as_str().to_string(),
                 },
             ),
@@ -221,8 +264,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "NAK".to_string(),
-                Body::OrderNAKBody {
+                "NewIndexOrder".to_string(),
+                ResponseBody::NewOrderFailBody {
+                    status: "rejected".to_string(),
                     client_order_id: client_order_id.as_str().to_string(),
                     reason: reason.to_string(),
                 },
@@ -236,8 +280,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "ACK".to_string(),
-                Body::OrderACKBody {
+                "CancelIndexOrder".to_string(),
+                ResponseBody::NewOrderBody {
+                    status: "canceled".to_string(),
                     client_order_id: client_order_id.as_str().to_string(),
                 },
             ),
@@ -251,8 +296,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "NAK".to_string(),
-                Body::OrderNAKBody {
+                "CancelIndexOrder".to_string(),
+                ResponseBody::NewOrderFailBody {
+                    status: "rejected".to_string(),
                     client_order_id: client_order_id.as_str().to_string(),
                     reason: reason.to_string(),
                 },
@@ -270,7 +316,7 @@ impl ServerPlugin {
                 address,
                 SessionId::from("S-1"),
                 "IndexOrderFill".to_string(),
-                Body::IndexOrderFillBody {
+                ResponseBody::IndexOrderFillBody {
                     client_order_id: client_order_id.as_str().to_string(),
                     filled_quantity: filled_quantity.to_string(),
                     collateral_spent: collateral_spent.to_string(),
@@ -286,8 +332,7 @@ impl ServerPlugin {
                 address,
                 SessionId::from("S-1"),
                 "MintInvoice".to_string(),
-
-                Body::MintInvoiceBody {
+                ResponseBody::MintInvoiceBody {
                     timestamp: mint_invoice.timestamp,
                     order_id: mint_invoice.order_id.to_string(),
                     index_id: mint_invoice.index_id.to_string(),
@@ -309,8 +354,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "ACK".to_string(),
-                Body::QuoteACKBody {
+                "NewIndexQuote".to_string(),
+                ResponseBody::IndexQuoteRequestBody {
+                    status: "new".to_string(),
                     client_quote_id: client_quote_id.as_str().to_string(),
                 },
             ),
@@ -324,8 +370,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "NAK".to_string(),
-                Body::QuoteNAKBody {
+                "NewIndexQuote".to_string(),
+                ResponseBody::IndexQuoteRequestFailBody {
+                    status: "rejected".to_string(),
                     client_quote_id: client_quote_id.as_str().to_string(),
                     reason: reason.to_string(),
                 },
@@ -341,7 +388,7 @@ impl ServerPlugin {
                 address,
                 SessionId::from("S-1"),
                 "IndexQuoteResponse".to_string(),
-                Body::IndexQuoteResponseBody {
+                ResponseBody::IndexQuoteBody {
                     client_quote_id: client_quote_id.as_str().to_string(),
                     quantity_possible: quantity_possible.to_string(),
                 },
@@ -355,8 +402,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "ACK".to_string(),
-                Body::QuoteACKBody {
+                "CancelIndexQuote".to_string(),
+                ResponseBody::IndexQuoteRequestBody {
+                    status: "canceled".to_string(),
                     client_quote_id: client_quote_id.as_str().to_string(),
                 },
             ),
@@ -370,8 +418,9 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 SessionId::from("S-1"),
-                "NAK".to_string(),
-                Body::QuoteNAKBody {
+                "CancelIndexQuote".to_string(),
+                ResponseBody::IndexQuoteRequestFailBody {
+                    status: "rejected".to_string(),
                     client_quote_id: client_quote_id.as_str().to_string(),
                     reason: reason.to_string(),
                 },
@@ -411,9 +460,26 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
 }
 
 impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
-    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<()> {
+    fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
+                // verify signature before proceed anything
+                match result.verify_signature() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        let user_id = result.get_user_id();
+                        let err_msg = "Not authorised".to_string();
+                        let nak = FixResponse::create_nak(
+                            &user_id,
+                            session_id,
+                            result.get_seq_num(),
+                            err_msg,
+                        );
+                        return Ok(serde_json::to_string(&nak)?);
+                    }
+                }
+                // end verification part
+
                 let user_id = &result.get_user_id();
                 self.user_plugin.add_add_user_session(&user_id, session_id);
 
@@ -427,7 +493,10 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                         )
                     })?;
                     self.observer_plugin.publish_request(&Arc::new(event));
-                    Ok(())
+                    match self.process_ack(user_id, session_id) {
+                        Ok(msg) => Ok(msg),
+                        Err(e) => Err(eyre::eyre!("Process ACK failed: {}", e)),
+                    }
                 } else {
                     let error_msg = format!(
                         "Invalid sequence number: {}; Last valid: {}",
@@ -483,6 +552,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     }
 
     fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
+        self.user_plugin.remove_session(session_id);
         self.seq_num_plugin.destroy_session(session_id)
     }
 }

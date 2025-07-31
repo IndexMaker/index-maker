@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  quote-server:
+    platform: linux/amd64
+    image: <DOCKER_IMAGE_NAME>
+    ports:
+       - "3000:3000"
+
+    command: ["./index-maker", 
+              "-b", "0.0.0.0:3000",
+              "-c", "configs", 
+              "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
+              "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
+              "--batch-size", "4",
+              "--simulate-sender",
+              "fix-server", "1000000"]
+
+    environment:
+      RUST_LOG: debug,binance_sdk=off,hyper=off
+    
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+    restart: unless-stopped
+
+  otel-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.otlp.prod
+    container_name: otel-collector
+    ports:
+      - "4318:4318" # OTLP HTTP receiver
+      # - "4317:4317" # OTLP gRPC receiver
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    restart: unless-stopped

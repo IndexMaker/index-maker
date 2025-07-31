@@ -22,15 +22,15 @@ impl SimpleServer {
             observer: MultiObserver::new(),
         }
     }
+
+    pub fn notify_server_event(&mut self, event: &Arc<ServerEvent>) {
+        self.observer.publish_many(event);
+    }
 }
 
 impl Server for SimpleServer {
     fn respond_with(&mut self, response: ServerResponse) {
         tracing::info!("Received response: {:?}", response);
-    }
-
-    fn publish_event(&mut self, event: &Arc<ServerEvent>) {
-        self.observer.publish_many(event);
     }
 }
 

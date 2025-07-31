@@ -9,6 +9,11 @@ use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
 use crate::core::functional::{IntoObservableSingle, PublishSingle};
+
+use crate::core::telemetry::{TracingData, WithBaggage};
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+
 use crate::core::{
     bits::{Amount, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
     decimal_ext::DecimalExt,
@@ -21,12 +26,18 @@ use crate::{
 };
 
 /// track orders that we sent to
-#[derive(Debug)]
+#[derive(Debug, WithBaggage)]
 pub enum OrderTrackerNotification {
     Fill {
+        #[baggage]
         order_id: OrderId,
+
+        #[baggage]
         batch_order_id: BatchOrderId,
+
+        #[baggage]
         lot_id: LotId,
+
         symbol: Symbol,
         side: Side,
         price_filled: Amount,
@@ -38,8 +49,12 @@ pub enum OrderTrackerNotification {
         fill_timestamp: DateTime<Utc>,
     },
     Cancel {
+        #[baggage]
         order_id: OrderId,
+
+        #[baggage]
         batch_order_id: BatchOrderId,
+
         symbol: Symbol,
         side: Side,
         quantity_cancelled: Amount,
@@ -116,12 +131,14 @@ impl OrderTracker {
                 match order_entry.get_status() {
                     OrderStatus::Sent { order_quantity } => {
                         tracing::info!(
-                            "Order Status {}: Sent({} @ {}) => Live({} @ {})",
-                            order_id,
-                            order_quantity,
-                            order_entry.order.price,
-                            quantity,
-                            price
+                            %order_id,
+                            asset_symbol = %order_entry.order.symbol,
+                            side = ?order_entry.order.side,
+                            %order_quantity,
+                            order_price = %order_entry.order.price,
+                            %quantity,
+                            %price,
+                            "Order Status Sent => Live",
                         );
                         order_entry.set_status(OrderStatus::Live {
                             quantity_remaining: quantity,
@@ -150,12 +167,22 @@ impl OrderTracker {
                         if !is_cancel {
                             Err(eyre!("Invalid order state for applying fill"))
                         } else {
+                            order_entry.set_status(OrderStatus::Cancelled {
+                                quantity_remaining: Amount::ZERO,
+                            });
                             Ok((order_entry.clone(), Amount::ZERO, true, true))
                         }
                     }
                     // It makes sense that only live orders can be filled or cancelled
                     OrderStatus::Live { quantity_remaining } => {
-                        if let Some(quantity_remaining) = safe!(quantity_remaining - quantity) {
+                        if is_cancel {
+                            order_entry.set_status(OrderStatus::Cancelled {
+                                quantity_remaining: Amount::ZERO,
+                            });
+                            Ok((order_entry.clone(), Amount::ZERO, true, true))
+                        } else if let Some(quantity_remaining) =
+                            safe!(quantity_remaining - quantity)
+                        {
                             // Should the remaining quantity on the order be zero, we deem it cancelled
                             if quantity_remaining < self.tolerance {
                                 order_entry
@@ -199,9 +226,10 @@ impl OrderTracker {
                 // account status then new_order() could chose which session to
                 // send order.
             } => {
-                tracing::debug!("(order-tracker) Session connected: {}", session_id);
+                tracing::info!(%session_id, %timestamp, "Session connected");
+
                 if let Some(prev_sid) = self.session.replace(session_id) {
-                    tracing::warn!("(order-tracker) Dropping previous session: {}", prev_sid);
+                    tracing::warn!(%prev_sid, "Dropping previous session");
                 }
                 Ok(())
             }
@@ -210,9 +238,10 @@ impl OrderTracker {
                 reason,
                 timestamp,
             } => {
-                tracing::debug!(
-                    "(order-tracker) Session diconnected: {}, Reason: {}",
-                    session_id,
+                tracing::info!(
+                    %session_id,
+                    %timestamp,
+                    "Session diconnected: {}",
                     reason
                 );
                 self.session = None;
@@ -227,7 +256,9 @@ impl OrderTracker {
                 reason,
                 timestamp,
             } => {
-                tracing::debug!("Order {} was rejected: {}", order_id, reason);
+                tracing::warn!(%order_id,%symbol, ?side, %price, %quantity, %reason, %timestamp,
+                    "Order was rejected: {}", reason);
+
                 match self.update_order_status(order_id.clone(), quantity, true) {
                     Ok((order_entry, quantity_remaining, was_live, is_cancelled)) => {
                         // Notify about fills sending notification to subscriber (-> Inventory Manager)
@@ -327,11 +358,11 @@ impl OrderTracker {
 
     /// Receive new order requests from InventoryManager
     pub fn new_order(&mut self, order: Arc<SingleOrder>) -> Result<()> {
-        tracing::debug!("NewOrder: {}", order.order_id);
         let session_id = self
             .session
             .clone()
             .ok_or_eyre("No connected session available")?;
+
         match self.orders.entry(order.order_id.clone()) {
             Entry::Occupied(_) => Err(eyre!("Order already sent with ID {}", order.order_id)),
             Entry::Vacant(entry) => {

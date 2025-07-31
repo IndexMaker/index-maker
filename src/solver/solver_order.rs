@@ -14,6 +14,7 @@ use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
+        telemetry::{TracingData, WithTracingData},
     },
     order_sender::position::LotId,
 };
@@ -76,6 +77,19 @@ pub struct SolverOrder {
 
     /// All asset lots allocated to this Index Order
     pub lots: Vec<SolverOrderAssetLot>,
+
+    /// Telemetry data
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for SolverOrder {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 /// When we fill Index Orders from executed batches, we need to allocate some
@@ -210,8 +224,9 @@ impl SolverClientOrders {
                     timestamp,
                     status: SolverOrderStatus::Open,
                     lots: Vec::new(),
+                    tracing_data: TracingData::from_current_context(),
                 }));
-                entry.insert(solver_order.clone());
+                entry.insert(solver_order);
 
                 Ok(())
             }
@@ -291,9 +306,7 @@ impl SolverClientOrders {
                 } else {
                     // This is rather unexpected, as we would remove queue from map
                     // when it becomes empty.
-                    tracing::warn!(
-                        "(solver) Cancel order found empty index order queue for the user"
-                    );
+                    tracing::warn!("Cancel order found empty index order queue for the user");
                     entry.remove();
                 }
                 notify
@@ -301,7 +314,7 @@ impl SolverClientOrders {
             Entry::Vacant(_) => {
                 // This is rather unexpected, as we would add any new index orders to
                 // a queue and cancelling should always find a match in the queue.
-                tracing::warn!("(solver) Cancel order cannot find any index orders for the user");
+                tracing::warn!("Cancel order cannot find any index orders for the user");
                 false
             }
         };

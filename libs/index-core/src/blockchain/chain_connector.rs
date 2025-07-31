@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+use symm_core::core::telemetry::{TracingData, WithBaggage};
+
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
     functional::IntoObservableSingleVTable,
@@ -12,17 +16,26 @@ use crate::index::basket::{Basket, BasketDefinition};
 /// call blockchain methods, receive blockchain events
 
 /// On-chain event
+#[derive(WithBaggage)]
 pub enum ChainNotification {
     CuratorWeightsSet(Symbol, BasketDefinition), // ...more
     Deposit {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
     WithdrawalRequest {
+        #[baggage]
         chain_id: u32,
+
+        #[baggage]
         address: Address,
+
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
@@ -322,7 +335,7 @@ mod tests {
                         let weights: HashMap<Symbol, Amount> = basket_definition
                             .weights
                             .iter()
-                            .map(|w| (w.asset.name.clone(), w.weight))
+                            .map(|w| (w.asset.ticker.clone(), w.weight))
                             .collect();
 
                         assert_eq!(symbol, get_mock_index_name_1());
@@ -367,7 +380,7 @@ mod tests {
                     let quantites: HashMap<Symbol, Amount> = basket
                         .basket_assets
                         .iter()
-                        .map(|ba| (ba.weight.asset.name.clone(), ba.quantity))
+                        .map(|ba| (ba.weight.asset.ticker.clone(), ba.quantity))
                         .collect();
 
                     assert_eq!(symbol, get_mock_index_name_1());

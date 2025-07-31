@@ -1,21 +1,24 @@
 use std::{sync::Arc, thread::spawn, time::Duration};
 
-use binance_market_data::binance_market_data::BinanceMarketData;
+use binance_market_data::binance_subscriber::{
+    BinanceOnlySubscriberTasks, BinanceSubscriberTaskConfig,
+};
 use crossbeam::{
     channel::{bounded, unbounded},
     select,
 };
+use market_data::market_data::RealMarketData;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
     core::{
-        bits::{Amount, PriceType, Side},
+        bits::{Amount, PriceType, Side, Symbol},
         functional::{IntoObservableManyArc, IntoObservableSingle},
         logging::log_init,
     },
     init_log,
     market_data::{
-        market_data_connector::{MarketDataConnector, MarketDataEvent},
+        market_data_connector::{MarketDataConnector, MarketDataEvent, Subscription},
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager, PricePointBookManager},
         price_tracker::{PriceEvent, PriceTracker},
     },
@@ -26,7 +29,16 @@ use tokio::time::sleep;
 async fn main() {
     init_log!();
 
-    let mut market_data = BinanceMarketData::new(2);
+    let binance_subscriber_config = BinanceSubscriberTaskConfig {
+        subscription_limit_rate: 3,
+        stale_check_period: std::time::Duration::from_secs(10),
+        stale_timeout: chrono::Duration::seconds(60),
+    };
+    let mut market_data = RealMarketData::new(
+        2,
+        std::time::Duration::from_secs(20),
+        Arc::new(BinanceOnlySubscriberTasks::new(binance_subscriber_config)),
+    );
 
     let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
     let book_manager = Arc::new(RwLock::new(PricePointBookManager::new(dec!(0.000000001))));
@@ -136,7 +148,10 @@ async fn main() {
 
     market_data.start().expect("Failed to start market data");
     market_data
-        .subscribe(&["BNBUSDT".into()])
+        .subscribe(&[Subscription::new(
+            Symbol::from("BNBUSDT"),
+            Symbol::from("Binance"),
+        )])
         .expect("Failed to subscribe");
 
     sleep(Duration::from_secs(30)).await;

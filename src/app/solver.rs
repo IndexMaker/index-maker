@@ -40,9 +40,9 @@ use symm_core::{
     core::{
         bits::Amount,
         functional::{
-            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
-            IntoObservableSingleArc, IntoObservableSingleFun,
+            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle, IntoObservableSingleFun,
         },
+        telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
     },
     market_data::{
         market_data_connector::MarketDataEvent, order_book::order_book_manager::OrderBookEvent,
@@ -79,6 +79,16 @@ pub trait OrderIdProviderConfig {
     fn try_get_order_id_provider_cloned(
         &self,
     ) -> Result<Arc<RwLock<dyn OrderIdProvider + Send + Sync>>>;
+}
+
+pub fn spawn<F, T>(f: F)
+where
+    F: FnOnce() -> T,
+    F: Send + 'static,
+    T: Send + 'static,
+{
+    thread::spawn(f);
+    //task::spawn_blocking(f);
 }
 
 #[derive(Builder)]
@@ -151,13 +161,13 @@ pub struct SolverConfig {
     pub(crate) stopping_solver: Option<(Sender<()>, oneshot::Receiver<()>)>,
 
     #[builder(setter(skip))]
-    pub(crate) inventory_event_rx: Option<Receiver<InventoryEvent>>,
+    pub(crate) inventory_event_rx: Option<Receiver<TraceableEvent<InventoryEvent>>>,
 
     #[builder(setter(skip))]
-    pub(crate) collateral_event_rx: Option<Receiver<CollateralEvent>>,
+    pub(crate) collateral_event_rx: Option<Receiver<TraceableEvent<CollateralEvent>>>,
 
     #[builder(setter(skip))]
-    pub(crate) index_event_rx: Option<Receiver<IndexOrderEvent>>,
+    pub(crate) index_event_rx: Option<Receiver<TraceableEvent<IndexOrderEvent>>>,
 }
 
 impl SolverConfig {
@@ -200,7 +210,7 @@ impl SolverConfig {
                 }
             });
 
-        thread::spawn(move || {
+        spawn(move || {
             tracing::info!("Market data started");
             loop {
                 select! {
@@ -271,16 +281,18 @@ impl SolverConfig {
         let (stop_backend_tx, stop_backend_rx) = unbounded::<()>();
         let (backend_stopped_tx, backend_stopped_rx) = oneshot::channel();
 
-        let (order_event_tx, order_event_rx) = unbounded::<OrderConnectorNotification>();
-        let (tracking_event_tx, tracking_event_rx) = unbounded::<OrderTrackerNotification>();
-        let (inventory_event_tx, inventory_event_rx) = unbounded::<InventoryEvent>();
+        let (order_event_tx, order_event_rx) = unbounded_traceable::<OrderConnectorNotification>();
+        let (tracking_event_tx, tracking_event_rx) =
+            unbounded_traceable::<OrderTrackerNotification>();
+        let (inventory_event_tx, inventory_event_rx) = unbounded_traceable::<InventoryEvent>();
 
-        let (router_event_tx, router_event_rx) = unbounded::<CollateralRouterEvent>();
-        let (transfer_event_tx, transfer_event_rx) = unbounded::<CollateralTransferEvent>();
-        let (collateral_event_tx, collateral_event_rx) = unbounded::<CollateralEvent>();
+        let (router_event_tx, router_event_rx) = unbounded_traceable::<CollateralRouterEvent>();
+        let (transfer_event_tx, transfer_event_rx) =
+            unbounded_traceable::<CollateralTransferEvent>();
+        let (collateral_event_tx, collateral_event_rx) = unbounded_traceable::<CollateralEvent>();
 
-        let (server_order_tx, server_order_rx) = unbounded::<Arc<ServerEvent>>();
-        let (index_event_tx, index_event_rx) = unbounded::<IndexOrderEvent>();
+        let (server_order_tx, server_order_rx) = unbounded_traceable::<Arc<ServerEvent>>();
+        let (index_event_tx, index_event_rx) = unbounded_traceable::<IndexOrderEvent>();
 
         let order_sender = self.with_order_sender.try_get_order_sender_cloned()?;
         let order_tracker = self.with_order_sender.try_get_order_tracker_cloned()?;
@@ -326,11 +338,7 @@ impl SolverConfig {
                 .set_observer_from(router_event_tx.clone());
         }
 
-        order_sender
-            .write()
-            .get_single_observer_arc()
-            .write()
-            .set_observer_from(order_event_tx);
+        order_sender.write().set_observer_from(order_event_tx);
 
         order_tracker
             .write()
@@ -362,7 +370,7 @@ impl SolverConfig {
 
         order_server.write().add_observer_from(server_order_tx);
 
-        thread::spawn(move || {
+        spawn(move || {
             tracing::info!("Backend started");
             loop {
                 select! {
@@ -374,10 +382,12 @@ impl SolverConfig {
                     },
                     recv(order_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Order execution event: {:?}", event);
-                            if let Err(err) = order_tracker.write().handle_order_notification(event) {
-                                tracing::warn!("Failed to handle order execution event: {:?}", err);
-                            }
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Order execution event: {:?}", notification);
+                                if let Err(err) = order_tracker.write().handle_order_notification(notification) {
+                                    tracing::warn!("Failed to handle order execution event: {:?}", err);
+                                }
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive order execution event: {:?}", err);
@@ -385,10 +395,12 @@ impl SolverConfig {
                     },
                     recv(tracking_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Order tracking event: {:?}", event);
-                            if let Err(err) = inventory_manager.write().handle_fill_report(event) {
-                                tracing::warn!("Failed to handle order tracking event: {:?}", err);
-                            }
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Order tracking event: {:?}", notification);
+                                if let Err(err) = inventory_manager.write().handle_fill_report(notification) {
+                                    tracing::warn!("Failed to handle order tracking event: {:?}", err);
+                                }
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive order tracking event: {:?}", err);
@@ -396,15 +408,17 @@ impl SolverConfig {
                     },
                     recv(router_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Router event");
-                            match collateral_router.write() {
-                                Ok(mut router) => if let Err(err) = router.handle_collateral_router_event(event) {
-                                    tracing::warn!("Failed to handle collateral router event: {:?}", err);
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Router event");
+                                match collateral_router.write() {
+                                    Ok(mut router) => if let Err(err) = router.handle_collateral_router_event(notification) {
+                                        tracing::warn!("Failed to handle collateral router event: {:?}", err);
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!("Failed to obtain lock on collateral router: {:?}", err);
+                                    }
                                 }
-                                Err(err) => {
-                                    tracing::warn!("Failed to obtain lock on collateral router: {:?}", err);
-                                }
-                            }
+                            })
                         }
                         Err(err) => {
                             tracing::warn!("Failed to receive router event: {:?}", err);
@@ -412,17 +426,19 @@ impl SolverConfig {
                     },
                     recv(transfer_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Collateral transfer event");
-                            match collateral_manager.write() {
-                                Ok(mut collateral_manager) => {
-                                    if let Err(err) = collateral_manager.handle_collateral_transfer_event(event) {
-                                        tracing::warn!("Failed to handle collateral transfer event: {:?}", err);
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Collateral transfer event");
+                                match collateral_manager.write() {
+                                    Ok(mut collateral_manager) => {
+                                        if let Err(err) = collateral_manager.handle_collateral_transfer_event(notification) {
+                                            tracing::warn!("Failed to handle collateral transfer event: {:?}", err);
+                                        }
+                                    },
+                                    Err(err) => {
+                                        tracing::warn!("Failed to obtain lock on collateral manager: {:?}", err);
                                     }
-                                },
-                                Err(err) => {
-                                    tracing::warn!("Failed to obtain lock on collateral manager: {:?}", err);
-                                }
-                            };
+                                };
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive collateral transfer event: {:?}", err);
@@ -430,15 +446,17 @@ impl SolverConfig {
                     },
                     recv(server_order_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Server order event");
-                            match index_order_manager.write() {
-                                Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
-                                        tracing::warn!("Failed to handle index order event: {:?}", err);
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Server order event");
+                                match index_order_manager.write() {
+                                    Ok(mut manager) => if let Err(err) = manager.handle_server_message(&notification) {
+                                            tracing::warn!("Failed to handle index order event: {:?}", err);
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
+                                    }
                                 }
-                                Err(err) => {
-                                    tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
-                                }
-                            }
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive server order event: {:?}", err);
@@ -463,11 +481,10 @@ impl SolverConfig {
 
     async fn stop_orders_backend(&mut self) -> Result<()> {
         if let Some((stop_backend_tx, backend_stopped_rx)) = self.stopping_backend.take() {
-            let order_sender = self.with_order_sender.try_get_order_sender_cloned()?;
-            order_sender.write().stop().await.unwrap();
+            self.with_order_sender.stop().await?;
 
-            stop_backend_tx.send(()).unwrap();
-            backend_stopped_rx.await.unwrap();
+            stop_backend_tx.send(())?;
+            backend_stopped_rx.await?;
 
             Ok(())
         } else {
@@ -481,8 +498,8 @@ impl SolverConfig {
         let (stop_quotes_tx, stop_quotes_rx) = unbounded::<()>();
         let (quotes_stopped_tx, quotes_stopped_rx) = oneshot::channel();
 
-        let (quote_event_tx, quote_event_rx) = unbounded::<QuoteRequestEvent>();
-        let (server_quote_tx, server_quote_rx) = unbounded::<Arc<ServerEvent>>();
+        let (quote_event_tx, quote_event_rx) = unbounded_traceable::<QuoteRequestEvent>();
+        let (server_quote_tx, server_quote_rx) = unbounded_traceable::<Arc<ServerEvent>>();
 
         let tick_delta = time::Duration::from_millis(
             self.quotes_tick_interval
@@ -507,7 +524,7 @@ impl SolverConfig {
 
         quote_server.write().add_observer_from(server_quote_tx);
 
-        thread::spawn(move || {
+        spawn(move || {
             tracing::info!("Quotes started");
             loop {
                 select! {
@@ -519,15 +536,18 @@ impl SolverConfig {
                     },
                     recv(server_quote_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Server quote event");
-                            match quote_request_manager.write() {
-                                Ok(mut manager) => if let Err(err) = manager.handle_server_message(&*event) {
-                                        tracing::warn!("Failed to handle index order event: {:?}", err);
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Server quote event");
+                                match quote_request_manager.write() {
+                                    Ok(mut manager) => if let Err(err) =
+                                        manager.handle_server_message(&notification) {
+                                            tracing::warn!("Failed to handle index order event: {:?}", err);
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
+                                    }
                                 }
-                                Err(err) => {
-                                    tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);
-                                }
-                            }
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive server quote event: {:?}", err);
@@ -535,10 +555,12 @@ impl SolverConfig {
                     },
                     recv(quote_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Quote request event");
-                            if let Err(err) = solver_quotes_clone.handle_quote_request(event) {
-                                tracing::warn!("Failed to handle quote request event: {:?}", err);
-                            }
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Quote request event");
+                                if let Err(err) = solver_quotes_clone.handle_quote_request(notification) {
+                                    tracing::warn!("Failed to handle quote request event: {:?}", err);
+                                }
+                            })
                         }
                         Err(err) => {
                             tracing::warn!("Failed to receive quote request event: {:?}", err);
@@ -567,6 +589,12 @@ impl SolverConfig {
         } else {
             Err(eyre!("Cannot stop quotes: Not started"))
         }
+    }
+
+    pub fn load_baskets(&self) -> Result<()> {
+        let basket_manager = self.with_basket_manager.try_get_basket_manager_cloned()?;
+        let basket_guard = basket_manager.read();
+        basket_guard.notify_baskets()
     }
 
     pub async fn run_solver(&mut self) -> Result<()> {
@@ -622,7 +650,7 @@ impl SolverConfig {
             .take()
             .ok_or_eyre("Failed to obtain index order event receiver")?;
 
-        thread::spawn(move || {
+        spawn(move || {
             tracing::info!("Solver started");
             loop {
                 select! {
@@ -634,10 +662,12 @@ impl SolverConfig {
                     },
                     recv(collateral_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Collateral event");
-                            if let Err(err) = solver.handle_collateral_event(event) {
-                                tracing::warn!("Failed to handle collateral event: {:?}", err);
-                            }
+                            event.with_tracing(|notification|{
+                                tracing::trace!("Collateral event");
+                                if let Err(err) = solver.handle_collateral_event(notification) {
+                                    tracing::warn!("Failed to handle collateral event: {:?}", err);
+                                }
+                            })
                         }
                         Err(err) => {
                             tracing::warn!("Failed to receive collateral event: {:?}", err);
@@ -656,10 +686,12 @@ impl SolverConfig {
                     },
                     recv(inventory_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Inventory event: {:?}", event);
-                            if let Err(err) = solver.handle_inventory_event(event) {
-                                tracing::warn!("Failed to handle inventory event: {:?}", err);
-                            }
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Inventory event: {:?}", notification);
+                                if let Err(err) = solver.handle_inventory_event(notification) {
+                                    tracing::warn!("Failed to handle inventory event: {:?}", err);
+                                }
+                            })
                         }
                         Err(err) => {
                             tracing::warn!("Failed to receive inventory event: {:?}", err);
@@ -677,10 +709,12 @@ impl SolverConfig {
                     },
                     recv(index_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Index order event");
-                            if let Err(err) = solver.handle_index_order(event) {
-                                tracing::warn!("Failed to handle index order event: {:?}", err);
-                            }
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Index order event");
+                                if let Err(err) = solver.handle_index_order(notification) {
+                                    tracing::warn!("Failed to handle index order event: {:?}", err);
+                                }
+                            })
                         }
                         Err(err) => {
                             tracing::warn!("Failed to receive index order event: {:?}", err);
@@ -739,8 +773,8 @@ impl SolverConfig {
                 .unwrap_or_default() as u64,
         );
 
-        thread::spawn(move || {
-            tracing::info!("Solver started");
+        spawn(move || {
+            tracing::info!("Quotes Solver started");
             loop {
                 select! {
                     recv(stop_solver_rx) -> _ => {
@@ -800,6 +834,7 @@ impl SolverConfig {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;
         self.run_solver().await?;
+        self.load_baskets()?;
         Ok(())
     }
 
@@ -815,6 +850,7 @@ impl SolverConfig {
         self.run_quotes_backend().await?;
         self.run_market_data().await?;
         self.run_quotes_solver().await?;
+        self.load_baskets()?;
         Ok(())
     }
 

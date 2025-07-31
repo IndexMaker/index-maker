@@ -1,6 +1,2 @@
-pub mod arbiter;
-pub mod binance_market_data;
+pub mod binance_subscriber;
 pub mod book;
-pub mod subscriber;
-pub mod subscribers;
-pub mod subscriptions;

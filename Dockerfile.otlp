@@ -1,0 +1,11 @@
+# Use the official OpenTelemetry Collector Contrib image as base
+FROM otel/opentelemetry-collector-contrib:latest
+
+# Copy your configuration file into the image
+# It's good practice to place config files where the collector expects them or in a known location
+COPY otel-collector-config.yaml /etc/otelcol-contrib/config.yaml
+
+# The base image's ENTRYPOINT already handles running the collector
+# with a default config path. If you need to specify it explicitly,
+# or override the default command, you can uncomment and modify the CMD line below.
+# CMD ["--config=/etc/otelcol-contrib/config.yaml"]

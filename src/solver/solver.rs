@@ -9,6 +9,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 
+use serde_json::json;
 use symm_core::{
     core::{
         bits::{
@@ -16,6 +17,7 @@ use symm_core::{
             PriceType, Side, Symbol,
         },
         decimal_ext::DecimalExt,
+        telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     market_data::{
         order_book::order_book_manager::{OrderBookEvent, OrderBookManager},
@@ -23,6 +25,7 @@ use symm_core::{
     },
     order_sender::inventory_manager::{InventoryEvent, InventoryManager},
 };
+use tracing::{span, Level};
 
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -71,6 +74,17 @@ pub struct EngagedSolverOrdersSide {
 pub struct EngagedSolverOrders {
     pub batch_order_id: BatchOrderId,
     pub engaged_buys: EngagedSolverOrdersSide, // TODO: sells we don't currently support
+    pub trace_data: TracingData,
+}
+
+impl WithTracingData for EngagedSolverOrders {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.trace_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.trace_data
+    }
 }
 
 pub struct SolveEngagementsResult {
@@ -90,6 +104,17 @@ pub struct CollateralManagement {
     pub side: Side,
     pub collateral_amount: Amount,
     pub asset_requirements: HashMap<Symbol, Amount>,
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for CollateralManagement {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 pub trait OrderIdProvider {
@@ -226,11 +251,11 @@ impl Solver {
                 SolverOrderStatus::MissingPrices => {
                     (|o: &SolverOrder| {
                         tracing::warn!(
-                            "(solver) Missing prices for order [{}:{}] {} {}",
-                            o.chain_id,
-                            o.address,
-                            o.client_order_id,
-                            o.symbol
+                            chain_id = %o.chain_id,
+                            address = %o.address,
+                            client_order_id = %o.client_order_id,
+                            symbol = %o.symbol,
+                            "Missing prices for order",
                         );
                     })(&failed_order.read());
                     self.client_orders.write().put_back(failed_order);
@@ -238,11 +263,11 @@ impl Solver {
                 _ => {
                     let o = failed_order.read();
                     tracing::warn!(
-                        "(solver) Failed order [{}:{}] {} {} Reason: {:?}",
-                        o.chain_id,
-                        o.address,
-                        o.client_order_id,
-                        o.symbol,
+                        chain_id = %o.chain_id,
+                        address = %o.address,
+                        client_order_id = %o.client_order_id,
+                        symbol = %o.symbol,
+                        "Failed order: {:?}",
                         failed_status
                     );
                     self.index_order_manager
@@ -263,10 +288,16 @@ impl Solver {
 
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let order_batch = self.get_order_batch();
-
         if order_batch.is_empty() {
             return Ok(());
         }
+
+        let engage_orders_span = span!(Level::INFO, "engage-more-orders");
+        let _guard = engage_orders_span.enter();
+
+        order_batch
+            .iter()
+            .for_each(|order| order.read().add_span_context_link());
 
         let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch) {
             Err(err) => return Err(err),
@@ -324,15 +355,22 @@ impl Solver {
     }
 
     fn manage_collateral(&self, solver_order: Arc<RwLock<SolverOrder>>) -> Result<()> {
+        let manage_collateral_span = span!(Level::INFO, "manage-collateral");
+        let _guard = manage_collateral_span.enter();
+
+        solver_order.read().add_span_context_link();
+
         self.set_order_status(
             &mut solver_order.write(),
             SolverOrderStatus::ManageCollateral,
         );
 
         // Compute amount of collateral required for each asset in the Index basket
-        let collateral_management = self
+        let mut collateral_management = self
             .strategy
             .query_collateral_management(self, solver_order)?;
+
+        collateral_management.inject_current_context();
 
         // Manage collateral to have it ready at trading designation(s)
         self.collateral_manager
@@ -345,11 +383,7 @@ impl Solver {
 
     fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
         while let Some(solver_order) = self.client_orders.write().get_next_client_order(timestamp) {
-            let side = solver_order.read().side;
-            match side {
-                Side::Buy => self.manage_collateral(solver_order),
-                Side::Sell => Err(eyre!("We don't support Sell yet!")),
-            }?;
+            self.manage_collateral(solver_order);
         }
         Ok(())
     }
@@ -357,15 +391,19 @@ impl Solver {
     fn process_more_quotes(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let mut quote_requests = Vec::new();
         while let Some(solver_quote) = self.client_quotes.write().get_next_client_quote(timestamp) {
-            let side = solver_quote.read().side;
-            match side {
-                Side::Buy => {
-                    quote_requests.push(solver_quote);
-                    Ok(())
-                }
-                Side::Sell => Err(eyre!("We don't support Sell yet!")),
-            }?;
+            quote_requests.push(solver_quote);
         }
+
+        if quote_requests.is_empty() {
+            return Ok(());
+        }
+
+        let process_quotes_span = span!(Level::INFO, "process-more-quotes");
+        let _guard = process_quotes_span.enter();
+
+        quote_requests
+            .iter()
+            .for_each(|q| q.read().add_span_context_link());
 
         let result = self.strategy.solve_quotes(self, quote_requests)?;
 
@@ -390,6 +428,11 @@ impl Solver {
         index_order: &mut SolverOrder,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let mint_index_span = span!(Level::INFO, "mint-index");
+        let _guard = mint_index_span.enter();
+
+        index_order.add_span_context_link();
+
         let total_cost = index_order
             .lots
             .iter()
@@ -433,69 +476,69 @@ impl Solver {
 
     /// Core thinking function
     pub fn solve(&self, timestamp: DateTime<Utc>) {
-        tracing::trace!("\n(solver) Begin solve");
+        tracing::trace!("\nBegin solve");
 
-        tracing::trace!("(solver) * Process collateral");
+        tracing::trace!("* Process collateral");
         if let Err(err) = self
             .collateral_manager
             .write()
             .map_err(|e| eyre!("Failed to access collateral manager {}", e))
             .and_then(|mut x| x.process_collateral(self, timestamp))
         {
-            tracing::warn!("(solver) Error while processing credits: {:?}", err);
+            tracing::warn!("Error while processing credits: {:?}", err);
         }
 
-        tracing::trace!("(solver) * Mint indexes");
+        tracing::trace!("* Mint indexes");
         if let Err(err) = self.mint_indexes(timestamp) {
-            tracing::warn!("(solver) Error while processing mints: {:?}", err);
+            tracing::warn!("Error while processing mints: {:?}", err);
         }
 
-        tracing::trace!("(solver) * Serve more clients");
+        tracing::trace!("* Serve more clients");
         if let Err(err) = self.serve_more_clients(timestamp) {
-            tracing::warn!("(solver) Error while serving more clients: {:?}", err);
+            tracing::warn!("Error while serving more clients: {:?}", err);
         }
 
-        tracing::trace!("(solver) * Engage more orders");
+        tracing::trace!("* Engage more orders");
         if let Err(err) = self.engage_more_orders(timestamp) {
             tracing::warn!("Error while engaging more orders: {:?}", err);
         }
 
-        tracing::trace!("(solver) * Process batches");
+        tracing::trace!("* Process batches");
         if let Err(err) = self
             .batch_manager
             .write()
             .map_err(|e| eyre!("Failed to access batch manager {}", e))
             .and_then(|mut x| x.process_batches(self, timestamp))
         {
-            tracing::warn!("(solver) Error while sending more batches: {:?}", err);
+            tracing::warn!("Error while sending more batches: {:?}", err);
         }
 
-        tracing::trace!("(solver) * Process quotes");
+        tracing::trace!("* Process quotes");
         if let Err(err) = self.process_more_quotes(timestamp) {
-            tracing::warn!("(solver) Error while processing more quotes: {:?}", err);
+            tracing::warn!("Error while processing more quotes: {:?}", err);
         }
 
-        tracing::trace!("(solver) End solve\n");
+        tracing::trace!("End solve\n");
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
-        tracing::trace!("\n(solver) Begin solve quotes");
+        tracing::trace!("\nBegin solve quotes");
 
         if let Err(err) = self.process_more_quotes(timestamp) {
-            tracing::warn!("(solver) Error while processing more quotes: {:?}", err);
+            tracing::warn!("Error while processing more quotes: {:?}", err);
         }
 
-        tracing::trace!("(solver) End solve quotes\n");
+        tracing::trace!("End solve quotes\n");
     }
 
     pub fn handle_chain_event(&self, notification: ChainNotification) -> Result<()> {
         match notification {
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-                tracing::info!("(solver) Handle Chain Event CuratorWeigthsSet {}", symbol);
+                tracing::info!(%symbol, "Handle Chain Event CuratorWeigthsSet");
                 let symbols = basket_definition
                     .weights
                     .iter()
-                    .map(|w| w.asset.name.clone())
+                    .map(|w| w.asset.ticker.clone())
                     .collect_vec();
 
                 let get_prices_response = self
@@ -505,20 +548,21 @@ impl Solver {
 
                 if !get_prices_response.missing_symbols.is_empty() {
                     tracing::info!(
-                        "(solver) No prices available for some symbols: {:?}",
-                        get_prices_response.missing_symbols
+                        %symbol,
+                        missing_symbols = %json!(get_prices_response.missing_symbols),
+                        "No prices available for some symbols"
                     );
                 }
 
                 let target_price = "1000".try_into().unwrap(); // TODO
 
                 if let Err(err) = self.basket_manager.write().set_basket_from_definition(
-                    symbol,
+                    symbol.clone(),
                     basket_definition,
                     &get_prices_response.prices,
                     target_price,
                 ) {
-                    tracing::info!("(solver) Error while setting curator weights: {err}");
+                    tracing::warn!(%symbol, "Error while setting curator weights: {err}");
                 }
                 Ok(())
             }
@@ -559,12 +603,12 @@ impl Solver {
                 batch_order_id,
                 continued_orders,
             } => {
-                tracing::info!("(solver) Handle Batch Complete {}", batch_order_id);
+                tracing::info!(%batch_order_id, "Handle Batch Complete");
                 self.ready_orders.lock().extend(continued_orders);
                 Ok(())
             }
             BatchEvent::BatchMintable { mintable_orders } => {
-                tracing::info!("(solver) Handle Batch Mintable");
+                tracing::info!("Handle Batch Mintable");
                 self.ready_mints.lock().extend(mintable_orders);
                 Ok(())
             }
@@ -581,13 +625,8 @@ impl Solver {
                 fee,
                 timestamp,
             } => {
-                tracing::info!(
-                    "(solver) CollateralReady for {} {} {:0.5} {:0.5}",
-                    chain_id,
-                    address,
-                    collateral_amount,
-                    fee
-                );
+                tracing::info!(%chain_id, %address, %collateral_amount, %fee,
+                    "CollateralReady");
 
                 let order = self.client_orders.read().get_client_order(
                     chain_id,
@@ -650,7 +689,7 @@ impl Solver {
                         );
 
                         if let Some(order) = order {
-                            tracing::info!("(solver) PreAuth approved: {}", payment_id);
+                            tracing::info!(%payment_id, "PreAuth approved");
                             let mut order_write = order.write();
                             order_write
                                 .payment_id
@@ -667,19 +706,16 @@ impl Solver {
                                 self.set_order_status(&mut order_write, SolverOrderStatus::Ready);
                             }
                         } else {
-                            tracing::warn!(
-                                "(solver) PreAuth approved handling failed: {}",
-                                payment_id
-                            )
+                            tracing::warn!(%payment_id, "PreAuth approved handling failed")
                         }
                     }
                     PreAuthStatus::NotEnoughFunds => {
                         tracing::warn!(
-                            "(solver) PreAuth failed: Not enough funds to pay [{}:{}] {} {:0.5}",
-                            chain_id,
-                            address,
-                            client_order_id,
-                            amount_payable
+                            %chain_id,
+                            %address,
+                            %client_order_id,
+                            %amount_payable,
+                            "PreAuth failed: Not enough funds to pay",
                         )
                     }
                 }
@@ -701,7 +737,7 @@ impl Solver {
                     );
 
                     if let Some(order) = order {
-                        tracing::info!("(solver) Payment authorized: {}", payment_id);
+                        tracing::info!(%payment_id, "Payment authorized");
                         let mut order_write = order.write();
                         self.chain_connector
                             .write()
@@ -732,19 +768,16 @@ impl Solver {
 
                         self.set_order_status(&mut order_write, SolverOrderStatus::Minted);
                     } else {
-                        tracing::warn!(
-                            "(solver) Payment authorized handling failed: {}",
-                            payment_id
-                        )
+                        tracing::warn!(%payment_id, "Payment authorized handling failed")
                     }
                 }
                 ConfirmStatus::NotEnoughFunds => {
                     tracing::warn!(
-                        "(solver) Payment failed: Not enough funds to pay [{}:{}] {} {}",
-                        chain_id,
-                        address,
-                        client_order_id,
-                        payment_id
+                        %chain_id,
+                        %address,
+                        %client_order_id,
+                        %payment_id,
+                        "Payment failed: Not enough funds to pay",
                     )
                 }
             },
@@ -765,11 +798,14 @@ impl Solver {
                 timestamp,
             } => {
                 tracing::info!(
-                    "(solver) Handle Index Order NewIndexOrder {} {} < {} from {}",
-                    symbol,
-                    client_order_id,
-                    client_order_id,
-                    address
+                    %chain_id,
+                    %address,
+                    %client_order_id,
+                    %symbol,
+                    ?side,
+                    %collateral_amount,
+                    %timestamp,
+                    "Handle Index Order NewIndexOrder",
                 );
                 self.client_orders.write().add_client_order(
                     chain_id,
@@ -785,13 +821,10 @@ impl Solver {
                 chain_id,
                 address,
                 client_order_id,
-                timestamp: _,
+                timestamp,
             } => {
-                tracing::info!(
-                    "(solver) Handle Cancel Index Order [{}:{}] {}",
-                    chain_id,
-                    address,
-                    client_order_id
+                tracing::info!(%chain_id, %address, %client_order_id, %timestamp,
+                    "Handle Cancel Index Order",
                 );
                 self.client_orders
                     .write()
@@ -802,14 +835,17 @@ impl Solver {
                 address,
                 client_order_id,
                 collateral_removed,
-                collateral_remaining: _,
+                collateral_remaining,
                 timestamp,
             } => {
                 tracing::info!(
-                    "(solver) Handle Index Order UpdateIndexOrder {} < {} from {}",
-                    client_order_id,
-                    client_order_id,
-                    address
+                    %chain_id,
+                    %address,
+                    %client_order_id,
+                    %collateral_removed,
+                    %collateral_remaining,
+                    %timestamp,
+                    "Handle Index Order UpdateIndexOrder",
                 );
                 self.client_orders.write().update_client_order(
                     chain_id,
@@ -834,16 +870,18 @@ impl Solver {
                 client_order_id,
                 collateral_remaining,
                 collateral_spent,
-                fees: _,
+                fees,
                 timestamp,
             } => {
                 tracing::info!(
-                    "(solver) Handle Index Order CollateralReady {} < {} from {}: {:0.5} {:0.5}",
-                    chain_id,
-                    client_order_id,
-                    address,
-                    collateral_remaining,
-                    collateral_spent
+                    %chain_id,
+                    %address,
+                    %client_order_id,
+                    %collateral_remaining,
+                    %collateral_spent,
+                    %fees,
+                    %timestamp,
+                    "Handle Index Order CollateralReady",
                 );
                 if let Some(order) =
                     self.client_orders
@@ -867,7 +905,7 @@ impl Solver {
                 } else {
                     // TODO: Tell CollateralManager that order is no longer
                     // Something needs to happen with collateral, e.g. reuse in next order
-                    Err(eyre!("(solver) Handle collateral ready ack: Missing order"))
+                    Err(eyre!("Handle collateral ready ack: Missing order"))
                 }
             }
         }
@@ -875,7 +913,6 @@ impl Solver {
 
     // receive QR
     pub fn handle_quote_request(&self, notification: QuoteRequestEvent) -> Result<()> {
-        tracing::info!("(solver) Handle Quote Request");
         match notification {
             QuoteRequestEvent::NewQuoteRequest {
                 chain_id,
@@ -885,24 +922,39 @@ impl Solver {
                 side,
                 collateral_amount,
                 timestamp,
-            } => self.client_quotes.write().add_client_quote(
-                chain_id,
-                address,
-                client_quote_id,
-                symbol,
-                side,
-                collateral_amount,
-                timestamp,
-            ),
+            } => {
+                tracing::info!(
+                    %chain_id,
+                    %address,
+                    %client_quote_id,
+                    message = "Handle New Quote Request"
+                );
+                self.client_quotes.write().add_client_quote(
+                    chain_id,
+                    address,
+                    client_quote_id,
+                    symbol,
+                    side,
+                    collateral_amount,
+                    timestamp,
+                )
+            }
             QuoteRequestEvent::CancelQuoteRequest {
                 chain_id,
                 address,
                 client_quote_id,
                 timestamp: _,
-            } => self
-                .client_quotes
-                .write()
-                .cancel_client_order(chain_id, address, client_quote_id),
+            } => {
+                tracing::info!(
+                    %chain_id,
+                    %address,
+                    %client_quote_id,
+                    message = "Handle Cancel Quote Request"
+                );
+                self.client_quotes
+                    .write()
+                    .cancel_client_quote(chain_id, address, client_quote_id)
+            }
         }
     }
 
@@ -918,19 +970,23 @@ impl Solver {
                 price,
                 quantity,
                 fee,
-                original_batch_quantity: _,
-                batch_quantity_remaining: _,
+                original_batch_quantity,
+                batch_quantity_remaining,
                 timestamp,
             } => {
                 tracing::info!(
-                    "(solver) Handle Inventory Event OpenLot {} {:?} {:5} {:0.5} @ {:0.5} + fee {:0.5} ({:0.3}%)",
-                    lot_id,
-                    side,
-                    symbol,
-                    quantity,
-                    price,
-                    fee,
-                    (|| safe!(safe!(fee * Amount::ONE_HUNDRED) / safe!(quantity * price)?))().unwrap_or_default()
+                    %order_id,
+                    %batch_order_id,
+                    %lot_id,
+                    %symbol,
+                    ?side,
+                    %price,
+                    %quantity,
+                    %fee,
+                    %original_batch_quantity,
+                    %batch_quantity_remaining,
+                    %timestamp,
+                    "Handle Inventory Event OpenLot",
                 );
                 self.batch_manager
                     .read()
@@ -950,36 +1006,45 @@ impl Solver {
                     )
             }
             InventoryEvent::CloseLot {
-                original_order_id: _,
-                original_batch_order_id: _,
+                original_order_id,
+                original_batch_order_id,
                 original_lot_id,
                 closing_order_id,
                 closing_batch_order_id,
                 closing_lot_id,
                 symbol,
                 side,
-                original_price: _,
+                original_price,
                 closing_price,
                 closing_fee,
                 quantity_closed,
                 original_quantity,
                 quantity_remaining,
-                closing_batch_original_quantity: _,
-                closing_batch_quantity_remaining: _,
-                original_timestamp: _,
+                closing_batch_original_quantity,
+                closing_batch_quantity_remaining,
+                original_timestamp,
                 closing_timestamp,
             } => {
                 tracing::info!(
-                    "(solver) Handle Inventory Event CloseLot {} {} {:?} {:5} {:0.5}@{:0.5}+{:0.5} ({:0.5}%)",
-                    original_lot_id,
-                    closing_lot_id,
-                    side,
-                    symbol,
-                    quantity_closed,
-                    closing_price,
-                    closing_fee,
-                    (|| safe!(safe!(Amount::ONE_HUNDRED * safe!(original_quantity - quantity_remaining)?)?
-                        / original_quantity))().unwrap_or_default()
+                    %original_order_id,
+                    %original_batch_order_id,
+                    %original_lot_id,
+                    %closing_order_id,
+                    %closing_batch_order_id,
+                    %closing_lot_id,
+                    %symbol,
+                    ?side,
+                    %original_price,
+                    %closing_price,
+                    %closing_fee,
+                    %quantity_closed,
+                    %original_quantity,
+                    %quantity_remaining,
+                    %closing_batch_original_quantity,
+                    %closing_batch_quantity_remaining,
+                    %original_timestamp,
+                    %closing_timestamp,
+                    "Handle Inventory Event CloseLot",
                 );
                 self.batch_manager
                     .read()
@@ -1004,16 +1069,22 @@ impl Solver {
                 symbol,
                 side,
                 quantity_cancelled,
-                original_quantity: _,
-                quantity_remaining: _,
+                original_quantity,
+                quantity_remaining,
                 is_cancelled,
                 cancel_timestamp,
             } => {
                 tracing::info!(
-                    "(solver) Handle Inventory Event Cancel {} {} {}",
-                    order_id,
-                    batch_order_id,
-                    symbol
+                    %order_id,
+                    %batch_order_id,
+                    %symbol,
+                    ?side,
+                    %quantity_cancelled,
+                    %original_quantity,
+                    %quantity_remaining,
+                    %is_cancelled,
+                    %cancel_timestamp,
+                    "Handle Inventory Event Cancel",
                 );
                 self.batch_manager
                     .read()
@@ -1034,8 +1105,8 @@ impl Solver {
     /// receive current prices from Price Tracker
     pub fn handle_price_event(&self, notification: PriceEvent) {
         match notification {
-            PriceEvent::PriceChange { symbol } => {
-                //tracing::info!("(solver) Handle Price Event {:5}", symbol)
+            PriceEvent::PriceChange { symbol: _ } => {
+                // TODO: We could re-try orders with missing prices
             }
         };
     }
@@ -1043,11 +1114,11 @@ impl Solver {
     /// receive available liquidity from Order Book Manager
     pub fn handle_book_event(&self, notification: OrderBookEvent) {
         match notification {
-            OrderBookEvent::BookUpdate { symbol } => {
-                //tracing::info!("(solver) Handle Book Event {:5}", symbol);
+            OrderBookEvent::BookUpdate { symbol: _ } => {
+                // TODO: We could re-try orders with missing liquidity
             }
             OrderBookEvent::UpdateError { symbol, error } => {
-                //tracing::info!("(solver) Handle Book Event {:5}, Error: {}", symbol, error);
+                tracing::info!(%symbol, "Handle Book Error: {:?}", error);
             }
         }
     }
@@ -1057,29 +1128,53 @@ impl Solver {
         // TODO: (move this) once solvign is done notify new weights were applied
         match notification {
             BasketNotification::BasketAdded(symbol, basket) => {
-                tracing::info!("(solver) Handle Basket Notification BasketAdded {}", symbol);
+                tracing::info!(%symbol, "Handle Basket Notification BasketAdded");
                 self.chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access chain connector {}", e))?
-                    .solver_weights_set(symbol, basket);
+                    .solver_weights_set(symbol.clone(), basket);
+
+                self.quote_request_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Quote Request manager {}", e))?
+                    .add_index_symbol(symbol.clone());
+
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Index Order manager {}", e))?
+                    .add_index_symbol(symbol.clone());
+
                 Ok(())
             }
             BasketNotification::BasketUpdated(symbol, basket) => {
-                tracing::info!(
-                    "(solver) Handle Basket Notification BasketUpdated {}",
-                    symbol
-                );
+                tracing::info!(%symbol, "Handle Basket Notification BasketUpdated");
                 self.chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access chain connector {}", e))?
-                    .solver_weights_set(symbol, basket);
+                    .solver_weights_set(symbol.clone(), basket);
+
+                self.quote_request_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Quote Request manager {}", e))?
+                    .add_index_symbol(symbol.clone());
+
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Index Order manager {}", e))?
+                    .add_index_symbol(symbol.clone());
                 Ok(())
             }
             BasketNotification::BasketRemoved(symbol) => {
-                tracing::info!(
-                    "(solver) Handle Basket Notification BasketRemoved {}",
-                    symbol
-                );
+                tracing::info!(%symbol, "Handle Basket Notification BasketRemoved");
+                self.quote_request_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Quote Request manager {}", e))?
+                    .remove_index_symbol(symbol.clone());
+
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access Index Order manager {}", e))?
+                    .remove_index_symbol(symbol.clone());
                 todo!()
             }
         }
@@ -1089,18 +1184,18 @@ impl Solver {
 impl SetSolverOrderStatus for Solver {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus) {
         tracing::info!(
-            "(solver) Set Index Order Status: {} {:?}",
-            order.client_order_id,
-            status
+            client_order_id = %order.client_order_id,
+            ?status,
+            "Set Index Order Status",
         );
         order.status = status;
     }
 
     fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
         tracing::info!(
-            "(solver) Set Index Quote Status: {} {:?}",
-            order.client_quote_id,
-            status
+            client_quote_id = %order.client_quote_id,
+            ?status,
+            "Set Index Quote Status",
         );
         order.status = status;
     }
@@ -1205,9 +1300,7 @@ mod test {
         },
         init_log,
         market_data::{
-            market_data_connector::{
-                test_util::MockMarketDataConnector, MarketDataConnector, MarketDataEvent,
-            },
+            market_data_connector::{test_util::MockMarketDataConnector, MarketDataEvent},
             order_book::order_book_manager::PricePointBookManager,
         },
         order_sender::{
@@ -1822,14 +1915,17 @@ mod test {
                     ServerResponse::MintInvoice {
                         chain_id,
                         address,
-                        mint_invoice,
+                        mint_invoice
                     } => {
                         tracing::info!(
-                            "(mock) FIX Mint Invoice: {} {} {} {}",
+                            "(mock) FIX Mint Invoice: [{} {}] {} {} Collateral: [Spent: {}; Engaged: {}; Total: {}] ",
                             chain_id,
                             address,
-                            mint_invoice.payment_id,
-                            mint_invoice.timestamp
+                            mint_invoice.index_id,
+                            mint_invoice.order_id,
+                            mint_invoice.collateral_spent,
+                            mint_invoice.engaged_collateral,
+                            mint_invoice.total_collateral,
                         );
                     }
                     response => {
@@ -2039,7 +2135,7 @@ mod test {
         // subscribe to symbol/USDC markets
         market_data_connector
             .write()
-            .subscribe(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
+            .subscribe_mock(&[get_mock_asset_name_1(), get_mock_asset_name_2()])
             .unwrap();
 
         // send some market data
@@ -2294,7 +2390,7 @@ mod test {
                 chain_id: _,
                 address: _,
                 client_order_id: _,
-                timestamp: _
+                timestamp: _,
             }
         ));
 

@@ -2,6 +2,7 @@ use eyre::{eyre, Report, Result};
 use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use symm_core::{
@@ -15,9 +16,11 @@ use symm_core::{
 /// An asset with its associated weight.
 ///
 /// This struct is used for BasketDefinition and Basket.
-#[derive(Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct AssetWeight {
+    #[serde(flatten)]
     pub asset: Arc<Asset>,
+    #[serde(alias = "weights")]
     pub weight: Amount,
 }
 
@@ -33,7 +36,6 @@ impl AssetWeight {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
-#[derive(Clone)]
 pub struct BasketDefinition {
     pub weights: Vec<AssetWeight>,
 }
@@ -86,7 +88,7 @@ impl Display for BasketDefinition {
             "BasketDefinition[{}]",
             self.weights
                 .iter()
-                .map(|w| format!("{}: {:.7}", w.asset.name, w.weight))
+                .map(|w| format!("{}: {:.7}", w.asset.ticker, w.weight))
                 .join(", ")
         )
     }
@@ -97,10 +99,10 @@ impl Display for BasketDefinition {
 /// This struct associates quantity of an asset for containing basket.
 /// The quantity is calculated based on price, which is also memorised here
 /// together with the original weight assigned to asset.
-#[derive(Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct BasketAsset {
+    #[serde(flatten)]
     pub weight: AssetWeight,
-    pub price: Amount,
     pub quantity: Amount,
 }
 
@@ -111,9 +113,19 @@ pub struct BasketAsset {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
+#[derive(Serialize)]
 pub struct Basket {
     pub basket_assets: Vec<BasketAsset>,
-    pub target_price: Amount,
+}
+
+impl<'de> Deserialize<'de> for Basket {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let basket_assets: Vec<BasketAsset> = Vec::<BasketAsset>::deserialize(deserializer)?;
+        Ok(Basket { basket_assets })
+    }
 }
 
 impl Basket {
@@ -130,32 +142,13 @@ impl Basket {
             .into_iter()
             .map(|weight| {
                 let price: &Amount = individual_prices
-                    .get(&weight.asset.name)
+                    .get(&weight.asset.ticker)
                     .unwrap_or(&Amount::ZERO);
                 let quantity =
                     safe!(safe!(target_price / *price) * weight.weight).unwrap_or_default();
-                BasketAsset {
-                    weight,
-                    price: *price,
-                    quantity,
-                }
+                BasketAsset { weight, quantity }
             })
             .collect();
-
-        // Complain about assets with prices
-        let unpriced_assets: Vec<&BasketAsset> = basket_assets
-            .iter()
-            .filter(|asset| asset.price.is_zero())
-            .collect();
-        if !unpriced_assets.is_empty() {
-            return Err(eyre!(format!(
-                "Unknown price of the assets: {}",
-                unpriced_assets
-                    .into_iter()
-                    .map(|a| a.weight.asset.name.as_ref())
-                    .join(", ")
-            )));
-        }
 
         // Complain about numeric overflow during quantity calculation
         let overflown_assets: Vec<&BasketAsset> = basket_assets
@@ -167,15 +160,12 @@ impl Basket {
                 "Numeric overflow while computing quantity for assets: {}",
                 overflown_assets
                     .into_iter()
-                    .map(|a| a.weight.asset.name.as_ref())
+                    .map(|a| a.weight.asset.ticker.as_ref())
                     .join(", ")
             )));
         }
 
-        Ok(Self {
-            basket_assets,
-            target_price,
-        })
+        Ok(Self { basket_assets })
     }
 
     pub fn get_current_price(&self, individual_prices: &HashMap<Symbol, Amount>) -> Result<Amount> {
@@ -184,9 +174,9 @@ impl Basket {
             .iter()
             .map(|ba| {
                 (
-                    &ba.weight.asset.name,
+                    &ba.weight.asset.ticker,
                     individual_prices
-                        .get(&ba.weight.asset.name)
+                        .get(&ba.weight.asset.ticker)
                         .and_then(|x| safe!(*x * ba.quantity)),
                 )
             })
@@ -214,13 +204,12 @@ impl Display for Basket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Basket[{}; {}]",
-            self.target_price,
+            "Basket[{}]",
             self.basket_assets
                 .iter()
                 .map(|ba| format!(
-                    "{:.7}{} @ ${:.7} (w={:.7})",
-                    ba.quantity, ba.weight.asset.name, ba.price, ba.weight.weight
+                    "{:.7}{} (w={:.7})",
+                    ba.quantity, ba.weight.asset.ticker, ba.weight.weight
                 ))
                 .join(", ")
         )
@@ -261,9 +250,9 @@ mod tests {
         let assert_tolerance = dec!(0.00001);
 
         // Define some assets - they will stay
-        let asset_btc = Arc::new(Asset::new("BTC".into()));
-        let asset_eth = Arc::new(Asset::new("ETH".into()));
-        let asset_sol = Arc::new(Asset::new("SOL".into()));
+        let asset_btc = Arc::new(Asset::new("BTC".into(), "BINANCE".into()));
+        let asset_eth = Arc::new(Asset::new("ETH".into(), "BINANCE".into()));
+        let asset_sol = Arc::new(Asset::new("SOL".into(), "BINANCE".into()));
 
         // Define basket - it will be consumed when we create Basket
         let basket_definition = BasketDefinition::try_new([
@@ -275,8 +264,8 @@ mod tests {
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices: HashMap<Symbol, Amount> = [
-            (asset_btc.name.clone(), dec!(50000.0)),
-            (asset_eth.name.clone(), dec!(6000.0)),
+            (asset_btc.ticker.clone(), dec!(50000.0)),
+            (asset_eth.ticker.clone(), dec!(6000.0)),
         ]
         .into();
 
@@ -296,9 +285,9 @@ mod tests {
 
         // Tell reference prices for assets for in basket quantities computation
         let individual_prices_updated: HashMap<Symbol, Amount> = [
-            (asset_btc.name.clone(), dec!(55000.0)),
-            (asset_eth.name.clone(), dec!(6250.0)),
-            (asset_sol.name.clone(), dec!(250.0)),
+            (asset_btc.ticker.clone(), dec!(55000.0)),
+            (asset_eth.ticker.clone(), dec!(6250.0)),
+            (asset_sol.ticker.clone(), dec!(250.0)),
         ]
         .into();
 

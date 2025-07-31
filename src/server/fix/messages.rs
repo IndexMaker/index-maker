@@ -9,9 +9,9 @@ pub struct FixHeader {
     pub sender_comp_id: String, // Public key of sender
     pub target_comp_id: String, // Public key of receiver
     pub seq_num: u32,           // Message sequence number
-//    ResetSeqNum: u8,       // Boolean that determines if SeqNum must be ignored (this will invalidate Disputes)
+    //    ResetSeqNum: u8,       // Boolean that determines if SeqNum must be ignored (this will invalidate Disputes)
     pub timestamp: DateTime<Utc>,
-//    CustodyId: String,
+    //    CustodyId: String,
 }
 
 impl FixHeader {
@@ -65,28 +65,7 @@ impl FixTrailer {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
-pub enum Body {
-    ACKBody {
-        ref_seq_num: u32,
-    },
-    OrderACKBody {
-        client_order_id: String,
-    },
-    QuoteACKBody {
-        client_quote_id: String,
-    },
-    NAKBody {
-        ref_seq_num: u32,
-        reason: String,
-    },
-    OrderNAKBody {
-        client_order_id: String,
-        reason: String,
-    },
-    QuoteNAKBody {
-        client_quote_id: String,
-        reason: String,
-    },
+pub enum RequestBody {
     // NewOrderBody {
     //     client_order_id: String,
     //     symbol: String,
@@ -106,11 +85,57 @@ pub enum Body {
         symbol: String,
         amount: String,
     },
+    NewQuoteRequestBody {
+        client_quote_id: String,
+        symbol: String,
+        side: String,
+        amount: String,
+    },
+    CancelQuoteRequestBody {
+        client_quote_id: String,
+        symbol: String,
+    },
+    AccountToCustodyBody,
+    CustodyToAccountBody,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum ResponseBody {
+    ACKBody {
+        ref_seq_num: u32,
+    },
+    NAKBody {
+        ref_seq_num: u32,
+        reason: String,
+    },
+    NewOrderBody {
+        status: String,
+        client_order_id: String,
+    },
+    NewOrderFailBody {
+        status: String,
+        client_order_id: String,
+        reason: String,
+    },
+    IndexQuoteRequestBody {
+        status: String,
+        client_quote_id: String,
+    },
+    IndexQuoteRequestFailBody {
+        status: String,
+        client_quote_id: String,
+        reason: String,
+    },
     IndexOrderFillBody {
         client_order_id: String,
         filled_quantity: String,
         collateral_spent: String,
         collateral_remaining: String,
+    },
+    IndexQuoteBody {
+        client_quote_id: String,
+        quantity_possible: String,
     },
     MintInvoiceBody {
         timestamp: DateTime<Utc>,
@@ -123,20 +148,6 @@ pub enum Body {
         payment_id: String,
         amount_paid: String,
         lots: Vec<SolverOrderAssetLot>,
-    },
-    NewQuoteRequestBody {
-        client_quote_id: String,
-        symbol: String,
-        side: String,
-        amount: String,
-    },
-    CancelQuoteRequestBody {
-        client_quote_id: String,
-        symbol: String,
-    },
-    IndexQuoteResponseBody {
-        client_quote_id: String,
-        quantity_possible: String,
     },
     AccountToCustodyBody,
     CustodyToAccountBody,

@@ -7,7 +7,10 @@ use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
 
-use symm_core::core::bits::{Address, Amount, ClientQuoteId, Side, Symbol};
+use symm_core::core::{
+    bits::{Address, Amount, ClientQuoteId, Side, Symbol},
+    telemetry::{TracingData, WithTracingData},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SolverQuoteStatus {
@@ -46,6 +49,19 @@ pub struct SolverQuote {
 
     /// Solver status
     pub status: SolverQuoteStatus,
+
+    /// Telemetry data
+    pub tracing_data: TracingData,
+}
+
+impl WithTracingData for SolverQuote {
+    fn get_tracing_data_mut(&mut self) -> &mut TracingData {
+        &mut self.tracing_data
+    }
+
+    fn get_tracing_data(&self) -> &TracingData {
+        &self.tracing_data
+    }
 }
 
 pub struct SolverClientQuotes {
@@ -127,6 +143,7 @@ impl SolverClientQuotes {
                     quantity_possible: Amount::ZERO,
                     timestamp,
                     status: SolverQuoteStatus::Open,
+                    tracing_data: TracingData::from_current_context(),
                 }));
                 entry.insert(solver_order.clone());
 
@@ -158,7 +175,7 @@ impl SolverClientQuotes {
         Ok(())
     }
 
-    pub fn cancel_client_order(
+    pub fn cancel_client_quote(
         &mut self,
         chain_id: u32,
         address: Address,
@@ -184,15 +201,13 @@ impl SolverClientQuotes {
                         queue.retain(|x| !x.eq(&client_quote_id));
                     }
                 } else {
-                    tracing::warn!(
-                        "(solver) Cancel order found empty index order queue for the user"
-                    );
+                    tracing::warn!("Cancel order found empty index order queue for the user");
                     entry.remove();
                 }
                 notify
             }
             Entry::Vacant(_) => {
-                tracing::warn!("(solver) Cancel order cannot find any index orders for the user");
+                tracing::warn!("Cancel order cannot find any index orders for the user");
                 false
             }
         };

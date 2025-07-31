@@ -42,4 +42,6 @@ pub trait ServerResponse {
         error_msg: String,
         ref_seq_num: u32,
     ) -> Self;
+
+    fn format_ack(user_id: &(u32, Address), session_id: &SessionId, ref_seq_num: u32) -> Self;
 }

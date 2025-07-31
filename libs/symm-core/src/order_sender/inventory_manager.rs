@@ -5,6 +5,10 @@ use eyre::{eyre, Result};
 use itertools::partition;
 use parking_lot::RwLock;
 
+use crate::core::telemetry::{TracingData, WithBaggage};
+use derive_with_baggage::WithBaggage;
+use opentelemetry::propagation::Injector;
+
 use crate::{
     core::{
         bits::{Amount, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder, Symbol},
@@ -20,12 +24,18 @@ pub struct GetPositionsResponse {
     pub missing_symbols: Vec<Symbol>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, WithBaggage)]
 pub enum InventoryEvent {
     OpenLot {
+        #[baggage]
         order_id: OrderId,
+
+        #[baggage]
         batch_order_id: BatchOrderId,
+
+        #[baggage]
         lot_id: LotId,
+
         symbol: Symbol,
         side: Side,
         price: Amount,
@@ -36,12 +46,24 @@ pub enum InventoryEvent {
         timestamp: DateTime<Utc>,
     },
     CloseLot {
+        #[baggage]
         original_order_id: OrderId,
+
+        #[baggage]
         original_batch_order_id: BatchOrderId,
+
+        #[baggage]
         original_lot_id: LotId,
+
+        #[baggage]
         closing_order_id: OrderId,
+
+        #[baggage]
         closing_batch_order_id: BatchOrderId,
+
+        #[baggage]
         closing_lot_id: LotId,
+
         symbol: Symbol,
         side: Side,
         original_price: Amount,     // original price when lot was opened
@@ -56,8 +78,12 @@ pub enum InventoryEvent {
         closing_timestamp: DateTime<Utc>,
     },
     Cancel {
+        #[baggage]
         order_id: OrderId,
+
+        #[baggage]
         batch_order_id: BatchOrderId,
+
         symbol: Symbol,
         side: Side,
         quantity_cancelled: Amount,
@@ -296,7 +322,6 @@ impl InventoryManager {
 
     /// receive new order requests from Solver
     pub fn new_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
-        tracing::debug!("New order batch: {}", batch_order.batch_order_id);
         // Start writing to Order Tracker
         let mut guard = self.order_tracker.write();
         // Send all orders out
@@ -320,7 +345,6 @@ impl InventoryManager {
                     )
                 })?;
         }
-        tracing::debug!("No more asset orders");
         // All orders out
         Ok(())
     }

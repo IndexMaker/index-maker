@@ -1,8 +1,8 @@
 use crate::messages::{ServerRequest, ServerResponse, SessionId};
-use eyre::{Report, Result};
+use eyre::{OptionExt, Result};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::RwLock;
 
 pub trait WithSeqNumPlugin {
     fn get_seq_num(&self) -> u32;
@@ -32,24 +32,32 @@ where
     }
 
     pub fn last_sent_seq_num(&self, session_id: &SessionId) -> u32 {
-        let read_lock = self.last_sent_seq_num.read().unwrap();
-        read_lock.get(&session_id).map_or(0, |v| *v)
+        self.last_sent_seq_num
+            .read()
+            .get(&session_id)
+            .map_or(0, |v| *v)
     }
 
     pub fn last_received_seq_num(&self, session_id: &SessionId) -> u32 {
-        let read_lock = self.last_received_seq_num.read().unwrap();
-        read_lock.get(&session_id).map_or(0, |v| *v)
+        self.last_received_seq_num
+            .read()
+            .get(&session_id)
+            .map_or(0, |v| *v)
     }
 
     pub fn valid_seq_num(&self, seq_num: u32, session_id: &SessionId) -> bool {
-        let read_lock = self.last_received_seq_num.read().unwrap();
-        let is_valid = read_lock.get(session_id).map_or(0, |v| *v) + 1 == seq_num;
-        drop(read_lock); // Release the read lock before acquiring write lock
+        let is_valid = self
+            .last_received_seq_num
+            .read()
+            .get(session_id)
+            .map_or(0, |v| *v)
+            + 1
+            == seq_num;
 
         if is_valid {
-            // Acquire a write lock to update the value
-            let mut write_lock = self.last_received_seq_num.write().unwrap();
-            write_lock.insert(session_id.clone(), seq_num);
+            self.last_received_seq_num
+                .write()
+                .insert(session_id.clone(), seq_num);
             true
         } else {
             false
@@ -57,37 +65,29 @@ where
     }
 
     pub fn next_seq_num(&self, session_id: &SessionId) -> u32 {
-        let mut write_lock = self.last_sent_seq_num.write().unwrap();
-        if let Some(value) = write_lock.get_mut(&session_id) {
+        let mut last_send_seq_num_write = self.last_sent_seq_num.write();
+        if let Some(value) = last_send_seq_num_write.get_mut(&session_id) {
             *value += 1;
             *value
         } else {
-            write_lock.insert(session_id.clone(), 1);
+            last_send_seq_num_write.insert(session_id.clone(), 1);
             1
         }
     }
 
-    pub fn create_session(&self, session_id: &SessionId) -> Result<(), Report> {
-        let mut write_lock = self.last_received_seq_num.write().unwrap();
-        write_lock.insert(session_id.clone(), 0);
-        drop(write_lock);
+    pub fn create_session(&self, session_id: &SessionId) -> Result<()> {
+        self.last_received_seq_num
+            .write()
+            .insert(session_id.clone(), 0);
 
-        let mut write_lock = self.last_sent_seq_num.write().unwrap();
-        write_lock.insert(session_id.clone(), 0);
-        drop(write_lock);
+        self.last_sent_seq_num.write().insert(session_id.clone(), 0);
 
         Ok(())
     }
 
-    pub fn destroy_session(&self, session_id: &SessionId) -> Result<(), Report> {
-        let mut write_lock = self.last_received_seq_num.write().unwrap();
-        write_lock.remove(&session_id.clone());
-        drop(write_lock);
-
-        let mut write_lock = self.last_sent_seq_num.write().unwrap();
-        write_lock.remove(&session_id.clone());
-        drop(write_lock);
-
+    pub fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
+        self.last_received_seq_num.write().remove(session_id);
+        self.last_sent_seq_num.write().remove(session_id);
         Ok(())
     }
 }

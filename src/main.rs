@@ -1,10 +1,9 @@
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
-use index_core::{
-    blockchain::chain_connector::ChainNotification,
-    index::basket::{AssetWeight, BasketDefinition},
-};
+use index_core::
+    blockchain::chain_connector::ChainNotification
+;
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -13,11 +12,11 @@ use index_maker::{
         fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
-        order_sender::OrderSenderConfig,
+        order_sender::{OrderSenderConfig, OrderSenderCredentials},
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
-        simple_server::SimpleServerConfig,
+        simple_server::{SimpleServer, SimpleServerConfig},
         simple_solver::SimpleSolverConfig,
         solver::{
             ChainConnectorConfig, OrderIdProviderConfig, ServerConfig, SolverConfig,
@@ -25,20 +24,19 @@ use index_maker::{
         },
         timestamp_ids::TimestampOrderIdsConfig,
     },
-    server::server::{Server, ServerEvent},
+    server::server::ServerEvent,
 };
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use std::{env, sync::Arc};
 use symm_core::{
-    assets::asset::Asset,
     core::{
         bits::{Amount, PriceType, Side, Symbol},
         logging::log_init,
-        test_util::get_mock_address_1,
+        test_util::{get_mock_address_1, get_mock_address_2},
     },
-    init_log,
+    market_data::market_data_connector::Subscription,
 };
 use tokio::{
     signal::unix::{signal, SignalKind},
@@ -55,10 +53,28 @@ struct Cli {
     main_quote_currency: Option<Symbol>,
 
     #[arg(long, short)]
+    simulate_sender: bool,
+
+    #[arg(long, short)]
+    bind_address: Option<String>,
+
+    #[arg(long, short)]
     log_path: Option<String>,
+
+    #[arg(long, short)]
+    config_path: Option<String>,
 
     #[arg(long, short, action = clap::ArgAction::SetTrue)]
     term_log_off: bool,
+
+    #[arg(long)]
+    otlp_trace_url: Option<String>,
+
+    #[arg(long)]
+    otlp_log_url: Option<String>,
+
+    #[arg(long)]
+    batch_size: Option<usize>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -79,8 +95,8 @@ enum AppMode {
         side: Side,
         symbol: Symbol,
         collateral_amount: Amount,
-        simple_server_config: Arc<dyn ServerConfig + Send + Sync>,
-        simple_server: Arc<RwLock<dyn Server + Send + Sync>>,
+        simple_server_config: Arc<SimpleServerConfig>,
+        simple_server: Arc<RwLock<SimpleServer>>,
     },
     FixServer {
         collateral_amount: Amount,
@@ -92,7 +108,7 @@ enum AppMode {
 }
 
 impl AppMode {
-    fn new(command: &Commands, address: Option<String>) -> Self {
+    fn new(command: &Commands, address: String) -> Self {
         match command {
             Commands::SendOrder {
                 side,
@@ -102,7 +118,8 @@ impl AppMode {
                 let config = SimpleServerConfig::builder()
                     .build_arc()
                     .expect("Failed to build server");
-                let server = config.expect_server_cloned();
+
+                let server = config.expect_simple_server_cloned();
 
                 AppMode::SendOrder {
                     side: *side,
@@ -114,7 +131,7 @@ impl AppMode {
             }
             Commands::FixServer { collateral_amount } => {
                 let config = FixServerConfig::builder()
-                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .address(address)
                     .build_arc()
                     .expect("Failed to build server");
 
@@ -125,7 +142,7 @@ impl AppMode {
             }
             Commands::QuoteServer {} => {
                 let config = FixServerConfig::builder()
-                    .address(address.as_deref().unwrap_or("127.0.0.1:3000"))
+                    .address(address)
                     .build_arc()
                     .expect("Failed to build server");
 
@@ -190,6 +207,18 @@ impl AppMode {
     }
 }
 
+fn get_otlp_url(value: Option<String>) -> Option<Option<String>> {
+    if let Some(value) = value {
+        if value.as_str().eq("default") {
+            Some(None)
+        } else {
+            Some(Some(value))
+        }
+    } else {
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Command line input
@@ -197,7 +226,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    init_log!(cli.log_path.clone(), cli.term_log_off);
+    log_init(
+        format!("{}=info,Binance=off", env!("CARGO_CRATE_NAME")),
+        cli.log_path.clone(),
+        cli.term_log_off,
+        get_otlp_url(cli.otlp_trace_url),
+        get_otlp_url(cli.otlp_log_url),
+        cli.batch_size,
+    );
 
     match &cli.command {
         Commands::SendOrder {
@@ -211,9 +247,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::QuoteServer {} => tracing::info!("Quote FIX Server"),
     }
 
-    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDC".into());
+    let config_path = cli.config_path.unwrap_or("configs".into());
+    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
+    let bind_address = cli.bind_address.unwrap_or(String::from("127.0.0.1:3000"));
 
-    let app_mode = AppMode::new(&cli.command, None);
+    let app_mode = AppMode::new(&cli.command, bind_address);
 
     // ==== Configuration parameters
     // ----
@@ -244,43 +282,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap_or_default();
 
-    let credentials = Credentials::new(
-        String::from("BinanceAccount-1"),
-        trading_enabled,
-        move || env::var("BINANCE_API_KEY").ok(),
-        move || env::var("BINANCE_API_SECRET").ok(),
-        move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
-        move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
-    );
+    let credentials = if cli.simulate_sender {
+        tracing::warn!("Using simulated order sender");
+        OrderSenderCredentials::Simple
+    } else {
+        tracing::info!(
+            "Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading"
+        );
+        OrderSenderCredentials::Binance(vec![Credentials::new(
+            String::from("BinanceAccount-1"),
+            trading_enabled,
+            move || env::var("BINANCE_API_KEY").ok(),
+            move || env::var("BINANCE_API_SECRET").ok(),
+            move || env::var("BINANCE_PRIVATE_KEY_FILE").ok(),
+            move || env::var("BINANCE_PRIVATE_KEY_PHRASE").ok(),
+        )])
+    };
 
     // ==== Fake stuff
     // ----
-
-    let symbols = ["BNB", "ETH"];
-
-    // Fake index assets (btw: these should be assets and not markets)
-    let symbols = symbols
-        .into_iter()
-        .map(|s| format!("{}{}", s, main_quote_currency))
-        .map(Symbol::from)
-        .collect_vec();
-
-    let weights = [dec!(0.6), dec!(0.4)];
-    let index_symbol = Symbol::from("SO2");
-
-    let assets = symbols
-        .iter()
-        .map(|s| Arc::new(Asset::new(s.clone())))
-        .collect_vec();
-
-    let asset_weights = assets
-        .iter()
-        .zip(weights)
-        .map(|(asset, weight)| AssetWeight::new(asset.clone(), weight))
-        .collect_vec();
-
-    let basket_definition = BasketDefinition::try_new(asset_weights.into_iter())
-        .expect("Failed to create basket definition");
 
     let router_config = SimpleCollateralRouterConfig::builder()
         .chain_id(1u32)
@@ -305,10 +325,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----
 
     tracing::info!("Configuring solver...");
+    let basket_manager_config = BasketManagerConfig::builder()
+        .with_config_file(format!("{}/BasketManagerConfig.json", config_path))
+        .build()
+        .expect("Failed to build basket manager");
+
+    let symbols = basket_manager_config.get_symbols();
+    //let asset_manager = basket_manager_config.expect_asset_manager_cloned();
+    // Here all json of basket and assets are loaded
 
     let market_data_config = MarketDataConfig::builder()
         .zero_threshold(zero_threshold)
-        .symbols(symbols.clone())
+        .subscriptions(
+            symbols
+                .iter()
+                .map(|s| Subscription::new(s.clone(), Symbol::from("Binance")))
+                .collect_vec(),
+        )
         .with_price_tracker(true)
         .with_book_manager(true)
         .build()
@@ -317,7 +350,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let price_tracker = market_data_config.expect_price_tracker_cloned();
 
     let order_sender_config = OrderSenderConfig::builder()
-        .credentials(vec![credentials])
+        .credentials(credentials)
         .symbols(symbols.clone())
         .build()
         .expect("Failed to build order sender");
@@ -341,10 +374,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_batch_size(max_batch_size)
         .build()
         .expect("Failed to build batch manager");
-
-    let basket_manager_config = BasketManagerConfig::builder()
-        .build()
-        .expect("Failed to build basket manager");
 
     let collateral_manager_config = CollateralManagerConfig::builder()
         .zero_threshold(zero_threshold)
@@ -403,23 +432,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Awaiting market data...");
     loop {
         sleep(std::time::Duration::from_secs(1)).await;
-        let reslult = price_tracker
+        let result = price_tracker
             .read()
             .get_prices(PriceType::BestAsk, &symbols);
-        if reslult.missing_symbols.is_empty() {
+
+        if result.missing_symbols.is_empty() {
             break;
+        } else {
+            tracing::info!(
+                "Awaiting market data for: {}",
+                result
+                    .missing_symbols
+                    .into_iter()
+                    .map(|s| format!("{}", s))
+                    .join(", ")
+            );
         }
     }
-
-    tracing::info!("Sending index weights...");
-
-    simple_chain
-        .write()
-        .expect("Failed to lock chain connector")
-        .publish_event(ChainNotification::CuratorWeightsSet(
-            index_symbol,
-            basket_definition,
-        ));
 
     sleep(std::time::Duration::from_secs(2)).await;
 
@@ -449,7 +478,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             simple_server
                 .write()
-                .publish_event(&Arc::new(ServerEvent::NewIndexOrder {
+                .notify_server_event(&Arc::new(ServerEvent::NewIndexOrder {
                     chain_id: 1,
                     address: get_mock_address_1(),
                     client_order_id: timestamp_order_ids.write().make_timestamp_id("C-"),
@@ -472,6 +501,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .publish_event(ChainNotification::Deposit {
                     chain_id: 1,
                     address: get_mock_address_1(),
+                    amount: *collateral_amount,
+                    timestamp: Utc::now(),
+                });
+
+            simple_chain
+                .write()
+                .expect("Failed to lock chain connector")
+                .publish_event(ChainNotification::Deposit {
+                    chain_id: 1,
+                    address: get_mock_address_2(),
                     amount: *collateral_amount,
                     timestamp: Utc::now(),
                 });

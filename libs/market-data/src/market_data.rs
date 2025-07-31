@@ -1,28 +1,32 @@
-use std::{sync::Arc, usize};
+use std::sync::Arc;
 
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
-    core::{
-        bits::Symbol,
-        functional::{IntoObservableManyArc, MultiObserver},
-    },
-    market_data::market_data_connector::{MarketDataConnector, MarketDataEvent},
+    core::functional::{IntoObservableManyArc, MultiObserver},
+    market_data::market_data_connector::{MarketDataConnector, MarketDataEvent, Subscription},
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::arbiter::Arbiter;
-use crate::subscriptions::Subscriptions;
-pub struct BinanceMarketData {
+use crate::{subscriber::SubscriberTaskFactory, subscriptions::Subscriptions};
+
+pub struct RealMarketData {
     observer: Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>>,
     subscriptions: Arc<AtomicLock<Subscriptions>>,
-    subscription_rx: Option<UnboundedReceiver<Symbol>>,
+    subscription_rx: Option<UnboundedReceiver<Subscription>>,
     arbiter: Arbiter,
     max_subscriber_symbols: usize,
+    subscription_check_period: std::time::Duration,
+    subscriber_task_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
 }
 
-impl BinanceMarketData {
-    pub fn new(max_subscriber_symbols: usize) -> Self {
+impl RealMarketData {
+    pub fn new(
+        max_subscriber_symbols: usize,
+        subscription_check_period: std::time::Duration,
+        subscriber_task_factory: Arc<dyn SubscriberTaskFactory + Send + Sync>,
+    ) -> Self {
         let (subscription_sender, subscription_rx) = unbounded_channel();
         Self {
             observer: Arc::new(AtomicLock::new(MultiObserver::new())),
@@ -30,6 +34,8 @@ impl BinanceMarketData {
             subscription_rx: Some(subscription_rx),
             arbiter: Arbiter::new(),
             max_subscriber_symbols,
+            subscription_check_period,
+            subscriber_task_factory,
         }
     }
 
@@ -44,6 +50,8 @@ impl BinanceMarketData {
             subscription_rx,
             self.observer.clone(),
             self.max_subscriber_symbols,
+            self.subscription_check_period,
+            self.subscriber_task_factory.clone(),
         );
 
         Ok(())
@@ -66,13 +74,13 @@ impl BinanceMarketData {
     }
 }
 
-impl MarketDataConnector for BinanceMarketData {
-    fn subscribe(&self, symbols: &[Symbol]) -> Result<()> {
-        self.subscriptions.write().subscribe(symbols)
+impl MarketDataConnector for RealMarketData {
+    fn subscribe(&self, subscriptions: &[Subscription]) -> Result<()> {
+        self.subscriptions.write().subscribe(subscriptions)
     }
 }
 
-impl IntoObservableManyArc<Arc<MarketDataEvent>> for BinanceMarketData {
+impl IntoObservableManyArc<Arc<MarketDataEvent>> for RealMarketData {
     fn get_multi_observer_arc(&self) -> &Arc<AtomicLock<MultiObserver<Arc<MarketDataEvent>>>> {
         &self.observer
     }
