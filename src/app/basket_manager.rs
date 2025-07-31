@@ -7,7 +7,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use symm_core::core::bits::Symbol;
 
-use crate::index::{basket::Basket, basket_manager::BasketManager};
+use index_core::index::{basket::Basket, basket_manager::BasketManager};
 
 #[derive(Clone, Builder)]
 #[builder(

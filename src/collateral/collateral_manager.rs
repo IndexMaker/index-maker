@@ -19,12 +19,11 @@ use symm_core::core::{
 };
 use tracing::{span, Level};
 
-use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
+use crate::{server::fix::requests, solver::solver::{CollateralManagement, SetSolverOrderStatus}};
 
-use super::{
-    collateral_position::*,
-    collateral_router::{CollateralRouter, CollateralTransferEvent},
-};
+use index_core::collateral::collateral_router::{CollateralRouter, CollateralTransferEvent};
+
+use super::collateral_position::*;
 
 #[derive(WithBaggage)]
 pub enum CollateralEvent {
@@ -123,7 +122,7 @@ impl CollateralManager {
                             client_order_id = %request.client_order_id,
                             collateral_amount = %request.collateral_amount,
                             %unconfirmed_balance,
-                            "Awaiting deposit",
+                            "Awaiting more deposit",
                         );
                         Either::Right(request)
                     } else {
@@ -138,6 +137,13 @@ impl CollateralManager {
                         Either::Left(request)
                     }
                 } else {
+                    tracing::debug!(
+                        chain_id = %request.chain_id,
+                        address = %request.address,
+                        client_order_id = %request.client_order_id,
+                        collateral_amount = %request.collateral_amount,
+                        "Awaiting deposit",
+                    );
                     Either::Right(request)
                 }
             });
@@ -455,15 +461,14 @@ mod test {
     };
 
     use crate::{
-        collateral::{
-            collateral_manager::PreAuthStatus, collateral_router::test_util::build_test_router,
-        },
+        collateral::collateral_manager::PreAuthStatus,
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
             solver_order::{SolverOrder, SolverOrderStatus},
             solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
+    use index_core::collateral::collateral_router::test_util::build_test_router;
 
     use super::{CollateralEvent, CollateralManager, CollateralManagerHost, ConfirmStatus};
 

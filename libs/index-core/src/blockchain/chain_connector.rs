@@ -39,6 +39,14 @@ pub enum ChainNotification {
         amount: Amount,
         timestamp: DateTime<Utc>,
     },
+    ChainConnected {
+        chain_id: u32,
+        timestamp: DateTime<Utc>,
+    },
+    ChainDisconnected {
+        chain_id: u32,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// Connects to some Blockchain
@@ -65,7 +73,6 @@ pub trait ChainConnector: IntoObservableSingleVTable<ChainNotification> {
 }
 
 /// Mock implementations of the traits
-#[cfg(test)]
 pub mod test_util {
     use std::sync::Arc;
 

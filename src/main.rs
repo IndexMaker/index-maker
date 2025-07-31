@@ -1,6 +1,8 @@
+use alloy::primitives::address;
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
+use index_core::blockchain::chain_connector::ChainNotification;
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -21,7 +23,6 @@ use index_maker::{
         },
         timestamp_ids::TimestampOrderIdsConfig,
     },
-    blockchain::chain_connector::ChainNotification,
     server::server::ServerEvent,
 };
 use itertools::Itertools;
@@ -272,6 +273,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
+    let chain_addresses_to_fund = vec![
+        (1, get_mock_address_1()),
+        (2, get_mock_address_1()),
+        (1, get_mock_address_2()),
+        (2, get_mock_address_2()),
+        (1, address!("0x1234567890abcdef1234567890abcdef12345678")),
+        (2, address!("0x1234567890abcdef1234567890abcdef12345678")),
+    ];
+
     let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
         .map(|s| {
             1 == s
@@ -493,25 +503,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             tracing::info!("Sending deposit...");
 
-            simple_chain
-                .write()
-                .expect("Failed to lock chain connector")
-                .publish_event(ChainNotification::Deposit {
-                    chain_id: 1,
-                    address: get_mock_address_1(),
-                    amount: *collateral_amount,
-                    timestamp: Utc::now(),
-                });
-
-            simple_chain
-                .write()
-                .expect("Failed to lock chain connector")
-                .publish_event(ChainNotification::Deposit {
-                    chain_id: 1,
-                    address: get_mock_address_2(),
-                    amount: *collateral_amount,
-                    timestamp: Utc::now(),
-                });
+            for (chain_id, address) in chain_addresses_to_fund {
+                simple_chain
+                    .write()
+                    .expect("Failed to lock chain connector")
+                    .publish_event(ChainNotification::Deposit {
+                        chain_id,
+                        address,
+                        amount: *collateral_amount,
+                        timestamp: Utc::now(),
+                    });
+            }
 
             tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {:?})", fix_server_config.address);
         }

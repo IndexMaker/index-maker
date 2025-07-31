@@ -1227,18 +1227,17 @@ mod test {
         },
     };
 
-    use crate::{
-        index::basket::{AssetWeight, Basket, BasketDefinition},
+    use index_core::index::basket::{AssetWeight, Basket, BasketDefinition};
+
+    use crate::solver::{
+        batch_manager::BatchEvent,
+        index_order_manager::EngagedIndexOrder,
         solver::{
-            batch_manager::BatchEvent,
-            index_order_manager::EngagedIndexOrder,
-            solver::{
-                EngagedSolverOrders, EngagedSolverOrdersSide, SetSolverOrderStatus,
-                SolverOrderEngagement,
-            },
-            solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
-            solver_quote::{SolverQuote, SolverQuoteStatus},
+            EngagedSolverOrders, EngagedSolverOrdersSide, SetSolverOrderStatus,
+            SolverOrderEngagement,
         },
+        solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
+        solver_quote::{SolverQuote, SolverQuoteStatus},
     };
 
     use super::{BatchAssetLot, BatchAssetPosition, BatchManager, BatchManagerHost};

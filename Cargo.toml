@@ -1,12 +1,14 @@
 [workspace]
 members = [
     ".",
+    "libs/alloy-evm-connector",
     "libs/axum-fix-server",
     "libs/binance-market-data",
     "libs/binance-order-sending",
     "libs/bitget-market-data",
     "libs/market-data",
     "libs/symm-core",
+    "libs/index-core",
     "examples",
     "proc-macros/derive-with-baggage",
     "proc-macros/safe-math",
@@ -23,53 +25,56 @@ alpine-deploy = ["openssl/vendored"]
 
 [dependencies]
 alloy = { workspace = true }
+alloy-evm-connector = { workspace = true }
 async-trait = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 bitget-market-data = { workspace = true }
-market-data = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
-derive_builder = { workspace = true }
 derive-with-baggage = { workspace = true }
+derive_builder = { workspace = true }
+ethers = { workspace = true }
+ethers-core = { workspace = true }
+ethers-signers = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
+hex = { workspace = true }
+index-core = { workspace = true }
 intrusive-collections = { workspace = true }
 itertools = { workspace = true }
+k256 = { workspace = true }
+market-data = { workspace = true }
 openssl = { workspace = true, optional = true }
+opentelemetry = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 parking_lot = { workspace = true }
+rand_core = { workspace = true }
 rust_decimal = { workspace = true }
 safe-math = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 string_cache = { workspace = true }
 symm-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true }
-opentelemetry-appender-tracing = { workspace = true }
-ethers-core = { workspace = true }
-k256 = { workspace = true }
-hex = { workspace = true }
-rand_core = { workspace = true }
-ethers = { workspace = true }
-ethers-signers = { workspace = true }
-sha2 = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
 test-case = { workspace = true }
 
 [workspace.dependencies]
-alloy = "0.14.0"
+alloy = { version = "1.0.9", features = ["full"] }
+alloy-evm-connector = { path = "./libs/alloy-evm-connector" }
 async-trait = "0.1.88"
 axum = { version = "0.7", features = ["ws"] }
 axum-fix-server = { path = "./libs/axum-fix-server" }
@@ -77,34 +82,45 @@ axum-server = "0.6"
 base64 = "0.22.1"
 binance-market-data = { path = "libs/binance-market-data" }
 binance-order-sending = { path = "libs/binance-order-sending" }
-binance-sdk = { version = "^7.0.0", features = ["spot"] }
 #binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
+binance-sdk = { version = "^7.0.0", features = ["spot"] }
 bitget-market-data = { path = "libs/bitget-market-data" }
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8.4"
-derive_builder = "^0.10"
 derive-with-baggage = { path = "./proc-macros/derive-with-baggage" }
+derive_builder = "^0.10"
+dotenv = "0.15"
+ethers = "1.0"
+ethers-core = "1.0"
+ethers-signers = "1"
 eyre = "0.6.12"
 futures-util = "0.3.31"
+hex = "0.4"
+index-core = { path = "./libs/index-core" }
 index-maker = { path = "." }
 intrusive-collections = "0.9.7"
 itertools = "0.14.0"
+k256 = { version = "0.13.3", features = ["ecdsa", "arithmetic"] }
 market-data = { path = "libs/market-data" }
+merkle-tree-rs = "0.1.0"
 openssl = { version = "^0.10" }
 opentelemetry = { version = "0.30", features = ["trace", "metrics", "logs"] }
-opentelemetry-otlp = { version = "0.30", default-features = false, features = ["trace", "http-proto", "reqwest-client", "tokio", "logs"] }
-opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio", "logs"] }
 opentelemetry-appender-tracing = "0.30.1"
+opentelemetry-otlp = { version = "0.30", default-features = false, features = ["trace", "http-proto", "reqwest-client", "tokio", "logs"] }
 opentelemetry-semantic-conventions = "0.30"
+opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio", "logs"] }
 parking_lot = "0.12.4"
 paste = "1.0.15"
 quote = "1.0.40"
 rand = "0.9.1"
+rand_core = "0.6"
+reqwest = "0.11"
 rust_decimal = { version = "1.37.2", features = ["macros"] }
 safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+sha2 = "0.10"
 string_cache = "0.8.9"
 symm-core = { path = "./libs/symm-core" }
 syn = "2.0.104"
@@ -112,14 +128,8 @@ test-case = "*"
 thiserror = "2.0.12"
 tokio = { version = "1.46.1", features = ["full"] }
 tokio-util = "0.7.15"
+toml = "0.8"
 tracing = "0.1"
 tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
-ethers-core = "2.0"
-k256 = { version = "0.13.3", features = ["ecdsa", "arithmetic"] }
-hex = "0.4"
-rand_core = "0.6"
-ethers = "2.0"
-ethers-signers = "2"
-sha2 = "0.10"
