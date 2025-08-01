@@ -1,5 +1,13 @@
 use std::{collections::HashSet, sync::Arc};
 
+use crate::server::{
+    fix::{
+        messages::{FixHeader, FixTrailer, RequestBody, ResponseBody},
+        requests::FixRequest,
+        responses::FixResponse,
+    },
+    server::{ServerEvent, ServerResponse},
+};
 use alloy::primitives::address;
 use axum_fix_server::{
     messages::{ServerResponse as AxumServerResponse, SessionId},
@@ -12,18 +20,15 @@ use axum_fix_server::{
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
 use eyre::{eyre, Result};
+use k256::elliptic_curve::generic_array::GenericArray;
+use k256::{
+    ecdsa::{signature::DigestSigner, Signature, SigningKey},
+    FieldBytes,
+};
+use sha2::{Digest, Sha256};
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
     functional::{IntoObservableManyVTable, NotificationHandler},
-};
-
-use crate::server::{
-    fix::{
-        messages::{FixHeader, FixTrailer, RequestBody, ResponseBody},
-        requests::FixRequest,
-        responses::FixResponse,
-    },
-    server::{ServerEvent, ServerResponse},
 };
 
 // A composite plugin that can wrap other plugins and delegate functionality.
@@ -437,10 +442,72 @@ impl ServerPlugin {
         header.add_target("CLIENT".to_string()); // Adjust target ID as per your logic
                                                  // SeqNum will be set later in process_outgoing or elsewhere if needed
 
+        let msg_type = header.msg_type.as_str();
+        let is_quote = msg_type.contains("Quote");
+
         let mut trailer = FixTrailer::new();
-        // Add public key and signature if required
-        trailer.add_public("SERVER_PUBLIC_KEY".to_string()); // Placeholder
-        trailer.add_signature("SERVER_SIGNATURE".to_string()); // Placeholder
+        
+        if !is_quote {
+            // Extract msg_type and id for payload
+            let id = match &body {
+                ResponseBody::NewOrderBody {
+                    client_order_id, ..
+                }
+                | ResponseBody::NewOrderFailBody {
+                    client_order_id, ..
+                }
+                | ResponseBody::IndexOrderFillBody {
+                    client_order_id, ..
+                } => client_order_id,
+                ResponseBody::IndexQuoteRequestBody {
+                    client_quote_id, ..
+                }
+                | ResponseBody::IndexQuoteRequestFailBody {
+                    client_quote_id, ..
+                }
+                | ResponseBody::IndexQuoteBody {
+                    client_quote_id, ..
+                } => client_quote_id,
+                _ => return Err(eyre!("Cannot extract id from response body")),
+            };
+
+            let payload = format!("{{\"msg_type\":\"{}\",\"id\":\"{}\"}}", msg_type, id);
+
+            // hash the minimized-payload using sha256
+            let mut hasher = Sha256::new();
+            hasher.update(payload.as_bytes());
+            let hash = hasher.finalize();
+
+            // load server private key from command
+            let priv_hex = std::env::var("SERVER_PRIVATE_KEY")
+                .map_err(|_| eyre!("SERVER_PRIVATE_KEY not set"))?
+                .trim_start_matches("0x")
+                .to_string();
+
+            let priv_bytes = hex::decode(priv_hex)?;
+            let priv_array: [u8; 32] = priv_bytes
+                .try_into()
+                .map_err(|_| eyre!("Private key must be 32 bytes"))?;
+
+            // signingKey from byte array
+            let priv_ga: &FieldBytes = GenericArray::from_slice(&priv_array);
+            let signing_key = SigningKey::from_bytes(priv_ga)
+                .map_err(|e| eyre!("Failed to parse private key: {}", e))?;
+
+            // sign the hash digest (I didnt use sign(), due to double hashed)
+            let signature: Signature =
+                signing_key.sign_digest(Sha256::new().chain_update(payload.as_bytes()));
+            let signature_hex = hex::encode(signature.to_bytes()); // 64-byte r||s
+
+            // get uncompressed pubkey (65 bytes, must start with 0x04)
+            let verifying_key = signing_key.verifying_key();
+            let pubkey_uncompressed = verifying_key.to_encoded_point(false);
+            let pubkey_hex = hex::encode(pubkey_uncompressed.as_bytes());
+
+            // set computed trailer
+            trailer.add_public(format!("0x{}", pubkey_hex));
+            trailer.add_signature(format!("0x{}", signature_hex));
+        }
 
         Ok(FixResponse {
             session_id,
