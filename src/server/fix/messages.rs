@@ -139,7 +139,7 @@ pub enum ResponseBody {
     },
     MintInvoiceBody {
         timestamp: DateTime<Utc>,
-        order_id: String,
+        client_order_id: String,
         index_id: String,
         collateral_spent: String,
         total_collateral: String,

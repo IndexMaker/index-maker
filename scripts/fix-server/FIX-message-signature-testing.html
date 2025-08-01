@@ -177,7 +177,9 @@
                 if (msg_type === "ACK" || msg_type === "NAK") return null;
                 if (
                   msg_type === "NewIndexOrder" ||
-                  msg_type === "CancelIndexOrder"
+                  msg_type === "CancelIndexOrder" ||
+                  msg_type === "IndexOrderFill" ||
+                  msg_type === "MintInvoice"
                 ) {
                   return {
                     msg_type: msg_type,

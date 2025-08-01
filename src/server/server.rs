@@ -187,7 +187,7 @@ pub enum ServerResponse {
         collateral_remaining: Amount,
         timestamp: DateTime<Utc>,
     },
-    #[error("MintInvoice: NAK [{chain_id}:{address}]")]
+    #[error("MintInvoice: [{chain_id}:{address}]")]
     MintInvoice {
         chain_id: u32,
         address: Address,

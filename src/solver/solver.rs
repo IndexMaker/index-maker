@@ -1923,7 +1923,7 @@ mod test {
                             chain_id,
                             address,
                             mint_invoice.index_id,
-                            mint_invoice.order_id,
+                            mint_invoice.client_order_id,
                             mint_invoice.collateral_spent,
                             mint_invoice.engaged_collateral,
                             mint_invoice.total_collateral,
