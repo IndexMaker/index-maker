@@ -28,10 +28,10 @@ pub enum SolverOrderStatus {
     PartlyMintable,
     FullyMintable,
     Minted,
-    MissingPrices,
     InvalidSymbol,
-    MathOverflow,
     InvalidOrder,
+    ServiceUnavailable,
+    InternalError,
 }
 
 /// Solver's view of the Index Order

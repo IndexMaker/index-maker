@@ -339,7 +339,7 @@ impl ServerPlugin {
                 "MintInvoice".to_string(),
                 ResponseBody::MintInvoiceBody {
                     timestamp: mint_invoice.timestamp,
-                    order_id: mint_invoice.order_id.to_string(),
+                    client_order_id: mint_invoice.client_order_id.to_string(),
                     index_id: mint_invoice.index_id.to_string(),
                     collateral_spent: mint_invoice.collateral_spent.to_string(),
                     total_collateral: mint_invoice.total_collateral.to_string(),
@@ -446,7 +446,7 @@ impl ServerPlugin {
         let is_quote = msg_type.contains("Quote");
 
         let mut trailer = FixTrailer::new();
-        
+
         if !is_quote {
             // Extract msg_type and id for payload
             let id = match &body {
@@ -457,6 +457,9 @@ impl ServerPlugin {
                     client_order_id, ..
                 }
                 | ResponseBody::IndexOrderFillBody {
+                    client_order_id, ..
+                }
+                | ResponseBody::MintInvoiceBody {
                     client_order_id, ..
                 } => client_order_id,
                 ResponseBody::IndexQuoteRequestBody {

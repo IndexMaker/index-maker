@@ -5,9 +5,13 @@ use eyre::Result;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::Decimal;
+use safe_math::safe;
 
 use crate::solver::solver_order::SolverOrderAssetLot;
-use symm_core::core::bits::{Address, Amount, ClientOrderId, PaymentId, Symbol};
+use symm_core::core::{
+    bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
+    decimal_ext::DecimalExt,
+};
 
 use super::index_order::{IndexOrder, IndexOrderUpdate};
 
@@ -50,8 +54,8 @@ impl IndexOrderUpdateReport {
 
 fn print_heading(
     title: &str,
-    index_order_read: &IndexOrder,
-    update_read: &IndexOrderUpdate,
+    index_order: &IndexOrder,
+    update: &IndexOrderUpdate,
     timestamp: DateTime<Utc>,
 ) {
     tracing::info!("(report) == {} == ", title);
@@ -59,31 +63,31 @@ fn print_heading(
     tracing::info!("(report) Date:  {} ", timestamp);
     tracing::info!(
         "(report) To:    [{}:{}]",
-        index_order_read.chain_id,
-        index_order_read.address
+        index_order.chain_id,
+        index_order.address
     );
-    tracing::info!("(report) Order: {}", update_read.client_order_id);
-    tracing::info!("(report) Index: {}", index_order_read.symbol);
+    tracing::info!("(report) Order: {}", update.client_order_id);
+    tracing::info!("(report) Index: {}", index_order.symbol);
     tracing::info!("(report)");
     tracing::info!(
         "(report) Collateral Spent: {:0.5}",
-        index_order_read.collateral_spent
+        index_order.collateral_spent
     );
     tracing::info!(
         "(report) Filed Quantity: {:0.5}",
-        index_order_read.filled_quantity
+        index_order.filled_quantity
     );
     tracing::info!("(report)");
     tracing::info!("(report)");
 }
 
 pub fn print_fill_report(
-    index_order_read: &IndexOrder,
-    update_read: &IndexOrderUpdate,
+    index_order: &IndexOrder,
+    update: &IndexOrderUpdate,
     fill_amount: Amount,
     timestamp: DateTime<Utc>,
 ) -> Result<()> {
-    print_heading("Fill Report", index_order_read, update_read, timestamp);
+    print_heading("Fill Report", index_order, update, timestamp);
     tracing::info!(
         "(report) {: ^22}| {: ^10} |{: ^10}",
         "Item",
@@ -100,28 +104,28 @@ pub fn print_fill_report(
     tracing::info!(
         "(report) {: <22}| {: >10.5} |{: >10.5}",
         "Total Filled",
-        update_read.filled_quantity,
-        update_read.collateral_spent
+        update.filled_quantity,
+        update.collateral_spent
     );
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <22}  {: <10} |{: >10.5}",
         "Collateral",
         "Remaining",
-        update_read.remaining_collateral + update_read.engaged_collateral.unwrap_or_default()
+        update.remaining_collateral + update.engaged_collateral.unwrap_or_default()
     );
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <22}  {: <10} |{: >10.5}",
         "of which",
         "Engaged",
-        update_read.engaged_collateral.unwrap_or_default()
+        update.engaged_collateral.unwrap_or_default()
     );
     tracing::info!(
         "(report) {: <22}  {: <10} |{: >10.5}",
         " ",
         "Unengaged",
-        update_read.remaining_collateral,
+        update.remaining_collateral,
     );
 
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
@@ -131,25 +135,24 @@ pub fn print_fill_report(
     tracing::info!("(report)");
     tracing::info!(
         "(report) To:    [{}:{}]",
-        index_order_read.chain_id,
-        index_order_read.address
+        index_order.chain_id,
+        index_order.address
     );
-    tracing::info!("(report) Index: {}", index_order_read.symbol);
+    tracing::info!("(report) Index: {}", index_order.symbol);
     tracing::info!("(report)");
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <22}| {: >10.5} |{: >10.5}",
         "Total Filled",
-        index_order_read.filled_quantity,
-        index_order_read.collateral_spent
+        index_order.filled_quantity,
+        index_order.collateral_spent
     );
     tracing::info!("(report) {}", (0..46).map(|_| "-").join(""));
     tracing::info!(
         "(report) {: <22}  {: <10} |{: >10.5}",
         "Total Collateral",
         "Remaining",
-        index_order_read.remaining_collateral
-            + index_order_read.engaged_collateral.unwrap_or_default()
+        index_order.remaining_collateral + index_order.engaged_collateral.unwrap_or_default()
     );
 
     tracing::info!("(report)");
@@ -158,14 +161,14 @@ pub fn print_fill_report(
 
 /// print minting invoice into log
 pub fn print_mint_invoice(
-    index_order_read: &IndexOrder,
-    update_read: &IndexOrderUpdate,
+    index_order: &IndexOrder,
+    update: &IndexOrderUpdate,
     payment_id: &PaymentId,
     amount_paid: Amount,
     lots: Vec<SolverOrderAssetLot>,
     timestamp: DateTime<Utc>,
 ) -> Result<()> {
-    print_heading("Mint Invoice", index_order_read, update_read, timestamp);
+    print_heading("Mint Invoice", index_order, update, timestamp);
     tracing::info!(
         "(report) {: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
         "Lot",
@@ -256,10 +259,9 @@ pub fn print_mint_invoice(
     );
 
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
-    let total_collateral = total_amount
-        + update_read.update_fee
-        + index_order_read.engaged_collateral.unwrap_or_default();
-    let total_paid = amount_paid + update_read.update_fee;
+    let total_collateral =
+        total_amount + update.update_fee + index_order.engaged_collateral.unwrap_or_default();
+    let total_paid = amount_paid + update.update_fee;
     tracing::info!(
         "(report) {: <46} Deposited     |{: >10.5}",
         "Collateral",
@@ -268,13 +270,13 @@ pub fn print_mint_invoice(
     tracing::info!(
         "(report) {: <46} Paid          |{: >10.5}",
         "Management Fee",
-        update_read.update_fee,
+        update.update_fee,
     );
     tracing::info!("(report) {: <46} Total Paid    |{: >10.5}", " ", total_paid,);
     tracing::info!(
         "(report) {: <46} Balance       |{: >10.5}",
         "Reached minting threshold before full spend",
-        index_order_read.engaged_collateral.unwrap_or_default()
+        index_order.engaged_collateral.unwrap_or_default()
     );
 
     tracing::info!("(report) {}", (0..72).map(|_| "-").join(""));
@@ -286,7 +288,7 @@ pub fn print_mint_invoice(
     tracing::info!(
         "(report) {: <46} Fill Rate     |{: >9.5}%",
         "Less management fee",
-        Amount::ONE_HUNDRED * amount_paid / (total_collateral - update_read.update_fee)
+        Amount::ONE_HUNDRED * amount_paid / (total_collateral - update.update_fee)
     );
     tracing::info!("(report)");
     Ok(())
@@ -295,7 +297,7 @@ pub fn print_mint_invoice(
 #[derive(Debug)]
 pub struct MintInvoice {
     pub timestamp: DateTime<Utc>,
-    pub order_id: ClientOrderId,
+    pub client_order_id: ClientOrderId,
     pub index_id: Symbol,
     pub collateral_spent: Decimal,
     pub total_collateral: Decimal,
@@ -308,8 +310,8 @@ pub struct MintInvoice {
 
 impl MintInvoice {
     pub fn try_new(
-        index_order_read: &IndexOrder,
-        update_read: &IndexOrderUpdate,
+        index_order: &IndexOrder,
+        update: &IndexOrderUpdate,
         payment_id: &PaymentId,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
@@ -318,8 +320,8 @@ impl MintInvoice {
         let lots_clone = lots.clone();
 
         print_mint_invoice(
-            index_order_read,
-            update_read,
+            index_order,
+            update,
             payment_id,
             amount_paid,
             lots,
@@ -330,16 +332,20 @@ impl MintInvoice {
             .iter()
             .map(|x| x.quantity * x.price + x.fee)
             .sum();
+
+        let total_collateral = safe!(
+            safe!(total_amount + update.update_fee)
+                + index_order.engaged_collateral.unwrap_or_default()
+        ).unwrap_or_default();
+
         Ok(Self {
             timestamp,
-            order_id: update_read.client_order_id.clone(),
-            index_id: index_order_read.symbol.clone(),
-            collateral_spent: index_order_read.collateral_spent,
-            total_collateral: total_amount
-                + update_read.update_fee
-                + index_order_read.engaged_collateral.unwrap_or_default(),
-            engaged_collateral: index_order_read.engaged_collateral.unwrap_or_default(),
-            management_fee: update_read.update_fee,
+            client_order_id: update.client_order_id.clone(),
+            index_id: index_order.symbol.clone(),
+            collateral_spent: index_order.collateral_spent,
+            total_collateral,
+            engaged_collateral: index_order.engaged_collateral.unwrap_or_default(),
+            management_fee: update.update_fee,
             payment_id: payment_id.clone(),
             amount_paid,
             lots: lots_clone,

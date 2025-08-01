@@ -248,7 +248,7 @@ impl Solver {
         for failed_order in failed_orders {
             let failed_status = failed_order.read().status;
             match failed_status {
-                SolverOrderStatus::MissingPrices => {
+                SolverOrderStatus::ServiceUnavailable => {
                     (|o: &SolverOrder| {
                         tracing::warn!(
                             chain_id = %o.chain_id,
@@ -277,6 +277,7 @@ impl Solver {
                             o.chain_id,
                             &o.address,
                             &o.client_order_id,
+                            &o.symbol,
                             failed_status,
                             timestamp,
                         )?
@@ -1922,7 +1923,7 @@ mod test {
                             chain_id,
                             address,
                             mint_invoice.index_id,
-                            mint_invoice.order_id,
+                            mint_invoice.client_order_id,
                             mint_invoice.collateral_spent,
                             mint_invoice.engaged_collateral,
                             mint_invoice.total_collateral,
