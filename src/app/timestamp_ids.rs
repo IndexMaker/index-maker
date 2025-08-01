@@ -23,7 +23,7 @@ impl TimestampOrderIds {
         T: From<String>,
     {
         let mut timestamp = Utc::now().timestamp_millis();
-        if timestamp == self.last_id {
+        if timestamp <= self.last_id {
             timestamp = self.last_id + 1;
         }
         self.last_id = timestamp;

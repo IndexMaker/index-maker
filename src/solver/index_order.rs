@@ -302,10 +302,16 @@ impl IndexOrder {
         Ok(())
     }
 
-    pub fn solver_cancel(&mut self, client_order_id: ClientOrderId, reason: &str) {
-        self.closed_updates.extend(self.order_updates.drain(..));
-        //todo!("figure this one out - solver didn't like this order")
+    pub fn solver_cancel(&mut self, client_order_id: &ClientOrderId, reason: &str) {
         tracing::warn!("Error in Order: {} {}", client_order_id, reason);
+        self.order_updates.retain(|o| {
+            if o.read().client_order_id.eq(client_order_id) {
+                self.closed_updates.push_back(o.clone());
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /// Drain

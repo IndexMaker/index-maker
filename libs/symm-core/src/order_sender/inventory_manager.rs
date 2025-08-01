@@ -326,6 +326,13 @@ impl InventoryManager {
         let mut guard = self.order_tracker.write();
         // Send all orders out
         for asset_order in &batch_order.asset_orders {
+            tracing::debug!(
+                order_id = %asset_order.order_id,
+                symbol = %asset_order.symbol,
+                side = ?asset_order.side,
+                price = %asset_order.price,
+                quantity = %asset_order.quantity,
+                "Sending order");
             guard
                 .new_order(Arc::new(SingleOrder {
                     order_id: asset_order.order_id.clone(),

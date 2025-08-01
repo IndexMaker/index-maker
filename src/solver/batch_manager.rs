@@ -621,7 +621,7 @@ impl BatchManager {
 
         tracing::info!(
             batch = %json!(batch.asset_orders.iter()
-                .map(|ba| (ba.side, json!(ba.symbol), ba.quantity, ba.price))
+                .map(|ba| (ba.order_id.as_str(), ba.side, json!(ba.symbol), ba.quantity, ba.price))
                 .collect_vec()
             ),
             "Sending Batch");
@@ -1022,7 +1022,7 @@ impl BatchManager {
                                     None => {
                                         host.set_order_status(
                                             &mut index_order_stored,
-                                            SolverOrderStatus::MathOverflow,
+                                            SolverOrderStatus::InternalError,
                                         );
                                         return;
                                     }

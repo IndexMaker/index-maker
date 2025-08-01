@@ -765,9 +765,29 @@ impl IndexOrderManager {
         chain_id: u32,
         address: &Address,
         client_order_id: &ClientOrderId,
+        symbol: &Symbol,
         status: SolverOrderStatus,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let index_order = self
+            .index_orders
+            .get_mut(&(chain_id, *address))
+            .and_then(|map| map.get_mut(symbol))
+            .ok_or_eyre("Cannot find index order")?;
+
+        index_order.write().solver_cancel(
+            client_order_id,
+            &format!("Failed with status: {:?}", status),
+        );
+
+        self.observer
+            .publish_single(IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                timestamp,
+            });
+
         self.server
             .write()
             .respond_with(ServerResponse::NewIndexOrderNak {
@@ -830,7 +850,7 @@ impl IndexOrderManager {
                         },
                     );
                 } else {
-                    index_order.solver_cancel(engage_order.client_order_id, "Math overflow");
+                    index_order.solver_cancel(&engage_order.client_order_id, "Math overflow");
                 }
             } else {
                 return Err(eyre!(

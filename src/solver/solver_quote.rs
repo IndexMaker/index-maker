@@ -16,10 +16,10 @@ use symm_core::core::{
 pub enum SolverQuoteStatus {
     Open,
     Ready,
-    MissingPrices,
     InvalidSymbol,
-    MathOverflow,
-    InvalidOrder,
+    InvalidQuote,
+    ServiceUnavailable,
+    InternalError,
 }
 
 pub struct SolverQuote {

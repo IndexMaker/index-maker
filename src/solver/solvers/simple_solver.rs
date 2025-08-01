@@ -598,6 +598,7 @@ impl SimpleSolver {
     /// initial value.
     fn compute_contribution_for_order<UpRead>(
         &self,
+        asset_prices: &HashMap<Symbol, Amount>,
         total_asset_liquidity: &HashMap<Symbol, Amount>,
         total_asset_quantities: &HashMap<Symbol, Amount>,
         order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
@@ -630,6 +631,21 @@ impl SimpleSolver {
                         asset_symbol
                     )
                 })?;
+
+            let asset_price = *asset_prices
+                .get(&asset_symbol)
+                .ok_or_eyre("Price of an asset must be known at this stage")?;
+
+            let total_asset_volume = safe!(total_asset_liquidity * asset_price)
+                .ok_or_eyre("Failed to compute total asset volume")?;
+
+            if total_asset_volume < self.min_asset_volley_size {
+                Err(eyre!(
+                    "Failed to obtain non-zero total asset liquidity for {} {}",
+                    client_order_id,
+                    asset_symbol
+                ))?;
+            }
 
             let total_asset_quantity =
                 *total_asset_quantities.get(&asset_symbol).ok_or_else(|| {
@@ -818,7 +834,7 @@ impl SimpleSolver {
             locked_order_batch,
             set_order_status,
             "computing quantities",
-            SolverOrderStatus::MathOverflow,
+            SolverOrderStatus::InternalError,
             |order_upread| {
                 self.compute_quantities_for_order(baskets, index_price_limits, order_upread)
             },
@@ -852,7 +868,7 @@ impl SimpleSolver {
             locked_order_batch,
             set_order_status,
             "capping volley size",
-            SolverOrderStatus::MathOverflow,
+            SolverOrderStatus::InternalError,
             |order_upread| {
                 self.cap_volley_size_for_order(volley_fraction, &order_quantities, order_upread)
             },
@@ -912,6 +928,7 @@ impl SimpleSolver {
         &self,
         locked_order_batch: &mut Vec<(OrderPtr, UpRead)>,
         set_order_status: SetOrderStatusFn,
+        asset_prices: &HashMap<Symbol, Amount>,
         total_asset_liquidity: &HashMap<Symbol, Amount>,
         total_asset_quantities: &HashMap<Symbol, Amount>,
         order_quantities: &HashMap<(Address, ClientOrderId), (Amount, HashMap<Symbol, Amount>)>,
@@ -925,9 +942,10 @@ impl SimpleSolver {
             locked_order_batch,
             set_order_status,
             "computing contributions",
-            SolverOrderStatus::MathOverflow,
+            SolverOrderStatus::InternalError,
             |order_upread| {
                 self.compute_contribution_for_order(
+                    asset_prices,
                     total_asset_liquidity,
                     total_asset_quantities,
                     order_quantities,
@@ -956,7 +974,7 @@ impl SimpleSolver {
             locked_order_batch,
             set_order_status,
             "computing asset contributions",
-            SolverOrderStatus::MathOverflow,
+            SolverOrderStatus::InternalError,
             |order_upread| {
                 self.compute_asset_contributions_for_order(
                     baskets,
@@ -986,7 +1004,7 @@ impl SimpleSolver {
             locked_order_batch,
             set_order_status,
             "computing asset contribution fractions",
-            SolverOrderStatus::MathOverflow,
+            SolverOrderStatus::InternalError,
             |order_upread| {
                 self.compute_asset_contribution_fractions_for_order(
                     total_asset_quantities,
@@ -1052,7 +1070,7 @@ impl SimpleSolver {
 
                 solved_quotes.push(quote_ptr.clone());
             } else {
-                set_quote_status(quote_upread, SolverQuoteStatus::MissingPrices);
+                set_quote_status(quote_upread, SolverQuoteStatus::ServiceUnavailable);
                 failed_quotes.push(quote_ptr.clone());
             }
         }
@@ -1141,6 +1159,7 @@ impl SimpleSolver {
         let (order_contributions, bad_compute_contributions) = self.compute_contributions_for(
             locked_order_batch,
             &set_order_status,
+            &asset_price_limits,
             &asset_liquidity,
             &total_asset_quantities,
             &order_quantities,
