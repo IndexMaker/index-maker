@@ -8,7 +8,7 @@ use symm_core::{
     core::{bits::Symbol, functional::MultiObserver},
     market_data::market_data_connector::{MarketDataEvent, Subscription},
 };
-use tokio::{sync::mpsc::unbounded_channel, time::sleep};
+use tokio::sync::mpsc::unbounded_channel;
 
 use crate::subscriber::{Subscriber, SubscriberTaskFactory};
 
@@ -89,6 +89,29 @@ impl Subscribers {
 
         let subscription_clone = subscrption.clone();
         sub.subscribe(&[subscription_clone])
+    }
+
+    pub fn check_stopped(&mut self) -> Result<Vec<Subscription>> {
+        let mut lost = Vec::new();
+
+        self.subscribers.retain_mut(|s| {
+            if s.has_stopped() {
+                let subs = s
+                    .get_subscriptions()
+                    .read()
+                    .get_subscriptions()
+                    .iter()
+                    .cloned()
+                    .collect_vec();
+
+                lost.extend(subs);
+                false
+            } else {
+                true
+            }
+        });
+
+        Ok(lost)
     }
 
     pub async fn stop_all(&mut self) -> Result<()> {

@@ -4,6 +4,12 @@ use std::{
     thread,
 };
 
+use index_core::{
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
+    collateral::collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
+    index::basket_manager::BasketNotification,
+};
+
 use crate::{
     app::{
         basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig,
@@ -11,12 +17,7 @@ use crate::{
         market_data::MarketDataConfig, order_sender::OrderSenderConfig,
         quote_request_manager::QuoteRequestManagerConfig,
     },
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
-    collateral::{
-        collateral_manager::CollateralEvent,
-        collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
-    },
-    index::basket_manager::BasketNotification,
+    collateral::collateral_manager::CollateralEvent,
     server::server::{Server, ServerEvent},
     solver::{
         batch_manager::BatchEvent,
@@ -39,8 +40,7 @@ use symm_core::{
     core::{
         bits::Amount,
         functional::{
-            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
-            IntoObservableSingleArc, IntoObservableSingleFun,
+            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle, IntoObservableSingleFun,
         },
         telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
     },
@@ -338,9 +338,7 @@ impl SolverConfig {
                 .set_observer_from(router_event_tx.clone());
         }
 
-        order_sender
-            .write()
-            .set_observer_from(order_event_tx);
+        order_sender.write().set_observer_from(order_event_tx);
 
         order_tracker
             .write()
@@ -375,6 +373,7 @@ impl SolverConfig {
         spawn(move || {
             tracing::info!("Backend started");
             loop {
+                tracing::debug!("Backend tick!");
                 select! {
                     recv(stop_backend_rx) -> _ => {
                         if let Err(err) = backend_stopped_tx.send(()) {
@@ -452,7 +451,7 @@ impl SolverConfig {
                                 tracing::trace!("Server order event");
                                 match index_order_manager.write() {
                                     Ok(mut manager) => if let Err(err) = manager.handle_server_message(&notification) {
-                                            tracing::warn!("Failed to handle index order event: {:?}", err);
+                                        tracing::warn!("Failed to handle index order event: {:?}", err);
                                     }
                                     Err(err) => {
                                         tracing::warn!("Failed to obtain lock on index order manager: {:?}", err);

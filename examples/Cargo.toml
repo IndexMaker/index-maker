@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 alloy = { workspace = true }
+alloy-evm-connector = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
@@ -15,11 +16,13 @@ clap = { workspace = true }
 crossbeam = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
+index-core = { workspace = true }
 index-maker = { workspace = true }
 itertools = { workspace = true }
 market-data = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -27,32 +30,48 @@ symm-core = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-
-
-[[example]]
-name="binance-market-data"
-path="binance_market_data/market_data.rs"
+tracing-subscriber = { workspace = true }
 
 [[example]]
-name="binance-order-book"
-path="binance_market_data/book_building.rs"
+name = "binance-market-data"
+path = "binance_market_data/market_data.rs"
 
 [[example]]
-name="binance-all-orders-rest"
-path="binance_order_sending/all_orders_rest.rs"
+name = "binance-order-book"
+path = "binance_market_data/book_building.rs"
 
 [[example]]
-name="binance-all-orders-wsapi"
-path="binance_order_sending/all_orders_wsapi.rs"
+name = "binance-all-orders-rest"
+path = "binance_order_sending/all_orders_rest.rs"
 
 [[example]]
-name="binance-logon-wsapi"
-path="binance_order_sending/logon_wsapi.rs"
+name = "binance-all-orders-wsapi"
+path = "binance_order_sending/all_orders_wsapi.rs"
 
 [[example]]
-name="binance-order-sending"
-path="binance_order_sending/main.rs"
+name = "binance-logon-wsapi"
+path = "binance_order_sending/logon_wsapi.rs"
 
 [[example]]
-name="fix-server"
-path="fix_server/main.rs"
+name = "binance-order-sending"
+path = "binance_order_sending/main.rs"
+
+[[example]]
+name = "fix-server"
+path = "fix_server/main.rs"
+
+[[example]]
+name = "evm-connector"
+path = "evm_connector/main.rs"
+
+[[example]]
+name = "generic-bridge"
+path = "evm_connector/generic_bridge.rs"
+
+[[example]]
+name = "erc20-bridge"
+path = "evm_connector/erc20_bridge.rs"
+
+[[example]]
+name = "across-bridge"
+path = "evm_connector/across_bridge.rs"

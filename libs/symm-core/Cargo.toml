@@ -14,6 +14,11 @@ eyre = { workspace = true }
 futures-util = { workspace = true }
 intrusive-collections = { workspace = true }
 itertools = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 safe-math = { workspace = true }
@@ -25,13 +30,8 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
-tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true }
-opentelemetry-appender-tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }

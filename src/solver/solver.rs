@@ -27,16 +27,17 @@ use symm_core::{
 };
 use tracing::{span, Level};
 
-use crate::{
+use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
-    collateral::{
-        collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
-        collateral_position::{ConfirmStatus, PreAuthStatus},
-    },
     index::{
         basket::Basket,
         basket_manager::{BasketManager, BasketNotification},
     },
+};
+
+use crate::collateral::{
+    collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
+    collateral_position::{ConfirmStatus, PreAuthStatus},
 };
 
 use super::{
@@ -585,6 +586,14 @@ impl Solver {
                 .write()
                 .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
                 .handle_withdrawal(self, chain_id, address, amount, timestamp),
+            ChainNotification::ChainConnected { chain_id, timestamp } => {
+                tracing::info!("(solver) Chain {} connected at {}", chain_id, timestamp);
+                Ok(())
+            }
+            ChainNotification::ChainDisconnected { chain_id, timestamp } => {
+                tracing::info!("(solver) Chain {} disconnected at {}", chain_id, timestamp);
+                Ok(())
+            }
         }
     }
 
@@ -1303,7 +1312,7 @@ mod test {
         },
     };
 
-    use crate::{
+    use index_core::{
         blockchain::chain_connector::test_util::{
             MockChainConnector, MockChainInternalNotification,
         },
@@ -1318,6 +1327,9 @@ mod test {
             basket::{AssetWeight, BasketDefinition},
             basket_manager::BasketNotification,
         },
+    };
+
+    use crate::{
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
         solver::solvers::simple_solver::SimpleSolver,
     };

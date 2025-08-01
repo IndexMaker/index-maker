@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    num,
     sync::Arc,
 };
 
@@ -170,20 +171,23 @@ impl Book {
         }
     }
 
-    fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<()> {
-        if !self.snapshot_requested {
-            if self.last_update_timestamp < expiry_time {
-                tracing::debug!(
-                    "Check stale for {} is stale and snapshot is needed (expiry_time: {}, last_update_timestamp: {}, last_update_id: {:?})",
-                    self.symbol,
-                    expiry_time,
-                    self.last_update_timestamp,
-                    self.last_update_id,
-                );
-                self.request_snapshot()?;
-            }
+    fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<bool> {
+        if expiry_time < self.last_update_timestamp {
+            return Ok(false);
         }
-        Ok(())
+
+        if !self.snapshot_requested {
+            tracing::debug!(
+                "Check stale for {} is stale and snapshot is needed (expiry_time: {}, last_update_timestamp: {}, last_update_id: {:?})",
+                self.symbol,
+                expiry_time,
+                self.last_update_timestamp,
+                self.last_update_id,
+            );
+            self.request_snapshot()?;
+        }
+
+        Ok(true)
     }
 
     fn request_snapshot(&mut self) -> Result<()> {
@@ -377,11 +381,24 @@ impl Books {
         }
     }
 
-    pub fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<()> {
-        for book in self.books.values_mut() {
-            book.check_stale(expiry_time)?;
+    pub fn check_stale(&mut self, expiry_time: DateTime<Utc>) -> Result<(usize, usize)> {
+        let (successes, failures): (Vec<_>, Vec<_>) = self
+            .books
+            .values_mut()
+            .map(|book| book.check_stale(expiry_time))
+            .partition_result();
+
+        if !failures.is_empty() {
+            Err(eyre!(
+                "Check stale failed {}",
+                failures.into_iter().map(|e| format!("{:?}", e)).join(";"),
+            ))?;
         }
-        Ok(())
+
+        let num_stale = successes.iter().filter(|&&b| b).count();
+        let num_books = self.books.len();
+
+        Ok((num_stale, num_books))
     }
 
     pub fn add_book(
