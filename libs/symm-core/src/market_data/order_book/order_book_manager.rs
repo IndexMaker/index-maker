@@ -30,17 +30,17 @@ pub trait OrderBookManager {
         side: Side,
         symbols: &HashMap<Symbol, Amount>,
     ) -> Result<HashMap<Symbol, Amount>>;
-    
+
     /// Get amount of liquidity available within specified number of book levels
-    /// 
+    ///
     /// # Arguments
     /// * `max_levels` - maximum number of book levels
     /// * `symbols` - list of symbols
-    /// 
+    ///
     /// # Returns
     /// Mapping between symbol and cumulative quantity available up until price
     /// at max levels
-    /// 
+    ///
     fn get_liquidity_levels(
         &self,
         side: Side,
@@ -154,7 +154,7 @@ impl OrderBookManager for PricePointBookManager {
 
         Ok(result)
     }
-    
+
     fn get_liquidity_levels(
         &self,
         side: Side,
@@ -174,8 +174,6 @@ impl OrderBookManager for PricePointBookManager {
 
         Ok(result)
     }
-
-    
 }
 
 impl IntoObservableSingle<OrderBookEvent> for PricePointBookManager {

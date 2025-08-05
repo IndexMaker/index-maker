@@ -13,7 +13,8 @@ use serde_json::json;
 use symm_core::{
     core::{
         bits::{
-            Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId, PricePointEntry, PriceType, Side, Symbol
+            Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
+            PricePointEntry, PriceType, Side, Symbol,
         },
         decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingContext, WithTracingData},
@@ -592,11 +593,17 @@ impl Solver {
                 .write()
                 .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
                 .handle_withdrawal(self, chain_id, address, amount, timestamp),
-            ChainNotification::ChainConnected { chain_id, timestamp } => {
+            ChainNotification::ChainConnected {
+                chain_id,
+                timestamp,
+            } => {
                 tracing::info!("(solver) Chain {} connected at {}", chain_id, timestamp);
                 Ok(())
             }
-            ChainNotification::ChainDisconnected { chain_id, timestamp } => {
+            ChainNotification::ChainDisconnected {
+                chain_id,
+                timestamp,
+            } => {
                 tracing::info!("(solver) Chain {} disconnected at {}", chain_id, timestamp);
                 Ok(())
             }
@@ -1229,12 +1236,14 @@ impl SolverStrategyHost for Solver {
     }
 
     fn get_liquidity_levels(
-            &self,
-            side: Side,
-            max_levels: usize,
-            symbols: &Vec<Symbol>,
-        ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
-        self.order_book_manager.read().get_liquidity_levels(side, max_levels, symbols)
+        &self,
+        side: Side,
+        max_levels: usize,
+        symbols: &Vec<Symbol>,
+    ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
+        self.order_book_manager
+            .read()
+            .get_liquidity_levels(side, max_levels, symbols)
     }
 
     fn get_total_volley_size(&self) -> Result<Amount> {

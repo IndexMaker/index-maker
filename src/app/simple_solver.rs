@@ -18,7 +18,7 @@ use symm_core::core::bits::Amount;
 pub struct SimpleSolverConfig {
     #[builder(setter(into, strip_option), default)]
     pub price_threshold: Amount,
-    
+
     #[builder(setter(into, strip_option), default)]
     pub max_levels: usize,
 

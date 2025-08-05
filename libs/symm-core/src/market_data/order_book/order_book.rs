@@ -362,7 +362,11 @@ pub mod test {
 
         assert!(matches!(liquidity_levels_result, Ok(_)));
 
-        assert_decimal_approx_eq!(liquidity_levels_result.unwrap().unwrap().quantity, dec!(110.0), tolerance);
+        assert_decimal_approx_eq!(
+            liquidity_levels_result.unwrap().unwrap().quantity,
+            dec!(110.0),
+            tolerance
+        );
 
         // Test that price point entry can be removed and updated
         let update_result = book.update_entries(

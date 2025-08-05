@@ -255,7 +255,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Configuration parameters
     // ----
 
-    let price_threshold = dec!(0.0001);
+    let price_threshold = dec!(0.01);
     let max_levels = 3usize;
     let fee_factor = dec!(1.001);
     let max_order_volley_size = dec!(20.0);
@@ -270,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mint_wait_period = TimeDelta::seconds(10);
 
     let max_batch_size = 4usize;
-    let zero_threshold = dec!(0.00001);
+    let zero_threshold = dec!(0.000000000000000001);
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::seconds(1);
 

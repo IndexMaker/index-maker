@@ -7,11 +7,12 @@ use std::{
 use eyre::{eyre, OptionExt, Result};
 use itertools::{Either, Itertools};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use rust_decimal::Decimal;
 use safe_math::safe;
 
 use serde_json::json;
 use symm_core::core::{
-    bits::{Address, Amount, ClientOrderId, PriceType, Side, Symbol},
+    bits::{self, Address, Amount, ClientOrderId, PricePointEntry, PriceType, Side, Symbol},
     decimal_ext::DecimalExt,
     telemetry::TracingData,
 };
@@ -250,6 +251,9 @@ impl SimpleSolver {
         side: Side,
         symbols: &Vec<Symbol>,
     ) -> Result<(HashMap<Symbol, Amount>, Vec<Symbol>)> {
+        let get_asset_price_limits_span = tracing::info_span!("get-asset-price-limits");
+        let _guard = get_asset_price_limits_span.enter();
+
         // Depending on order side, we want to cross the book on opposite side:w
         let (price_type, price_factor) = match side {
             Side::Buy => (
@@ -269,7 +273,7 @@ impl SimpleSolver {
 
         let prices_len = get_prices.prices.len();
 
-        tracing::info!(
+        tracing::debug!(
             price_map = %json!(
                 get_prices.prices.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
             ),
@@ -286,7 +290,7 @@ impl SimpleSolver {
             Err(eyre!("Math Problem: Failed to compute price limits"))?;
         }
 
-        tracing::info!(
+        tracing::debug!(
             price_factor = %price_factor,
             price_limit_map = %json!(
                 price_limits.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
@@ -295,6 +299,73 @@ impl SimpleSolver {
         );
 
         Ok((price_limits, get_prices.missing_symbols))
+    }
+
+    fn cap_asset_liquidity(
+        &self,
+        asset_liquidity_levels: HashMap<Symbol, Option<PricePointEntry>>,
+        mut asset_liquidity: HashMap<Symbol, Decimal>,
+        mut asset_price_limits: HashMap<Symbol, Decimal>,
+    ) -> Result<(HashMap<Symbol, Decimal>, HashMap<Symbol, Decimal>)> {
+        let cap_asset_liquidity_span = tracing::info_span!("cap-asset-liquidity");
+        let _guard = cap_asset_liquidity_span.enter();
+
+        let mut missing_levels = Vec::new();
+
+        tracing::debug!(
+            price_threshold = %self.price_threshold,
+            max_levels = %self.max_levels,
+            uncapped_price_limit_map = %json!(
+                asset_price_limits.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            uncapped_liquidity_map = %json!(
+                asset_liquidity.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            levels = %json!(
+                asset_liquidity_levels.iter().map(|(k,v)| (k, v.as_ref().map(|x| (x.price, x.quantity)))).collect::<HashMap<_, _>>()
+            ),
+            "Uncapped Asset Price Limits & Liquidity"
+        );
+
+        for (symbol, liquidity_levels) in asset_liquidity_levels {
+            if let Some(liquidity_levels) = liquidity_levels {
+                let price_limit = asset_price_limits
+                    .get_mut(&symbol)
+                    .ok_or_eyre("Missing price limit")?;
+
+                let liquidity = asset_liquidity
+                    .get_mut(&symbol)
+                    .ok_or_eyre("Missing liquidity")?;
+
+                if liquidity_levels.quantity < *liquidity {
+                    *price_limit = liquidity_levels.price;
+                    *liquidity = liquidity_levels.quantity;
+                }
+            } else {
+                missing_levels.push(symbol);
+            }
+        }
+
+        if !missing_levels.is_empty() {
+            Err(eyre!(
+                "Missing liquidity levels for: {}",
+                missing_levels.into_iter().join(", ")
+            ))?;
+        }
+
+        tracing::info!(
+            price_threshold = %self.price_threshold,
+            max_levels = %self.max_levels,
+            capped_price_limit_map = %json!(
+                asset_price_limits.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            capped_liquidity_map = %json!(
+                asset_liquidity.iter().map(|(k, v)| (k, v)).collect::<HashMap<_, _>>()
+            ),
+            "Capped Asset Liquidity"
+        );
+
+        Ok((asset_liquidity, asset_price_limits))
     }
 
     /// Write into log index price with all the assets int the Index basket
@@ -340,6 +411,9 @@ impl SimpleSolver {
         baskets: &HashMap<Symbol, Arc<Basket>>,
         asset_prices: &HashMap<Symbol, Amount>,
     ) -> (HashMap<Symbol, Amount>, Vec<Symbol>) {
+        let get_index_price_span = tracing::info_span!("get-index-price");
+        let _guard = get_index_price_span.enter();
+
         let (index_prices, bad): (Vec<_>, Vec<_>) = baskets
             .iter()
             .map(|(symbol, basket)| {
@@ -413,7 +487,7 @@ impl SimpleSolver {
         let index_order_quantity = safe!(collateral_usable / index_price)
             .ok_or_eyre("Index order quantity computation error")?;
 
-        tracing::info!(
+        tracing::debug!(
             %client_order_id,
             %collateral_amount,
             collateral_carried = %order_upread.collateral_carried,
@@ -431,7 +505,7 @@ impl SimpleSolver {
             .map_while(|basket_asset| {
                 let asset_symbol = &basket_asset.weight.asset.ticker;
                 let asset_quantity = safe!(basket_asset.quantity * index_order_quantity)?;
-                tracing::info!(
+                tracing::debug!(
                     %client_order_id,
                     %asset_symbol,
                     %asset_quantity,
@@ -473,7 +547,7 @@ impl SimpleSolver {
         let capped_order_quantity = safe!(order_quantity * volley_fraction)
             .ok_or_eyre("Cannot calculate capped order quantity")?;
 
-        tracing::info!(%client_order_id, %order_quantity, %capped_order_quantity,
+        tracing::debug!(%client_order_id, %order_quantity, %capped_order_quantity,
             "Capping volley size for Index Order");
 
         let mut capped_asset_quantities = HashMap::new();
@@ -485,7 +559,7 @@ impl SimpleSolver {
 
             capped_asset_quantities.insert(asset_symbol.clone(), capped_asset_quantity);
 
-            tracing::info!(%asset_symbol, %asset_quantity, %capped_asset_quantity,
+            tracing::debug!(%asset_symbol, %asset_quantity, %capped_asset_quantity,
                 "Capping volley size for Asset");
         }
 
@@ -693,7 +767,7 @@ impl SimpleSolver {
             // on price threshold, so that we don't wipe too many levels.
             fitting_order_quantity = fitting_order_quantity.min(possible_order_quantity);
 
-            tracing::info!(
+            tracing::debug!(
                 %client_order_id,
                 %asset_symbol,
                 %fitting_order_quantity,
@@ -807,7 +881,7 @@ impl SimpleSolver {
 
             asset_contribution_fractions.insert(asset_symbol.clone(), asset_contribution_fraction);
 
-            tracing::info!(
+            tracing::debug!(
                 %client_order_id,
                 %asset_symbol,
                 %total_asset_quantity,
@@ -834,15 +908,17 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        self.scan_order_batch(
-            locked_order_batch,
-            set_order_status,
-            "computing quantities",
-            SolverOrderStatus::InternalError,
-            |order_upread| {
-                self.compute_quantities_for_order(baskets, index_price_limits, order_upread)
-            },
-        )
+        tracing::info_span!("compute-quantites").in_scope(|| {
+            self.scan_order_batch(
+                locked_order_batch,
+                set_order_status,
+                "computing quantities",
+                SolverOrderStatus::InternalError,
+                |order_upread| {
+                    self.compute_quantities_for_order(baskets, index_price_limits, order_upread)
+                },
+            )
+        })
     }
 
     fn cap_volley_size<OrderPtr, UpRead, SetOrderStatusFn>(
@@ -868,15 +944,17 @@ impl SimpleSolver {
         let volley_fraction = safe!(max_volley_size / total_volley_size)
             .ok_or_eyre("Failed to compute volley fraction")?;
 
-        Ok(self.scan_order_batch(
-            locked_order_batch,
-            set_order_status,
-            "capping volley size",
-            SolverOrderStatus::InternalError,
-            |order_upread| {
-                self.cap_volley_size_for_order(volley_fraction, &order_quantities, order_upread)
-            },
-        ))
+        tracing::info_span!("cap-volley-size").in_scope(|| {
+            Ok(self.scan_order_batch(
+                locked_order_batch,
+                set_order_status,
+                "capping volley size",
+                SolverOrderStatus::InternalError,
+                |order_upread| {
+                    self.cap_volley_size_for_order(volley_fraction, &order_quantities, order_upread)
+                },
+            ))
+        })
     }
 
     fn pad_asset_volley_sizes(
@@ -884,6 +962,9 @@ impl SimpleSolver {
         asset_prices: &HashMap<Symbol, Amount>,
         total_asset_volley_size: HashMap<Symbol, Amount>,
     ) -> Result<HashMap<Symbol, Amount>> {
+        let pad_asset_volley_sizes_span = tracing::info_span!("pad-volley-sizes");
+        let _guard = pad_asset_volley_sizes_span.enter();
+
         let mut padded_asset_quantites = HashMap::new();
 
         for (symbol, asset_volley_size) in total_asset_volley_size {
@@ -942,21 +1023,23 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        self.scan_order_batch(
-            locked_order_batch,
-            set_order_status,
-            "computing contributions",
-            SolverOrderStatus::InternalError,
-            |order_upread| {
-                self.compute_contribution_for_order(
-                    asset_prices,
-                    total_asset_liquidity,
-                    total_asset_quantities,
-                    order_quantities,
-                    order_upread,
-                )
-            },
-        )
+        tracing::info_span!("compute-contributions").in_scope(|| {
+            self.scan_order_batch(
+                locked_order_batch,
+                set_order_status,
+                "computing contributions",
+                SolverOrderStatus::InternalError,
+                |order_upread| {
+                    self.compute_contribution_for_order(
+                        asset_prices,
+                        total_asset_liquidity,
+                        total_asset_quantities,
+                        order_quantities,
+                        order_upread,
+                    )
+                },
+            )
+        })
     }
 
     fn compute_asset_contributions_for<OrderPtr, UpRead, SetOrderStatusFn>(
@@ -974,19 +1057,21 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        self.scan_order_batch(
-            locked_order_batch,
-            set_order_status,
-            "computing asset contributions",
-            SolverOrderStatus::InternalError,
-            |order_upread| {
-                self.compute_asset_contributions_for_order(
-                    baskets,
-                    order_contributions,
-                    order_upread,
-                )
-            },
-        )
+        tracing::info_span!("compute-asset-contributions").in_scope(|| {
+            self.scan_order_batch(
+                locked_order_batch,
+                set_order_status,
+                "computing asset contributions",
+                SolverOrderStatus::InternalError,
+                |order_upread| {
+                    self.compute_asset_contributions_for_order(
+                        baskets,
+                        order_contributions,
+                        order_upread,
+                    )
+                },
+            )
+        })
     }
 
     fn compute_asset_contribution_fractions_for<OrderPtr, UpRead, SetOrderStatusFn>(
@@ -1004,19 +1089,21 @@ impl SimpleSolver {
         UpRead: Deref<Target = SolverOrder>,
         SetOrderStatusFn: Fn(&mut UpRead, SolverOrderStatus),
     {
-        self.scan_order_batch(
-            locked_order_batch,
-            set_order_status,
-            "computing asset contribution fractions",
-            SolverOrderStatus::InternalError,
-            |order_upread| {
-                self.compute_asset_contribution_fractions_for_order(
-                    total_asset_quantities,
-                    order_quantities,
-                    order_upread,
-                )
-            },
-        )
+        tracing::info_span!("compute-contribution-fractions").in_scope(|| {
+            self.scan_order_batch(
+                locked_order_batch,
+                set_order_status,
+                "computing asset contribution fractions",
+                SolverOrderStatus::InternalError,
+                |order_upread| {
+                    self.compute_asset_contribution_fractions_for_order(
+                        total_asset_quantities,
+                        order_quantities,
+                        order_upread,
+                    )
+                },
+            )
+        })
     }
 
     fn solve_quotes_for<QuotePtr, UpRead, SetQuoteStatusFn, SetQuantityPossibleFn>(
@@ -1124,6 +1211,18 @@ impl SimpleSolver {
             ))?;
         }
 
+        // Next we want to know available liquidity for all the assets
+        let asset_liquidity =
+            strategy_host.get_liquidity(side.opposite_side(), &asset_price_limits)?;
+
+        // We need to know how many levels we'd take, and limit that
+        let asset_liquidity_levels =
+            strategy_host.get_liquidity_levels(side.opposite_side(), self.max_levels, &symbols)?;
+
+        // Adjust available liquidity and price limits to take given levels
+        let (asset_liquidity, asset_price_limits) =
+            self.cap_asset_liquidity(asset_liquidity_levels, asset_liquidity, asset_price_limits)?;
+
         // We'll calculate highest index prices within price limits
         let (index_price_limits, bad_missing_index_prices) =
             self.get_index_price(&baskets, &asset_price_limits);
@@ -1135,13 +1234,6 @@ impl SimpleSolver {
                 bad_missing_index_prices.into_iter().join(", ")
             ))?;
         }
-
-        // Next we want to know available liquidity for all the assets
-        let asset_liquidity =
-            strategy_host.get_liquidity(side.opposite_side(), &asset_price_limits)?;
-
-        let asset_liquidity_levels =
-            strategy_host.get_liquidity_levels(side, self.max_levels, &symbols)?;
 
         // Then we need to know how much quantity of each asset is needed for
         // each index order to fill up available collateral.
@@ -1419,21 +1511,27 @@ impl SolverStrategy for SimpleSolver {
             upread.with_upgraded(|write| strategy_host.set_order_status(write, status))
         };
 
-        let (mut engaged_buys, failed_buys) = self.solve_engagements_for(
-            strategy_host,
-            Side::Buy,
-            max_volley_size,
-            &mut buys,
-            set_order_status,
-        )?;
+        let (mut engaged_buys, failed_buys) =
+            tracing::info_span!("solve-for-buys").in_scope(|| {
+                self.solve_engagements_for(
+                    strategy_host,
+                    Side::Buy,
+                    max_volley_size,
+                    &mut buys,
+                    set_order_status,
+                )
+            })?;
 
-        let (engaged_sells, failed_sells) = self.solve_engagements_for(
-            strategy_host,
-            Side::Sell,
-            max_volley_size,
-            &mut sells,
-            set_order_status,
-        )?;
+        let (engaged_sells, failed_sells) =
+            tracing::info_span!("solve-for-sells").in_scope(|| {
+                self.solve_engagements_for(
+                    strategy_host,
+                    Side::Sell,
+                    max_volley_size,
+                    &mut sells,
+                    set_order_status,
+                )
+            })?;
 
         if !engaged_sells.baskets.is_empty() {
             todo!("Selling isn't fully supported yet")
@@ -1607,18 +1705,36 @@ mod test {
         }
 
         fn get_liquidity_levels(
-                &self,
-                side: Side,
-                max_levels: usize,
-                symbols: &Vec<Symbol>,
-            ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
+            &self,
+            side: Side,
+            max_levels: usize,
+            symbols: &Vec<Symbol>,
+        ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
             let _ = symbols;
             let _ = max_levels;
             let _ = side;
             Ok(HashMap::from([
-                (get_mock_asset_name_1(), Some(PricePointEntry{ quantity: dec!(100.0), price: dec!(100.0)})),
-                (get_mock_asset_name_2(), Some(PricePointEntry{ quantity: dec!(200.0), price: dec!(200.0)})),
-                (get_mock_asset_name_3(), Some(PricePointEntry{ quantity: dec!(500.0), price: dec!(10.0)})),
+                (
+                    get_mock_asset_name_1(),
+                    Some(PricePointEntry {
+                        quantity: dec!(100.0),
+                        price: dec!(100.0),
+                    }),
+                ),
+                (
+                    get_mock_asset_name_2(),
+                    Some(PricePointEntry {
+                        quantity: dec!(200.0),
+                        price: dec!(200.0),
+                    }),
+                ),
+                (
+                    get_mock_asset_name_3(),
+                    Some(PricePointEntry {
+                        quantity: dec!(500.0),
+                        price: dec!(10.0),
+                    }),
+                ),
             ]))
         }
 

@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use super::config::ConfigBuildError;
-use binance_order_sending::{
-    binance_order_sending::BinanceOrderSending,
-    credentials::Credentials,
-};
+use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
 use chrono::Utc;
 use derive_builder::Builder;
 use eyre::{eyre, OptionExt, Result};
@@ -15,8 +12,7 @@ use symm_core::{
     core::{
         bits::{Amount, SingleOrder, Symbol},
         functional::{
-            IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle,
-            SingleObserver,
+            IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
         },
     },
     order_sender::{

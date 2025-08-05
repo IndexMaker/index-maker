@@ -40,7 +40,8 @@ use symm_core::{
     core::{
         bits::Amount,
         functional::{
-            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle, IntoObservableSingleFun,
+            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
+            IntoObservableSingleFun,
         },
         telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
     },
