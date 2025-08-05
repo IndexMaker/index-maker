@@ -13,8 +13,7 @@ use serde_json::json;
 use symm_core::{
     core::{
         bits::{
-            Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
-            PriceType, Side, Symbol,
+            Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId, PricePointEntry, PriceType, Side, Symbol
         },
         decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingContext, WithTracingData},
@@ -137,6 +136,12 @@ pub trait SolverStrategyHost: SetSolverOrderStatus {
         side: Side,
         symbols: &HashMap<Symbol, Amount>,
     ) -> Result<HashMap<Symbol, Amount>>;
+    fn get_liquidity_levels(
+        &self,
+        side: Side,
+        max_levels: usize,
+        symbols: &Vec<Symbol>,
+    ) -> Result<HashMap<Symbol, Option<PricePointEntry>>>;
     fn get_total_volley_size(&self) -> Result<Amount>;
 }
 
@@ -1223,6 +1228,15 @@ impl SolverStrategyHost for Solver {
         self.order_book_manager.read().get_liquidity(side, symbols)
     }
 
+    fn get_liquidity_levels(
+            &self,
+            side: Side,
+            max_levels: usize,
+            symbols: &Vec<Symbol>,
+        ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
+        self.order_book_manager.read().get_liquidity_levels(side, max_levels, symbols)
+    }
+
     fn get_total_volley_size(&self) -> Result<Amount> {
         let total_volley_size = self
             .batch_manager
@@ -1568,6 +1582,7 @@ mod test {
 
         let solver_strategy = Arc::new(SimpleSolver::new(
             dec!(0.01),
+            3,
             dec!(1.001),
             dec!(3000.0),
             dec!(2000.0),

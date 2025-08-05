@@ -256,6 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----
 
     let price_threshold = dec!(0.0001);
+    let max_levels = 3usize;
     let fee_factor = dec!(1.001);
     let max_order_volley_size = dec!(20.0);
     let max_volley_size = dec!(100.0);
@@ -391,6 +392,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let strategy_config = SimpleSolverConfig::builder()
         .price_threshold(price_threshold)
+        .max_levels(max_levels)
         .fee_factor(fee_factor)
         .max_order_volley_size(max_order_volley_size)
         .max_volley_size(max_volley_size)

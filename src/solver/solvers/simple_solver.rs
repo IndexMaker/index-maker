@@ -40,6 +40,8 @@ pub struct SimpleSolver {
     /// When testing for liquidity, this sets the limit as to how far from top
     /// of the book we want to go, e.g. 0.01 (max price move = 1%)
     price_threshold: Amount,
+    /// Max price levels to consume
+    max_levels: usize,
     /// When calculating quantity that collateral can buy, we need to factor in
     /// fees, e.g. 1.001 (max fee = 0.1%)
     fee_factor: Amount,
@@ -60,6 +62,7 @@ pub struct SimpleSolver {
 impl SimpleSolver {
     pub fn new(
         price_threshold: Amount,
+        max_levels: usize,
         fee_factor: Amount,
         max_order_volley_size: Amount,
         max_volley_size: Amount,
@@ -70,6 +73,7 @@ impl SimpleSolver {
     ) -> Self {
         Self {
             price_threshold,
+            max_levels,
             fee_factor,
             max_order_volley_size,
             max_volley_size,
@@ -1136,6 +1140,9 @@ impl SimpleSolver {
         let asset_liquidity =
             strategy_host.get_liquidity(side.opposite_side(), &asset_price_limits)?;
 
+        let asset_liquidity_levels =
+            strategy_host.get_liquidity_levels(side, self.max_levels, &symbols)?;
+
         // Then we need to know how much quantity of each asset is needed for
         // each index order to fill up available collateral.
         //
@@ -1599,6 +1606,22 @@ mod test {
             ]))
         }
 
+        fn get_liquidity_levels(
+                &self,
+                side: Side,
+                max_levels: usize,
+                symbols: &Vec<Symbol>,
+            ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
+            let _ = symbols;
+            let _ = max_levels;
+            let _ = side;
+            Ok(HashMap::from([
+                (get_mock_asset_name_1(), Some(PricePointEntry{ quantity: dec!(100.0), price: dec!(100.0)})),
+                (get_mock_asset_name_2(), Some(PricePointEntry{ quantity: dec!(200.0), price: dec!(200.0)})),
+                (get_mock_asset_name_3(), Some(PricePointEntry{ quantity: dec!(500.0), price: dec!(10.0)})),
+            ]))
+        }
+
         fn get_next_batch_order_id(&self) -> BatchOrderId {
             self.batch_order_ids
                 .borrow_mut()
@@ -1934,12 +1957,14 @@ mod test {
             ),
         ];
 
+        let max_levels = 3;
         let min_asset_volley_size = dec!(5.0);
         let asset_volley_step_size = dec!(0.2);
         let min_total_volley_available = dec!(1.0);
 
         let simple_solver = SimpleSolver::new(
             params.0,
+            max_levels,
             params.1,
             params.2,
             params.3,
