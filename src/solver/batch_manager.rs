@@ -174,12 +174,15 @@ impl BatchAssetPosition {
         mut quantity: Amount,
         tolerance: Amount,
     ) -> Option<(Amount, Amount)> {
+        let allocate_lots_span = tracing::info_span!("allocate-lots");
+        let _guard = allocate_lots_span.enter();
+
         let mut collateral_spent = Amount::ZERO;
         let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
             let asset_allocation = lot.build_solver_asset_lot(self.symbol.clone(), quantity)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
-            tracing::info!(
+            tracing::debug!(
                 client_order_id = %index_order.client_order_id,
                 lot_id = %asset_allocation.lot_id,
                 symbol = %asset_allocation.symbol,
@@ -403,6 +406,9 @@ impl BatchOrderStatus {
         &mut self,
         carry_overs: &mut HashMap<(Symbol, Side), BatchCarryOver>,
     ) -> Result<()> {
+        let carry_over_span = tracing::info_span!("carry-over");
+        let _guard = carry_over_span.enter();
+
         for ((symbol, side), position) in self.positions.iter_mut() {
             (|| {
                 if let Some(first) = position.open_lots.front_mut() {
@@ -411,7 +417,8 @@ impl BatchOrderStatus {
                     carried_lots.extend(position.open_lots.drain(1..));
                     let carried_position =
                         carried_lots.iter().map(|lot| lot.remaining_quantity).sum();
-                    tracing::info!(
+
+                    tracing::debug!(
                         symbol = %symbol,
                         side = ?side,
                         carried_position = %carried_position,
@@ -438,6 +445,7 @@ impl BatchOrderStatus {
             })()
             .ok_or_eyre("Failed to compute carried over position")?;
         }
+
         Ok(())
     }
 
@@ -647,6 +655,9 @@ impl BatchManager {
         batch: &mut BatchOrderStatus,
         engaged_order: &mut SolverOrderEngagement,
     ) -> Result<()> {
+        let fill_index_order_span = tracing::info_span!("fill-index-order");
+        let _guard = fill_index_order_span.enter();
+
         let fill_index_order_span = span!(Level::INFO, "fill-index-order");
         let _guard = fill_index_order_span.enter();
 
@@ -697,7 +708,7 @@ impl BatchManager {
             fill_rate = fill_rate.map_or(Some(available_fill_rate), |x: Amount| {
                 Some(x.min(available_fill_rate))
             });
-            tracing::info!(
+            tracing::debug!(
                 chain_id = %index_order_write.chain_id,
                 address = %index_order_write.address,
                 client_order_id = %index_order_write.client_order_id,
@@ -863,6 +874,9 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         batch: Arc<RwLock<BatchOrderStatus>>,
     ) -> Result<()> {
+        let fill_batch_orders_span = tracing::info_span!("fill-batch-orders");
+        let _guard = fill_batch_orders_span.enter();
+
         let batch_order_id = batch.read().batch_order_id.clone();
         let engagement = self
             .engagements
@@ -1138,6 +1152,14 @@ impl BatchManager {
             //
             let mut carry_overs = self.carry_overs.lock();
             batch.write().carry_over(&mut carry_overs)?;
+
+            tracing::info!(
+                carried_lots = %json!(
+                    carry_overs.iter().map(|((sym, side), v)|
+                        (sym.to_string(), (side, v.carried_position))).collect::<HashMap<_, _>>()
+                ),
+                "Carry overs"
+            );
 
             let engagement = self
                 .engagements

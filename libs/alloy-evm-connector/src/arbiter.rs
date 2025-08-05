@@ -1,10 +1,10 @@
 use eyre::Result;
+use itertools::Either;
+use parking_lot::RwLock as AtomicLock;
+use std::sync::Arc;
 use symm_core::core::async_loop::AsyncLoop;
 use tokio::sync::mpsc::UnboundedReceiver;
-use itertools::Either;
 use tokio::task::JoinError;
-use std::sync::Arc;
-use parking_lot::RwLock as AtomicLock;
 
 use crate::chain_operations::ChainOperations;
 use crate::commands::ChainOperationRequest;
@@ -28,20 +28,20 @@ impl Arbiter {
     /// Follows the exact binance pattern for parameter structure
     pub fn start(
         &mut self,
-        chain_operations: Arc<AtomicLock<ChainOperations>>,      // State management
+        chain_operations: Arc<AtomicLock<ChainOperations>>, // State management
         mut operation_rx: UnboundedReceiver<ChainOperationRequest>, // Input channel
-        max_chain_operations: usize,                            // Configuration
+        max_chain_operations: usize,                        // Configuration
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
             tracing::info!("Loop started");
-            
+
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     }
                     Some(request) = operation_rx.recv() => {
-                        
+
                         // Handle the request using ChainOperations methods
                         match ChainOperations::handle_chain_operation_request(
                             &chain_operations,
@@ -64,20 +64,21 @@ impl Arbiter {
                 let mut operations = chain_operations.write();
                 operations.drain_all()
             };
-            
+
             if let Err(err) = ChainOperations::stop_all(operations_to_stop).await {
                 tracing::warn!("Error stopping chain operations {:?}", err);
             }
-            
+
             tracing::info!("Loop exited");
             operation_rx
         });
     }
 
-
     /// Stop the arbiter and wait for completion
     /// Returns the input receiver following binance pattern
-    pub async fn stop(&mut self) -> Result<UnboundedReceiver<ChainOperationRequest>, Either<JoinError, eyre::Report>> {
+    pub async fn stop(
+        &mut self,
+    ) -> Result<UnboundedReceiver<ChainOperationRequest>, Either<JoinError, eyre::Report>> {
         self.arbiter_loop.stop().await
     }
 }

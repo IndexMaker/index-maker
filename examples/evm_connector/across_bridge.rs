@@ -146,9 +146,7 @@ async fn main() {
     // Create bridge using the generic method (it will automatically select Across bridge for cross-chain)
     let bridge = connector.create_bridge(source, destination);
 
-    let chain_id = config
-        .get_chain_id("arbitrum")
-        .unwrap();
+    let chain_id = config.get_chain_id("arbitrum").unwrap();
     let client_order_id = "C01".into();
     let route_from = "ARBITRUM".into();
     let route_to = "BASE".into();

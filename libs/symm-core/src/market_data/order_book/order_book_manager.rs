@@ -30,6 +30,23 @@ pub trait OrderBookManager {
         side: Side,
         symbols: &HashMap<Symbol, Amount>,
     ) -> Result<HashMap<Symbol, Amount>>;
+
+    /// Get amount of liquidity available within specified number of book levels
+    ///
+    /// # Arguments
+    /// * `max_levels` - maximum number of book levels
+    /// * `symbols` - list of symbols
+    ///
+    /// # Returns
+    /// Mapping between symbol and cumulative quantity available up until price
+    /// at max levels
+    ///
+    fn get_liquidity_levels(
+        &self,
+        side: Side,
+        max_levels: usize,
+        symbols: &Vec<Symbol>,
+    ) -> Result<HashMap<Symbol, Option<PricePointEntry>>>;
 }
 
 pub struct PricePointBookManager {
@@ -132,6 +149,26 @@ impl OrderBookManager for PricePointBookManager {
                 // get liquidity from order book
                 let liquidity = order_book.get_liquidity(side, price)?;
                 result.insert(symbol.clone(), liquidity);
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn get_liquidity_levels(
+        &self,
+        side: Side,
+        max_levels: usize,
+        symbols: &Vec<Symbol>,
+    ) -> Result<HashMap<Symbol, Option<PricePointEntry>>> {
+        let mut result = HashMap::new();
+
+        // get liquidity for each symbol
+        for symbol in symbols {
+            if let Some(order_book) = self.order_books.get(&symbol) {
+                // get liquidity from order book
+                let liquidity_entry = order_book.get_liquidity_levels(side, max_levels)?;
+                result.insert(symbol.clone(), liquidity_entry);
             }
         }
 

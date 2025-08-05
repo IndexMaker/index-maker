@@ -163,6 +163,35 @@ impl PricePointEntries {
 
         Ok(liquidity)
     }
+
+    pub fn get_liquidity_levels(&self, max_levels: usize) -> Result<Option<PricePointEntry>> {
+        let ops = PricePointEntriesOps::try_new(self.side, self.tolerance, Amount::default())
+            .ok_or(eyre!("Math overflow"))?;
+
+        let mut cursor = ops.begin_ops(&self.entries);
+        let mut liquidity = Amount::ZERO;
+        let mut price_limit = None;
+        let mut num_levels = 0;
+
+        while let Some(entry) = cursor.get() {
+            if max_levels == num_levels {
+                break;
+            }
+            liquidity = safe!(liquidity + entry.quantity.load()).ok_or(eyre!("Math overflow"))?;
+            price_limit.replace(entry.price);
+            ops.move_next(&mut cursor);
+            num_levels += 1;
+        }
+
+        if let Some(price) = price_limit {
+            Ok(Some(PricePointEntry {
+                price,
+                quantity: liquidity,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 pub struct PricePointBook {
@@ -206,6 +235,17 @@ impl PricePointBook {
         match side {
             Side::Buy => self.bid_entries.get_liquidity(price),
             Side::Sell => self.ask_entries.get_liquidity(price),
+        }
+    }
+
+    pub fn get_liquidity_levels(
+        &self,
+        side: Side,
+        max_levels: usize,
+    ) -> Result<Option<PricePointEntry>> {
+        match side {
+            Side::Buy => self.bid_entries.get_liquidity_levels(max_levels),
+            Side::Sell => self.ask_entries.get_liquidity_levels(max_levels),
         }
     }
 
@@ -317,6 +357,16 @@ pub mod test {
         assert!(matches!(liquidity_result, Ok(_)));
 
         assert_decimal_approx_eq!(liquidity_result.unwrap(), dec!(110.0), tolerance);
+
+        let liquidity_levels_result = book.get_liquidity_levels(Side::Buy, 2);
+
+        assert!(matches!(liquidity_levels_result, Ok(_)));
+
+        assert_decimal_approx_eq!(
+            liquidity_levels_result.unwrap().unwrap().quantity,
+            dec!(110.0),
+            tolerance
+        );
 
         // Test that price point entry can be removed and updated
         let update_result = book.update_entries(

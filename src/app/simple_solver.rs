@@ -20,6 +20,9 @@ pub struct SimpleSolverConfig {
     pub price_threshold: Amount,
 
     #[builder(setter(into, strip_option), default)]
+    pub max_levels: usize,
+
+    #[builder(setter(into, strip_option), default)]
     pub fee_factor: Amount,
 
     #[builder(setter(into, strip_option), default)]
@@ -81,6 +84,7 @@ impl SimpleSolverConfigBuilder {
 
         let simple_solver = Arc::new(SimpleSolver::new(
             config.price_threshold,
+            config.max_levels,
             config.fee_factor,
             config.max_order_volley_size,
             config.max_volley_size,

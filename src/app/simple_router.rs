@@ -11,10 +11,10 @@ use symm_core::core::{
     },
 };
 
+use eyre::{eyre, OptionExt, Result};
 use index_core::collateral::collateral_router::{
     CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
 };
-use eyre::{eyre, OptionExt, Result};
 
 struct SimpleDesignation {
     type_: Symbol,
