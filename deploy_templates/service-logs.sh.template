@@ -1,0 +1,3 @@
+#!/bin/sh
+
+docker-compose -f docker-compose.prod-<IMAGE_VERSION>.yaml logs -f quote-server

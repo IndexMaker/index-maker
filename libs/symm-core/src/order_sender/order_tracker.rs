@@ -185,9 +185,10 @@ impl OrderTracker {
                         {
                             // Should the remaining quantity on the order be zero, we deem it cancelled
                             if quantity_remaining < self.tolerance {
-                                order_entry
-                                    .set_status(OrderStatus::Cancelled { quantity_remaining });
-                                Ok((order_entry.clone(), quantity_remaining, true, true))
+                                order_entry.set_status(OrderStatus::Cancelled {
+                                    quantity_remaining: Amount::ZERO,
+                                });
+                                Ok((order_entry.clone(), Amount::ZERO, true, true))
                             } else {
                                 // ...otherwise there is quantity left, and we deem it alive
                                 order_entry.set_status(OrderStatus::Live { quantity_remaining });
@@ -260,22 +261,19 @@ impl OrderTracker {
                     "Order was rejected: {}", reason);
 
                 match self.update_order_status(order_id.clone(), quantity, true) {
-                    Ok((order_entry, quantity_remaining, was_live, is_cancelled)) => {
-                        // Notify about fills sending notification to subscriber (-> Inventory Manager)
-                        if was_live {
-                            self.observer
-                                .publish_single(OrderTrackerNotification::Cancel {
-                                    order_id,
-                                    batch_order_id: order_entry.order.batch_order_id.clone(),
-                                    symbol,
-                                    side,
-                                    original_quantity: order_entry.order.quantity,
-                                    quantity_cancelled: quantity,
-                                    quantity_remaining,
-                                    is_cancelled,
-                                    cancel_timestamp: timestamp,
-                                });
-                        } // otherwise we already notified in the fill
+                    Ok((order_entry, quantity_remaining, _, _)) => {
+                        self.observer
+                            .publish_single(OrderTrackerNotification::Cancel {
+                                order_id,
+                                batch_order_id: order_entry.order.batch_order_id.clone(),
+                                symbol,
+                                side,
+                                original_quantity: order_entry.order.quantity,
+                                quantity_cancelled: quantity,
+                                quantity_remaining,
+                                is_cancelled: true,
+                                cancel_timestamp: timestamp,
+                            });
                         Ok(())
                     }
                     Err(err) => Err(eyre!("Error for {} {}", order_id, err)),

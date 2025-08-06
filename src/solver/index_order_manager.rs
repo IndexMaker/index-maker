@@ -565,6 +565,20 @@ impl IndexOrderManager {
                         timestamp,
                     });
 
+                self.server
+                    .write()
+                    .respond_with(ServerResponse::IndexOrderFill {
+                        chain_id,
+                        address: *address,
+                        client_order_id: client_order_id.clone(),
+                        filled_quantity: Amount::ZERO,
+                        collateral_spent: update_collateral_spent,
+                        collateral_remaining: update_remaining_collateral,
+                        fill_rate: Amount::ZERO,
+                        status: "collateral ready".to_owned(),
+                        timestamp,
+                    });
+
                 Some(())
             })
             .ok_or_eyre("Failed to update index order")?;
@@ -703,6 +717,8 @@ impl IndexOrderManager {
         symbol: &Symbol,
         collateral_spent: Amount,
         fill_amount: Amount,
+        fill_rate: Amount,
+        status: SolverOrderStatus,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let (index_order, update) = self
@@ -725,7 +741,7 @@ impl IndexOrderManager {
                 Some(safe!(update.engaged_collateral? - collateral_spent)?);
 
             let collateral_remaining =
-                safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
+                safe!(update_engaged_collateral  + index_order.remaining_collateral)?;
 
             update.with_upgraded(|update| {
                 update.filled_quantity = update_filled_quantity;
@@ -739,6 +755,13 @@ impl IndexOrderManager {
                 index_order.engaged_collateral = index_order_engaged_collateral;
             });
 
+            let status_string = match status {
+                SolverOrderStatus::Engaged => "in progress",
+                SolverOrderStatus::PartlyMintable => "mintable",
+                SolverOrderStatus::FullyMintable => "fully mintable",
+                _ => "N/A",
+            };
+
             self.server
                 .write()
                 .respond_with(ServerResponse::IndexOrderFill {
@@ -748,6 +771,8 @@ impl IndexOrderManager {
                     filled_quantity: index_order.filled_quantity,
                     collateral_spent: index_order.collateral_spent,
                     collateral_remaining,
+                    fill_rate,
+                    status: status_string.to_owned(),
                     timestamp,
                 });
 
@@ -866,6 +891,7 @@ impl IndexOrderManager {
                 engaged_orders: engage_result,
                 timestamp: Utc::now(),
             });
+
         Ok(())
     }
 }

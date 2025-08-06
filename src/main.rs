@@ -35,7 +35,7 @@ use symm_core::{
         logging::log_init,
         test_util::{get_mock_address_1, get_mock_address_2},
     },
-    market_data::market_data_connector::Subscription,
+    market_data::market_data_connector::Subscription, order_sender::order_connector::SessionId,
 };
 use tokio::{
     signal::unix::{signal, SignalKind},
@@ -271,7 +271,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let max_batch_size = 4usize;
     let zero_threshold = dec!(0.000000000000000001);
-    let client_order_wait_period = TimeDelta::seconds(5);
+    let client_order_wait_period = TimeDelta::seconds(10);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
     let chain_addresses_to_fund = vec![
@@ -293,7 +293,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let credentials = if cli.simulate_sender {
         tracing::warn!("Using simulated order sender");
-        OrderSenderCredentials::Simple
+        OrderSenderCredentials::Simple(SessionId::from("SimpleSenderSession"))
     } else {
         tracing::info!(
             "Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading"

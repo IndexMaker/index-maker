@@ -156,7 +156,8 @@ impl SolverClientOrders {
         timestamp: DateTime<Utc>,
     ) -> Option<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.client_wait_period;
-        let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
+        let check_ready = move |x: &SolverOrder| x.timestamp < ready_timestamp;
+
         if let Some(front) = self.client_notify_queue.front().cloned() {
             if let Some(queue) = self.client_order_queues.get_mut(&front) {
                 if let Some(client_order_id) = queue.front() {
@@ -170,8 +171,7 @@ impl SolverClientOrders {
                         // process first in the queue, we can move to second etc.
                         // If we don't process first, then there is no point moving
                         // to second, as their timestamp will be higher.
-                        let not_ready = check_not_ready(&solver_order.read());
-                        if !not_ready {
+                        if check_ready(&solver_order.read()) {
                             self.client_notify_queue.pop_front();
                             return Some(solver_order);
                         }
@@ -182,14 +182,23 @@ impl SolverClientOrders {
         None
     }
 
-    pub fn put_back(&mut self, solver_order: Arc<RwLock<SolverOrder>>) {
+    pub fn put_back(&mut self, solver_order: Arc<RwLock<SolverOrder>>, timestamp: DateTime<Utc>) {
         let mut order_upread = solver_order.upgradable_read();
         let chain_id = order_upread.chain_id;
         let address = order_upread.address;
 
         order_upread.with_upgraded(|order_write| {
             order_write.status = SolverOrderStatus::Open;
+            order_write.timestamp = timestamp;
         });
+
+        let client_order_id = &order_upread.client_order_id;
+
+        tracing::warn!(
+            %chain_id,
+            %address,
+            %client_order_id,
+            "Order put back into the queue. Will retry in {}s", self.client_wait_period.as_seconds_f64());
 
         self.client_notify_queue.push_back((chain_id, address));
     }
@@ -490,7 +499,7 @@ mod test {
         assert!(matches!(order, Some(..)));
 
         // Put order back into the queue
-        solver_orders.put_back(order.unwrap());
+        solver_orders.put_back(order.unwrap(), timestamp);
 
         // Should give an order of second user back
         let order = solver_orders.get_next_client_order(timestamp);
