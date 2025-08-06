@@ -165,10 +165,21 @@ impl MultiLimiter {
         }
     }
 
+    pub fn check_limit(
+        &self,
+        weight: usize,
+        config: &LimiterConfig,
+        timestamp: DateTime<Utc>,
+    ) -> bool {
+        self.weights.current_weight(config.period, timestamp) + weight <= config.limit
+    }
+
     pub fn try_consume(&mut self, weight: usize, timestamp: DateTime<Utc>) -> bool {
-        if self.configs.iter().all(|config| {
-            self.weights.current_weight(config.period, timestamp) + weight <= config.limit
-        }) {
+        if self
+            .configs
+            .iter()
+            .all(|config| self.check_limit(weight, config, timestamp))
+        {
             self.weights.put_weight(weight, timestamp);
             true
         } else {
@@ -182,20 +193,41 @@ impl MultiLimiter {
     pub fn waiting_period(&self, release_weight: usize, timestamp: DateTime<Utc>) -> Duration {
         self.configs
             .iter()
-            .map(|config| {
-                self.weights
-                    .waiting_period(release_weight, config.period, timestamp)
+            .filter_map(|config| {
+                if !self.check_limit(release_weight, config, timestamp) {
+                    Some(
+                        self.weights
+                            .waiting_period(release_weight, config.period, timestamp),
+                    )
+                } else {
+                    None
+                }
             })
             .max()
             .unwrap_or_default()
     }
 
-    pub fn waiting_period_half_limit(&self, timestamp: DateTime<Utc>) -> Duration {
+    pub fn waiting_period_half_smallest_limit(&self, timestamp: DateTime<Utc>) -> Duration {
+        let release_weight = (self
+            .configs
+            .iter()
+            .map(|config| config.limit)
+            .min()
+            .unwrap_or_default()
+            / 2)
+        .max(1usize);
+
         self.configs
             .iter()
-            .map(|config| {
-                self.weights
-                    .waiting_period(config.limit / 2, config.period, timestamp)
+            .filter_map(|config| {
+                if !self.check_limit(release_weight, config, timestamp) {
+                    Some(
+                        self.weights
+                            .waiting_period(release_weight, config.period, timestamp),
+                    )
+                } else {
+                    None
+                }
             })
             .max()
             .unwrap_or_default()

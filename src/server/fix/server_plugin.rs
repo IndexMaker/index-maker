@@ -19,6 +19,7 @@ use axum_fix_server::{
     },
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
+use chrono::Utc;
 use eyre::{eyre, Result};
 use k256::elliptic_curve::generic_array::GenericArray;
 use k256::{
@@ -75,7 +76,12 @@ impl ServerPlugin {
     fn fix_request_to_server_event(&self, request: FixRequest) -> Result<ServerEvent> {
         let chain_id = request.chain_id;
         let address = request.address;
-        let timestamp = request.standard_header.timestamp;
+        let timestamp = Utc::now();
+
+        let time_difference = timestamp - request.standard_header.timestamp;
+        if time_difference.as_seconds_f64().abs() > 60.0f64 {
+            Err(eyre!("Timestamp too far off"))?;
+        }
 
         match request.standard_header.msg_type.as_str() {
             "NewIndexOrder" => {
@@ -312,10 +318,12 @@ impl ServerPlugin {
                 chain_id,
                 address,
                 client_order_id,
-                timestamp,
                 filled_quantity,
                 collateral_spent,
                 collateral_remaining,
+                fill_rate,
+                status,
+                timestamp,
             } => (
                 chain_id,
                 address,
@@ -326,6 +334,8 @@ impl ServerPlugin {
                     filled_quantity: filled_quantity.to_string(),
                     collateral_spent: collateral_spent.to_string(),
                     collateral_remaining: collateral_remaining.to_string(),
+                    fill_rate: fill_rate.to_string(),
+                    status,
                 },
             ),
             ServerResponse::MintInvoice {
@@ -563,10 +573,8 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                         )
                     })?;
                     self.observer_plugin.publish_request(&Arc::new(event));
-                    match self.process_ack(user_id, session_id) {
-                        Ok(msg) => Ok(msg),
-                        Err(e) => Err(eyre::eyre!("Process ACK failed: {}", e)),
-                    }
+                    self.process_ack(user_id, session_id)
+                        .map_err(|e| eyre::eyre!("Process ACK failed: {}", e))
                 } else {
                     let error_msg = format!(
                         "Invalid sequence number: {}; Last valid: {}",

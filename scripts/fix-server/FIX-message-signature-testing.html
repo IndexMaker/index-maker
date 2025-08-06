@@ -1,59 +1,196 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>FIX Client + Signature Generator</title>
-    <style>
-      body {
-        font-family: sans-serif;
-        margin: 20px;
-      }
-      textarea {
-        width: 100%;
-        height: 200px;
-      }
-      #log {
-        border: 1px solid #ccc;
-        padding: 10px;
-        height: 250px;
-        overflow-y: scroll;
-        white-space: pre-wrap;
-      }
-      button,
-      input,
-      select {
-        margin: 5px;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>FIX Test Client</h1>
 
-    <label>Mode:</label>
+<head>
+  <meta charset="UTF-8" />
+  <title>FIX Client + Signature Generator</title>
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: sans-serif;
+      font-size: small;
+      background-color: #f4f4f4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      box-sizing: border-box;
+      padding: 0.5rem;
+    }
+
+    h1 {
+      font-size: medium;
+      padding: 0;
+      margin: 0;
+    }
+
+    .title {
+      width: 100%;
+      max-width: 80rem;
+      background-color: #22272e;
+      color: white;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      margin: 0.25rem;
+    }
+
+    .input-container {
+      width: 100%;
+      max-width: 80rem;
+      background-color: #c2cbd7;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      margin: 0.25rem;
+    }
+
+    .textSpace {
+      width: 100%;
+      max-width: 80rem;
+      background-color: #c2cbd7;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: row;
+      gap: 0.75rem;
+      flex-grow: 1;
+      min-height: 0;
+      margin: 0.25rem;
+    }
+
+    .textBody {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    label {
+      display: block;
+      color: #1e2527;
+      font-size: 0.875rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .input-textarea {
+      width: 39.5rem;
+      padding: 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      background-color: #ffffff;
+      color: black;
+      resize: none;
+      min-height: 150px;
+      font-family: monospace;
+      font-size: small;
+      transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+      box-sizing: border-box;
+      flex-grow: 1;
+    }
+
+    .log-container {
+      width: 39.5rem;
+      padding: 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      background-color: #ffffff;
+      color: black;
+      min-height: 150px;
+      font-family: monospace;
+      font-size: small;
+      box-sizing: border-box;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #log {
+      height: 100%;
+      overflow-y: auto;
+      word-wrap: break-word;
+      border: none;
+      padding: 0;
+      background-color: transparent;
+      flex-grow: 1;
+    }
+
+    #log div {
+      padding: 5px 10px;
+      border-bottom: 1px dashed #ddd;
+      white-space: pre-wrap;
+    }
+
+    #log div:last-child {
+      border-bottom: none;
+    }
+
+    #log div[style*="color: red"] {
+      font-weight: bold;
+    }
+
+    button {
+      margin-top: 0.25em;
+      padding: 0.5em;
+      background-color: #46566a;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.2s ease;
+    }
+
+    button:hover {
+      background-color: #88d4ff;
+    }
+
+    input,
+    select {
+      margin: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="title">
+    <h1>Index Maker: FIX Test Client</h1>
+  </div>
+
+  <div class="input-container">
+    <label for"mode">Mode:</label>
     <select id="mode">
       <option value="quote">Quote Request (no signature)</option>
       <option value="index">Index Order (requires signature)</option>
     </select>
+  </div>
+
+  <div id="privateKeySection" class="input-container">
+    <label for"privateKey">Private Key:</label>
+    <input type="text" id="privateKey" value="0xa71e5a7b07c4c0d1678679d37cd5dfb02f80750eb2e4450bdb5357f712f8421e"
+      size="80" />
     <br />
+  </div>
 
-    <div id="privateKeySection">
-      <label>Private Key:</label>
-      <input
-        type="text"
-        id="privateKey"
-        value="0xa71e5a7b07c4c0d1678679d37cd5dfb02f80750eb2e4450bdb5357f712f8421e"
-        size="80"
-      />
-      <br />
-    </div>
-
-    <label>WebSocket URL:</label>
+  <div class="input-container">
+    <label for="wsUrl">WebSocket URL:</label>
     <input type="text" id="wsUrl" value="ws://127.0.0.1:3000/ws" size="50" />
     <button id="connectBtn">Connect</button>
     <button id="disconnectBtn" disabled>Disconnect</button>
+  </div>
 
-    <h3>FIX Message JSON(Signature or non-signature):</h3>
-    <textarea id="fixMessageJson">
+  <div class="textSpace">
+    <div class="textBody">
+      <label for="fixMessageJson">FIX Message JSON (Signature or non-signature)</label>
+      <textarea id="fixMessageJson" class="input-textarea">
 {
   "standard_header": {
     "msg_type": "NewQuoteRequest",
@@ -69,186 +206,125 @@
   "side": "BUY",
   "amount": "1000"
 }
-  </textarea
-    >
-    <br />
-    <button id="signBtn">Send Message</button>
+      </textarea>
+      <br />
+      <button id="signBtn">Send Message</button>
+    </div>
 
-    <h3>Log</h3>
-    <div id="log"></div>
+    <div class="textBody">
+      <label for="log">Log</label>
+      <div class="log-container">
+        <div id="log">
+          <div>Not connected</div>
+          <div>Please connect first</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-    <script type="module">
-      import {
-        Wallet,
-        keccak256,
-        toUtf8Bytes,
-        hexlify,
-      } from "https://esm.sh/ethers@6.13.0";
-      import * as secp from "https://esm.sh/@noble/secp256k1@1.7.1";
-      import { sha256 } from "https://esm.sh/@noble/hashes@1.3.3/sha256";
-      import { hmac } from "https://esm.sh/@noble/hashes@1.3.3/hmac";
-      secp.utils.hmacSha256Sync = (key, msg) => hmac(sha256, key, msg);
-      let ws = null;
+  <script type="module">
+    import {
+      Wallet,
+      keccak256,
+      toUtf8Bytes,
+      hexlify,
+    } from "https://esm.sh/ethers@6.13.0";
+    import * as secp from "https://esm.sh/@noble/secp256k1@1.7.1";
+    import { sha256 } from "https://esm.sh/@noble/hashes@1.3.3/sha256";
+    import { hmac } from "https://esm.sh/@noble/hashes@1.3.3/hmac";
+    secp.utils.hmacSha256Sync = (key, msg) => hmac(sha256, key, msg);
+    let ws = null;
 
-      const $ = (id) => document.getElementById(id);
-      const log = (msg, err = false) => {
-        const div = document.createElement("div");
-        div.textContent = `[${new Date().toISOString()}] ${msg}`;
-        if (err) div.style.color = "red";
-        $("log").appendChild(div);
-        $("log").scrollTop = $("log").scrollHeight;
-      };
+    const $ = (id) => document.getElementById(id);
+    const log = (msg, err = false) => {
+      const div = document.createElement("div");
+      div.textContent = `[${new Date().toISOString()}] ${msg}`;
+      if (err) div.style.color = "red";
+      $("log").appendChild(div);
+      $("log").scrollTop = $("log").scrollHeight;
+    };
 
-      $("mode").onchange = () => {
-        const mode = $("mode").value;
-        $("privateKeySection").style.display =
-          mode === "index" ? "block" : "none";
+    $("mode").onchange = () => {
+      const mode = $("mode").value;
+      $("privateKeySection").style.display =
+        mode === "index" ? "block" : "none";
 
-        // Optional: auto-fill sample JSON for convenience
-        const json =
-          mode === "index"
-            ? {
-                standard_header: {
-                  msg_type: "NewIndexOrder",
-                  sender_comp_id: "CLIENT",
-                  target_comp_id: "SERVER",
-                  seq_num: 1,
-                  timestamp: new Date().toISOString(),
-                },
-                chain_id: 1,
-                address: "0x1234567890abcdef1234567890abcdef12345678",
-                client_order_id: "Q-" + new Date().getTime(),
-                symbol: "SY100",
-                side: "1",
-                amount: "1000",
-              }
-            : {
-                standard_header: {
-                  msg_type: "NewQuoteRequest",
-                  sender_comp_id: "CLIENT",
-                  target_comp_id: "SERVER",
-                  seq_num: 1,
-                  timestamp: new Date().toISOString(),
-                },
-                chain_id: 1,
-                address: "0x1234567890abcdef1234567890abcdef12345678",
-                client_quote_id: "Q-" + new Date().getTime(),
-                symbol: "SY100",
-                side: "1",
-                amount: "1000",
-              };
-
-        $("fixMessageJson").value = JSON.stringify(json, null, 2);
-      };
-
-      $("connectBtn").onclick = () => {
-        const url = $("wsUrl").value;
-        ws = new WebSocket(url);
-        ws.onopen = () => {
-          log("WebSocket connected");
-          $("connectBtn").disabled = true;
-          $("disconnectBtn").disabled = false;
-        };
-        ws.onclose = () => {
-          log("WebSocket disconnected");
-          $("connectBtn").disabled = false;
-          $("disconnectBtn").disabled = true;
-        };
-        ws.onerror = (e) => log("WebSocket error", true);
-        ws.onmessage = (e) => {
-          try {
-            const msg = JSON.parse(e.data);
-            log("Received:\n" + JSON.stringify(msg, null, 2));
-            const msgType = msg.standard_header?.msg_type;
-            if (!msgType) return;
-
-            // Skip verification for Quote messages
-            if (msgType.includes("Quote")) {
-              log("ℹ️ Quote message — skipping signature verification.");
-              return;
-            }
-            const trailer = msg.standard_trailer;
-            if (trailer && trailer.signature && trailer.public_key) {
-              const signatureHex = trailer.signature[0];
-              const pubKeyHex = trailer.public_key[0];
-
-              const signPayload = (() => {
-                const { msg_type } = msg.standard_header;
-                if (msg_type === "ACK" || msg_type === "NAK") return null;
-                if (
-                  msg_type === "NewIndexOrder" ||
-                  msg_type === "CancelIndexOrder" ||
-                  msg_type === "IndexOrderFill" ||
-                  msg_type === "MintInvoice"
-                ) {
-                  return {
-                    msg_type: msg_type,
-                    id: msg.client_order_id,
-                  };
-                } else if (
-                  msg_type === "NewQuoteRequest" ||
-                  msg_type === "CancelQuoteRequest"
-                ) {
-                  return {
-                    msg_type: msg_type,
-                    id: msg.client_quote_id,
-                  };
-                } else {
-                  log("Unsupported msg_type for signature verification", true);
-                  return null;
-                }
-              })();
-
-              if (!signPayload) return;
-
-              const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
-
-              const sigBytes = secp.utils.hexToBytes(signatureHex.slice(2)); // strip "0x"
-              const pubKeyBytes = secp.utils.hexToBytes(pubKeyHex.slice(2)); // strip "0x"
-
-              const verified = secp.verify(sigBytes, hash, pubKeyBytes);
-              if (verified) {
-                log("✅ Signature verified!");
-              } else {
-                log("❌ Signature verification failed!", true);
-              }
-            } 
-          } catch {
-            log("Received (raw): " + e.data);
+      // Optional: auto-fill sample JSON for convenience
+      const json =
+        mode === "index"
+          ? {
+            standard_header: {
+              msg_type: "NewIndexOrder",
+              sender_comp_id: "CLIENT",
+              target_comp_id: "SERVER",
+              seq_num: 1,
+              timestamp: new Date().toISOString(),
+            },
+            chain_id: 1,
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            client_order_id: "Q-" + new Date().getTime(),
+            symbol: "SY100",
+            side: "1",
+            amount: "1000",
           }
-        };
-      };
+          : {
+            standard_header: {
+              msg_type: "NewQuoteRequest",
+              sender_comp_id: "CLIENT",
+              target_comp_id: "SERVER",
+              seq_num: 1,
+              timestamp: new Date().toISOString(),
+            },
+            chain_id: 1,
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            client_quote_id: "Q-" + new Date().getTime(),
+            symbol: "SY100",
+            side: "1",
+            amount: "1000",
+          };
 
-      $("disconnectBtn").onclick = () => {
-        if (ws) ws.close();
-      };
+      $("fixMessageJson").value = JSON.stringify(json, null, 2);
+    };
 
-      $("signBtn").onclick = async () => {
+    $("connectBtn").onclick = () => {
+      const url = $("wsUrl").value;
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        log("WebSocket connected");
+        $("connectBtn").disabled = true;
+        $("disconnectBtn").disabled = false;
+      };
+      ws.onclose = () => {
+        log("WebSocket disconnected");
+        $("connectBtn").disabled = false;
+        $("disconnectBtn").disabled = true;
+      };
+      ws.onerror = (e) => log("WebSocket error", true);
+      ws.onmessage = (e) => {
         try {
-          const mode = $("mode").value;
-          const raw = $("fixMessageJson").value.trim();
-          const msgObj = JSON.parse(raw);
+          const msg = JSON.parse(e.data);
+          log("Received:\n" + JSON.stringify(msg, null, 2));
+          const msgType = msg.standard_header?.msg_type;
+          if (!msgType) return;
 
-          if (mode === "index") {
-            const privateKeyHex = $("privateKey")
-              .value.trim()
-              .slice(2, $("privateKey").value.trim().length);
-            const privateKey = secp.utils.hexToBytes(privateKeyHex);
-            console.log(privateKey);
-            if (!privateKey) return log("Private key is required", true);
+          // Skip verification for Quote messages
+          if (msgType.includes("Quote")) {
+            log("ℹ️ Quote message — skipping signature verification.");
+            return;
+          }
+          const trailer = msg.standard_trailer;
+          if (trailer && trailer.signature && trailer.public_key) {
+            const signatureHex = trailer.signature[0];
+            const pubKeyHex = trailer.public_key[0];
 
-            // const wallet = new Wallet(privateKey);
-            const rawText = $("fixMessageJson").value.trim();
-            const json = JSON.parse(rawText);
-            const payload = json;
-            delete payload.standard_trailer;
-
-            function getMinimalSignPayload(msg) {
+            const signPayload = (() => {
               const { msg_type } = msg.standard_header;
-
+              if (msg_type === "ACK" || msg_type === "NAK") return null;
               if (
                 msg_type === "NewIndexOrder" ||
-                msg_type === "CancelIndexOrder"
+                msg_type === "CancelIndexOrder" ||
+                msg_type === "IndexOrderFill" ||
+                msg_type === "MintInvoice"
               ) {
                 return {
                   msg_type: msg_type,
@@ -263,38 +339,108 @@
                   id: msg.client_quote_id,
                 };
               } else {
-                throw new Error("Unsupported msg_type");
+                log("Unsupported msg_type for signature verification", true);
+                return null;
               }
-            }
+            })();
 
-            const signPayload = getMinimalSignPayload(payload);
+            if (!signPayload) return;
+
             const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
 
-            const sig = secp.signSync(hash, privateKey, {
-              canonical: true,
-              der: false,
-            });
-            const signatureHex = "0x" + secp.utils.bytesToHex(sig.slice(0, 64));
-            console.log(signatureHex);
-            const pubKey = secp.getPublicKey(privateKey, false); // 65-byte uncompressed
-            console.log("PubKey (hex):", "0x" + secp.utils.bytesToHex(pubKey));
-            const pubKeyHex = "0x" + secp.utils.bytesToHex(pubKey);
+            const sigBytes = secp.utils.hexToBytes(signatureHex.slice(2)); // strip "0x"
+            const pubKeyBytes = secp.utils.hexToBytes(pubKeyHex.slice(2)); // strip "0x"
 
-            msgObj.standard_trailer = {
-              public_key: [pubKeyHex],
-              signature: [signatureHex],
-            };
-            console.log("Hash: 0x" + secp.utils.bytesToHex(hash));
-          } else {
-            delete msgObj.standard_trailer;
+            const verified = secp.verify(sigBytes, hash, pubKeyBytes);
+            if (verified) {
+              log("✅ Signature verified!");
+            } else {
+              log("❌ Signature verification failed!", true);
+            }
           }
-          const jsonString = JSON.stringify(msgObj);
-          log("Sending:\n" + JSON.stringify(msgObj, null, 2));
-          ws.send(jsonString);
-        } catch (e) {
-          log("Error: " + e.message, true);
+        } catch {
+          log("Received (raw): " + e.data);
         }
       };
-    </script>
-  </body>
+    };
+
+    $("disconnectBtn").onclick = () => {
+      if (ws) ws.close();
+    };
+
+    $("signBtn").onclick = async () => {
+      try {
+        const mode = $("mode").value;
+        const raw = $("fixMessageJson").value.trim();
+        const msgObj = JSON.parse(raw);
+
+        if (mode === "index") {
+          const privateKeyHex = $("privateKey")
+            .value.trim()
+            .slice(2, $("privateKey").value.trim().length);
+          const privateKey = secp.utils.hexToBytes(privateKeyHex);
+          console.log(privateKey);
+          if (!privateKey) return log("Private key is required", true);
+
+          // const wallet = new Wallet(privateKey);
+          const rawText = $("fixMessageJson").value.trim();
+          const json = JSON.parse(rawText);
+          const payload = json;
+          delete payload.standard_trailer;
+
+          function getMinimalSignPayload(msg) {
+            const { msg_type } = msg.standard_header;
+
+            if (
+              msg_type === "NewIndexOrder" ||
+              msg_type === "CancelIndexOrder"
+            ) {
+              return {
+                msg_type: msg_type,
+                id: msg.client_order_id,
+              };
+            } else if (
+              msg_type === "NewQuoteRequest" ||
+              msg_type === "CancelQuoteRequest"
+            ) {
+              return {
+                msg_type: msg_type,
+                id: msg.client_quote_id,
+              };
+            } else {
+              throw new Error("Unsupported msg_type");
+            }
+          }
+
+          const signPayload = getMinimalSignPayload(payload);
+          const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
+
+          const sig = secp.signSync(hash, privateKey, {
+            canonical: true,
+            der: false,
+          });
+          const signatureHex = "0x" + secp.utils.bytesToHex(sig.slice(0, 64));
+          console.log(signatureHex);
+          const pubKey = secp.getPublicKey(privateKey, false); // 65-byte uncompressed
+          console.log("PubKey (hex):", "0x" + secp.utils.bytesToHex(pubKey));
+          const pubKeyHex = "0x" + secp.utils.bytesToHex(pubKey);
+
+          msgObj.standard_trailer = {
+            public_key: [pubKeyHex],
+            signature: [signatureHex],
+          };
+          console.log("Hash: 0x" + secp.utils.bytesToHex(hash));
+        } else {
+          delete msgObj.standard_trailer;
+        }
+        const jsonString = JSON.stringify(msgObj);
+        log("Sending:\n" + JSON.stringify(msgObj, null, 2));
+        ws.send(jsonString);
+      } catch (e) {
+        log("Error: " + e.message, true);
+      }
+    };
+  </script>
+</body>
+
 </html>

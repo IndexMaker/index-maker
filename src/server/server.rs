@@ -185,6 +185,8 @@ pub enum ServerResponse {
         filled_quantity: Amount,
         collateral_spent: Amount,
         collateral_remaining: Amount,
+        fill_rate: Amount,
+        status: String,
         timestamp: DateTime<Utc>,
     },
     #[error("MintInvoice: [{chain_id}:{address}]")]

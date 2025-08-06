@@ -12,7 +12,7 @@ use safe_math::safe;
 
 use serde_json::json;
 use symm_core::core::{
-    bits::{self, Address, Amount, ClientOrderId, PricePointEntry, PriceType, Side, Symbol},
+    bits::{Address, Amount, ClientOrderId, PricePointEntry, PriceType, Side, Symbol},
     decimal_ext::DecimalExt,
     telemetry::TracingData,
 };
@@ -1485,6 +1485,12 @@ impl SolverStrategy for SimpleSolver {
         let _guard = solve_engagements_span.enter();
 
         let total_volley_size = strategy_host.get_total_volley_size()?;
+
+        tracing::info!(
+            %total_volley_size,
+            max_total_volley_size = %self.max_total_volley_size,
+            order_batch_len = %order_batch.len(),
+            "Solve Engagements");
 
         let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
             .ok_or_eyre("Math error while calculating remaining volley size")?;

@@ -19,10 +19,7 @@ use symm_core::core::{
 };
 use tracing::{span, Level};
 
-use crate::{
-    server::fix::requests,
-    solver::solver::{CollateralManagement, SetSolverOrderStatus},
-};
+use crate::solver::solver::{CollateralManagement, SetSolverOrderStatus};
 
 use index_core::collateral::collateral_router::{CollateralRouter, CollateralTransferEvent};
 

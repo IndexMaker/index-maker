@@ -1,22 +1,18 @@
 use std::fmt;
 
 use crate::server::fix::messages::*;
-use alloy::primitives::bytes;
 use axum_fix_server::{
     messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
     plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
 };
-use ethers_core::utils::keccak256;
 use eyre::{eyre, Result};
-use hex::FromHex;
 use k256::ecdsa::signature::DigestVerifier;
-use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use k256::ecdsa::{Signature, VerifyingKey};
 use k256::elliptic_curve::generic_array::GenericArray;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
 };
-use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use symm_core::core::bits::Address;
 
@@ -291,7 +287,7 @@ impl FixRequest {
         }
 
         // Decode signature
-        let mut sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))?;
+        let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))?;
         if sig_bytes.len() != 64 {
             return Err(eyre!(
                 "Signature must be exactly 64 bytes, got {}",

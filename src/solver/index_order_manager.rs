@@ -5,11 +5,13 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use serde_json::json;
 use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use crate::{
@@ -278,6 +280,24 @@ impl IndexOrderManager {
                     detail: format!("Cannot update order: {}", err),
                 })
             })?;
+
+        tracing::info!(
+            %chain_id,
+            %address,
+            %client_order_id,
+            %symbol,
+            orders = %json!(
+                index_order.read().order_updates.iter()
+                    .map(|u| u.read())
+                    .map(|u| (
+                        json!(u.client_order_id),
+                        u.collateral_spent,
+                        u.remaining_collateral,
+                        u.filled_quantity))
+                    .collect_vec()
+            ),
+            "User Index Orders"
+        );
 
         match update_order_outcome {
             UpdateIndexOrderOutcome::Push {
@@ -565,6 +585,20 @@ impl IndexOrderManager {
                         timestamp,
                     });
 
+                self.server
+                    .write()
+                    .respond_with(ServerResponse::IndexOrderFill {
+                        chain_id,
+                        address: *address,
+                        client_order_id: client_order_id.clone(),
+                        filled_quantity: Amount::ZERO,
+                        collateral_spent: update_collateral_spent,
+                        collateral_remaining: update_remaining_collateral,
+                        fill_rate: Amount::ZERO,
+                        status: "collateral ready".to_owned(),
+                        timestamp,
+                    });
+
                 Some(())
             })
             .ok_or_eyre("Failed to update index order")?;
@@ -703,6 +737,8 @@ impl IndexOrderManager {
         symbol: &Symbol,
         collateral_spent: Amount,
         fill_amount: Amount,
+        fill_rate: Amount,
+        status: SolverOrderStatus,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let (index_order, update) = self
@@ -724,8 +760,8 @@ impl IndexOrderManager {
             let update_engaged_collateral =
                 Some(safe!(update.engaged_collateral? - collateral_spent)?);
 
-            let collateral_remaining =
-                safe!(index_order.engaged_collateral + index_order.remaining_collateral)?;
+            let update_collateral_unspent =
+                safe!(update_engaged_collateral + update.remaining_collateral)?;
 
             update.with_upgraded(|update| {
                 update.filled_quantity = update_filled_quantity;
@@ -739,15 +775,24 @@ impl IndexOrderManager {
                 index_order.engaged_collateral = index_order_engaged_collateral;
             });
 
+            let status_string = match status {
+                SolverOrderStatus::Engaged => "in progress",
+                SolverOrderStatus::PartlyMintable => "mintable",
+                SolverOrderStatus::FullyMintable => "fully mintable",
+                _ => "N/A",
+            };
+
             self.server
                 .write()
                 .respond_with(ServerResponse::IndexOrderFill {
                     chain_id,
                     address: *address,
                     client_order_id: client_order_id.clone(),
-                    filled_quantity: index_order.filled_quantity,
-                    collateral_spent: index_order.collateral_spent,
-                    collateral_remaining,
+                    filled_quantity: update_filled_quantity,
+                    collateral_spent: update_collateral_spent,
+                    collateral_remaining: update_collateral_unspent,
+                    fill_rate,
+                    status: status_string.to_owned(),
                     timestamp,
                 });
 
@@ -769,6 +814,14 @@ impl IndexOrderManager {
         status: SolverOrderStatus,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let order_failed_span = tracing::info_span!("order-failed",
+                %chain_id,
+                %address,
+                %client_order_id,
+                %symbol,
+        );
+        let _guard = order_failed_span.enter();
+
         let index_order = self
             .index_orders
             .get_mut(&(chain_id, *address))
@@ -779,6 +832,24 @@ impl IndexOrderManager {
             client_order_id,
             &format!("Failed with status: {:?}", status),
         );
+
+        (|o: &IndexOrder| {
+            tracing::info!(
+                remaining_collateral = %o.remaining_collateral,
+                collateral_spent = %o.collateral_spent,
+                orders = %json!(
+                    o.order_updates.iter()
+                        .map(|u| u.read())
+                        .map(|u| (
+                            json!(u.client_order_id),
+                            u.collateral_spent,
+                            u.remaining_collateral,
+                            u.filled_quantity))
+                        .collect_vec()
+                ),
+                "User Index Orders"
+            )
+        })(&index_order.read());
 
         self.observer
             .publish_single(IndexOrderEvent::CancelIndexOrder {
@@ -810,6 +881,9 @@ impl IndexOrderManager {
         batch_order_id: BatchOrderId,
         engaged_orders: Vec<EngageOrderRequest>,
     ) -> Result<()> {
+        let engage_orders_span = tracing::info_span!("engage-orders", %batch_order_id);
+        let _guard = engage_orders_span.enter();
+
         let mut engage_result = HashMap::new();
         for engage_order in engaged_orders {
             if let Some(index_order) = self
@@ -818,7 +892,26 @@ impl IndexOrderManager {
                 .and_then(|map| map.get_mut(&engage_order.symbol))
             {
                 let mut index_order = index_order.write();
-                let unmatched_collateral = index_order.solver_engage_one(
+
+                (|o: &IndexOrder| {
+                    tracing::info!(
+                        remaining_collateral = %o.remaining_collateral,
+                        collateral_spent = %o.collateral_spent,
+                        orders = %json!(
+                            o.order_updates.iter()
+                                .map(|u| u.read())
+                                .map(|u| (
+                                    json!(u.client_order_id),
+                                    u.collateral_spent,
+                                    u.remaining_collateral,
+                                    u.filled_quantity))
+                                .collect_vec()
+                        ),
+                        "User Index Orders"
+                    )
+                })(&index_order);
+
+                let (remaining_collateral, unmatched_collateral) = index_order.solver_engage_one(
                     &engage_order.client_order_id,
                     engage_order.collateral_amount,
                     self.tolerance,
@@ -846,7 +939,7 @@ impl IndexOrderManager {
                             address: engage_order.address,
                             client_order_id: engage_order.client_order_id.clone(),
                             collateral_engaged,
-                            collateral_remaining: index_order.remaining_collateral,
+                            collateral_remaining: remaining_collateral,
                         },
                     );
                 } else {
@@ -866,6 +959,7 @@ impl IndexOrderManager {
                 engaged_orders: engage_result,
                 timestamp: Utc::now(),
             });
+
         Ok(())
     }
 }

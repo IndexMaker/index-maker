@@ -132,6 +132,8 @@ pub enum ResponseBody {
         filled_quantity: String,
         collateral_spent: String,
         collateral_remaining: String,
+        fill_rate: String,
+        status: String,
     },
     IndexQuoteBody {
         client_quote_id: String,

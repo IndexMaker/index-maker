@@ -80,8 +80,10 @@ impl TradingSession {
         if !self.order_limit.try_consume(1, Utc::now()) {
             let sleep_time = self
                 .order_limit
-                .waiting_period_half_limit(Utc::now())
+                .waiting_period_half_smallest_limit(Utc::now())
                 .as_seconds_f64();
+
+            tracing::info!("Rate limit reached. Must wait for: {}s", sleep_time);
 
             sleep(std::time::Duration::from_secs_f64(sleep_time)).await;
 

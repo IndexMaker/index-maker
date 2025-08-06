@@ -55,9 +55,11 @@ impl Arbiter {
                     _ = check_period.tick() => {
                         match subscribers.check_stopped() {
                             Ok(lost_subscriptions) => {
-                                tracing::info!("Recovering lost subscriptions: {:?}", lost_subscriptions);
-                                if let Err(err) = subscriptions.write().subscribe(&lost_subscriptions) {
-                                    tracing::warn!("Failed to resubscribe: {:?}", err)
+                                if !lost_subscriptions.is_empty() {
+                                    tracing::info!("Recovering lost subscriptions: {:?}", lost_subscriptions);
+                                    if let Err(err) = subscriptions.write().subscribe(&lost_subscriptions) {
+                                        tracing::warn!("Failed to resubscribe: {:?}", err)
+                                    }
                                 }
                             }
                             Err(err) => {

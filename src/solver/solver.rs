@@ -264,7 +264,7 @@ impl Solver {
                             "Missing prices for order",
                         );
                     })(&failed_order.read());
-                    self.client_orders.write().put_back(failed_order);
+                    self.client_orders.write().put_back(failed_order, timestamp);
                 }
                 _ => {
                     let o = failed_order.read();
@@ -390,7 +390,40 @@ impl Solver {
 
     fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
         while let Some(solver_order) = self.client_orders.write().get_next_client_order(timestamp) {
-            self.manage_collateral(solver_order);
+            let (chain_id, address, client_order_id, symbol, timestamp) = {
+                let order_upread = solver_order.read();
+                (
+                    order_upread.chain_id,
+                    order_upread.address.clone(),
+                    order_upread.client_order_id.clone(),
+                    order_upread.symbol.clone(),
+                    order_upread.timestamp,
+                )
+            };
+            tracing::info!(
+                %chain_id,
+                %address,
+                %client_order_id,
+                %symbol,
+                %timestamp,
+                "Serving client order");
+
+            if let Err(err) = self.manage_collateral(solver_order.clone()) {
+                tracing::warn!("Failed to manage collateral: {:?}", err);
+
+                self.set_order_status(&mut solver_order.write(), SolverOrderStatus::InternalError);
+                self.index_order_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                    .order_failed(
+                        chain_id,
+                        &address,
+                        &client_order_id,
+                        &symbol,
+                        SolverOrderStatus::InternalError,
+                        timestamp,
+                    )?;
+            }
         }
         Ok(())
     }
@@ -616,12 +649,23 @@ impl Solver {
                 batch_order_id,
                 continued_orders,
             } => {
-                tracing::info!(%batch_order_id, "Handle Batch Complete");
+                tracing::info!(
+                    %batch_order_id,
+                    continued_orders = %json!(continued_orders.iter()
+                        .map(|o| o.read().client_order_id.clone())
+                        .collect_vec()),
+                    "Batch Complete");
+
                 self.ready_orders.lock().extend(continued_orders);
                 Ok(())
             }
             BatchEvent::BatchMintable { mintable_orders } => {
-                tracing::info!("Handle Batch Mintable");
+                tracing::info!(
+                    mintable_orders = %json!(mintable_orders.iter()
+                        .map(|o| o.read().client_order_id.clone())
+                        .collect_vec()),
+                    "New Mintable Orders");
+
                 self.ready_mints.lock().extend(mintable_orders);
                 Ok(())
             }
@@ -987,7 +1031,7 @@ impl Solver {
                 batch_quantity_remaining,
                 timestamp,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     %order_id,
                     %batch_order_id,
                     %lot_id,
@@ -1038,7 +1082,7 @@ impl Solver {
                 original_timestamp,
                 closing_timestamp,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     %original_order_id,
                     %original_batch_order_id,
                     %original_lot_id,
@@ -1087,7 +1131,7 @@ impl Solver {
                 is_cancelled,
                 cancel_timestamp,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     %order_id,
                     %batch_order_id,
                     %symbol,
@@ -1274,6 +1318,8 @@ impl BatchManagerHost for Solver {
         symbol: &Symbol,
         collateral_spent: Amount,
         fill_amount: Amount,
+        fill_rate: Amount,
+        status: SolverOrderStatus,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         self.index_order_manager
@@ -1286,6 +1332,8 @@ impl BatchManagerHost for Solver {
                 symbol,
                 collateral_spent,
                 fill_amount,
+                fill_rate,
+                status,
                 timestamp,
             )
     }
@@ -1894,6 +1942,8 @@ mod test {
                         filled_quantity,
                         collateral_remaining,
                         collateral_spent,
+                        fill_rate,
+                        status,
                         timestamp,
                     } => {
                         tracing::info!(
@@ -2455,6 +2505,8 @@ mod test {
                     filled_quantity: _,
                     collateral_remaining: _,
                     collateral_spent: _,
+                    fill_rate: _,
+                    status: _,
                     timestamp: _
                 }
             ));
@@ -2485,6 +2537,8 @@ mod test {
                         filled_quantity: _,
                         collateral_remaining: _,
                         collateral_spent: _,
+                        fill_rate: _,
+                        status: _,
                         timestamp: _
                     }
                 ));
