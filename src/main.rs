@@ -35,7 +35,8 @@ use symm_core::{
         logging::log_init,
         test_util::{get_mock_address_1, get_mock_address_2},
     },
-    market_data::market_data_connector::Subscription, order_sender::order_connector::SessionId,
+    market_data::market_data_connector::Subscription,
+    order_sender::order_connector::SessionId,
 };
 use tokio::{
     signal::unix::{signal, SignalKind},

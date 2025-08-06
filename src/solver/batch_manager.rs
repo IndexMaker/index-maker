@@ -605,7 +605,7 @@ impl BatchManager {
         host: &dyn BatchManagerHost,
         engaged_orders: &EngagedSolverOrders,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
+    ) -> Result<Arc<RwLock<BatchOrderStatus>>> {
         let send_batch_span =
             info_span!("send-batch", batch_order_id = %engaged_orders.batch_order_id);
         let _guard = send_batch_span.enter();
@@ -640,24 +640,24 @@ impl BatchManager {
             .then_some(())
             .ok_or_eyre("Duplicate batch ID")?;
 
-        //tracing::info!("Pre-filling Batch");
-
-        //self.fill_batch_orders(host, &batch_order_status)
-        //    .map_err(|err| eyre!("Failed to fill batch orders: {:?}", err))?;
-
-        //if !batch.asset_orders.is_empty() {
+        if !batch.asset_orders.is_empty() {
             tracing::info!(
                 batch = %json!(batch.asset_orders.iter()
                     .map(|ba| (ba.order_id.as_str(), ba.side, json!(ba.symbol), ba.quantity, ba.price))
                     .collect_vec()
                 ),
-                "Sending Batch");
+                "Sending Batch Order");
 
             host.send_order_batch(Arc::new(batch))
                 .map_err(|err| eyre!("Failed to send batch orders {:?}", err))?;
-        //}
+        } else {
+            tracing::info!(
+                batch_order_id = %batch.batch_order_id,
+                "Internal Batch"
+            )
+        }
 
-        Ok(())
+        Ok(batch_order_status)
     }
 
     fn fill_index_order(
@@ -677,6 +677,24 @@ impl BatchManager {
         let mut index_order_write = index_order.write();
 
         index_order_write.add_span_context_link();
+
+        match index_order_write.status {
+            SolverOrderStatus::Open
+            | SolverOrderStatus::ManageCollateral
+            | SolverOrderStatus::Ready
+            | SolverOrderStatus::InvalidSymbol
+            | SolverOrderStatus::InvalidOrder
+            | SolverOrderStatus::InternalError
+            | SolverOrderStatus::ServiceUnavailable => {
+                Err(eyre!(
+                    "Invalid Index order state: {:?}",
+                    index_order_write.status
+                ))?;
+            }
+            SolverOrderStatus::Engaged => {}
+            SolverOrderStatus::PartlyMintable => {}
+            SolverOrderStatus::FullyMintable | SolverOrderStatus::Minted => return Ok(()),
+        }
 
         // We search for fill-rate of this Index Order matching against
         // available lots in this batch. Note that this is fill-rate in
@@ -862,7 +880,7 @@ impl BatchManager {
             &index_order_write.symbol,
             collateral_spent,
             filled_quantity_delta,
-            fill_rate,
+            order_fill_rate,
             index_order_write.status,
             batch.last_update_timestamp,
         )?;
@@ -932,8 +950,25 @@ impl BatchManager {
                 .collect_vec()
         };
 
-        for engaged_orders in new_engagements {
-            self.send_batch(host, &engaged_orders.read(), timestamp)?;
+        let (new_batches, mut failures): (Vec<_>, Vec<_>) = new_engagements
+            .into_iter()
+            .map(|engaged_orders| self.send_batch(host, &engaged_orders.read(), timestamp))
+            .partition_result();
+
+        tracing::info_span!("internal-fill").in_scope(|| {
+            let (_, err): ((), Vec<_>) = new_batches
+                .into_iter()
+                .map(|batch| self.fill_batch_orders(host, &batch))
+                .partition_result();
+
+            failures.extend(err);
+        });
+
+        if !failures.is_empty() {
+            Err(eyre!(
+                "Failed to send or fill internally batches: {}",
+                failures.into_iter().map(|e| format!("{:?}", e)).join(";")
+            ))?;
         }
 
         Ok(())
@@ -963,10 +998,6 @@ impl BatchManager {
     ) -> Result<()> {
         let process_batches_span = span!(Level::TRACE, "process-batches");
         let _guard = process_batches_span.enter();
-
-        //for batch in self.batches.values() {
-        //    self.fill_batch_orders(host, batch)?;
-        //}
 
         self.send_more_batches(host, timestamp)?;
         self.cleanup_batches()?;
@@ -1014,7 +1045,7 @@ impl BatchManager {
         engaged_orders: HashMap<(Address, ClientOrderId), EngagedIndexOrder>,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let handle_engage_span = span!(Level::INFO, "handle-engage-index-order");
+        let handle_engage_span = info_span!("engage-index-order");
         let _guard = handle_engage_span.enter();
 
         tracing::info!(
@@ -1104,7 +1135,7 @@ impl BatchManager {
         fee: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let handle_lot_span = span!(Level::INFO, "handle-new-lot");
+        let handle_lot_span = info_span!("external-fill");
         let _guard = handle_lot_span.enter();
 
         let batch = self
@@ -1126,9 +1157,7 @@ impl BatchManager {
             timestamp,
         )?;
 
-        self.fill_batch_orders(host, &batch)?;
-
-        Ok(())
+        self.fill_batch_orders(host, &batch)
     }
 
     pub fn handle_cancel_order(
@@ -1141,6 +1170,9 @@ impl BatchManager {
         is_cancelled: bool,
         cancel_timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let cancel_order_span = info_span!("batch-cancel");
+        let _guard = cancel_order_span.enter();
+
         let _ = host;
         let batch = self
             .batches
@@ -1158,7 +1190,7 @@ impl BatchManager {
 
         let is_all_cancelled = batch.read().is_cancelled;
         if is_all_cancelled {
-            let batch_complete_span = span!(Level::INFO, "handle-batch-complete");
+            let batch_complete_span = info_span!("batch-complete");
             let _guard = batch_complete_span.enter();
 
             //
@@ -1196,8 +1228,8 @@ impl BatchManager {
 
                 index_order.add_span_context_link();
 
-                if self.zero_threshold < collateral_carried {
-                    if let SolverOrderStatus::FullyMintable = index_order.status {
+                match index_order.status {
+                    SolverOrderStatus::FullyMintable => {
                         tracing::info!(
                             chain_id = %engaged_order.chain_id,
                             address = %engaged_order.address,
@@ -1205,7 +1237,8 @@ impl BatchManager {
                             %collateral_carried,
                             "Index Order is Fully Mintable",
                         );
-                    } else {
+                    }
+                    SolverOrderStatus::Engaged | SolverOrderStatus::PartlyMintable => {
                         tracing::info!(
                             client_order_id = %engaged_order.client_order_id,
                             %collateral_carried,
@@ -1216,6 +1249,26 @@ impl BatchManager {
                             index_order_write.engaged_collateral = Amount::ZERO;
                         });
                         continued_orders.push(engaged_order.index_order.clone());
+                    }
+                    SolverOrderStatus::Minted => {
+                        tracing::warn!(
+                            client_order_id = %engaged_order.client_order_id,
+                            "Index order minted already");
+                    }
+                    SolverOrderStatus::InternalError => {
+                        tracing::warn!(
+                            client_order_id = %engaged_order.client_order_id,
+                            "Failed Index order processing");
+                    }
+                    SolverOrderStatus::Open
+                    | SolverOrderStatus::ManageCollateral
+                    | SolverOrderStatus::Ready
+                    | SolverOrderStatus::InvalidSymbol
+                    | SolverOrderStatus::InvalidOrder
+                    | SolverOrderStatus::ServiceUnavailable => {
+                        tracing::warn!(
+                            client_order_id = %engaged_order.client_order_id,
+                            "Invalid Index order state: {:?}", index_order.status);
                     }
                 }
             }
@@ -1260,12 +1313,14 @@ mod test {
                 Symbol,
             },
             functional::IntoObservableSingle,
+            logging::log_init,
             telemetry::TracingData,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
             },
         },
+        init_log,
     };
 
     use index_core::index::basket::{AssetWeight, Basket, BasketDefinition};
@@ -1603,6 +1658,8 @@ mod test {
     ///
     #[test]
     fn test_batch_manager() {
+        init_log!();
+
         let timestamp = Utc::now();
         let max_batch_size = 4;
         let zero_threshold = dec!(0.001);
@@ -1745,8 +1802,6 @@ mod test {
             )
             .unwrap();
 
-        batch_manager.process_batches(&host, timestamp).unwrap();
-
         //
         batch_manager
             .handle_cancel_order(
@@ -1759,8 +1814,6 @@ mod test {
                 timestamp,
             )
             .unwrap();
-        
-        batch_manager.process_batches(&host, timestamp).unwrap();
 
         let index_order_read = index_order_clone.read();
 

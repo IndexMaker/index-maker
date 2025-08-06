@@ -10,6 +10,7 @@ use parking_lot::RwLock;
 use safe_math::safe;
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use symm_core::{
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
@@ -156,7 +157,7 @@ impl SolverClientOrders {
         timestamp: DateTime<Utc>,
     ) -> Option<Arc<RwLock<SolverOrder>>> {
         let ready_timestamp = timestamp - self.client_wait_period;
-        let check_ready = move |x: &SolverOrder| x.timestamp < ready_timestamp;
+        let check_ready = move |x: &SolverOrder| x.timestamp <= ready_timestamp;
 
         if let Some(front) = self.client_notify_queue.front().cloned() {
             if let Some(queue) = self.client_order_queues.get_mut(&front) {
@@ -223,7 +224,7 @@ impl SolverClientOrders {
                     address,
                     client_order_id: client_order_id.clone(),
                     payment_id: None,
-                    symbol,
+                    symbol: symbol.clone(),
                     side,
                     remaining_collateral: collateral_amount,
                     engaged_collateral: Amount::ZERO,
@@ -270,6 +271,18 @@ impl SolverClientOrders {
             // will pick order from the queue above at next tick.
             self.client_notify_queue.push_back((chain_id, address));
         }
+        tracing::info!(
+            %chain_id,
+            %address,
+            %client_order_id,
+            %symbol,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
 
         Ok(())
     }
@@ -500,6 +513,7 @@ mod test {
 
         // Put order back into the queue
         solver_orders.put_back(order.unwrap(), timestamp);
+        timestamp += client_wait_period;
 
         // Should give an order of second user back
         let order = solver_orders.get_next_client_order(timestamp);
