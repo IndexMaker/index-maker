@@ -1496,7 +1496,7 @@ impl SolverStrategy for SimpleSolver {
             .ok_or_eyre("Math error while calculating remaining volley size")?;
 
         if max_volley_size < self.min_total_volley_available {
-            tracing::debug!("Remainig total volley reached minimum. Must wait...");
+            tracing::debug!("Remaining total volley reached minimum. Must wait...");
             return Ok(None);
         }
 
