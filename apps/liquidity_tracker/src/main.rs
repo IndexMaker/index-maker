@@ -7,10 +7,12 @@ use rust_decimal::prelude::ToPrimitive;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use symm_core::core::bits::{PricePointEntry, Side};
 use symm_core::{
-    core::{bits::Symbol, logging::log_init},
+    core::bits::Symbol,
+    core::{functional::IntoObservableManyArc, logging::log_init},
     init_log,
     market_data::{
-        market_data_connector::Subscription, order_book::order_book_manager::PricePointBookManager,
+        market_data_connector::{MarketDataEvent, Subscription},
+        order_book::order_book_manager::PricePointBookManager,
     },
 };
 use tokio::{fs, time::sleep};
@@ -60,15 +62,8 @@ fn get_bucket_ranges(mid_price: f64) -> Vec<(String, f64, f64)> {
                 BUCKETS[i - 1] * mid_price
             };
             let upper = pct * mid_price;
-            (
-                format!(
-                    "{:.2}-{:.2}%",
-                    BUCKETS.get(i - 1).unwrap_or(&0.0) * 100.0,
-                    pct * 100.0
-                ),
-                lower,
-                upper,
-            )
+            let label = format!("{:.2}-{:.2}%", lower / mid_price * 100.0, pct * 100.0);
+            (label, lower, upper)
         })
         .collect()
 }
@@ -82,9 +77,32 @@ async fn sample_order_book(
     let book_opt = book_guard.get_order_book(&symbol_obj);
 
     let mut buckets: HashMap<String, f64> = HashMap::new();
-    if book_opt.is_none() {
-        println!("⚠️ No order book found for symbol: {}", symbol);
+    if let Some(book) = book_opt {
+        let best_bid = book.get_entries(Side::Buy, 1).first().cloned();
+        let best_ask = book.get_entries(Side::Sell, 1).first().cloned();
 
+        println!("📘 Order book for {}:", symbol);
+        println!("   Best bid: {:?}", best_bid);
+        println!("   Best ask: {:?}", best_ask);
+
+        // ... continue with the rest of your logic using `book`
+
+        // don't forget to return early here if needed:
+        let (bid, ask) = match (best_bid, best_ask) {
+            (Some(bid), Some(ask)) => (bid.price, ask.price),
+            _ => return buckets,
+        };
+
+        let mid = ((bid + ask) / rust_decimal::Decimal::TWO)
+            .to_f64()
+            .unwrap_or(0.0);
+        if mid == 0.0 {
+            return buckets;
+        }
+
+        // ... your logic continues
+    } else {
+        println!("⚠️ No order book found for symbol: {}", symbol);
         return buckets;
     }
 
@@ -143,7 +161,10 @@ async fn run_5min_batch(
     for _ in 0..60 {
         for symbol in symbols {
             let sample = sample_order_book(symbol, book_manager.clone()).await;
-            pair_samples.entry(symbol.clone()).or_default().push(sample);
+            pair_samples
+                .entry(symbol.to_string())
+                .or_default()
+                .push(sample);
         }
         sleep(Duration::from_secs(5)).await;
     }
@@ -221,19 +242,35 @@ async fn main() -> Result<()> {
     let symbols: Vec<String> = symbol_rows.into_iter().map(|r| r.symbol).collect();
 
     let config = MarketDataConfig::builder()
-        .with_book_manager(true)
-        .with_price_tracker(true)
         .subscriptions(
             symbols
                 .iter()
                 .map(|s| Subscription::new(Symbol::from(s.as_str()), Symbol::from("Binance")))
                 .collect::<Vec<_>>(),
         )
-        .build()?;
+        .with_book_manager(true)
+        .with_price_tracker(true)
+        .build()
+        .expect("Failed to build market data");
 
-    config.start()?;
+    config.start_with_event_handlers()?;
 
+    let market_data = config.expect_market_data_cloned();
     let book_manager = config.expect_book_manager_cloned();
+
+    market_data
+        .write()
+        .get_multi_observer_arc()
+        .write()
+        .add_observer_fn({
+            let book_manager = Arc::downgrade(&book_manager);
+            move |event: &Arc<MarketDataEvent>| {
+                println!("received event");
+                if let Some(bm) = book_manager.upgrade() {
+                    bm.write().handle_market_data(event);
+                }
+            }
+        });
 
     for hour in 0..24 {
         let mut all_rows = Vec::new();
