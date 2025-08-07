@@ -255,22 +255,22 @@ impl EvmConnector {
             ));
     }
 
-    fn notify_deposit(
-        &self,
-        chain_id: u32,
-        address: Address,
-        amount: Amount,
-        timestamp: DateTime<Utc>,
-    ) {
-        // Sadhbh: You probably want to remove those notify_XXX functions, because you
-        // probably want to publish those events in places where you handle the commands.
-        self.observer.publish_single(ChainNotification::Deposit {
-            chain_id,
-            address,
-            amount,
-            timestamp,
-        });
-    }
+    // fn notify_deposit(
+    //     &self,
+    //     chain_id: u32,
+    //     address: Address,
+    //     amount: Amount,
+    //     timestamp: DateTime<Utc>,
+    // ) {
+    //     // Sadhbh: You probably want to remove those notify_XXX functions, because you
+    //     // probably want to publish those events in places where you handle the commands.
+    //     self.observer.publish_single(ChainNotification::Deposit {
+    //         chain_id,
+    //         address,
+    //         amount,
+    //         timestamp,
+    //     });
+    // }
 
     fn notify_withdrawal_request(
         &self,

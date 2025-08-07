@@ -8,7 +8,6 @@ use eyre::OptionExt;
 use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
-use std::str::FromStr;
 use std::sync::Arc;
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
@@ -23,6 +22,11 @@ use crate::utils::{calculate_gas_fee_usdc, IntoEvmAmount};
 use index_core::blockchain::chain_connector::ChainNotification;
 use symm_core::core::bits::{Address as CoreAddress, Symbol};
 
+use alloy_primitives::{keccak256, Address, U256};
+use alloy_rpc_types_eth::{Filter};
+use futures::StreamExt;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
 pub struct ChainOperation {
@@ -112,11 +116,46 @@ impl ChainOperation {
             });
         }
 
+        let deposit_sig = keccak256("Deposit(uint256,address,uint256,address,address)".as_bytes());
+
+        let filter = Filter::new().event_signature(deposit_sig);
+        let mut log_stream = provider.subscribe_logs(&filter).await?;
+        let mut stream = log_stream.into_stream();
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    break;
+                _ = cancel_token.cancelled() => break,
+
+                maybe_log = stream.next() => {
+                    match maybe_log {
+                        Some(log_entry) => {
+                            let data: &[u8] = log_entry.inner.data.data.as_ref();
+
+                            if data.len() >= 160 {
+                                let amount = U256::from_be_slice(&data[0..32]);
+                                let sender = Address::from_slice(&data[32..64][12..]);
+
+                                let amount_dec = Decimal::from_str(&amount.to_string())?;
+
+                                let observer = chain_observer.read();
+                                observer.publish_single(ChainNotification::Deposit {
+                                    chain_id,
+                                    address: CoreAddress::from_str(&sender.to_string())?,
+                                    amount: Amount::from(amount_dec),
+                                    timestamp: Utc::now(),
+                                });
+
+                                tracing::info!("Deposit event: sender={} amount={}", sender, amount);
+                            } else {
+                                tracing::warn!("Malformed deposit log: insufficient data");
+                            }
+                        }
+                        None => {
+                            tracing::warn!("Log stream ended");
+                            break;
+                        }
+                    }
                 }
+
                 Some(command) = command_receiver.recv() => {
                     let result = Self::execute_command(
                         chain_id,
