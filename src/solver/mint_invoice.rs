@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use rust_decimal::Decimal;
 use safe_math::safe;
 
 use crate::solver::solver_order::SolverOrderAssetLot;

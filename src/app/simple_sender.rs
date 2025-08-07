@@ -13,9 +13,13 @@ use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::{
     core::{
-        async_loop::AsyncLoop, bits::{Amount, SingleOrder}, decimal_ext::DecimalExt, functional::{
+        async_loop::AsyncLoop,
+        bits::{Amount, SingleOrder},
+        decimal_ext::DecimalExt,
+        functional::{
             IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
-        }, limit::{LimiterConfig, MultiLimiter}
+        },
+        limit::{LimiterConfig, MultiLimiter},
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };

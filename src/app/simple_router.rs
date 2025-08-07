@@ -7,9 +7,11 @@ use chrono::Utc;
 use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::core::{
-    bits::{Address, Amount, ClientOrderId, Symbol}, decimal_ext::DecimalExt, functional::{
+    bits::{Address, Amount, ClientOrderId, Symbol},
+    decimal_ext::DecimalExt,
+    functional::{
         IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
-    }
+    },
 };
 
 use eyre::{eyre, OptionExt, Result};
