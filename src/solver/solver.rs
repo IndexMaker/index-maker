@@ -314,20 +314,59 @@ impl Solver {
 
         self.handle_failed_orders(solve_engagements_result.failed_orders, timestamp)?;
 
-        if !solve_engagements_result
-            .engaged_orders
-            .engaged_buys
-            .engaged_orders
-            .is_empty()
-        {
-            let mut engaged_orders = solve_engagements_result.engaged_orders;
+        let mut engaged_orders = solve_engagements_result.engaged_orders;
+        let mut unengaged_orders = Vec::new();
 
+        engaged_orders.engaged_buys.engaged_orders.retain(|order| {
             // We filter any engagement of negligible size
-            engaged_orders
-                .engaged_buys
-                .engaged_orders
-                .retain(|order| self.zero_threshold < order.new_engaged_collateral);
+            if self.zero_threshold < order.new_engaged_collateral {
+                true
+            } else {
+                unengaged_orders.push(order.index_order.clone());
+                false
+            }
+        });
 
+        if !unengaged_orders.is_empty() {
+            let (mintable_orders, unusable_orders): (Vec<_>, Vec<_>) = unengaged_orders
+                .into_iter()
+                .map(|order| {
+                    let status = order.read().status;
+                    match status {
+                        SolverOrderStatus::PartlyMintable => Ok(order),
+                        _ => Err(order),
+                    }
+                })
+                .partition_result();
+
+            self.ready_mints.lock().extend(mintable_orders);
+
+            let _ = self
+                .index_order_manager
+                .write()
+                .map(|mut manager| {
+                    for order in unusable_orders {
+                        let o_upread = order.read();
+                        let _ = manager
+                            .order_failed(
+                                o_upread.chain_id,
+                                &o_upread.address,
+                                &o_upread.client_order_id,
+                                &o_upread.symbol,
+                                o_upread.status,
+                                timestamp,
+                            )
+                            .inspect_err(|err| {
+                                tracing::warn!("Failed to notify index order manager: {:?}", err)
+                            });
+                    }
+                })
+                .inspect_err(|err| {
+                    tracing::warn!("Failed to access index order manager: {:?}", err)
+                });
+        }
+
+        if !engaged_orders.engaged_buys.engaged_orders.is_empty() {
             let send_engage = engaged_orders
                 .engaged_buys
                 .engaged_orders
@@ -358,6 +397,7 @@ impl Solver {
                 .map_err(|e| eyre!("Failed to access index order manager {}", e))?
                 .engage_orders(batch_order_id, send_engage)?;
         }
+
         Ok(())
     }
 
@@ -835,7 +875,31 @@ impl Solver {
                         %client_order_id,
                         %payment_id,
                         "Payment failed: Not enough funds to pay",
-                    )
+                    );
+                    let order = self.client_orders.read().get_client_order(
+                        chain_id,
+                        address,
+                        client_order_id.clone(),
+                    );
+
+                    if let Some(order) = order {
+                        let symbol = order.read().symbol.clone();
+                        let status = order.read().status;
+
+                        self.index_order_manager
+                            .write()
+                            .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                            .order_failed(
+                                chain_id,
+                                &address,
+                                &client_order_id,
+                                &symbol,
+                                status,
+                                timestamp,
+                            )?;
+                    } else {
+                        tracing::warn!(%payment_id, "Payment unauthorized handling failed")
+                    }
                 }
             },
         }
@@ -1990,17 +2054,18 @@ mod test {
                     ServerResponse::MintInvoice {
                         chain_id,
                         address,
-                        mint_invoice
+                        mint_invoice,
                     } => {
                         tracing::info!(
-                            "(mock) FIX Mint Invoice: [{} {}] {} {} Collateral: [Spent: {}; Engaged: {}; Total: {}] ",
+                            "(mock) FIX Mint Invoice: [{}:{}] {} {} {:0.5} {:0.5} {:0.5} {:0.5}",
                             chain_id,
                             address,
-                            mint_invoice.index_id,
                             mint_invoice.client_order_id,
-                            mint_invoice.collateral_spent,
-                            mint_invoice.engaged_collateral,
-                            mint_invoice.total_collateral,
+                            mint_invoice.symbol,
+                            mint_invoice.total_amount,
+                            mint_invoice.amount_paid,
+                            mint_invoice.amount_remaining,
+                            mint_invoice.assets_value,
                         );
                     }
                     response => {
