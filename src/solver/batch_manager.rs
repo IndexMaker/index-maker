@@ -919,18 +919,6 @@ impl BatchManager {
             }
         }
 
-        host.fill_order_request(
-            index_order_write.chain_id,
-            &index_order_write.address,
-            &index_order_write.client_order_id,
-            &index_order_write.symbol,
-            collateral_spent,
-            filled_quantity_delta,
-            order_fill_rate,
-            index_order_write.status,
-            batch.last_update_timestamp,
-        )?;
-
         if self.fill_threshold < order_fill_rate {
             tracing::info!(
                 chain_id = %index_order_write.chain_id,
