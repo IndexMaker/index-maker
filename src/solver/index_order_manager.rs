@@ -767,12 +767,14 @@ impl IndexOrderManager {
                 update.filled_quantity = update_filled_quantity;
                 update.collateral_spent = update_collateral_spent;
                 update.engaged_collateral = update_engaged_collateral;
+                update.timestamp = timestamp;
             });
 
             index_order.with_upgraded(|index_order| {
                 index_order.filled_quantity = index_order_filled_quantity;
                 index_order.collateral_spent = index_order_collateral_spent;
                 index_order.engaged_collateral = index_order_engaged_collateral;
+                index_order.last_update_timestamp = timestamp;
             });
 
             let status_string = match status {
