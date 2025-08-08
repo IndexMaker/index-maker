@@ -3,13 +3,10 @@ use std::sync::Arc;
 use crate::{
     server_plugin::ServerPlugin,
     server_state::ServerState,
-    session::{self, RunSessionResult, Session, SessionState},
+    session_state::{RunSessionResult, SessionState},
 };
 use axum::{
-    extract::{
-        ws::{Message, WebSocket},
-        State, WebSocketUpgrade,
-    },
+    extract::{ws::WebSocket, State, WebSocketUpgrade},
     response::IntoResponse,
     routing::get,
     Router,
@@ -186,7 +183,7 @@ where
                         %session_id, "Failed to process incoming message: {:?}", err
                     );
 
-                    if let Err(err) = session_state.send_error().await {
+                    if let Err(err) = session_state.send_error(err).await {
                         tracing::warn!(
                             %session_id, "Failed to send WebSocket message: {:?}", err
                         );

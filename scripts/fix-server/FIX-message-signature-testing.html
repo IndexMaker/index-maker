@@ -168,6 +168,7 @@
   <div class="input-container">
     <label for"mode">Mode:</label>
     <select id="mode">
+      <option value="empty">(Select one...)</option>
       <option value="quote">Quote Request (no signature)</option>
       <option value="index">Index Order (requires signature)</option>
     </select>
@@ -191,21 +192,6 @@
     <div class="textBody">
       <label for="fixMessageJson">FIX Message JSON (Signature or non-signature)</label>
       <textarea id="fixMessageJson" class="input-textarea">
-{
-  "standard_header": {
-    "msg_type": "NewQuoteRequest",
-    "sender_comp_id": "CLIENT",
-    "target_comp_id": "SERVER",
-    "seq_num": 1,
-    "timestamp": "2025-07-29T12:00:00Z"
-  },
-  "chain_id": 1,
-  "address": "0x1234567890abcdef1234567890abcdef12345678",
-  "client_quote_id": "Q-1",
-  "symbol": "SY100",
-  "side": "BUY",
-  "amount": "1000"
-}
       </textarea>
       <br />
       <button id="signBtn">Send Message</button>
