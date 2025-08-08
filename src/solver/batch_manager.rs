@@ -80,13 +80,18 @@ impl BatchAssetLot {
         &self,
         symbol: Symbol,
         quantity: Amount,
+        timestamp: DateTime<Utc>,
     ) -> Option<SolverOrderAssetLot> {
         Some(SolverOrderAssetLot {
             lot_id: self.lot_id.clone(),
             symbol,
-            quantity,
             price: self.price,
-            fee: safe!(self.fee * safe!(quantity / self.original_quantity)?)?,
+            original_quantity: self.original_quantity,
+            original_fee: self.fee,
+            assigned_quantity: quantity,
+            assigned_fee: safe!(self.fee * safe!(quantity / self.original_quantity)?)?,
+            created_timestamp: self.timestamp,
+            assigned_timestamp: timestamp,
         })
     }
 
@@ -173,22 +178,24 @@ impl BatchAssetPosition {
         index_order: &mut SolverOrder,
         mut quantity: Amount,
         tolerance: Amount,
+        timestamp: DateTime<Utc>,
     ) -> Option<(Amount, Amount)> {
         let allocate_lots_span = tracing::info_span!("allocate-lots");
         let _guard = allocate_lots_span.enter();
 
         let mut collateral_spent = Amount::ZERO;
         let mut push_allocation = |lot: &mut BatchAssetLot, quantity: Amount| -> Option<()> {
-            let asset_allocation = lot.build_solver_asset_lot(self.symbol.clone(), quantity)?;
+            let asset_allocation =
+                lot.build_solver_asset_lot(self.symbol.clone(), quantity, timestamp)?;
             let lot_collateral_spent = asset_allocation.compute_collateral_spent()?;
             collateral_spent = safe!(collateral_spent + lot_collateral_spent)?;
             tracing::debug!(
                 client_order_id = %index_order.client_order_id,
                 lot_id = %asset_allocation.lot_id,
                 symbol = %asset_allocation.symbol,
-                quantity = %asset_allocation.quantity,
+                quantity = %asset_allocation.assigned_quantity,
                 price = %asset_allocation.price,
-                fee = %asset_allocation.fee,
+                fee = %asset_allocation.assigned_fee,
                 "IndexOrder allocation",
             );
             index_order.lots.push(asset_allocation);
@@ -709,6 +716,7 @@ impl BatchManager {
         let engaged_quantity = engaged_order.engaged_quantity;
         let index_order = engaged_order.index_order.clone();
         let mut index_order_write = index_order.write();
+        let timestamp = batch.last_update_timestamp;
 
         index_order_write.add_span_context_link();
 
@@ -839,6 +847,7 @@ impl BatchManager {
                 &mut index_order_write,
                 asset_quantity,
                 self.zero_threshold,
+                timestamp,
             ) {
                 None => Err(eyre!("Math Problem")),
                 Some((quantity, collateral_spent)) if quantity > self.zero_threshold => Err(eyre!(
@@ -879,7 +888,7 @@ impl BatchManager {
             safe!(index_order_write.collateral_spent + collateral_spent)
                 .ok_or_eyre("Math Problem")?;
 
-        index_order_write.timestamp = batch.last_update_timestamp;
+        index_order_write.timestamp = timestamp;
 
         let remaining_collateral =
             safe!(index_order_write.remaining_collateral + index_order_write.engaged_collateral)
@@ -1585,9 +1594,13 @@ mod test {
             .map(|(id, p, q, fee)| SolverOrderAssetLot {
                 lot_id: id.to_owned().into(),
                 symbol: get_mock_asset_name_1(),
-                quantity: *q,
                 price: *p,
-                fee: *fee,
+                original_quantity: *q,
+                original_fee: *fee,
+                assigned_quantity: *q,
+                assigned_fee: *fee,
+                created_timestamp: timestamp,
+                assigned_timestamp: timestamp,
             })
             .collect_vec();
 
@@ -1623,7 +1636,7 @@ mod test {
         asset_position.last_update_timestamp = timestamp;
 
         let (quantity_left, collateral_spent) = asset_position
-            .try_allocate_lots(&mut index_order, quantity, tolerance)
+            .try_allocate_lots(&mut index_order, quantity, tolerance, timestamp)
             .unwrap();
 
         assert_decimal_approx_eq!(quantity_left, Amount::ZERO, tolerance);
@@ -1641,8 +1654,8 @@ mod test {
             assert_eq!(a.lot_id, b.lot_id);
             assert_eq!(a.symbol, b.symbol);
             assert_decimal_approx_eq!(a.price, b.price, tolerance);
-            assert_decimal_approx_eq!(a.fee, b.fee, tolerance);
-            assert_decimal_approx_eq!(a.quantity, b.quantity, tolerance);
+            assert_decimal_approx_eq!(a.assigned_fee, b.assigned_fee, tolerance);
+            assert_decimal_approx_eq!(a.assigned_quantity, b.assigned_quantity, tolerance);
         };
 
         assert_eq!(
@@ -1931,16 +1944,20 @@ mod test {
             assert_eq!(a.lot_id, b.lot_id);
             assert_eq!(a.symbol, b.symbol);
             assert_decimal_approx_eq!(a.price, b.price, zero_threshold);
-            assert_decimal_approx_eq!(a.fee, b.fee, zero_threshold);
-            assert_decimal_approx_eq!(a.quantity, b.quantity, zero_threshold);
+            assert_decimal_approx_eq!(a.assigned_fee, b.assigned_fee, zero_threshold);
+            assert_decimal_approx_eq!(a.assigned_quantity, b.assigned_quantity, zero_threshold);
         };
 
         let expected_solver_lots = [SolverOrderAssetLot {
             lot_id: "L-1".into(),
             symbol: get_mock_asset_name_1(),
-            quantity: dec!(5.0),
             price: dec!(100.0),
-            fee: dec!(0.5),
+            original_quantity: dec!(5.0),
+            original_fee: dec!(0.5),
+            assigned_quantity: dec!(5.0),
+            assigned_fee: dec!(0.5),
+            created_timestamp: timestamp,
+            assigned_timestamp: timestamp,
         }];
 
         expected_solver_lots

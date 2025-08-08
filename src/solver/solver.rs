@@ -517,8 +517,8 @@ impl Solver {
             .lots
             .iter()
             .try_fold(Amount::ZERO, |cost, lot| {
-                let lot_value = safe! {lot.price * lot.quantity}?;
-                let cost = safe! {lot_value + lot.fee + cost}?;
+                let lot_value = safe! {lot.price * lot.assigned_quantity}?;
+                let cost = safe! {lot_value + lot.assigned_fee + cost}?;
                 Some(cost)
             })
             .ok_or_eyre("Math Problem")?;

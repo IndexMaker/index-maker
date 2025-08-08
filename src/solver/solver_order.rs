@@ -110,19 +110,31 @@ pub struct SolverOrderAssetLot {
     /// Symbol of an asset
     pub symbol: Symbol,
 
-    /// Quantity allocated to index order
-    pub quantity: Amount,
-
     /// Executed price
     pub price: Amount,
 
-    /// Execution fee
-    pub fee: Amount,
+    /// Original quantity
+    pub original_quantity: Amount,
+
+    /// Original execution fee
+    pub original_fee: Amount,
+
+    /// Quantity allocated to index order
+    pub assigned_quantity: Amount,
+    
+    /// Execution fee allocated to index order
+    pub assigned_fee: Amount,
+
+    /// Time when lot was created
+    pub created_timestamp: DateTime<Utc>,
+
+    /// Time when lot was assigned to index order
+    pub assigned_timestamp: DateTime<Utc>,
 }
 
 impl SolverOrderAssetLot {
     pub fn compute_collateral_spent(&self) -> Option<Amount> {
-        safe!(safe!(self.quantity * self.price) + self.fee)
+        safe!(safe!(self.assigned_quantity * self.price) + self.assigned_fee)
     }
 }
 
