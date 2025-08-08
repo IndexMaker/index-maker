@@ -168,8 +168,8 @@ pub fn print_mint_invoice(
             .coalesce(|a, b| {
                 if a.lot_id.eq(&b.lot_id) {
                     Ok(SolverOrderAssetLot {
-                        fee: a.fee + b.fee,
-                        quantity: a.quantity + b.quantity,
+                        assigned_fee: a.assigned_fee + b.assigned_fee,
+                        assigned_quantity: a.assigned_quantity + b.assigned_quantity,
                         ..a
                     })
                 } else {
@@ -177,15 +177,15 @@ pub fn print_mint_invoice(
                 }
             })
             .collect_vec();
-        let total_amount: Amount = lots.iter().map(|x| x.quantity * x.price + x.fee).sum();
+        let total_amount: Amount = lots.iter().map(|x| x.assigned_quantity * x.price + x.assigned_fee).sum();
         let sub_totals = lots
             .iter()
             .map(|x| {
                 (
                     x.symbol.clone(),
-                    x.quantity,
-                    x.fee,
-                    x.price * x.quantity + x.fee,
+                    x.assigned_quantity,
+                    x.assigned_fee,
+                    x.price * x.assigned_quantity + x.assigned_fee,
                 )
             })
             .sorted_by_cached_key(|(symbol, _, _, _)| symbol.clone())
@@ -202,10 +202,10 @@ pub fn print_mint_invoice(
                 "{: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
                 format!("{}", lot.lot_id),
                 lot.symbol,
-                lot.quantity,
+                lot.assigned_quantity,
                 lot.price,
-                lot.fee,
-                lot.quantity * lot.price + lot.fee
+                lot.assigned_fee,
+                lot.assigned_quantity * lot.price + lot.assigned_fee
             )
         }
 
@@ -310,8 +310,11 @@ impl MintInvoice {
         let total_amount = update.original_collateral_amount;
         let management_fee = update.update_fee;
 
+        let amount_paid = safe!(amount_paid + management_fee)
+                .ok_or_eyre("Math problem")?;
+
         let amount_remaining =
-            safe!(safe!(update.original_collateral_amount - amount_paid) - management_fee)
+            safe!(update.original_collateral_amount - amount_paid)
                 .ok_or_eyre("Math problem")?;
 
         let fill_rate = safe!(
@@ -323,14 +326,14 @@ impl MintInvoice {
 
         let assets_value = lots
             .iter()
-            .map(|lot| safe!(lot.price * lot.quantity))
+            .map(|lot| safe!(lot.price * lot.assigned_quantity))
             .fold_options(Some(Amount::ZERO), |a, v| safe!(a + v))
             .flatten()
             .ok_or_eyre("Math error")?;
 
         let exchange_fee = lots
             .iter()
-            .map(|lot| Some(lot.fee))
+            .map(|lot| Some(lot.assigned_fee))
             .fold_options(Some(Amount::ZERO), |a, v| safe!(a + v))
             .flatten()
             .ok_or_eyre("Math error")?;
