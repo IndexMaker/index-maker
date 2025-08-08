@@ -501,7 +501,7 @@ pub struct BatchManager {
     engagements: HashMap<BatchOrderId, Arc<RwLock<EngagedSolverOrders>>>,
     ready_batches: VecDeque<BatchOrderId>,
     carry_overs: Mutex<HashMap<(Symbol, Side), BatchCarryOver>>,
-    ready_mints: Mutex<VecDeque<Arc<RwLock<SolverOrder>>>>,
+    ready_mints: Mutex<HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>>,
     total_volley_size: RwLock<Amount>,
     max_batch_size: usize,
     zero_threshold: Amount,
@@ -524,7 +524,7 @@ impl BatchManager {
             engagements: HashMap::new(),
             ready_batches: VecDeque::new(),
             carry_overs: Mutex::new(HashMap::new()),
-            ready_mints: Mutex::new(VecDeque::new()),
+            ready_mints: Mutex::new(HashMap::new()),
             total_volley_size: RwLock::new(Amount::ZERO),
             max_batch_size,
             zero_threshold,
@@ -578,12 +578,12 @@ impl BatchManager {
     fn adjust_order_batch(
         &self,
         batch: &mut BatchOrder,
+        batch_order_status: &mut BatchOrderStatus,
         carried_positions: HashMap<(Symbol, Side), Amount>,
     ) -> Result<()> {
         for asset_order in batch.asset_orders.iter_mut() {
-            if let Some(&carried_quantity) =
-                carried_positions.get(&(asset_order.symbol.clone(), asset_order.side))
-            {
+            let position_key = (asset_order.symbol.clone(), asset_order.side);
+            if let Some(&carried_quantity) = carried_positions.get(&position_key) {
                 let remainng_quantity =
                     safe!(asset_order.quantity - carried_quantity).ok_or_eyre("Math Problem")?;
 
@@ -591,12 +591,36 @@ impl BatchManager {
                     asset_order.quantity = remainng_quantity;
                 } else {
                     asset_order.quantity = Amount::ZERO;
+
+                    let batch_asset_position = batch_order_status
+                        .positions
+                        .get_mut(&position_key)
+                        .ok_or_eyre("Missing batch order status side")?;
+
+                    batch_asset_position.is_cancelled = true;
+                    batch_asset_position.quantity_cancelled = Amount::ZERO;
+
+                    tracing::debug!(
+                        batch_order_id = %batch_order_status.batch_order_id,
+                        side = ?batch_asset_position.side,
+                        asset_symbol = %batch_asset_position.symbol,
+                        order_quantity = %batch_asset_position.order_quantity,
+                        "Internal Batch Cancel");
                 }
             }
         }
+        if batch_order_status
+            .positions
+            .values()
+            .all(|v| v.is_cancelled)
+        {
+            batch_order_status.is_cancelled = true;
+        }
+
         batch
             .asset_orders
             .retain(|asset_order| self.zero_threshold < asset_order.quantity);
+
         Ok(())
     }
 
@@ -609,6 +633,16 @@ impl BatchManager {
         let send_batch_span =
             info_span!("send-batch", batch_order_id = %engaged_orders.batch_order_id);
         let _guard = send_batch_span.enter();
+
+        tracing::info!(
+            engaged_orders = %json!(engaged_orders.engaged_buys.engaged_orders.iter()
+                .map(|o| (o.chain_id, o.address, o.client_order_id.clone()))
+                .collect_vec()),
+            "Send Batch Index Orders");
+
+        if engaged_orders.engaged_buys.engaged_orders.is_empty() {
+            Err(eyre!("No engaged Index orders"))?;
+        }
 
         engaged_orders.add_span_context_link();
         engaged_orders
@@ -628,7 +662,7 @@ impl BatchManager {
         }
 
         let carried_positions = batch_order_status.carry_in(&mut self.carry_overs.lock())?;
-        self.adjust_order_batch(&mut batch, carried_positions)?;
+        self.adjust_order_batch(&mut batch, &mut batch_order_status, carried_positions)?;
 
         *self.total_volley_size.write() += batch_order_status.volley_size;
 
@@ -654,7 +688,7 @@ impl BatchManager {
             tracing::info!(
                 batch_order_id = %batch.batch_order_id,
                 "Internal Batch"
-            )
+            );
         }
 
         Ok(batch_order_status)
@@ -682,6 +716,7 @@ impl BatchManager {
             SolverOrderStatus::Open
             | SolverOrderStatus::ManageCollateral
             | SolverOrderStatus::Ready
+            | SolverOrderStatus::Minted
             | SolverOrderStatus::InvalidSymbol
             | SolverOrderStatus::InvalidOrder
             | SolverOrderStatus::InternalError
@@ -691,9 +726,17 @@ impl BatchManager {
                     index_order_write.status
                 ))?;
             }
-            SolverOrderStatus::Engaged => {}
-            SolverOrderStatus::PartlyMintable => {}
-            SolverOrderStatus::FullyMintable | SolverOrderStatus::Minted => return Ok(()),
+            SolverOrderStatus::Engaged | SolverOrderStatus::PartlyMintable => {
+                // A fresh order will arrive with Engaged status, an order that
+                // haven't yet been filled enough to be minted. Partly mintable
+                // order reached mint threshold, but can improve.
+            }
+            SolverOrderStatus::FullyMintable => {
+                // A fully mintable order reached full fill threshold, and while it
+                // can still improve beyond that threshold, such improvement
+                // would result in allocating very tiny lots, thus we skip.
+                return Ok(());
+            }
         }
 
         // We search for fill-rate of this Index Order matching against
@@ -865,8 +908,11 @@ impl BatchManager {
 
         match index_order_write.status {
             SolverOrderStatus::Engaged if self.mint_threshold < order_fill_rate => {
+                self.ready_mints
+                    .lock()
+                    .insert(index_order_write.get_key(), index_order.clone());
+
                 host.set_order_status(&mut index_order_write, SolverOrderStatus::PartlyMintable);
-                self.ready_mints.lock().push_back(index_order.clone());
             }
             _ => {
                 // not mintable yet
@@ -896,6 +942,18 @@ impl BatchManager {
             );
             host.set_order_status(&mut index_order_write, SolverOrderStatus::FullyMintable);
         }
+
+        host.fill_order_request(
+            index_order_write.chain_id,
+            &index_order_write.address,
+            &index_order_write.client_order_id,
+            &index_order_write.symbol,
+            collateral_spent,
+            filled_quantity_delta,
+            order_fill_rate,
+            index_order_write.status,
+            batch.last_update_timestamp,
+        )?;
 
         Ok(())
     }
@@ -958,7 +1016,20 @@ impl BatchManager {
         tracing::info_span!("internal-fill").in_scope(|| {
             let (_, err): ((), Vec<_>) = new_batches
                 .into_iter()
-                .map(|batch| self.fill_batch_orders(host, &batch))
+                .map(|batch| -> Result<()> {
+                    self.fill_batch_orders(host, &batch)?;
+                    if batch.read().is_cancelled {
+                        tracing::info_span!("internal-complete").in_scope(|| {
+                            self.complete_batch(
+                                host,
+                                batch.read().batch_order_id.clone(),
+                                batch.clone(),
+                                timestamp,
+                            )
+                        })?;
+                    }
+                    Ok(())
+                })
                 .partition_result();
 
             failures.extend(err);
@@ -974,23 +1045,6 @@ impl BatchManager {
         Ok(())
     }
 
-    fn mint_more_orders(&mut self, timestamp: DateTime<Utc>) -> Result<()> {
-        let mint_orders_span = span!(Level::TRACE, "mint-orders");
-        let _guard = mint_orders_span.enter();
-
-        let mintable_orders = self.get_mintable_batch(timestamp);
-        if !mintable_orders.is_empty() {
-            mintable_orders
-                .iter()
-                .for_each(|o| o.read().add_span_context_link());
-
-            self.observer
-                .publish_single(BatchEvent::BatchMintable { mintable_orders });
-        }
-
-        Ok(())
-    }
-
     pub fn process_batches(
         &mut self,
         host: &dyn BatchManagerHost,
@@ -1001,29 +1055,12 @@ impl BatchManager {
 
         self.send_more_batches(host, timestamp)?;
         self.cleanup_batches()?;
-        self.mint_more_orders(timestamp)?;
 
         Ok(())
     }
 
     pub fn get_total_volley_size(&self) -> Amount {
         *self.total_volley_size.read()
-    }
-
-    fn get_mintable_batch(&self, timestamp: DateTime<Utc>) -> Vec<Arc<RwLock<SolverOrder>>> {
-        let ready_timestamp = timestamp - self.mint_wait_period;
-        let check_not_ready = |x: &SolverOrder| ready_timestamp < x.timestamp;
-        let ready_mints = {
-            let mut mints = self.ready_mints.lock();
-            let res = mints.iter().find_position(|p| check_not_ready(&p.read()));
-            if let Some((pos, _)) = res {
-                mints.drain(..pos)
-            } else {
-                mints.drain(..)
-            }
-            .collect_vec()
-        };
-        ready_mints
     }
 
     pub fn handle_new_engagement(
@@ -1188,98 +1225,161 @@ impl BatchManager {
             cancel_timestamp,
         )?;
 
-        let is_all_cancelled = batch.read().is_cancelled;
-        if is_all_cancelled {
-            let batch_complete_span = info_span!("batch-complete");
-            let _guard = batch_complete_span.enter();
+        if !batch.read().is_cancelled {
+            return Ok(());
+        }
 
-            //
-            // TODO: Inventory Manager will let us know if batch is complete, and
-            // we should use that information to:
-            //  - carry-over any position that we didn't use to fill an index
-            //  order into next batch.
-            //  - remove batch status to save memory
-            //  - also need to carry over the index orders
-            //
-            let mut carry_overs = self.carry_overs.lock();
-            batch.write().carry_over(&mut carry_overs)?;
+        self.complete_batch(host, batch_order_id, batch, cancel_timestamp)
+    }
+
+    fn complete_batch(
+        &self,
+        host: &dyn BatchManagerHost,
+        batch_order_id: BatchOrderId,
+        batch: Arc<RwLock<BatchOrderStatus>>,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let batch_complete_span = info_span!("batch-complete");
+        let _guard = batch_complete_span.enter();
+
+        //
+        // TODO: Inventory Manager will let us know if batch is complete, and
+        // we should use that information to:
+        //  - carry-over any position that we didn't use to fill an index
+        //  order into next batch.
+        //  - remove batch status to save memory
+        //  - also need to carry over the index orders
+        //
+        let mut carry_overs = self.carry_overs.lock();
+        batch.write().carry_over(&mut carry_overs)?;
+
+        tracing::info!(
+            carried_lots = %json!(
+                carry_overs.iter().map(|((sym, side), v)|
+                    (sym.to_string(), (side, v.carried_position))).collect::<HashMap<_, _>>()
+            ),
+            "Carry overs"
+        );
+
+        let engagement = self
+            .engagements
+            .get(&batch_order_id)
+            .cloned()
+            .ok_or_eyre("Missing engagement")?;
+
+        let engaged_index_orders = (|engagement: &EngagedSolverOrders| {
+            engagement.add_span_context_link();
+            engagement
+                .engaged_buys
+                .engaged_orders
+                .iter()
+                .map(|e| e.index_order.clone())
+                .collect_vec()
+        })(&engagement.read());
+
+        let mut continued_orders = Vec::new();
+
+        let mut mintable_orders = Vec::new();
+        let ready_timestamp = timestamp - self.mint_wait_period;
+        let check_ready = |x: &SolverOrder| x.timestamp <= ready_timestamp;
+
+        (|ready_mints: &mut HashMap<_, Arc<RwLock<SolverOrder>>>| {
+            ready_mints.retain(|_, o_rwptr| {
+                let mut o_upread = o_rwptr.upgradable_read();
+                match o_upread.status {
+                    SolverOrderStatus::FullyMintable => {
+                        mintable_orders.push(o_rwptr.clone());
+                        false
+                    }
+                    SolverOrderStatus::PartlyMintable if check_ready(&o_upread) => {
+                        o_upread.with_upgraded(|o_write| {
+                            host.set_order_status(o_write, SolverOrderStatus::FullyMintable)
+                        });
+                        mintable_orders.push(o_rwptr.clone());
+                        false
+                    }
+                    _ => true,
+                }
+            });
+            tracing::info!(
+                mintable_orders = %json!(mintable_orders.iter().map(|o| o.read().get_key()).collect_vec()),
+                ready_mints = %json!(ready_mints.keys().collect_vec()),
+                "Ready Mints");
+        })(&mut self.ready_mints.lock());
+
+        tracing::info!(
+            engaged_index_orders_len = engaged_index_orders.len(),
+            "Engaged Orders"
+        );
+
+        for engaged_order in engaged_index_orders.iter() {
+            let mut o_upread = engaged_order.upgradable_read();
+            let collateral_carried = o_upread.engaged_collateral;
 
             tracing::info!(
-                carried_lots = %json!(
-                    carry_overs.iter().map(|((sym, side), v)|
-                        (sym.to_string(), (side, v.carried_position))).collect::<HashMap<_, _>>()
-                ),
-                "Carry overs"
+                key = %json!(o_upread.get_key()),
+                status = ?o_upread.status,
+                "Engaged Order"
             );
 
-            let engagement = self
-                .engagements
-                .get(&batch_order_id)
-                .cloned()
-                .ok_or_eyre("Missing engagement")?;
+            o_upread.add_span_context_link();
 
-            engagement.read().add_span_context_link();
-
-            let mut continued_orders = Vec::new();
-
-            for engaged_order in engagement.read().engaged_buys.engaged_orders.iter() {
-                let mut index_order = engaged_order.index_order.upgradable_read();
-                let collateral_carried = index_order.engaged_collateral;
-
-                index_order.add_span_context_link();
-
-                match index_order.status {
-                    SolverOrderStatus::FullyMintable => {
-                        tracing::info!(
-                            chain_id = %engaged_order.chain_id,
-                            address = %engaged_order.address,
-                            client_order_id = %engaged_order.client_order_id,
-                            %collateral_carried,
-                            "Index Order is Fully Mintable",
-                        );
-                    }
-                    SolverOrderStatus::Engaged | SolverOrderStatus::PartlyMintable => {
-                        tracing::info!(
-                            client_order_id = %engaged_order.client_order_id,
-                            %collateral_carried,
-                            "Will continue Index Order",
-                        );
-                        index_order.with_upgraded(|index_order_write| {
-                            index_order_write.collateral_carried = collateral_carried;
-                            index_order_write.engaged_collateral = Amount::ZERO;
-                        });
-                        continued_orders.push(engaged_order.index_order.clone());
-                    }
-                    SolverOrderStatus::Minted => {
-                        tracing::warn!(
-                            client_order_id = %engaged_order.client_order_id,
+            match o_upread.status {
+                SolverOrderStatus::FullyMintable => {
+                    tracing::info!(
+                        chain_id = %o_upread.chain_id,
+                        address = %o_upread.address,
+                        client_order_id = %o_upread.client_order_id,
+                        %collateral_carried,
+                        "Index Order is Fully Mintable",
+                    );
+                }
+                SolverOrderStatus::Engaged | SolverOrderStatus::PartlyMintable => {
+                    tracing::info!(
+                        client_order_id = %o_upread.client_order_id,
+                        %collateral_carried,
+                        "Will continue Index Order",
+                    );
+                    o_upread.with_upgraded(|o_write| {
+                        o_write.collateral_carried = collateral_carried;
+                        o_write.engaged_collateral = Amount::ZERO;
+                    });
+                    continued_orders.push(engaged_order.clone());
+                }
+                SolverOrderStatus::Minted => {
+                    tracing::warn!(
+                            client_order_id = %o_upread.client_order_id,
                             "Index order minted already");
-                    }
-                    SolverOrderStatus::InternalError => {
-                        tracing::warn!(
-                            client_order_id = %engaged_order.client_order_id,
+                }
+                SolverOrderStatus::InternalError => {
+                    tracing::warn!(
+                            client_order_id = %o_upread.client_order_id,
                             "Failed Index order processing");
-                    }
-                    SolverOrderStatus::Open
-                    | SolverOrderStatus::ManageCollateral
-                    | SolverOrderStatus::Ready
-                    | SolverOrderStatus::InvalidSymbol
-                    | SolverOrderStatus::InvalidOrder
-                    | SolverOrderStatus::ServiceUnavailable => {
-                        tracing::warn!(
-                            client_order_id = %engaged_order.client_order_id,
-                            "Invalid Index order state: {:?}", index_order.status);
-                    }
+                }
+                SolverOrderStatus::Open
+                | SolverOrderStatus::ManageCollateral
+                | SolverOrderStatus::Ready
+                | SolverOrderStatus::InvalidSymbol
+                | SolverOrderStatus::InvalidOrder
+                | SolverOrderStatus::ServiceUnavailable => {
+                    tracing::warn!(
+                            client_order_id = %o_upread.client_order_id,
+                            "Invalid Index order state: {:?}", o_upread.status);
                 }
             }
-
-            *self.total_volley_size.write() -= batch.read().volley_size;
-
-            self.observer.publish_single(BatchEvent::BatchComplete {
-                batch_order_id,
-                continued_orders,
-            });
         }
+
+        *self.total_volley_size.write() -= batch.read().volley_size;
+
+        if !mintable_orders.is_empty() {
+            self.observer
+                .publish_single(BatchEvent::BatchMintable { mintable_orders });
+        }
+
+        self.observer.publish_single(BatchEvent::BatchComplete {
+            batch_order_id,
+            continued_orders,
+        });
 
         Ok(())
     }

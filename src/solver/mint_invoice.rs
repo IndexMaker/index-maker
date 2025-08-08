@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use eyre::Result;
+use eyre::{OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use rust_decimal::Decimal;
 use safe_math::safe;
 
 use crate::solver::solver_order::SolverOrderAssetLot;
@@ -276,16 +275,18 @@ pub fn print_mint_invoice(
 
 #[derive(Debug)]
 pub struct MintInvoice {
-    pub timestamp: DateTime<Utc>,
     pub client_order_id: ClientOrderId,
-    pub index_id: Symbol,
-    pub collateral_spent: Decimal,
-    pub total_collateral: Decimal,
-    pub engaged_collateral: Decimal,
-    pub management_fee: Decimal,
     pub payment_id: PaymentId,
+    pub symbol: Symbol,
+    pub total_amount: Amount,
     pub amount_paid: Amount,
+    pub amount_remaining: Amount,
+    pub management_fee: Amount,
+    pub assets_value: Amount,
+    pub exchange_fee: Amount,
+    pub fill_rate: Amount,
     pub lots: Vec<SolverOrderAssetLot>,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl MintInvoice {
@@ -297,39 +298,56 @@ impl MintInvoice {
         lots: Vec<SolverOrderAssetLot>,
         timestamp: DateTime<Utc>,
     ) -> Result<Self> {
-        let lots_clone = lots.clone();
-
         print_mint_invoice(
             index_order,
             update,
             payment_id,
             amount_paid,
-            lots,
+            lots.clone(),
             timestamp,
         )?;
 
-        let total_amount: Amount = lots_clone
-            .iter()
-            .map(|x| x.quantity * x.price + x.fee)
-            .sum();
+        let total_amount = update.original_collateral_amount;
+        let management_fee = update.update_fee;
 
-        let total_collateral = safe!(
-            safe!(total_amount + update.update_fee)
-                + index_order.engaged_collateral.unwrap_or_default()
+        let amount_remaining =
+            safe!(safe!(update.original_collateral_amount - amount_paid) - management_fee)
+                .ok_or_eyre("Math problem")?;
+
+        let fill_rate = safe!(
+            safe!(update.collateral_spent - update.update_fee)
+                / safe!(update.original_collateral_amount - update.update_fee)
+                    .ok_or_eyre("Math problem")?
         )
-        .unwrap_or_default();
+        .ok_or_eyre("Math problem")?;
+
+        let assets_value = lots
+            .iter()
+            .map(|lot| safe!(lot.price * lot.quantity))
+            .fold_options(Some(Amount::ZERO), |a, v| safe!(a + v))
+            .flatten()
+            .ok_or_eyre("Math error")?;
+
+        let exchange_fee = lots
+            .iter()
+            .map(|lot| Some(lot.fee))
+            .fold_options(Some(Amount::ZERO), |a, v| safe!(a + v))
+            .flatten()
+            .ok_or_eyre("Math error")?;
 
         Ok(Self {
-            timestamp,
             client_order_id: update.client_order_id.clone(),
-            index_id: index_order.symbol.clone(),
-            collateral_spent: index_order.collateral_spent,
-            total_collateral,
-            engaged_collateral: index_order.engaged_collateral.unwrap_or_default(),
-            management_fee: update.update_fee,
             payment_id: payment_id.clone(),
+            symbol: index_order.symbol.clone(),
+            total_amount,
             amount_paid,
-            lots: lots_clone,
+            amount_remaining,
+            management_fee,
+            assets_value,
+            exchange_fee,
+            fill_rate,
+            lots,
+            timestamp,
         })
     }
 }

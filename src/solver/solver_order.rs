@@ -83,6 +83,12 @@ pub struct SolverOrder {
     pub tracing_data: TracingData,
 }
 
+impl SolverOrder {
+    pub fn get_key(&self) -> (u32, Address, ClientOrderId) {
+        (self.chain_id, self.address, self.client_order_id.clone())
+    }
+}
+
 impl WithTracingData for SolverOrder {
     fn get_tracing_data_mut(&mut self) -> &mut TracingData {
         &mut self.tracing_data
