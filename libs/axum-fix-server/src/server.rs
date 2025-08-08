@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use crate::{server_plugin::ServerPlugin, server_state::ServerState, session::Session};
+use crate::{
+    server_plugin::ServerPlugin,
+    server_state::ServerState,
+    session_state::{RunSessionResult, SessionState},
+};
 use axum::{
-    extract::{
-        ws::{Message, WebSocket},
-        State, WebSocketUpgrade,
-    },
+    extract::{ws::WebSocket, State, WebSocketUpgrade},
     response::IntoResponse,
     routing::get,
     Router,
@@ -127,6 +128,8 @@ where
     Response: Send + Sync + 'static,
     Plugin: ServerPlugin<Response> + Send + Sync + 'static,
 {
+    let timeout = std::time::Duration::from_secs(10);
+
     ws.on_upgrade(async move |mut ws: WebSocket| {
         if !server_state.read().is_accepting_connections() {
             return;
@@ -143,47 +146,54 @@ where
         let session_id = session.get_session_id().clone();
         let cancel_token = session.cancel_token_cloned();
 
+        let mut session_state =
+            SessionState::new(session_id.clone(), &mut ws, &mut rx, cancel_token, timeout);
+
         loop {
-            let result =
-                match Session::run_session(&session_id, &cancel_token, &mut ws, &mut rx).await {
-                    Ok(res) => res,
-                    Err(err) => {
-                        tracing::warn!("An error encountered while running session: {:?}", err);
-                        break;
-                    }
-                };
-
-            // Note: We split the loop so that read-lock is acquired outside of
-            // any await
-
-            let incoming_message = match result {
-                Some(incoming_message) => incoming_message,
-                None => {
+            let incoming_message = match session_state.get_message().await {
+                RunSessionResult::MessageReceived(message) => message,
+                RunSessionResult::Continue => continue,
+                RunSessionResult::ConnectionClosed => {
+                    tracing::warn!(%session_id, "Connection closed");
+                    break;
+                }
+                RunSessionResult::Error(err) => {
+                    tracing::warn!(
+                        %session_id, "An error encountered while running session: {:?}", err
+                    );
                     break;
                 }
             };
 
-            let result = server_state
+            let maybe_message = server_state
                 .read()
                 .process_incoming(incoming_message, &session_id);
 
-            match result {
+            match maybe_message {
                 Ok(result) => {
-                    if let Err(err) = ws.send(Message::Text(result.to_string())).await {
-                        tracing::warn!("Failed to send WebSocket message: {}", err);
+                    if let Err(err) = session_state.send_message(result).await {
+                        tracing::warn!(
+                            %session_id, "Failed to send WebSocket message: {:?}", err
+                        );
                         break;
                     }
                 }
                 Err(err) => {
-                    tracing::warn!("Failed to process incoming message: {}", err);
+                    tracing::warn!(
+                        %session_id, "Failed to process incoming message: {:?}", err
+                    );
 
-                    if let Err(err) = ws.send(Message::Text(err.to_string())).await {
-                        tracing::warn!("Failed to send WebSocket message: {}", err);
+                    if let Err(err) = session_state.send_error(err).await {
+                        tracing::warn!(
+                            %session_id, "Failed to send WebSocket message: {:?}", err
+                        );
                         break;
                     }
                 }
             }
         }
+
+        tracing::info!(%session_id, "Closing session");
 
         if let Err(err) = server_state.write().close_session(session_id) {
             tracing::warn!("Failed to close session: {:?}", err);
