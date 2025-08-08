@@ -6,8 +6,8 @@ receivers:
 
 processors:
   batch:
-    send_batch_size: 4
-    timeout: 1s
+    send_batch_size: 100
+    timeout: 10s
 
 exporters:
   otlp/elastic:
@@ -24,12 +24,12 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/elastic,debug]
+      exporters: [otlp/elastic]
 
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/elastic,debug]
+      exporters: [otlp/elastic]
 
     metrics:
       receivers: [otlp]
