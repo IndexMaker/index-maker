@@ -22,10 +22,10 @@ use crate::utils::{calculate_gas_fee_usdc, IntoEvmAmount};
 use index_core::blockchain::chain_connector::ChainNotification;
 use symm_core::core::bits::{Address as CoreAddress, Symbol};
 
-use alloy_primitives::{keccak256, Address, U256};
-use alloy_rpc_types_eth::{Filter};
-use futures::StreamExt;
 use crate::utils::IntoAmount;
+use alloy_primitives::{keccak256, Address, U256};
+use alloy_rpc_types_eth::Filter;
+use futures::StreamExt;
 use std::str::FromStr;
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
@@ -117,8 +117,13 @@ impl ChainOperation {
         }
 
         let deposit_sig = keccak256("Deposit(uint256,address,uint256,address,address)".as_bytes());
+        let withdraw_sig = keccak256("Withdraw(uint256,address,bytes)".as_bytes());
 
-        let filter = Filter::new().event_signature(deposit_sig);
+        // Create a filter matching multiple topics (topic0 = event signature)
+        let filter = Filter::new().events(vec![
+            b"Deposit(uint256,address,uint256,address,address)" as &[u8],
+            b"Withdraw(uint256,address,bytes)" as &[u8],
+        ]);
         let mut log_stream = provider.subscribe_logs(&filter).await?;
         let mut stream = log_stream.into_stream();
         loop {
@@ -126,27 +131,35 @@ impl ChainOperation {
                 _ = cancel_token.cancelled() => break,
 
                 maybe_log = stream.next() => {
-                    match maybe_log {
+                     match maybe_log {
                         Some(log_entry) => {
                             let data: &[u8] = log_entry.inner.data.data.as_ref();
+                            let topic0 = log_entry.topic0().unwrap();
 
-                            if data.len() >= 160 {
-                                let amount_raw  = U256::from_be_slice(&data[0..32]);
-                                let sender = Address::from_slice(&data[32..64][12..]);
+                            if *topic0 == deposit_sig {
+                                if data.len() >= 160 {
+                                    let amount_raw = U256::from_be_slice(&data[0..32]);
+                                    let sender = Address::from_slice(&data[32 + 12..64]);
+                                    let amount = amount_raw.into_amount_usdc()?;
 
-                                let amount = amount_raw.into_amount_usdc()?;
+                                    let observer = chain_observer.read();
+                                    observer.publish_single(ChainNotification::Deposit {
+                                        chain_id,
+                                        address: sender, // ✅ cleaner
+                                        amount,
+                                        timestamp: Utc::now(),
+                                    });
 
-                                let observer = chain_observer.read();
-                                observer.publish_single(ChainNotification::Deposit {
-                                    chain_id,
-                                    address: CoreAddress::from_str(&sender.to_string())?,
-                                    amount: amount,
-                                    timestamp: Utc::now(),
-                                });
+                                    tracing::info!("Deposit event: sender={} amount={}", sender, amount);
+                                } else {
+                                    tracing::warn!("Malformed deposit log: insufficient data");
+                                }
 
-                                tracing::info!("Deposit event: sender={} amount={}", sender, amount);
+                            } else if *topic0 == withdraw_sig {
+                                // for now, only implemented for Deposit event
+                                tracing::info!("Withdrawal event received: {:?}", data);
                             } else {
-                                tracing::warn!("Malformed deposit log: insufficient data");
+                                tracing::warn!("Unknown event signature: {:?}", topic0);
                             }
                         }
                         None => {
