@@ -25,7 +25,7 @@ use symm_core::core::bits::{Address as CoreAddress, Symbol};
 use alloy_primitives::{keccak256, Address, U256};
 use alloy_rpc_types_eth::{Filter};
 use futures::StreamExt;
-use rust_decimal::Decimal;
+use crate::utils::IntoAmount;
 use std::str::FromStr;
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
@@ -131,16 +131,16 @@ impl ChainOperation {
                             let data: &[u8] = log_entry.inner.data.data.as_ref();
 
                             if data.len() >= 160 {
-                                let amount = U256::from_be_slice(&data[0..32]);
+                                let amount_raw  = U256::from_be_slice(&data[0..32]);
                                 let sender = Address::from_slice(&data[32..64][12..]);
 
-                                let amount_dec = Decimal::from_str(&amount.to_string())?;
+                                let amount = amount_raw.into_amount_usdc()?;
 
                                 let observer = chain_observer.read();
                                 observer.publish_single(ChainNotification::Deposit {
                                     chain_id,
                                     address: CoreAddress::from_str(&sender.to_string())?,
-                                    amount: Amount::from(amount_dec),
+                                    amount: amount,
                                     timestamp: Utc::now(),
                                 });
 
