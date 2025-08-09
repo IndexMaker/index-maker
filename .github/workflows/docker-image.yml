@@ -1,10 +1,6 @@
 name: Docker Image CI
 
 on:
-  workflow_run:
-    workflows: ["Rust"]
-    types:
-      - completed
   push:
     branches: [ "staging" ]
 
