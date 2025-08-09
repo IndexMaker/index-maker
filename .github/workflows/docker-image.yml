@@ -5,6 +5,8 @@ on:
     workflows: ["Rust"]
     types:
       - completed
+  push:
+    branches: [ "staging" ]
 
 jobs:
   build:
