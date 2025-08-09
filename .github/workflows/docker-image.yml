@@ -1,13 +1,35 @@
 name: Docker Image CI
 
 on:
-  push:
-    branches: [ "staging" ]
+  workflow_run:
+    workflows: ["Rust"]
+    types:
+      - completed
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'staging'
+
     steps:
+      - name: Wait for 'build' and 'test' from 'Rust' workflow
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const workflowRunId = context.payload.workflow_run.id;
+            const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: workflowRunId,
+            });
+
+            const buildJob = jobs.find(job => job.name === 'build');
+            const testJob = jobs.find(job => job.find(job => job.name === 'test');
+
+            if (buildJob.conclusion !== 'success' || testJob.conclusion !== 'success') {
+              core.setFailed('The required jobs from the "Rust" workflow did not succeed.');
+            }
       - name: Checkout code
         uses: actions/checkout@v4
 
