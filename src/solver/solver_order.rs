@@ -31,6 +31,7 @@ pub enum SolverOrderStatus {
     Minted,
     InvalidSymbol,
     InvalidOrder,
+    InvalidCollateral,
     ServiceUnavailable,
     InternalError,
 }
