@@ -37,7 +37,7 @@ use index_core::{
 
 use crate::collateral::{
     collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
-    collateral_position::{ConfirmStatus, PreAuthStatus},
+    collateral_position::{ConfirmStatus, PreAuthStatus, RoutingStatus},
 };
 
 use super::{
@@ -719,52 +719,84 @@ impl Solver {
                 address,
                 client_order_id,
                 collateral_amount,
-                fee,
+                status,
                 timestamp,
             } => {
-                tracing::info!(%chain_id, %address, %collateral_amount, %fee,
-                    "CollateralReady");
-
-                let order = self.client_orders.read().get_client_order(
-                    chain_id,
-                    address,
-                    client_order_id.clone(),
-                );
-
-                if let Some(order) = order {
-                    // TODO: Figure out: should collateral manager have already paid for the order?
-                    // or CollateralEvent is only to tell us that collateral reached sub-accounts?
-                    // NOTE: Paying for order, is just telling collateral manager to block certain
-                    // amount of balance, so that any next order from that user won't double-spend.
-                    // We assign payment ID so that  we can identify association between order and
-                    // allocated collateral.
-                    let side = order.read().side;
-                    self.collateral_manager
-                        .write()
-                        .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
-                        .preauth_payment(
-                            self,
+                let order = self
+                    .client_orders
+                    .read()
+                    .get_client_order(chain_id, address, client_order_id.clone())
+                    .ok_or_else(|| {
+                        eyre!(
+                            "Failed to find order: [{}:{}] {}",
                             chain_id,
-                            &address,
-                            &client_order_id,
-                            timestamp,
-                            side,
-                            collateral_amount,
-                        )?;
+                            address,
+                            client_order_id
+                        )
+                    })?;
 
-                    let symbol = &order.read().symbol;
-                    self.index_order_manager
-                        .write()
-                        .map_err(|e| eyre!("Failed to access index order manager {}", e))?
-                        .collateral_ready(
-                            chain_id,
-                            &address,
-                            &client_order_id,
-                            symbol,
-                            collateral_amount,
-                            fee,
-                            timestamp,
-                        )?;
+                match status {
+                    RoutingStatus::Ready { fee } => {
+                        tracing::info!(%chain_id, %address, %collateral_amount, %fee, "CollateralReady");
+
+                        // TODO: Figure out: should collateral manager have already paid for the order?
+                        // or CollateralEvent is only to tell us that collateral reached sub-accounts?
+                        // NOTE: Paying for order, is just telling collateral manager to block certain
+                        // amount of balance, so that any next order from that user won't double-spend.
+                        // We assign payment ID so that  we can identify association between order and
+                        // allocated collateral.
+                        let (side, symbol) =
+                            (|o: &SolverOrder| (o.side, o.symbol.clone()))(&order.read());
+
+                        self.collateral_manager
+                            .write()
+                            .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
+                            .preauth_payment(
+                                self,
+                                chain_id,
+                                &address,
+                                &client_order_id,
+                                timestamp,
+                                side,
+                                collateral_amount,
+                            )?;
+
+                        self.index_order_manager
+                            .write()
+                            .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                            .collateral_ready(
+                                chain_id,
+                                &address,
+                                &client_order_id,
+                                &symbol,
+                                collateral_amount,
+                                fee,
+                                timestamp,
+                            )?;
+                    }
+                    RoutingStatus::NotReady => {
+                        tracing::warn!(%chain_id, %address, %collateral_amount, "CollateralReady NotReady");
+
+                        self.set_order_status(
+                            &mut order.write(),
+                            SolverOrderStatus::InvalidCollateral,
+                        );
+
+                        let (symbol, status) =
+                            (|o: &SolverOrder| (o.symbol.clone(), o.status))(&order.read());
+
+                        self.index_order_manager
+                            .write()
+                            .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                            .order_failed(
+                                chain_id,
+                                &address,
+                                &client_order_id,
+                                &symbol,
+                                status,
+                                timestamp,
+                            )?;
+                    }
                 }
             }
             CollateralEvent::PreAuthResponse {

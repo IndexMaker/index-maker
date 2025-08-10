@@ -38,8 +38,8 @@ pub enum CollateralEvent {
         client_order_id: ClientOrderId,
 
         collateral_amount: Amount,
-        fee: Amount,
         timestamp: DateTime<Utc>,
+        status: RoutingStatus,
     },
     PreAuthResponse {
         #[baggage]
@@ -100,7 +100,7 @@ impl CollateralManager {
     pub fn process_collateral(
         &mut self,
         _host: &dyn CollateralManagerHost,
-        _timestamp: DateTime<Utc>,
+        timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let process_collateral_span = span!(Level::TRACE, "process-collateral");
         let _guard = process_collateral_span.enter();
@@ -177,7 +177,7 @@ impl CollateralManager {
             tracing::warn!(
                 "Errors in processing: {}",
                 failures
-                    .into_iter()
+                    .iter()
                     .map(|(err, request)| {
                         format!(
                             "\n in {} {} {}: {:?}",
@@ -189,6 +189,17 @@ impl CollateralManager {
                     })
                     .join(", ")
             );
+            for (_, request) in failures {
+                self.observer
+                    .publish_single(CollateralEvent::CollateralReady {
+                        chain_id: request.chain_id,
+                        address: request.address,
+                        client_order_id: request.client_order_id,
+                        timestamp,
+                        collateral_amount: request.collateral_amount,
+                        status: RoutingStatus::NotReady,
+                    });
+            }
         }
 
         Ok(())
@@ -419,7 +430,7 @@ impl CollateralManager {
                         client_order_id,
                         timestamp,
                         collateral_amount: amount,
-                        fee,
+                        status: RoutingStatus::Ready { fee },
                     });
             }
         }
@@ -461,7 +472,7 @@ mod test {
     };
 
     use crate::{
-        collateral::collateral_manager::PreAuthStatus,
+        collateral::{collateral_manager::PreAuthStatus, collateral_position::RoutingStatus},
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
             solver_order::{SolverOrder, SolverOrderStatus},
@@ -571,15 +582,23 @@ mod test {
             .set_observer_fn(move |e| match e {
                 CollateralEvent::CollateralReady {
                     collateral_amount,
-                    fee,
+                    status,
                     ..
-                } => {
-                    tracing::info!(
-                        "Collateral Ready Event {:0.5} {:0.5}",
-                        collateral_amount,
-                        fee
-                    );
-                }
+                } => match status {
+                    RoutingStatus::Ready { fee } => {
+                        tracing::info!(
+                            "Collateral Ready Event {:0.5} {:0.5}",
+                            collateral_amount,
+                            fee
+                        );
+                    }
+                    RoutingStatus::NotReady => {
+                        tracing::warn!(
+                            "Collateral Ready Event {:0.5} NotReady",
+                            collateral_amount,
+                        );
+                    }
+                },
                 CollateralEvent::PreAuthResponse { status, .. } => match status {
                     PreAuthStatus::Approved { .. } => {
                         tracing::info!("PreAuthResponse Event: Approved");

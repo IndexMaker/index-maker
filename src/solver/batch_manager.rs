@@ -728,6 +728,7 @@ impl BatchManager {
             | SolverOrderStatus::InvalidSymbol
             | SolverOrderStatus::InvalidOrder
             | SolverOrderStatus::InternalError
+            | SolverOrderStatus::InvalidCollateral
             | SolverOrderStatus::ServiceUnavailable => {
                 Err(eyre!(
                     "Invalid Index order state: {:?}",
@@ -1014,15 +1015,14 @@ impl BatchManager {
             let (_, err): ((), Vec<_>) = new_batches
                 .into_iter()
                 .map(|batch| -> Result<()> {
+                    let batch_order_id = batch.read().batch_order_id.clone();
+                    let batch_clone = batch.clone();
+
                     self.fill_batch_orders(host, &batch)?;
+
                     if batch.read().is_cancelled {
                         tracing::info_span!("internal-complete").in_scope(|| {
-                            self.complete_batch(
-                                host,
-                                batch.read().batch_order_id.clone(),
-                                batch.clone(),
-                                timestamp,
-                            )
+                            self.complete_batch(host, batch_order_id, batch_clone, timestamp)
                         })?;
                     }
                     Ok(())
@@ -1247,16 +1247,22 @@ impl BatchManager {
         //  - remove batch status to save memory
         //  - also need to carry over the index orders
         //
-        let mut carry_overs = self.carry_overs.lock();
-        batch.write().carry_over(&mut carry_overs)?;
+        tracing::info_span!("carry-over").in_scope(|| -> Result<()> {
+            // Note: must lock batch before carry_overs
+            let mut batch_write = batch.write();
+            let mut carry_overs = self.carry_overs.lock();
 
-        tracing::info!(
-            carried_lots = %json!(
-                carry_overs.iter().map(|((sym, side), v)|
-                    (sym.to_string(), (side, v.carried_position))).collect::<HashMap<_, _>>()
-            ),
-            "Carry overs"
-        );
+            batch_write.carry_over(&mut carry_overs)?;
+
+            tracing::info!(
+                carried_lots = %json!(
+                    carry_overs.iter().map(|((sym, side), v)|
+                        (sym.to_string(), (side, v.carried_position))).collect::<HashMap<_, _>>()
+                ),
+                "Carry overs"
+            );
+            Ok(())
+        })?;
 
         let engagement = self
             .engagements
@@ -1358,6 +1364,7 @@ impl BatchManager {
                 | SolverOrderStatus::Ready
                 | SolverOrderStatus::InvalidSymbol
                 | SolverOrderStatus::InvalidOrder
+                | SolverOrderStatus::InvalidCollateral
                 | SolverOrderStatus::ServiceUnavailable => {
                     tracing::warn!(
                             client_order_id = %o_upread.client_order_id,
