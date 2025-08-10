@@ -12,10 +12,16 @@ use symm_core::core::{
     decimal_ext::DecimalExt,
 };
 
+pub enum RoutingStatus {
+    Ready { fee: Amount },
+    NotReady,
+}
+
 pub enum PreAuthStatus {
     Approved { payment_id: PaymentId },
     NotEnoughFunds,
 }
+
 pub enum ConfirmStatus {
     Authorized,
     NotEnoughFunds,
