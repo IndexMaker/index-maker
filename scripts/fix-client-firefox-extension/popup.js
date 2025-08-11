@@ -148,7 +148,8 @@ const createInvoicePage = (invoiceData) => {
   <tr class="summary-row" data-symbol="${symbol}">
     <td class="table-cell icon-cell"><span id="toggle-icon-${symbol}">+</span></td>
     <td class="table-cell">${symbol}</td>
-    <td class="table-cell right">~${summary.averagePrice.toFixed(7)}</td>
+    <td class="table-cell right">${summary.totalPriceQty.toFixed(7)}</td>
+    <td class="table-cell right">~ ${summary.averagePrice.toFixed(7)}</td>
     <td class="table-cell right">${summary.totalAssignedQty.toFixed(7)}</td>
     <td class="table-cell right">${summary.totalAssignedFee.toFixed(7)}</td>
     <td class="table-cell" colspan="5"></td>
@@ -161,6 +162,7 @@ const createInvoicePage = (invoiceData) => {
     <tr class="table-row detailed-row-${symbol}" style="display: none;">
       <td class="table-cell"></td>
       <td class="table-cell">${lot.symbol}</td>
+      <td class="table-cell right">${parseFloat(lot.price * lot.assigned_quantity).toFixed(7)}</td>
       <td class="table-cell right">${parseFloat(lot.price).toFixed(7)}</td>
       <td class="table-cell right">${parseFloat(lot.assigned_quantity).toFixed(7)}</td>
       <td class="table-cell right">${parseFloat(lot.assigned_fee).toFixed(7)}</td>
@@ -242,6 +244,7 @@ const createInvoicePage = (invoiceData) => {
       <col style="width: 10%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
+      <col style="width: 10%;">
       <col style="width: 15%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
@@ -251,6 +254,7 @@ const createInvoicePage = (invoiceData) => {
       <tr>
         <th class="table-header left" style="width: 20px;"></th>
         <th class="table-header left">Symbol</th>
+        <th class="table-header right">Value</th>
         <th class="table-header right">Price</th>
         <th class="table-header right">Assigned Qty</th>
         <th class="table-header right">Assigned Fee</th>
