@@ -139,6 +139,12 @@ const createInvoicePage = (invoiceData) => {
   let lotsTableContent = '';
   const uniqueSymbols = [...new Set(sortedLots.map(lot => lot.symbol))];
 
+  const chartDataLabels = [...new Set(invoiceData.lots.map(lot => lot.symbol))].sort();
+  const chartDataValues = chartDataLabels.map(symbol => assetSummary[symbol].totalPriceQty);
+
+  newWindow.chartDataLabels = chartDataLabels;
+  newWindow.chartDataValues = chartDataValues;
+
   uniqueSymbols.forEach(symbol => {
     const summary = assetSummary[symbol];
     const lotsForSymbol = sortedLots.filter(lot => lot.symbol === symbol);
@@ -186,6 +192,17 @@ const createInvoicePage = (invoiceData) => {
   <p><strong>Client Order ID:</strong> ${invoiceData.client_order_id}</p>
   <p><strong>Payment ID:</strong> ${invoiceData.payment_id}</p>
   <p><strong>Symbol:</strong> ${invoiceData.symbol}</p>
+</div>
+`;
+
+  const chartHtml = `
+<div class="content-container">
+  <h2>Chart</h2>
+  <div style="width: 80%; margin: 20px auto;">
+    <canvas id="assetValuesChart"></canvas>
+  </div>
+  <script src="lib/chart.umd.js"></script>
+  <script src="chart-setup.js"></script>
 </div>
 `;
 
@@ -241,7 +258,7 @@ const createInvoicePage = (invoiceData) => {
       <col style="width: 20px;">
       <col style="width: 10%;">
       <col style="width: 10%;">
-      <col style="width: 10%;">
+      <col style="width: 15%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
@@ -269,6 +286,7 @@ const createInvoicePage = (invoiceData) => {
       ${lotsTableContent}
     </tbody>
   </table>
+  <script src="mint-invoice.js"></script>
 </div>
 `;
 
@@ -277,144 +295,13 @@ const createInvoicePage = (invoiceData) => {
 <html lang="en">
 <head>
   <title>Mint Invoice</title>
-  <style>
-    body { 
-      font-family: sans-serif; 
-      font-size: small;
-      background-color: #f4f4f4; 
-      color: #1e2527;
-      padding: 0.5rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    h1, h2 {
-      font-size: medium;
-      font-weight: bold;
-      color: #22272e;
-      padding: 0;
-      margin: 0;
-    }
-    .title {
-      width: 100%;
-      max-width: 80rem;
-      background-color: #22272e;
-      color: white;
-      padding: 0.5rem;
-      border-radius: 0.5rem;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-      margin-bottom: 0.5rem;
-    }
-    .title h1 {
-        color: white;
-    }
-    .content-container {
-      width: 100%;
-      max-width: 80rem;
-      background-color: #ffffff;
-      padding: 0.5rem;
-      border-radius: 0.5rem;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-      margin-bottom: 0.5rem;
-    }
-    .data-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 1rem;
-      table-layout: fixed; /* This is the key change */
-    }
-    .accounting-container {
-      max-width: 50rem;
-      margin-left: 0.5rem;
-      margin-right: auto;
-    }
-    .data-table thead {
-      background-color: #e5e7eb;
-      border-bottom: 1px solid #c2cbd7;
-    }
-    .table-header {
-      padding: 10px;
-      font-weight: bold;
-      color: #22272e;
-    }
-    .table-header.left { text-align: left; }
-    .table-header.right { text-align: right; }
-    .table-cell {
-      padding: 8px 10px;
-      border-bottom: 1px solid #d1d5db;
-      overflow-wrap: break-word; /* Prevents long text from overflowing */
-    }
-    .table-cell.left { text-align: left; }
-    .table-cell.right { text-align: right; }
-    .table-row:hover {
-      background-color: #f0f0f0;
-    }
-    .summary-row {
-      background-color: #e5e7eb;
-      font-weight: bold;
-      border-top: 2px solid #a1a1a1;
-      border-bottom: 2px solid #a1a1a1;
-      color: #22272e;
-      cursor: pointer;
-    }
-    .summary-row .table-cell {
-        padding: 10px;
-    }
-    .border-left {
-      border-left: 1px solid #c2cbd7;
-    }
-    .content-container p {
-        margin: 0.5rem 0;
-        padding: 0;
-    }
-    .icon-cell {
-      width: 20px;
-      text-align: center;
-    }
-    .detailed-row {
-        padding-left: 20px;
-        background-color: #f9fafb;
-    }
-    .detailed-row:last-of-type .table-cell {
-      border-bottom: 1px solid #d1d5db;
-    }
-    .detailed-row:last-of-type + .summary-row {
-        border-top: 2px solid #a1a1a1;
-    }
-  </style>
+  <link rel="stylesheet" href="mint-invoice.css">
 </head>
 <body>
   ${headerHtml}
   ${accountingSheetHtml}
+  ${chartHtml}
   ${lotsTableHtml}
-  
-  <script>
-    const toggleDetails = (symbol) => {
-      const detailedRows = document.querySelectorAll(\`.detailed-row-\${symbol}\`);
-      const toggleIcon = document.getElementById(\`toggle-icon-\${symbol}\`);
-      if (detailedRows.length > 0 && toggleIcon) {
-        const isHidden = detailedRows[0].style.display === 'none' || detailedRows[0].style.display === '';
-        detailedRows.forEach(row => {
-          row.style.display = isHidden ? 'table-row' : 'none';
-        });
-        toggleIcon.textContent = isHidden ? '−' : '+';
-      }
-    };
-
-    const lotsTable = document.getElementById('lots-table');
-    if (lotsTable) {
-      lotsTable.addEventListener('click', (event) => {
-        let target = event.target;
-        while (target && !target.classList.contains('summary-row')) {
-          target = target.parentElement;
-        }
-        if (target && target.classList.contains('summary-row')) {
-          const symbol = target.dataset.symbol;
-          toggleDetails(symbol);
-        }
-      });
-    }
-  </` + `script>
 </body>
 </html>
 `;

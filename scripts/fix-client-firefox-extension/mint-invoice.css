@@ -1,0 +1,136 @@
+body {
+    font-family: sans-serif;
+    font-size: small;
+    background-color: #f4f4f4;
+    color: #1e2527;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+h1,
+h2 {
+    font-size: medium;
+    font-weight: bold;
+    color: #22272e;
+    padding: 0;
+    margin: 0;
+}
+
+.title {
+    width: 100%;
+    max-width: 80rem;
+    background-color: #22272e;
+    color: white;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    margin-bottom: 0.5rem;
+}
+
+.title h1 {
+    color: white;
+}
+
+.content-container {
+    width: 100%;
+    max-width: 80rem;
+    background-color: #ffffff;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    margin-bottom: 0.5rem;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    table-layout: fixed;
+    /* This is the key change */
+}
+
+.accounting-container {
+    max-width: 50rem;
+    margin-left: 0.5rem;
+    margin-right: auto;
+}
+
+.data-table thead {
+    background-color: #e5e7eb;
+    border-bottom: 1px solid #c2cbd7;
+}
+
+.table-header {
+    padding: 10px;
+    font-weight: bold;
+    color: #22272e;
+}
+
+.table-header.left {
+    text-align: left;
+}
+
+.table-header.right {
+    text-align: right;
+}
+
+.table-cell {
+    padding: 8px 10px;
+    border-bottom: 1px solid #d1d5db;
+    overflow-wrap: break-word;
+    /* Prevents long text from overflowing */
+}
+
+.table-cell.left {
+    text-align: left;
+}
+
+.table-cell.right {
+    text-align: right;
+}
+
+.table-row:hover {
+    background-color: #f0f0f0;
+}
+
+.summary-row {
+    background-color: #e5e7eb;
+    font-weight: bold;
+    border-top: 2px solid #a1a1a1;
+    border-bottom: 2px solid #a1a1a1;
+    color: #22272e;
+    cursor: pointer;
+}
+
+.summary-row .table-cell {
+    padding: 10px;
+}
+
+.border-left {
+    border-left: 1px solid #c2cbd7;
+}
+
+.content-container p {
+    margin: 0.5rem 0;
+    padding: 0;
+}
+
+.icon-cell {
+    width: 20px;
+    text-align: center;
+}
+
+.detailed-row {
+    padding-left: 20px;
+    background-color: #f9fafb;
+}
+
+.detailed-row:last-of-type .table-cell {
+    border-bottom: 1px solid #d1d5db;
+}
+
+.detailed-row:last-of-type+.summary-row {
+    border-top: 2px solid #a1a1a1;
+}
