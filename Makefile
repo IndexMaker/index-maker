@@ -121,31 +121,30 @@ save_docker_image: deploy_dir
 	@docker save -o $(DEPLOY_DIR)/$(TAR_ARCHIVE_NAME) $(DOCKER_IMAGE_NAME)
 
 docker_compose_yaml: deploy_dir
-	@cat $(TEMPLATES_DIR)/docker-compose.prod.yaml.template \
-	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
-	> $(DEPLOY_DIR)/docker-compose.prod-$(IMAGE_VERSION).yaml
+	@cp $(TEMPLATES_DIR)/docker-compose.prod.yaml \
+	$(DEPLOY_DIR)/docker-compose.prod.yaml
 
 otel_collector_config_yaml: deploy_dir check_elastic_env
-	@cat $(TEMPLATES_DIR)/otel-collector-config.prod.yaml.template \
-	| sed -e "s/<ELASTIC_API_KEY>/$(ELASTIC_API_KEY)/g" \
-	> $(DEPLOY_DIR)/otel-collector-config.prod.yaml
+	@cp $(TEMPLATES_DIR)/otel-collector-config.prod.yaml \
+	$(DEPLOY_DIR)/otel-collector-config.prod.yaml
 
 build_service_sh: deploy_dir
 	@cat $(TEMPLATES_DIR)/build-service.sh.template \
 	| sed -e "s/<IMAGE_VERSION>/$(IMAGE_VERSION)/g" \
+	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
 	| sed -e "s/<TAR_ARCHIVE_NAME>/$(TAR_ARCHIVE_NAME)/g" \
 	> $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
 	@chmod a+x $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
 
 stop_service_sh: deploy_dir
 	@cat $(TEMPLATES_DIR)/stop-service.sh.template \
-	| sed -e "s/<IMAGE_VERSION>/$(IMAGE_VERSION)/g" \
+	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
 	> $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
 	@chmod a+x $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
 
 service_logs_sh: deploy_dir
 	@cat $(TEMPLATES_DIR)/service-logs.sh.template \
-	| sed -e "s/<IMAGE_VERSION>/$(IMAGE_VERSION)/g" \
+	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
 	> $(DEPLOY_DIR)/service-logs-$(IMAGE_VERSION).sh
 	@chmod a+x $(DEPLOY_DIR)/service-logs-$(IMAGE_VERSION).sh
 
