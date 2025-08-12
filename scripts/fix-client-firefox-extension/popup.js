@@ -97,112 +97,132 @@ const generateCollateralHTML = (collateralPosition) => {
   const drSide = collateralPosition.side_dr;
   const crSide = collateralPosition.side_cr;
 
-  // Helper function to create a table row
+  // Helper function to create a table row for balances
   const getRow = (title, drValue, crValue) => `
     <tr class="table-row">
-      <td class="table-cell" left>${title}</td>
-      <td class="table-cell" right>${parseFloat(drValue).toFixed(7)}</td>
-      <td class="table-cell" right>${parseFloat(crValue).toFixed(7)}</td>
+      <td class="table-cell left"></td>
+      <td class="table-cell dr-cr-separator left">${title}</td>
+      <td class="table-cell dr-cr-separator right">${parseFloat(drValue).toFixed(7)}</td>
+      <td class="table-cell right">${parseFloat(crValue).toFixed(7)}</td>
     </tr>
   `;
 
-  // Helper function to extract all spent lots from open and closed lots
-  const extractSpentLots = (lots) => {
-    let spentLots = [];
+  // Helper function to generate the HTML for collateral lots and their spends
+  const getLotsAndSpends = (lots, is_cr) => {
+    let html = '';
     lots.forEach(lot => {
+      // Summary row for each lot
+      html += `
+        <tr class="summary-row" data-lot-id="${lot.payment_id}">
+          <td class="table-cell icon-cell"><span id="toggle-icon-${lot.payment_id}">${is_cr ? "+" : "-"}</span></td>
+          <td class="table-cell left">${new Date(lot.created_timestamp).toLocaleString()}</td>
+          <td class="table-cell left">${lot.payment_id}</td>
+          <td class="table-cell dr-cr-separator left"></td>
+          <td class="table-cell right">${is_cr ? "" : parseFloat(lot.unconfirmed_amount).toFixed(7)}</td>
+          <td class="table-cell right">${is_cr ? "" : parseFloat(lot.ready_amount).toFixed(7)}</td>
+          <td class="table-cell right">${is_cr ? "" : parseFloat(lot.preauth_amount).toFixed(7)}</td>
+          <td class="table-cell dr-cr-separator right">${is_cr ? "" : parseFloat(lot.spent_amount).toFixed(7)}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.unconfirmed_amount).toFixed(7) : ""}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.ready_amount).toFixed(7) : ""}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.preauth_amount).toFixed(7) : ""}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.spent_amount).toFixed(7) : ""}</td>
+        </tr>
+      `;
+
+      // Detailed rows for spends, hidden by default
       lot.spends.forEach(spend => {
-        spentLots.push({
-          depositId: lot.payment_id,
-          depositTimestamp: lot.created_timestamp,
-          clientOrderId: spend.client_order_id,
-          paymentId: spend.payment_id,
-          preauthAmount: spend.preauth_amount,
-          amount: spend.spent_amount,
-          timestamp: spend.timestamp
-        });
+        html += `
+          <tr class="table-row detailed-row-${lot.payment_id}" style="display: none;">
+            <td class="table-cell"></td>
+            <td class="table-cell">${new Date(spend.timestamp).toLocaleString()}</td>
+            <td class="table-cell">${spend.payment_id}</td>
+            <td class="table-cell dr-cr-separator">${spend.client_order_id}</td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right">${is_cr ? parseFloat(spend.preauth_amount).toFixed(7) : ""}</td>
+            <td class="table-cell dr-cr-separator right">${is_cr ? parseFloat(spend.spent_amount).toFixed(7) : ""}</td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right">${is_cr ? "" : parseFloat(spend.preauth_amount).toFixed(7)}</td>
+            <td class="table-cell right">${is_cr ? "" : parseFloat(spend.spent_amount).toFixed(7)}</td>
+          </tr>
+        `;
       });
     });
-    return spentLots;
+    return html;
   };
 
-  const drSpentLots = [...extractSpentLots(drSide.open_lots), ...extractSpentLots(drSide.closed_lots)];
-  const crSpentLots = [...extractSpentLots(crSide.open_lots), ...extractSpentLots(crSide.closed_lots)];
-
-  // Helper function to create a list of spent lots
-  const getSpentLotsList = (lots, is_cr) => `
-    ${lots.map(lot => `<tr class="table-row">
-      <td class="table-cell" left>${new Date(lot.depositTimestamp).toLocaleString()}</td>
-      <td class="table-cell" left>${lot.depositId}</td>
-      <td class="table-cell" left>${lot.clientOrderId}</td>
-      <td class="table-cell" left>${lot.paymentId}</td>
-      <td class="table-cell" left>${new Date(lot.timestamp).toLocaleString()}</td>
-      <td class="table-cell" right>${is_cr ? "" : parseFloat(lot.preauthAmount).toFixed(7)}</td>
-      <td class="table-cell" right>${is_cr ? "" : parseFloat(lot.amount).toFixed(7)}</td>
-      <td class="table-cell" right>${is_cr ? parseFloat(lot.amount).toFixed(7): ""}</td>
-      <td class="table-cell" right>${is_cr ? parseFloat(lot.preauthAmount).toFixed(7): ""}</td>
-    </tr>`).join('\n')}
-  `;
+  const drLots = [...drSide.open_lots, ...drSide.closed_lots];
+  const crLots = [...crSide.open_lots, ...crSide.closed_lots];
 
   return `
-  <div class="content-container">
-    <h2>Collateral Position</h2>
-    <p><strong>Chain ID:</strong> ${collateralPosition.chain_id}</p>
-    <p><strong>Address:</strong> ${collateralPosition.address}</p>
-    
-    <table class="data-table">
-      <colgroup>
-        <col style="width: 50%;">
-        <col style="width: 25%;">
-        <col style="width: 25%;">
-      </colgroup>
-      <thead>
-        <tr>
-          <th class="table-header" left>Balance</th>
-          <th class="table-header" left>Debit (DR)</th>
-          <th class="table-header" left>Credit (CR)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${getRow('Unconfirmed', drSide.unconfirmed_balance, crSide.unconfirmed_balance)}
-        ${getRow('Ready', drSide.ready_balance, crSide.ready_balance)}
-        ${getRow('Preauth', drSide.preauth_balance, crSide.preauth_balance)}
-        ${getRow('Spent', drSide.spent_balance, crSide.spent_balance)}
-      </tbody>
-    </table>
+    <div class="content-container">
+      <h2>Collateral Position</h2>
+      <p><strong>Chain ID:</strong> ${collateralPosition.chain_id}</p>
+      <p><strong>Address:</strong> ${collateralPosition.address}</p>
+      
+      <table class="data-table">
+        <colgroup>
+          <col style="width: 20px;">
+          <col style="width: 30%;">
+          <col style="width: 40%;">
+          <col style="width: 40%;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="table-header left" style="width: 20px;"></th>
+            <th class="table-header left">Balance</th>
+            <th class="table-header dr-cr-separator left">Debit (DR)</th>
+            <th class="table-header left">Credit (CR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${getRow('Unconfirmed', drSide.unconfirmed_balance, crSide.unconfirmed_balance)}
+          ${getRow('Ready', drSide.ready_balance, crSide.ready_balance)}
+          ${getRow('Preauth', drSide.preauth_balance, crSide.preauth_balance)}
+          ${getRow('Spent', drSide.spent_balance, crSide.spent_balance)}
+        </tbody>
+      </table>
 
-    <hr>
-    <h3>Transactions</h3>
-    <table class="data-table">
-      <colgroup>
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-        <col style="width: 15%;">
-      </colgroup>
-      <thead>
-        <tr>
-          <th class="table-header" left>Deposited At</th>
-          <th class="table-header" left>Deposit ID</th>
-          <th class="table-header" left>Order ID</th>
-          <th class="table-header" left>Payment ID</th>
-          <th class="table-header" left>Paid At</th>
-          <th class="table-header" right>Pre-Auth (DR)</th>
-          <th class="table-header" right>Debit (DR)</th>
-          <th class="table-header" right>Credit (CR)</th>
-          <th class="table-header" right>Pre-Auth (CR)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${getSpentLotsList(crSpentLots, false)}
-        ${getSpentLotsList(drSpentLots, true)}
-      </tbody>
-    </table>
-  </div>
+      <hr>
+      <h3>Transactions</h3>
+      <table class="data-table" id="collateral-lots-table">
+        <colgroup>
+          <col style="width: 20px;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="table-header left" style="width: 20px;"></th>
+            <th class="table-header left">Date</th>
+            <th class="table-header left">Payment ID</th>
+            <th class="table-header dr-cr-separator left">Order ID</th>
+            <th class="table-header right">Unconfirmed</th>
+            <th class="table-header right">Ready</th>
+            <th class="table-header right">Preauth</th>
+            <th class="table-header dr-cr-separator right">Spent</th>
+            <th class="table-header right">Unconfirmed</th>
+            <th class="table-header right">Ready</th>
+            <th class="table-header right">Preauth</th>
+            <th class="table-header right">Spent</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${getLotsAndSpends(crLots, true)}
+          ${getLotsAndSpends(drLots, false)}
+        </tbody>
+      </table>
+    </div>
   `;
 };
 
