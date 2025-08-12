@@ -3686,6 +3686,7 @@ dependencies = [
  "paste",
  "rand_core 0.6.4",
  "rust_decimal",
+ "rust_decimal_macros",
  "safe-math",
  "serde",
  "serde_json",
@@ -3927,11 +3928,14 @@ dependencies = [
  "market-data",
  "parking_lot 0.12.4",
  "rust_decimal",
+ "rust_decimal_macros",
+ "safe-math",
  "serde",
  "serde_json",
  "statrs",
  "symm-core",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

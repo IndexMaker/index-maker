@@ -70,6 +70,7 @@ tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 csv = { workspace = true }
 statrs = { workspace = true }
+rust_decimal_macros = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -138,3 +139,4 @@ tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
 csv = "1"
 statrs = "0.16"
+rust_decimal_macros = "1"

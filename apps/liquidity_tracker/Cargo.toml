@@ -8,6 +8,7 @@ eyre = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
 csv = { workspace = true }
+safe-math = { workspace = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
@@ -17,3 +18,5 @@ symm-core = { workspace = true }
 market-data = { workspace = true }
 binance-market-data = { workspace = true }
 index-maker = { workspace = true }
+tracing = { workspace = true }
+rust_decimal_macros = { workspace = true }

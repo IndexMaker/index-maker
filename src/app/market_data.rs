@@ -24,6 +24,7 @@ use symm_core::{
         price_tracker::PriceTracker,
     },
 };
+use tokio::sync::oneshot;
 
 #[derive(Clone, Builder)]
 #[builder(
@@ -129,61 +130,6 @@ impl MarketDataConfig {
         } else {
             Err(eyre!("Cannot start market data not configured"))
         }
-    }
-
-    pub fn start_with_event_handlers(&self) -> Result<()> {
-        let market_data = self.try_get_market_data_cloned()?;
-        let price_tracker = self.try_get_price_tracker_cloned()?;
-        let book_manager = self.try_get_book_manager_cloned()?;
-
-        let (market_data_tx, market_data_rx) =
-            crossbeam::channel::unbounded::<Arc<MarketDataEvent>>();
-        let (price_event_tx, price_event_rx) = crossbeam::channel::unbounded();
-        let (book_event_tx, book_event_rx) = crossbeam::channel::unbounded();
-
-        price_tracker
-            .write()
-            .get_single_observer_mut()
-            .set_observer_from(price_event_tx);
-        book_manager
-            .write()
-            .get_single_observer_mut()
-            .set_observer_from(book_event_tx);
-
-        market_data
-            .write()
-            .get_multi_observer_arc()
-            .write()
-            .add_observer_fn(move |event: &Arc<MarketDataEvent>| {
-                let _ = market_data_tx.send(event.clone());
-            });
-
-        std::thread::spawn(move || {
-            loop {
-                crossbeam::select! {
-                    recv(market_data_rx) -> res => {
-                        if let Ok(event) = res {
-                            price_tracker.write().handle_market_data(&event);
-                            book_manager.write().handle_market_data(&event);
-                        }
-                    },
-                    recv(price_event_rx) -> res => {
-                        if let Ok(_event) = res {
-                            // optionally trace/log
-                        }
-                    },
-                    recv(book_event_rx) -> res => {
-                        if let Ok(_event) = res {
-                            // optionally trace/log
-                        }
-                    }
-                }
-            }
-        });
-
-        self.start()?; // this starts the actual market data loop
-
-        Ok(())
     }
 }
 
