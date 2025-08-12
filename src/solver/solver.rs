@@ -857,6 +857,7 @@ impl Solver {
                 timestamp,
                 amount_paid,
                 status,
+                position,
             } => match status {
                 ConfirmStatus::Authorized => {
                     let order = self.client_orders.read().get_client_order(
@@ -890,8 +891,10 @@ impl Solver {
                                 &client_order_id,
                                 &order_write.symbol,
                                 &payment_id,
+                                order_write.filled_quantity,
                                 amount_paid,
                                 lots,
+                                position,
                                 timestamp,
                             )?;
 

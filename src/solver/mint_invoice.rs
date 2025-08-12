@@ -6,7 +6,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use crate::solver::solver_order::SolverOrderAssetLot;
+use crate::{collateral::collateral_position::CollateralPosition, solver::solver_order::SolverOrderAssetLot};
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
     decimal_ext::DecimalExt,
@@ -278,6 +278,7 @@ pub struct MintInvoice {
     pub client_order_id: ClientOrderId,
     pub payment_id: PaymentId,
     pub symbol: Symbol,
+    pub filled_quantity: Amount,
     pub total_amount: Amount,
     pub amount_paid: Amount,
     pub amount_remaining: Amount,
@@ -286,6 +287,7 @@ pub struct MintInvoice {
     pub exchange_fee: Amount,
     pub fill_rate: Amount,
     pub lots: Vec<SolverOrderAssetLot>,
+    pub position: CollateralPosition,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -294,8 +296,10 @@ impl MintInvoice {
         index_order: &IndexOrder,
         update: &IndexOrderUpdate,
         payment_id: &PaymentId,
+        filled_quantity: Amount,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
+        position: CollateralPosition,
         timestamp: DateTime<Utc>,
     ) -> Result<Self> {
         print_mint_invoice(
@@ -342,6 +346,7 @@ impl MintInvoice {
             client_order_id: update.client_order_id.clone(),
             payment_id: payment_id.clone(),
             symbol: index_order.symbol.clone(),
+            filled_quantity,
             total_amount,
             amount_paid,
             amount_remaining,
@@ -350,6 +355,7 @@ impl MintInvoice {
             exchange_fee,
             fill_rate,
             lots,
+            position,
             timestamp,
         })
     }

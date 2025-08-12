@@ -6,7 +6,7 @@ use axum_fix_server::{
     plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
 };
 use eyre::{eyre, Result};
-use k256::ecdsa::signature::DigestVerifier;
+use k256::{ecdsa::signature::DigestVerifier, pkcs8::DecodePublicKey};
 use k256::ecdsa::{Signature, VerifyingKey};
 use k256::elliptic_curve::generic_array::GenericArray;
 use serde::{
@@ -284,6 +284,11 @@ impl FixRequest {
         let pub_key_bytes = hex::decode(pub_key_hex)?;
         if pub_key_bytes.len() != 65 || pub_key_bytes[0] != 0x04 {
             return Err(eyre!("Invalid uncompressed SEC1 public key format"));
+        }
+
+        let expected_address = Address::from_raw_public_key(&pub_key_bytes[1..]);
+        if expected_address != self.address {
+            return Err(eyre!("Invalid address"));
         }
 
         // Decode signature

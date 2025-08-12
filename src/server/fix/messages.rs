@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::solver::solver_order::SolverOrderAssetLot;
+use crate::{collateral::collateral_position::CollateralPosition, solver::solver_order::SolverOrderAssetLot};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {
@@ -143,6 +143,7 @@ pub enum ResponseBody {
         client_order_id: String,
         payment_id: String,
         symbol: String,
+        filled_quantity: String,
         total_amount: String,
         amount_paid: String,
         amount_remaining: String,
@@ -151,6 +152,7 @@ pub enum ResponseBody {
         exchange_fee: String,
         fill_rate: String,
         lots: Vec<SolverOrderAssetLot>,
+        position: CollateralPosition,
         timestamp: DateTime<Utc>,
     },
     AccountToCustodyBody,
