@@ -23,3 +23,25 @@ if (lotsTable) {
         }
     });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const table = document.getElementById('collateral-lots-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const summaryRow = event.target.closest('.summary-row');
+      if (summaryRow) {
+        const lotId = summaryRow.dataset.lotId;
+        const detailedRows = document.querySelectorAll(`.detailed-row-${lotId}`);
+        const toggleIcon = document.getElementById(`toggle-icon-${lotId}`);
+        
+        const isVisible = detailedRows[0].style.display !== 'none';
+        
+        detailedRows.forEach(row => {
+          row.style.display = isVisible ? 'none' : '';
+        });
+
+        toggleIcon.textContent = isVisible ? '+' : '-';
+      }
+    });
+  }
+});

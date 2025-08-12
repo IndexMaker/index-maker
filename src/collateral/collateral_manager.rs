@@ -71,6 +71,7 @@ pub enum CollateralEvent {
         amount_paid: Amount,
         timestamp: DateTime<Utc>,
         status: ConfirmStatus,
+        position: CollateralPosition,
     },
 }
 
@@ -317,16 +318,18 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds
-            .write()
-            .confirm_payment(
-                payment_id,
-                timestamp,
-                side,
-                amount_paid,
-                self.zero_threshold,
-            )
-            .ok_or_eyre("Math Problem")?;
+        let (status, position) = (|funds_write: &mut CollateralPosition| 
+            -> Result<(ConfirmStatus, CollateralPosition)>{
+            Ok((funds_write
+                .confirm_payment(
+                    payment_id,
+                    timestamp,
+                    side,
+                    amount_paid,
+                    self.zero_threshold,
+                ).ok_or_eyre("Math Problem")?, 
+                funds_write.clone()))
+        })(&mut funds.write())?;
 
         self.observer
             .publish_single(CollateralEvent::ConfirmResponse {
@@ -337,6 +340,7 @@ impl CollateralManager {
                 amount_paid,
                 timestamp,
                 status,
+                position,
             });
 
         Ok(())

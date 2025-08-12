@@ -91,8 +91,16 @@ h2 {
     text-align: right;
 }
 
+.text-right {
+  text-align: right;
+}
+
 .table-row:hover {
     background-color: #f0f0f0;
+}
+
+.dr-cr-separator {
+  border-right: 1px solid black;
 }
 
 .summary-row {

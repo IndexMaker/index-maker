@@ -117,6 +117,9 @@ pub struct SolverOrderAssetLot {
     /// Original quantity
     pub original_quantity: Amount,
 
+    // Remaining quantity in the lot not assigned to any index order
+    pub remaining_quantity: Amount,
+
     /// Original execution fee
     pub original_fee: Amount,
 

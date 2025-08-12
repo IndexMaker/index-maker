@@ -89,6 +89,142 @@ const formatDateTime = (isoString) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds}`;
 };
 
+const generateCollateralHTML = (collateralPosition) => {
+  if (!collateralPosition) {
+    return `<p>No collateral data available.</p>`;
+  }
+
+  const drSide = collateralPosition.side_dr;
+  const crSide = collateralPosition.side_cr;
+
+  // Helper function to create a table row for balances
+  const getRow = (title, drValue, crValue) => `
+    <tr class="table-row">
+      <td class="table-cell left"></td>
+      <td class="table-cell dr-cr-separator left">${title}</td>
+      <td class="table-cell dr-cr-separator right">${parseFloat(drValue).toFixed(7)}</td>
+      <td class="table-cell right">${parseFloat(crValue).toFixed(7)}</td>
+    </tr>
+  `;
+
+  // Helper function to generate the HTML for collateral lots and their spends
+  const getLotsAndSpends = (lots, is_cr) => {
+    let html = '';
+    lots.forEach(lot => {
+      // Summary row for each lot
+      html += `
+        <tr class="summary-row" data-lot-id="${lot.payment_id}">
+          <td class="table-cell icon-cell"><span id="toggle-icon-${lot.payment_id}">${is_cr ? "+" : "-"}</span></td>
+          <td class="table-cell left">${new Date(lot.created_timestamp).toLocaleString()}</td>
+          <td class="table-cell left">${lot.payment_id}</td>
+          <td class="table-cell dr-cr-separator left"></td>
+          <td class="table-cell right">${is_cr ? "" : parseFloat(lot.unconfirmed_amount).toFixed(7)}</td>
+          <td class="table-cell right">${is_cr ? "" : parseFloat(lot.ready_amount).toFixed(7)}</td>
+          <td class="table-cell right">${is_cr ? "" : parseFloat(lot.preauth_amount).toFixed(7)}</td>
+          <td class="table-cell dr-cr-separator right">${is_cr ? "" : parseFloat(lot.spent_amount).toFixed(7)}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.unconfirmed_amount).toFixed(7) : ""}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.ready_amount).toFixed(7) : ""}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.preauth_amount).toFixed(7) : ""}</td>
+          <td class="table-cell right">${is_cr ? parseFloat(lot.spent_amount).toFixed(7) : ""}</td>
+        </tr>
+      `;
+
+      // Detailed rows for spends, hidden by default
+      lot.spends.forEach(spend => {
+        html += `
+          <tr class="table-row detailed-row-${lot.payment_id}" style="display: none;">
+            <td class="table-cell"></td>
+            <td class="table-cell">${new Date(spend.timestamp).toLocaleString()}</td>
+            <td class="table-cell">${spend.payment_id}</td>
+            <td class="table-cell dr-cr-separator">${spend.client_order_id}</td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right">${is_cr ? parseFloat(spend.preauth_amount).toFixed(7) : ""}</td>
+            <td class="table-cell dr-cr-separator right">${is_cr ? parseFloat(spend.spent_amount).toFixed(7) : ""}</td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right"></td>
+            <td class="table-cell right">${is_cr ? "" : parseFloat(spend.preauth_amount).toFixed(7)}</td>
+            <td class="table-cell right">${is_cr ? "" : parseFloat(spend.spent_amount).toFixed(7)}</td>
+          </tr>
+        `;
+      });
+    });
+    return html;
+  };
+
+  const drLots = [...drSide.open_lots, ...drSide.closed_lots];
+  const crLots = [...crSide.open_lots, ...crSide.closed_lots];
+
+  return `
+    <div class="content-container">
+      <h2>Collateral Position</h2>
+      <p><strong>Chain ID:</strong> ${collateralPosition.chain_id}</p>
+      <p><strong>Address:</strong> ${collateralPosition.address}</p>
+      
+      <table class="data-table">
+        <colgroup>
+          <col style="width: 20px;">
+          <col style="width: 30%;">
+          <col style="width: 40%;">
+          <col style="width: 40%;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="table-header left" style="width: 20px;"></th>
+            <th class="table-header left">Balance</th>
+            <th class="table-header dr-cr-separator left">Debit (DR)</th>
+            <th class="table-header left">Credit (CR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${getRow('Unconfirmed', drSide.unconfirmed_balance, crSide.unconfirmed_balance)}
+          ${getRow('Ready', drSide.ready_balance, crSide.ready_balance)}
+          ${getRow('Preauth', drSide.preauth_balance, crSide.preauth_balance)}
+          ${getRow('Spent', drSide.spent_balance, crSide.spent_balance)}
+        </tbody>
+      </table>
+
+      <hr>
+      <h3>Transactions</h3>
+      <table class="data-table" id="collateral-lots-table">
+        <colgroup>
+          <col style="width: 20px;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="table-header left" style="width: 20px;"></th>
+            <th class="table-header left">Date</th>
+            <th class="table-header left">Payment ID</th>
+            <th class="table-header dr-cr-separator left">Order ID</th>
+            <th class="table-header right">Unconfirmed</th>
+            <th class="table-header right">Ready</th>
+            <th class="table-header right">Preauth</th>
+            <th class="table-header dr-cr-separator right">Spent</th>
+            <th class="table-header right">Unconfirmed</th>
+            <th class="table-header right">Ready</th>
+            <th class="table-header right">Preauth</th>
+            <th class="table-header right">Spent</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${getLotsAndSpends(crLots, true)}
+          ${getLotsAndSpends(drLots, false)}
+        </tbody>
+      </table>
+    </div>
+  `;
+};
 
 const createInvoicePage = (invoiceData) => {
   const newWindow = window.open('about:blank', '_blank');
@@ -96,6 +232,8 @@ const createInvoicePage = (invoiceData) => {
     customAlert("Please allow popups to view the invoice.");
     return;
   }
+
+  newWindow.invoiceData = invoiceData;
 
   // Calculate the summary for each asset symbol
   const assetSummary = invoiceData.lots.reduce((acc, lot) => {
@@ -158,7 +296,7 @@ const createInvoicePage = (invoiceData) => {
     <td class="table-cell right">~ ${summary.averagePrice.toFixed(7)}</td>
     <td class="table-cell right">${summary.totalAssignedQty.toFixed(7)}</td>
     <td class="table-cell right">${summary.totalAssignedFee.toFixed(7)}</td>
-    <td class="table-cell" colspan="5"></td>
+    <td class="table-cell" colspan="6"></td>
   </tr>
 `;
 
@@ -175,6 +313,7 @@ const createInvoicePage = (invoiceData) => {
       <td class="table-cell right">${formatDateTime(lot.assigned_timestamp)}</td>
       <td class="table-cell border-left">${lot.lot_id}</td>
       <td class="table-cell right">${parseFloat(lot.original_quantity).toFixed(7)}</td>
+      <td class="table-cell right">${parseFloat(lot.remaining_quantity).toFixed(7)}</td>
       <td class="table-cell right">${parseFloat(lot.original_fee).toFixed(7)}</td>
       <td class="table-cell right">${formatDateTime(lot.created_timestamp)}</td>
     </tr>
@@ -217,6 +356,10 @@ const createInvoicePage = (invoiceData) => {
       </tr>
     </thead>
     <tbody>
+      <tr class="table-row">
+        <td class="table-cell left">Quantity Filled</td>
+        <td class="table-cell right">${parseFloat(invoiceData.filled_quantity).toFixed(7)}</td>
+      </tr>
       <tr class="table-row">
         <td class="table-cell left">Fill Rate</td>
         <td class="table-cell right">${parseFloat(invoiceData.fill_rate).toFixed(7)}</td>
@@ -262,7 +405,8 @@ const createInvoicePage = (invoiceData) => {
       <col style="width: 10%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
-      <col style="width: 15%;">
+      <col style="width: 10%;">
+      <col style="width: 10%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
       <col style="width: 10%;">
@@ -278,6 +422,7 @@ const createInvoicePage = (invoiceData) => {
         <th class="table-header right">Assigned At</th>
         <th class="table-header left border-left">Lot ID</th>
         <th class="table-header right">Original Qty</th>
+        <th class="table-header right">Remaining Qty</th>
         <th class="table-header right">Original Fee</th>
         <th class="table-header right">Created At</th>
       </tr>
@@ -289,6 +434,8 @@ const createInvoicePage = (invoiceData) => {
   <script src="mint-invoice.js"></script>
 </div>
 `;
+
+  const collateralHtml = generateCollateralHTML(invoiceData.position);
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -302,6 +449,7 @@ const createInvoicePage = (invoiceData) => {
   ${accountingSheetHtml}
   ${chartHtml}
   ${lotsTableHtml}
+  ${collateralHtml}
 </body>
 </html>
 `;
