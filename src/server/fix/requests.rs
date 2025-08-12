@@ -15,6 +15,7 @@ use serde::{
 };
 use sha2::{Digest, Sha256};
 use symm_core::core::bits::Address;
+use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Serialize, Debug)]
 pub struct FixRequest {
@@ -330,6 +331,26 @@ impl FixRequest {
         verifying_key
             .verify_digest(hasher, &signature)
             .map_err(|_| eyre!("Signature verification failed"))?;
+
+        let mut keccak = Keccak::v256();
+        keccak.update(&pub_key_bytes[1..]); // skip 0x04
+        let mut out = [0u8; 32];
+        keccak.finalize(&mut out);
+        let derived_addr_bytes = &out[12..]; // last 20 bytes
+        let derived_addr = format!("0x{}", hex::encode(derived_addr_bytes));
+
+        // Normalize both sides for comparison (case-insensitive, ignore 0x)
+        fn norm_addr(s: &str) -> String {
+            s.trim().trim_start_matches("0x").to_ascii_lowercase()
+        }
+        if norm_addr(&self.address.to_string()) != norm_addr(&derived_addr) {
+            // Instead of raw eyre!(), wrap in your NAK type
+            return Err(eyre!(
+                "Address/pubkey mismatch (body={}, derived=0x{})",
+                self.address, // Display gives checksummed 0x…
+                hex::encode(derived_addr_bytes)
+            ));
+        }
 
         Ok(())
     }

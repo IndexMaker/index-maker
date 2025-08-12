@@ -3658,6 +3658,7 @@ dependencies = [
  "symm-core",
  "test-case",
  "thiserror 2.0.12",
+ "tiny-keccak",
  "tokio",
  "tracing",
  "tracing-opentelemetry",

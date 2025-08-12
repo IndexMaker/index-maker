@@ -67,6 +67,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
+tiny-keccak = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -133,3 +134,4 @@ tracing = "0.1"
 tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+tiny-keccak = "2"
