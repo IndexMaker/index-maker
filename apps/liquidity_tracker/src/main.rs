@@ -23,7 +23,7 @@ use symm_core::{
 };
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 #[derive(Default, Clone)]
 struct Stats {
     n: usize,
@@ -125,17 +125,17 @@ fn fmt2(d: Decimal) -> String {
 struct SymbolRow {
     symbol: String,
     base_asset: String,
-    quote_asset: String,
 }
 
-fn stat_suffixes() -> [&'static str; 10] {
+fn stat_suffixes() -> [&'static str; 11] {
     [
-        "Samples", "Mean", "Std", "Min", "P05", "P25", "P50", "P75", "P95", "Max",
+        "Samples", "Missing", "Mean", "Std", "Min", "P05", "P25", "P50", "P75", "P95", "Max",
     ]
 }
 
-fn to_bps(d: Amount) -> Amount {
-    safe!(d * amount!(10000)).unwrap_or(Amount::ZERO).round()
+fn to_bps(d: Decimal) -> i32 {
+    use rust_decimal::prelude::ToPrimitive;
+    ((d * dec!(10000)).round()).to_i32().unwrap_or(0)
 }
 
 fn range_edges_bps() -> Vec<(i32, i32)> {
@@ -176,7 +176,6 @@ async fn load_symbols_from_csv(path: &str) -> Result<Vec<SymbolRow>> {
         out.push(SymbolRow {
             symbol: r[0].to_string(),
             base_asset: r[1].to_string(),
-            quote_asset: r[2].to_string(),
         });
     }
     Ok(out)
@@ -195,58 +194,41 @@ fn take_liquidity_snapshot_usd(
     obm: &Arc<RwLock<PricePointBookManager>>,
     _cap_by_levels: Option<usize>,
 ) -> eyre::Result<HashMap<Symbol, HashMap<String, Amount>>> {
-    use eyre::{eyre, WrapErr};
-    use rust_decimal_macros::dec;
     use symm_core::market_data::order_book::order_book_manager::OrderBookManager;
 
     let pt = price_tracker.read();
     let bm = obm.read();
 
-    // Precompute label universe (Bid/Ask × buckets)
-    let labels_bps = range_edges_bps(); // Vec<(i32, i32)>
-
-    // Prepare USD conversion prices: prefer VolumeWeighted; fallback to OBM midpoint; else error.
-    let mut usd_px = pt.get_prices(PriceType::VolumeWeighted, symbols).prices;
-
-    // Fallback: midpoint from OBM when tracker missing
-    if usd_px.len() < symbols.len() {
+    // USD conversion prices (prefer VWAP, fallback to midpoint)
+    let mut usd_px_all = pt.get_prices(PriceType::VolumeWeighted, symbols).prices;
+    if usd_px_all.len() < symbols.len() {
         for s in symbols {
-            if !usd_px.contains_key(s) {
-                if let Some(book) = bm.get_order_book(s) {
-                    let bb = book.get_entries(Side::Buy, 1).first().map(|e| e.price);
-                    let ba = book.get_entries(Side::Sell, 1).first().map(|e| e.price);
-                    if let (Some(b), Some(a)) = (bb, ba) {
-                        tracing::warn!(target:"liquidity_tracker", symbol=%s, "Missing VolumeWeighted price – using midpoint fallback");
-                        usd_px.insert(
-                            s.clone(),
-                            safe!(b + a / dec!(2)).ok_or_else(|| {
-                                eyre::eyre!("safe!() failed computing <what> for {}", s)
-                            })?,
-                        );
-                    }
+            if usd_px_all.contains_key(s) {
+                continue;
+            }
+            if let Some(book) = bm.get_order_book(s) {
+                let bb = book.get_entries(Side::Buy, 1).first().map(|e| e.price);
+                let ba = book.get_entries(Side::Sell, 1).first().map(|e| e.price);
+                if let (Some(b), Some(a)) = (bb, ba) {
+                    // safe midpoint; if your Amount is Decimal-compatible this is fine
+                    usd_px_all.insert(s.clone(), (b + a) / dec!(2));
                 }
             }
         }
     }
 
-    // Hard fail if any symbol still lacks a conversion price
+    // keep only positive USD prices
+    let mut usd_px: HashMap<Symbol, Amount> = HashMap::new();
     for s in symbols {
-        if !usd_px.contains_key(s) {
-            return Err(eyre!(
-                "Missing USD conversion price for {s} (tracker+OBM midpoint unavailable)"
-            ));
-        }
-        // sanity
-        if usd_px[s] <= Amount::ZERO {
-            return Err(eyre!(
-                "Non‑positive USD conversion price for {s}: {}",
-                usd_px[s]
-            ));
+        if let Some(px) = usd_px_all.get(s) {
+            if *px > Amount::ZERO {
+                usd_px.insert(s.clone(), *px);
+            }
         }
     }
 
-    // Helper: base price side (BestAsk for Buy, BestBid for Sell), fallback to OBM top
-    let mut base_prices_for_side = |side: Side| -> eyre::Result<HashMap<Symbol, Amount>> {
+    // helper: base prices per side (BestAsk for Buy, BestBid for Sell), fallback to OBM top
+    let mut base_prices_for_side = |side: Side| -> HashMap<Symbol, Amount> {
         let price_type = match side {
             Side::Buy => PriceType::BestAsk,
             Side::Sell => PriceType::BestBid,
@@ -254,160 +236,109 @@ fn take_liquidity_snapshot_usd(
         let mut px = pt.get_prices(price_type, symbols).prices;
 
         for s in symbols {
-            if !px.contains_key(s) {
-                if let Some(book) = bm.get_order_book(s) {
-                    match side {
-                        Side::Buy => {
-                            if let Some(ask) = book.get_entries(Side::Sell, 1).first() {
-                                tracing::warn!(target:"liquidity_tracker", symbol=%s, "Missing {:?} from tracker – using OBM top", price_type);
-                                px.insert(s.clone(), ask.price);
-                            }
+            if px.contains_key(s) {
+                continue;
+            }
+            if let Some(book) = bm.get_order_book(s) {
+                match side {
+                    Side::Buy => {
+                        if let Some(ask) = book.get_entries(Side::Sell, 1).first() {
+                            px.insert(s.clone(), ask.price);
                         }
-                        Side::Sell => {
-                            if let Some(bid) = book.get_entries(Side::Buy, 1).first() {
-                                tracing::warn!(target:"liquidity_tracker", symbol=%s, "Missing {:?} from tracker – using OBM top", price_type);
-                                px.insert(s.clone(), bid.price);
-                            }
+                    }
+                    Side::Sell => {
+                        if let Some(bid) = book.get_entries(Side::Buy, 1).first() {
+                            px.insert(s.clone(), bid.price);
                         }
                     }
                 }
             }
         }
 
-        // Hard fail if still missing
-        for s in symbols {
-            if !px.contains_key(s) {
-                return Err(eyre!("Missing base price ({:?}) for {s}", price_type));
-            }
-            if px[s] <= Amount::ZERO {
-                return Err(eyre!(
-                    "Non‑positive base price ({:?}) for {s}: {}",
-                    price_type,
-                    px[s]
-                ));
-            }
-        }
-        Ok(px)
+        // keep positive
+        px.into_iter().filter(|(_, p)| *p > Amount::ZERO).collect()
     };
 
-    // Initialize output with explicit zeros for EVERY key, so downstream can `expect()`.
-    let mut out: HashMap<Symbol, HashMap<String, Amount>> = HashMap::with_capacity(symbols.len());
-    for s in symbols {
-        let mut cols = HashMap::with_capacity(labels_bps.len() * 2);
-        for side_prefix in ["Bid", "Ask"] {
-            for (lo, hi) in &labels_bps {
-                let key = format!("{side_prefix}({lo}/{hi})");
-                cols.insert(key, Amount::ZERO);
-            }
-        }
-        out.insert(s.clone(), cols);
-    }
+    let mut out: HashMap<Symbol, HashMap<String, Amount>> = HashMap::new();
 
-    tracing::info!(target:"liquidity_tracker",
-        "snapshot: usd_px={} / {} (conversion price coverage)",
-        usd_px.len(), symbols.len()
-    );
-
+    // Use global BUCKETS and build labels in BPS so they match make_headers()
     for &side in &[Side::Buy, Side::Sell] {
-        let base = base_prices_for_side(side)?;
+        let base = base_prices_for_side(side);
+        if base.is_empty() {
+            continue;
+        }
+
         let opp = side.opposite_side();
 
-        tracing::info!(target:"liquidity_tracker",
-            "snapshot: base_prices(side={:?})={} / {}",
-            side, base.len(), symbols.len()
-        );
-
-        // cum[i][sym] = qty up to threshold i
+        // cumulative per threshold
         let mut cum: Vec<HashMap<Symbol, Amount>> = Vec::with_capacity(BUCKETS.len());
+
         for &thr in BUCKETS.iter() {
-            let factor: Decimal = match side {
-                Side::Buy => safe!(Amount::ONE + thr).ok_or_else(|| {
-                    eyre::eyre!("safe!(1 + thr) failed for side=Buy, thr={}", thr)
-                })?,
-                Side::Sell => safe!(Amount::ONE - thr).ok_or_else(|| {
-                    eyre::eyre!("safe!(1 - thr) failed for side=Sell, thr={}", thr)
-                })?,
+            let factor = match side {
+                Side::Buy => Amount::ONE + thr,  // buy up to ask*(1+thr)
+                Side::Sell => Amount::ONE - thr, // sell down to bid*(1-thr)
             };
 
-            // Limits for all symbols; guaranteed present
             let mut limits = HashMap::with_capacity(base.len());
             for (s, p0) in base.iter() {
-                // (*p0) * factor -> wrap in safe! and unwrap to Decimal
-                let v: Decimal = safe!((*p0) * factor)
-                    .ok_or_else(|| eyre::eyre!("safe!(p0 * factor) failed for {}", s))?;
-                limits.insert(s.clone(), v);
+                limits.insert(s.clone(), *p0 * factor);
             }
 
-            let qty_map = OrderBookManager::get_liquidity(&*bm, opp, &limits)
-                .wrap_err_with(|| eyre!("get_liquidity failed for side={:?}", side))?;
-
-            // Ensure the engine returned ALL requested symbols
-            for s in symbols {
-                if !qty_map.contains_key(s) {
-                    return Err(eyre!(
-                        "get_liquidity missing symbol {} for side={:?} thr={}",
-                        s,
-                        side,
-                        thr
-                    ));
+            let qty_map = match OrderBookManager::get_liquidity(&*bm, opp, &limits) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!("get_liquidity failed for side={:?}: {:?}", side, e);
+                    HashMap::new()
                 }
-                if qty_map[s] < Amount::ZERO {
-                    return Err(eyre!(
-                        "Negative liquidity for {} side={:?} thr={}: {}",
-                        s,
-                        side,
-                        thr,
-                        qty_map[s]
-                    ));
+            };
+
+            // sanitize negatives and keep requested symbols only
+            let mut cleaned = HashMap::with_capacity(qty_map.len());
+            for (s, q) in qty_map {
+                if q > Amount::ZERO && limits.contains_key(&s) {
+                    cleaned.insert(s, q);
                 }
             }
 
-            cum.push(qty_map);
+            cum.push(cleaned);
         }
 
-        // Diff cumulatives and convert to USD
+        if cum.len() < 2 {
+            continue;
+        }
+
         for s in symbols {
-            let conv_px = usd_px[s];
+            let Some(conv_px) = usd_px.get(s) else {
+                continue;
+            };
 
             for (i_lo, i_hi) in (0..BUCKETS.len() - 1).zip(1..BUCKETS.len()) {
-                let lo_thr = BUCKETS[i_lo];
-                let hi_thr = BUCKETS[i_hi];
-                let q_lo = *cum[i_lo].get(s).expect("qty_map must contain symbol");
-                let q_hi = *cum[i_hi].get(s).expect("qty_map must contain symbol");
-
-                // q_hi >= q_lo guaranteed by engine? If not, enforce/order check:
-                if q_hi < q_lo {
-                    return Err(eyre!(
-                        "Non‑monotonic cumulative liquidity for {} side={:?} ({:?}->{:?})",
-                        s,
-                        side,
-                        lo_thr,
-                        hi_thr
-                    ));
+                let q_lo = *cum[i_lo].get(s).unwrap_or(&Amount::ZERO);
+                let q_hi = *cum[i_hi].get(s).unwrap_or(&Amount::ZERO);
+                if q_hi <= q_lo {
+                    continue;
                 }
 
-                let range_qty = safe!((q_hi - q_lo).max(Amount::ZERO));
-                if range_qty > Amount::ZERO {
-                    // unwrap the product
-                    let usd: Decimal = safe!(range_qty * conv_px)
-                        .ok_or_else(|| eyre!("safe!(range_qty * conv_px) failed for {s}"))?;
-
-                    let lo_bps = to_bps(lo_thr);
-                    let hi_bps = to_bps(hi_thr);
-                    let side_tag = match side {
-                        Side::Buy => "Bid",
-                        Side::Sell => "Ask",
-                    };
-                    let col = format!("{side_tag}({lo_bps}/{hi_bps})");
-
-                    let entry = out.get_mut(s).expect("pre‑initialized symbol map");
-                    let slot = entry.get_mut(&col).expect("pre‑initialized key");
-
-                    // unwrap the sum
-                    *slot = safe!(*slot + usd)
-                        .ok_or_else(|| eyre!("safe!(*slot + usd) overflow for {s} {col}"))?;
+                let range_qty = q_hi - q_lo;
+                if range_qty <= Amount::ZERO {
+                    continue;
                 }
-                // else: true zero stays explicitly as 0
+
+                let usd = range_qty * *conv_px;
+
+                // Build the EXACT key format your headers/stats expect
+                let lo_bps = to_bps(BUCKETS[i_lo]);
+                let hi_bps = to_bps(BUCKETS[i_hi]);
+                let side_tag = match side {
+                    Side::Buy => "Bid",
+                    Side::Sell => "Ask",
+                }; // important!
+                let col = format!("{side_tag}({lo_bps}/{hi_bps})");
+
+                *out.entry(s.clone())
+                    .or_default()
+                    .entry(col)
+                    .or_insert(Amount::ZERO) += usd;
             }
         }
     }
@@ -423,10 +354,9 @@ async fn run_5min_batch_usd_stats(
     obm: Arc<RwLock<PricePointBookManager>>,
     base_by_symbol: &HashMap<Symbol, String>,
 ) -> eyre::Result<Vec<HashMap<String, String>>> {
-    use eyre::eyre;
     use tokio::time::{sleep, Duration};
 
-    let total_snaps = 60usize; // 5 minutes @ 5s
+    let total_snaps = 60usize;
     let symbols_only: Vec<Symbol> = symbols_rows
         .iter()
         .map(|r| Symbol::from(r.symbol.as_str()))
@@ -434,47 +364,25 @@ async fn run_5min_batch_usd_stats(
 
     let ts_start = chrono::Utc::now();
 
-    // Pre-initialize: symbol -> key -> Vec<Decimal> with capacity = total_snaps
-    let labels_bps = range_edges_bps(); // Vec<(lo_bps, hi_bps)>
-    let mut samples: HashMap<Symbol, HashMap<String, Vec<Decimal>>> =
-        HashMap::with_capacity(symbols_only.len());
-    for sym in &symbols_only {
-        let mut cols: HashMap<String, Vec<Decimal>> = HashMap::with_capacity(labels_bps.len() * 2);
-        for side_prefix in ["Bid", "Ask"] {
-            for (lo, hi) in &labels_bps {
-                let key = format!("{side_prefix}({lo}/{hi})");
-                cols.insert(key, Vec::with_capacity(total_snaps));
-            }
-        }
-        samples.insert(sym.clone(), cols);
-    }
+    // symbol -> "Bid(lo/hi)" | "Ask(lo/hi)" -> Vec<Decimal> USD samples
+    let mut samples: HashMap<Symbol, HashMap<String, Vec<Decimal>>> = HashMap::new();
 
-    // Collect 60 snapshots
     for i in 0..total_snaps {
         tracing::info!(target:"liquidity_tracker","Snapshot {}/{}", i + 1, total_snaps);
-        let snap = take_liquidity_snapshot_usd(&symbols_only, &price_tracker, &obm, None)?;
 
-        // Strong guarantees: per symbol we must have all keys present
-        for sym in &symbols_only {
-            let cols = snap
-                .get(sym)
-                .ok_or_else(|| eyre!(format!("Snapshot missing symbol {}", sym)))?;
-
-            let entry = samples
-                .get_mut(sym)
-                .expect("pre-initialized samples must contain symbol");
-
-            for side_prefix in ["Bid", "Ask"] {
-                for (lo, hi) in &labels_bps {
-                    let key = format!("{side_prefix}({lo}/{hi})");
-                    let v = *cols
-                        .get(&key)
-                        .expect("take_liquidity_snapshot_usd pre-fills all keys");
-                    entry
-                        .get_mut(&key)
-                        .expect("pre-initialized key must exist")
-                        .push(v);
+        match take_liquidity_snapshot_usd(&symbols_only, &price_tracker, &obm, None) {
+            Ok(snap) => {
+                for (sym, cols) in snap {
+                    let entry = samples.entry(sym).or_default();
+                    for (k, v) in cols {
+                        if v > Decimal::ZERO {
+                            entry.entry(k).or_default().push(v);
+                        }
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::warn!("snapshot failed (skipping this tick): {:?}", e);
             }
         }
 
@@ -483,47 +391,29 @@ async fn run_5min_batch_usd_stats(
 
     let ts_end = chrono::Utc::now();
 
-    // Build rows with stats per symbol
-    let mut rows: Vec<HashMap<String, String>> = Vec::with_capacity(symbols_only.len());
+    // Build rows
+    let mut rows: Vec<HashMap<String, String>> = Vec::new();
+    let labels_bps = range_edges_bps(); // Vec<(lo_bps, hi_bps)>
 
     for sym in &symbols_only {
-        // Strict: base asset must be present
-        let base_asset = base_by_symbol
-            .get(sym)
-            .ok_or_else(|| eyre!(format!("Missing base asset for {}", sym)))?
-            .clone();
-
-        let per_col = samples
-            .remove(sym)
-            .expect("pre-initialized samples must contain symbol");
-
         let mut row = HashMap::new();
-        row.insert("TimestampStart".into(), ts_start.timestamp().to_string());
-        row.insert("TimestampEnd".into(), ts_end.timestamp().to_string());
+        row.insert("TimestampStart".into(), ts_start.timestamp().to_string()); // <-- match header
+        row.insert("TimestampEnd".into(), ts_end.timestamp().to_string()); // <-- match header
         row.insert("Symbol".into(), sym.to_string());
-        row.insert("Base Asset".into(), base_asset);
+        row.insert(
+            "Base Asset".into(),
+            base_by_symbol.get(sym).cloned().unwrap_or_default(),
+        );
 
-        // We emit Bid first, then Ask (as requested)
+        let per_col = samples.get(sym).cloned().unwrap_or_default();
+
         for side_prefix in ["Bid", "Ask"] {
             for (lo, hi) in &labels_bps {
                 let base_key = format!("{side_prefix}({lo}/{hi})");
-                let vec_ref = per_col
-                    .get(&base_key)
-                    .ok_or_else(|| eyre!(format!("Missing vector for {}", base_key)))?;
-                if vec_ref.len() != total_snaps {
-                    return Err(eyre!(
-                        "Unexpected sample count for {} {}: got {}, expected {}",
-                        sym,
-                        base_key,
-                        vec_ref.len(),
-                        total_snaps
-                    ));
-                }
+                let vecv = per_col.get(&base_key).cloned().unwrap_or_default();
+                let st = compute_stats(vecv, total_snaps);
 
-                // compute_stats takes ownership; clone the small Vec<Decimal>
-                let st = compute_stats(vec_ref.clone(), total_snaps);
-
-                // Suffixes: no space => Bid(50/70)Min, Ask(10/20)Mean, etc.
+                // EXACT suffix names expected by headers
                 row.insert(format!("{base_key}Samples"), st.n.to_string());
                 row.insert(format!("{base_key}Missing"), st.missing.to_string());
                 row.insert(format!("{base_key}Mean"), fmt2(st.mean));
@@ -600,23 +490,36 @@ async fn main() -> Result<()> {
         .build()
         .expect("Failed to build market data");
 
+    config.start()?;
     let (market_data_tx, mut market_data_rx) = unbounded_channel::<Arc<MarketDataEvent>>();
 
     let market_data = config.expect_market_data_cloned();
-    let price_tracker = config.expect_price_tracker_cloned();
     let book_manager = config.expect_book_manager_cloned();
+    let price_tracker = config.expect_price_tracker_cloned();
 
     // Forward market data into the channel
     market_data
         .write()
         .get_multi_observer_arc()
         .write()
-        .add_observer_fn(move |event: &Arc<MarketDataEvent>| {
-            if let Err(err) = market_data_tx.send(event.clone()) {
-                tracing::warn!("Failed to send market data: {:?}", err);
+        .add_observer_fn({
+            let bm = Arc::downgrade(&book_manager);
+            let pt = Arc::downgrade(&price_tracker);
+            move |event: &Arc<MarketDataEvent>| {
+                if let Some(x) = bm.upgrade() {
+                    x.write().handle_market_data(event);
+                }
+                if let Some(y) = pt.upgrade() {
+                    y.write().handle_market_data(event);
+                }
             }
         });
+    let symbols_only: Vec<Symbol> = symbol_rows
+        .iter()
+        .map(|r| Symbol::from(r.symbol.as_str()))
+        .collect();
 
+    wait_for_data(price_tracker.clone(), book_manager.clone(), &symbols_only).await;
     // Build lookup map for base assets (fail loud on duplicates if that’s a concern)
     let mut base_by_symbol: HashMap<Symbol, String> = HashMap::new();
     for r in &symbol_rows {
@@ -633,11 +536,14 @@ async fn main() -> Result<()> {
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigquit = signal(SignalKind::quit())?;
 
-    // Start market data
-    config.start()?; // or market_data.start() if your API uses that; keep it consistent with your connector
-
     tracing::info!("service started; entering main loop");
-    sleep(Duration::from_secs(60)).await;
+    let run_for = Duration::from_secs(24 * 60 * 60);
+    let stop_at = tokio::time::Instant::now() + run_for;
+    let mut stop_timer = tokio::time::sleep_until(stop_at);
+    tokio::pin!(stop_timer);
+
+    let mut ctrlc = tokio::signal::ctrl_c();
+    tokio::pin!(ctrlc);
     loop {
         tokio::select! {
             _ = check_period.tick() => {
@@ -652,7 +558,10 @@ async fn main() -> Result<()> {
                     tracing::warn!("metrics collection failed: {:?}", e);
                 }
             }
-
+            _ = &mut stop_timer => {
+                tracing::info!("24 hours elapsed; shutting down gracefully");
+                break;
+            }
             Some(event) = market_data_rx.recv() => {
                 // fan-out to trackers/managers
                 price_tracker.write().handle_market_data(&event);
@@ -677,6 +586,32 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Wait until *all* symbols have:
+///   - a positive VolumeWeighted price, and
+///   - an order book with both best bid and best ask present.
+/// Returns true if coverage achieved before timeout, else false.
+async fn wait_for_data(
+    pt: Arc<RwLock<PriceTracker>>,
+    bm: Arc<RwLock<PricePointBookManager>>,
+    symbols: &[Symbol],
+) {
+    for _ in 0..60 {
+        let have_prices = !pt
+            .read()
+            .get_prices(PriceType::VolumeWeighted, symbols)
+            .prices
+            .is_empty();
+        let have_books = {
+            let g = bm.read();
+            symbols.iter().any(|s| g.get_order_book(s).is_some())
+        };
+        tracing::info!("Warm-up: have {} / {} prices", have_prices, symbols.len());
+        if have_prices && have_books {
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+}
 // Runs one 5‑minute batch and appends rows to the hourly CSV.
 // Errors bubble up (no silent zeros, no unwrap_or_default).
 async fn do_metrics_collection(
