@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock as ComponentLock},
 };
 
+use axum_fix_server::plugins::observer_plugin;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -319,9 +320,29 @@ impl Solver {
 
         engaged_orders.engaged_buys.engaged_orders.retain(|order| {
             // We filter any engagement of negligible size
-            if self.zero_threshold < order.new_engaged_collateral {
+            // TODO: What we actually want to do is skip sending engagement request to IOM,
+            // and place order into BM. The flow requires that we receive event from IOM though.
+            // It would be performance optimisation to skip IOM in that case, but at the cost
+            // of deviating from the normal flow.
+            if self.zero_threshold < order.engaged_collateral {
+                tracing::info!(
+                    chain_id = %order.chain_id,
+                    address = %order.address,
+                    client_order_id = %order.client_order_id,
+                    engaged_collateral = %order.engaged_collateral,
+                    new_engaged_collateral = %order.new_engaged_collateral,
+                    "Order engaged"
+                );
                 true
             } else {
+                tracing::warn!(
+                    chain_id = %order.chain_id,
+                    address = %order.address,
+                    client_order_id = %order.client_order_id,
+                    engaged_collateral = %order.engaged_collateral,
+                    new_engaged_collateral = %order.new_engaged_collateral,
+                    "Order unengaged"
+                );
                 unengaged_orders.push(order.index_order.clone());
                 false
             }
@@ -341,29 +362,41 @@ impl Solver {
 
             self.ready_mints.lock().extend(mintable_orders);
 
-            let _ = self
-                .index_order_manager
-                .write()
-                .map(|mut manager| {
-                    for order in unusable_orders {
-                        let o_upread = order.read();
-                        let _ = manager
-                            .order_failed(
-                                o_upread.chain_id,
-                                &o_upread.address,
-                                &o_upread.client_order_id,
-                                &o_upread.symbol,
-                                o_upread.status,
-                                timestamp,
-                            )
-                            .inspect_err(|err| {
-                                tracing::warn!("Failed to notify index order manager: {:?}", err)
-                            });
-                    }
-                })
-                .inspect_err(|err| {
-                    tracing::warn!("Failed to access index order manager: {:?}", err)
-                });
+            if !unusable_orders.is_empty() {
+                let _ = self
+                    .index_order_manager
+                    .write()
+                    .map(|mut manager| {
+                        for order in unusable_orders {
+                            let o_upread = order.read();
+                            tracing::warn!(
+                                chain_id = %o_upread.chain_id,
+                                address = %o_upread.address,
+                                client_order_id = %o_upread.client_order_id,
+                                engaged_collateral = %o_upread.engaged_collateral,
+                                "Unusable order");
+
+                            let _ = manager
+                                .order_failed(
+                                    o_upread.chain_id,
+                                    &o_upread.address,
+                                    &o_upread.client_order_id,
+                                    &o_upread.symbol,
+                                    o_upread.status,
+                                    timestamp,
+                                )
+                                .inspect_err(|err| {
+                                    tracing::warn!(
+                                        "Failed to notify index order manager: {:?}",
+                                        err
+                                    )
+                                });
+                        }
+                    })
+                    .inspect_err(|err| {
+                        tracing::warn!("Failed to access index order manager: {:?}", err)
+                    });
+            }
         }
 
         if !engaged_orders.engaged_buys.engaged_orders.is_empty() {
@@ -381,17 +414,25 @@ impl Solver {
                         // We already have engaged collateral that was carried
                         // over from previous batch so we only need to ask Index
                         // Order Manager to engage the difference.
+                        // Note that new_engaged_collateral may be zero, but we still
+                        // want to send that order to IOM so that we will recieve that
+                        // order in the engage event send to use by IOM. We need that
+                        // event to get BM process that order.
                         collateral_amount: order.new_engaged_collateral,
                     }
                 })
                 .collect_vec();
 
+            // Here we're telling BM to allocate new batch, however that batch
+            // will not be processed by BM until we receive engage event from IOM.
             let batch_order_id = self
                 .batch_manager
                 .write()
                 .map_err(|e| eyre!("Failed to access batch manager: {}", e))?
                 .handle_new_engagement(Arc::new(RwLock::new(engaged_orders)))?;
 
+            // We must tell IOM to engage the order, and in response IOM will
+            // send us engage event confirming the engaged amount.
             self.index_order_manager
                 .write()
                 .map_err(|e| eyre!("Failed to access index order manager {}", e))?
@@ -513,16 +554,6 @@ impl Solver {
 
         index_order.add_span_context_link();
 
-        let total_cost = index_order
-            .lots
-            .iter()
-            .try_fold(Amount::ZERO, |cost, lot| {
-                let lot_value = safe! {lot.price * lot.assigned_quantity}?;
-                let cost = safe! {lot_value + lot.assigned_fee + cost}?;
-                Some(cost)
-            })
-            .ok_or_eyre("Math Problem")?;
-
         let payment_id = index_order
             .payment_id
             .clone()
@@ -538,7 +569,7 @@ impl Solver {
                 &payment_id,
                 timestamp,
                 index_order.side,
-                total_cost,
+                index_order.collateral_routed,
             )?;
 
         Ok(())
@@ -745,8 +776,10 @@ impl Solver {
                         // amount of balance, so that any next order from that user won't double-spend.
                         // We assign payment ID so that  we can identify association between order and
                         // allocated collateral.
-                        let (side, symbol) =
-                            (|o: &SolverOrder| (o.side, o.symbol.clone()))(&order.read());
+                        let (side, symbol) = (|o: &mut SolverOrder| {
+                            o.collateral_routed = collateral_amount;
+                            (o.side, o.symbol.clone())
+                        })(&mut order.write());
 
                         self.collateral_manager
                             .write()

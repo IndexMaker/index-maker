@@ -12,6 +12,7 @@ use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
+    assert_decimal_approx_eq,
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
@@ -64,6 +65,9 @@ pub struct SolverOrder {
 
     /// Collateral carried over from last batch
     pub collateral_carried: Amount,
+
+    /// Collateral amount routed
+    pub collateral_routed: Amount,
 
     /// Collateral spent by solver
     pub collateral_spent: Amount,
@@ -125,7 +129,7 @@ pub struct SolverOrderAssetLot {
 
     /// Quantity allocated to index order
     pub assigned_quantity: Amount,
-    
+
     /// Execution fee allocated to index order
     pub assigned_fee: Amount,
 
@@ -251,6 +255,7 @@ impl SolverClientOrders {
                     remaining_collateral: collateral_amount,
                     engaged_collateral: Amount::ZERO,
                     collateral_carried: Amount::ZERO,
+                    collateral_routed: Amount::ZERO,
                     collateral_spent: Amount::ZERO,
                     filled_quantity: Amount::ZERO,
                     timestamp,

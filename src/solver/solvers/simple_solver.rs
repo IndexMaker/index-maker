@@ -981,6 +981,7 @@ impl SimpleSolver {
         let _guard = pad_asset_volley_sizes_span.enter();
 
         let mut padded_asset_quantites = HashMap::new();
+        let mut padding_info = HashMap::new();
 
         for (symbol, asset_volley_size) in total_asset_volley_size {
             let price = *asset_prices
@@ -1004,14 +1005,15 @@ impl SimpleSolver {
             let quantity_extra = safe!(quantity - asset_quantity)
                 .ok_or_else(|| eyre!("Cannot calculate quantity extra for an asset {}", symbol))?;
 
-            tracing::info!(
-                %symbol,
-                %asset_volley_size,
-                %volley_size,
-                %asset_quantity,
-                %quantity,
-                %quantity_extra,
-                "Computed padding for Asset Order",
+            padding_info.insert(
+                symbol.clone(),
+                (
+                    asset_volley_size,
+                    volley_size,
+                    asset_quantity,
+                    quantity,
+                    quantity_extra,
+                ),
             );
 
             padded_asset_quantites
@@ -1020,6 +1022,9 @@ impl SimpleSolver {
                 .then_some(())
                 .ok_or_else(|| eyre!("Cannot insert padded asset quantity {}", symbol))?;
         }
+        tracing::info!(
+            padded_asset_orders = %json!(padding_info),
+            "Asset Order Padding");
 
         Ok(padded_asset_quantites)
     }
@@ -1854,6 +1859,7 @@ mod test {
             payment_id: None,
             engaged_collateral: Amount::ZERO,
             collateral_carried: Amount::ZERO,
+            collateral_routed: collateral_amount,
             collateral_spent: Amount::ZERO,
             filled_quantity: Amount::ZERO,
             timestamp,
