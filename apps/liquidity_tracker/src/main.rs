@@ -1,9 +1,9 @@
 use chrono::{Timelike, Utc};
 use csv::ReaderBuilder;
-use eyre::Result;
+use eyre::{OptionExt as _, Result};
 use index_maker::app::market_data::MarketDataConfig;
 use parking_lot::RwLock;
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
 use rust_decimal_macros::dec;
 use safe_math::safe;
 use std::fs::OpenOptions;
@@ -55,66 +55,59 @@ const BUCKETS: &[Amount] = &[
     dec!(0.05),
 ];
 
-fn nearest_rank(sorted: &[Decimal], q: Decimal) -> Decimal {
+fn nearest_rank(sorted: &[Decimal], q: Decimal) -> Option<Decimal> {
     use rust_decimal::prelude::ToPrimitive;
     if sorted.is_empty() {
-        return Decimal::ZERO;
+        return None;
     }
-    // nearest‑rank (Hyndman & Fan R1): k = ceil(q * n), 1-based, clamp
+
     let n = sorted.len() as i64;
-    let k_amount = safe!(q * Amount::from(n as i64))
-        .unwrap_or(Amount::ONE)
-        .ceil();
-    let k = k_amount.to_i64().unwrap_or(1).clamp(1, n) - 1;
-    sorted[k as usize]
+    let k_amount = (q * Decimal::from(n)).ceil();
+    let k = k_amount.to_i64()?.clamp(1, n) - 1; // ? propagates None if conversion fails
+
+    Some(sorted[k as usize])
 }
 
-fn sqrt_decimal(x: Decimal) -> Decimal {
-    if x <= Decimal::ZERO {
-        return Decimal::ZERO;
-    }
-    let two = dec!(2);
-    let mut guess = x / two;
-    for _ in 0..20 {
-        guess = (guess + (x / guess)) / two;
-    }
-    guess
-}
-
-fn compute_stats(mut xs: Vec<Decimal>, total_snapshots: usize) -> Stats {
+fn compute_stats(mut xs: Vec<Decimal>, total_snapshots: usize) -> Option<Stats> {
     if xs.is_empty() {
-        return Stats {
+        return Some(Stats {
             n: 0,
             missing: total_snapshots,
             ..Default::default()
-        };
+        });
     }
+
+    // Sort for percentiles
     xs.sort_unstable();
     let n = xs.len();
     let missing = total_snapshots.saturating_sub(n);
-    // mean & std
+
+    // Mean
     let sum: Decimal = xs.iter().copied().sum();
-    let mean = sum / Amount::from(n as i64);
+    let mean = safe!(sum / Decimal::from(n as i64))?;
+
+    // Variance & Standard Deviation
     let mut sumsq = Decimal::ZERO;
     for &v in &xs {
-        sumsq += v * v;
+        sumsq = safe!(sumsq + safe!(v * v)?)?;
     }
-    let var = (sumsq / Decimal::from(n as u32)) - (mean * mean);
-    let std = sqrt_decimal(var.max(Decimal::ZERO));
+    let var = safe!(safe!(sumsq / Decimal::from(n as u32))? - safe!(mean * mean)?)?;
+    let std = safe!(var.max(Decimal::ZERO).sqrt())?;
 
-    Stats {
+    // Percentiles (using `nearest_rank` from earlier)
+    Some(Stats {
         n,
         missing,
         mean,
         std,
-        min: xs.first().copied().unwrap_or(Decimal::ZERO),
-        p05: nearest_rank(&xs, dec!(0.05)),
-        p25: nearest_rank(&xs, dec!(0.25)),
-        p50: nearest_rank(&xs, dec!(0.50)),
-        p75: nearest_rank(&xs, dec!(0.75)),
-        p95: nearest_rank(&xs, dec!(0.95)),
-        max: xs.last().copied().unwrap_or(Decimal::ZERO),
-    }
+        min: *xs.first()?,
+        p05: nearest_rank(&xs, dec!(0.05))?,
+        p25: nearest_rank(&xs, dec!(0.25))?,
+        p50: nearest_rank(&xs, dec!(0.50))?,
+        p75: nearest_rank(&xs, dec!(0.75))?,
+        p95: nearest_rank(&xs, dec!(0.95))?,
+        max: *xs.last()?,
+    })
 }
 
 fn fmt2(d: Decimal) -> String {
@@ -123,8 +116,8 @@ fn fmt2(d: Decimal) -> String {
 
 #[derive(Debug, Clone)]
 struct SymbolRow {
-    symbol: String,
-    base_asset: String,
+    symbol: Symbol,
+    base_asset: Symbol,
 }
 
 fn stat_suffixes() -> [&'static str; 11] {
@@ -174,8 +167,8 @@ async fn load_symbols_from_csv(path: &str) -> Result<Vec<SymbolRow>> {
             continue;
         }
         out.push(SymbolRow {
-            symbol: r[0].to_string(),
-            base_asset: r[1].to_string(),
+            symbol: Symbol::from(r[0].trim()),
+            base_asset: Symbol::from(r[1].trim()),
         });
     }
     Ok(out)
@@ -200,10 +193,10 @@ fn take_liquidity_snapshot_usd(
     let bm = obm.read();
 
     // USD conversion prices (prefer VWAP, fallback to midpoint)
-    let mut usd_px_all = pt.get_prices(PriceType::VolumeWeighted, symbols).prices;
-    if usd_px_all.len() < symbols.len() {
+    let mut prices_all = pt.get_prices(PriceType::VolumeWeighted, symbols).prices;
+    if prices_all.len() < symbols.len() {
         for s in symbols {
-            if usd_px_all.contains_key(s) {
+            if prices_all.contains_key(s) {
                 continue;
             }
             if let Some(book) = bm.get_order_book(s) {
@@ -211,21 +204,20 @@ fn take_liquidity_snapshot_usd(
                 let ba = book.get_entries(Side::Sell, 1).first().map(|e| e.price);
                 if let (Some(b), Some(a)) = (bb, ba) {
                     // safe midpoint; if your Amount is Decimal-compatible this is fine
-                    usd_px_all.insert(s.clone(), (b + a) / dec!(2));
+                    prices_all.insert(s.clone(), (b + a) / dec!(2));
                 }
             }
         }
     }
 
     // keep only positive USD prices
-    let mut usd_px: HashMap<Symbol, Amount> = HashMap::new();
-    for s in symbols {
-        if let Some(px) = usd_px_all.get(s) {
-            if *px > Amount::ZERO {
-                usd_px.insert(s.clone(), *px);
-            }
-        }
-    }
+    prices_all.retain(|_, &mut px| px > Amount::ZERO);
+
+    // Then create the filtered prices with only the symbols we want
+    let prices: HashMap<Symbol, Amount> = symbols
+        .iter()
+        .filter_map(|s| prices_all.get(s).map(|&px| (s.clone(), px)))
+        .collect();
 
     // helper: base prices per side (BestAsk for Buy, BestBid for Sell), fallback to OBM top
     let mut base_prices_for_side = |side: Side| -> HashMap<Symbol, Amount> {
@@ -268,23 +260,27 @@ fn take_liquidity_snapshot_usd(
             continue;
         }
 
-        let opp = side.opposite_side();
+        let opposite_side = side.opposite_side();
 
         // cumulative per threshold
-        let mut cum: Vec<HashMap<Symbol, Amount>> = Vec::with_capacity(BUCKETS.len());
+        let mut cumulative: Vec<HashMap<Symbol, Amount>> = Vec::with_capacity(BUCKETS.len());
 
-        for &thr in BUCKETS.iter() {
+        for &threshold in BUCKETS.iter() {
             let factor = match side {
-                Side::Buy => Amount::ONE + thr,  // buy up to ask*(1+thr)
-                Side::Sell => Amount::ONE - thr, // sell down to bid*(1-thr)
+                Side::Buy => Amount::ONE + threshold, // buy up to ask*(1+threshold)
+                Side::Sell => Amount::ONE - threshold, // sell down to bid*(1-threshold)
             };
 
-            let mut limits = HashMap::with_capacity(base.len());
-            for (s, p0) in base.iter() {
-                limits.insert(s.clone(), *p0 * factor);
-            }
+            let limits: HashMap<Symbol, Decimal> = base.iter().try_fold(
+                HashMap::with_capacity(base.len()),
+                |mut acc, (s, p0)| -> Result<_, eyre::Report> {
+                    let value = safe!(*p0 * factor).ok_or_eyre("Multiplication overflow")?;
+                    acc.insert(s.clone(), value);
+                    Ok(acc)
+                },
+            )?;
 
-            let qty_map = match OrderBookManager::get_liquidity(&*bm, opp, &limits) {
+            let qty_map = match OrderBookManager::get_liquidity(&*bm, opposite_side, &limits) {
                 Ok(m) => m,
                 Err(e) => {
                     tracing::warn!("get_liquidity failed for side={:?}: {:?}", side, e);
@@ -293,34 +289,38 @@ fn take_liquidity_snapshot_usd(
             };
 
             // sanitize negatives and keep requested symbols only
-            let mut cleaned = HashMap::with_capacity(qty_map.len());
-            for (s, q) in qty_map {
-                if q > Amount::ZERO && limits.contains_key(&s) {
-                    cleaned.insert(s, q);
-                }
-            }
+            let mut cleaned = qty_map;
+            cleaned.retain(|s, q| *q > Amount::ZERO && limits.contains_key(s));
 
-            cum.push(cleaned);
+            cumulative.push(cleaned);
         }
 
-        if cum.len() < 2 {
+        if cumulative.len() < 2 {
             continue;
         }
-
-        for s in symbols {
-            let Some(conv_px) = usd_px.get(s) else {
+        for symbol in symbols {
+            let Some(conv_px) = prices.get(symbol) else {
                 continue;
             };
 
             for (i_lo, i_hi) in (0..BUCKETS.len() - 1).zip(1..BUCKETS.len()) {
-                let q_lo = *cum[i_lo].get(s).unwrap_or(&Amount::ZERO);
-                let q_hi = *cum[i_hi].get(s).unwrap_or(&Amount::ZERO);
+                let q_lo = safe!(cumulative[i_lo]
+                    .get(symbol)
+                    .copied()
+                    .ok_or_eyre("Missing symbol in cumulative data"))?;
+
+                let q_hi = safe!(cumulative[i_hi]
+                    .get(symbol)
+                    .copied()
+                    .ok_or_eyre("Missing symbol in cumulative data"))?;
                 if q_hi <= q_lo {
                     continue;
                 }
 
-                let range_qty = q_hi - q_lo;
-                if range_qty <= Amount::ZERO {
+                pub const LIQUIDITY_TOLERANCE: Decimal = Decimal::from_parts(1, 0, 0, false, 8);
+
+                let range_qty = safe!(q_hi - q_lo).ok_or_eyre("Overflow error")?; // Using safe! for overflow protection
+                if range_qty <= LIQUIDITY_TOLERANCE {
                     continue;
                 }
 
@@ -333,11 +333,11 @@ fn take_liquidity_snapshot_usd(
                     Side::Buy => "Bid",
                     Side::Sell => "Ask",
                 }; // important!
-                let col = format!("{side_tag}({lo_bps}/{hi_bps})");
+                let column = Symbol::from(format!("{side_tag}({lo_bps}/{hi_bps})"));
 
-                *out.entry(s.clone())
+                *out.entry(symbol.clone())
                     .or_default()
-                    .entry(col)
+                    .entry(column.to_string())
                     .or_insert(Amount::ZERO) += usd;
             }
         }
@@ -357,9 +357,9 @@ async fn run_5min_batch_usd_stats(
     use tokio::time::{sleep, Duration};
 
     let total_snaps = 60usize;
-    let symbols_only: Vec<Symbol> = symbols_rows
+    let symbols: Vec<Symbol> = symbols_rows
         .iter()
-        .map(|r| Symbol::from(r.symbol.as_str()))
+        .map(|r| Symbol::from(r.symbol.trim()))
         .collect();
 
     let ts_start = chrono::Utc::now();
@@ -370,13 +370,13 @@ async fn run_5min_batch_usd_stats(
     for i in 0..total_snaps {
         tracing::info!(target:"liquidity_tracker","Snapshot {}/{}", i + 1, total_snaps);
 
-        match take_liquidity_snapshot_usd(&symbols_only, &price_tracker, &obm, None) {
-            Ok(snap) => {
-                for (sym, cols) in snap {
-                    let entry = samples.entry(sym).or_default();
-                    for (k, v) in cols {
-                        if v > Decimal::ZERO {
-                            entry.entry(k).or_default().push(v);
+        match take_liquidity_snapshot_usd(&symbols, &price_tracker, &obm, None) {
+            Ok(liquidity_map) => {
+                for (symbol, columns) in liquidity_map {
+                    let entry = samples.entry(symbol).or_default();
+                    for (key, value) in columns {
+                        if value > Decimal::ZERO {
+                            entry.entry(key).or_default().push(value);
                         }
                     }
                 }
@@ -395,7 +395,7 @@ async fn run_5min_batch_usd_stats(
     let mut rows: Vec<HashMap<String, String>> = Vec::new();
     let labels_bps = range_edges_bps(); // Vec<(lo_bps, hi_bps)>
 
-    for sym in &symbols_only {
+    for sym in &symbols {
         let mut row = HashMap::new();
         row.insert("TimestampStart".into(), ts_start.timestamp().to_string()); // <-- match header
         row.insert("TimestampEnd".into(), ts_end.timestamp().to_string()); // <-- match header
@@ -411,20 +411,30 @@ async fn run_5min_batch_usd_stats(
             for (lo, hi) in &labels_bps {
                 let base_key = format!("{side_prefix}({lo}/{hi})");
                 let vecv = per_col.get(&base_key).cloned().unwrap_or_default();
-                let st = compute_stats(vecv, total_snaps);
 
-                // EXACT suffix names expected by headers
-                row.insert(format!("{base_key}Samples"), st.n.to_string());
-                row.insert(format!("{base_key}Missing"), st.missing.to_string());
-                row.insert(format!("{base_key}Mean"), fmt2(st.mean));
-                row.insert(format!("{base_key}Std"), fmt2(st.std));
-                row.insert(format!("{base_key}Min"), fmt2(st.min));
-                row.insert(format!("{base_key}P05"), fmt2(st.p05));
-                row.insert(format!("{base_key}P25"), fmt2(st.p25));
-                row.insert(format!("{base_key}P50"), fmt2(st.p50));
-                row.insert(format!("{base_key}P75"), fmt2(st.p75));
-                row.insert(format!("{base_key}P95"), fmt2(st.p95));
-                row.insert(format!("{base_key}Max"), fmt2(st.max));
+                match compute_stats(vecv, total_snaps) {
+                    Some(stat) => {
+                        // EXACT suffix names expected by headers
+                        row.insert(format!("{base_key}Samples"), stat.n.to_string());
+                        row.insert(format!("{base_key}Missing"), stat.missing.to_string());
+                        row.insert(format!("{base_key}Mean"), fmt2(stat.mean));
+                        row.insert(format!("{base_key}Std"), fmt2(stat.std));
+                        row.insert(format!("{base_key}Min"), fmt2(stat.min));
+                        row.insert(format!("{base_key}P05"), fmt2(stat.p05));
+                        row.insert(format!("{base_key}P25"), fmt2(stat.p25));
+                        row.insert(format!("{base_key}P50"), fmt2(stat.p50));
+                        row.insert(format!("{base_key}P75"), fmt2(stat.p75));
+                        row.insert(format!("{base_key}P95"), fmt2(stat.p95));
+                        row.insert(format!("{base_key}Max"), fmt2(stat.max));
+                    }
+                    None => {
+                        tracing::warn!("Failed to compute stats for {}", base_key,);
+                        // Insert empty values or error markers as needed
+                        row.insert(format!("{base_key}Samples"), "0".into());
+                        row.insert(format!("{base_key}Missing"), total_snaps.to_string());
+                        // ... insert empty/error values for other fields ...
+                    }
+                }
             }
         }
 
@@ -475,7 +485,7 @@ async fn main() -> Result<()> {
 
     // 1) Load symbols (fail loud if bad)
     let symbol_rows = load_symbols_from_csv("indexes/symbols.csv").await?;
-    let symbols: Vec<String> = symbol_rows.iter().map(|r| r.symbol.clone()).collect();
+    let symbols: Vec<String> = symbol_rows.iter().map(|r| r.symbol.to_string()).collect();
 
     // 2) Configure market data
     let config = MarketDataConfig::builder()
@@ -514,17 +524,21 @@ async fn main() -> Result<()> {
                 }
             }
         });
-    let symbols_only: Vec<Symbol> = symbol_rows
+    let symbols: Vec<Symbol> = symbol_rows
         .iter()
-        .map(|r| Symbol::from(r.symbol.as_str()))
+        .map(|r| Symbol::from(r.symbol.trim()))
         .collect();
 
-    wait_for_data(price_tracker.clone(), book_manager.clone(), &symbols_only).await;
+    wait_for_data(price_tracker.clone(), book_manager.clone(), &symbols).await;
     // Build lookup map for base assets (fail loud on duplicates if that’s a concern)
-    let mut base_by_symbol: HashMap<Symbol, String> = HashMap::new();
-    for r in &symbol_rows {
-        base_by_symbol.insert(Symbol::from(r.symbol.as_str()), r.base_asset.clone());
-    }
+    let base_by_symbol: HashMap<Symbol, String> = symbol_rows
+        .iter()
+        .map(|r| {
+            let symbol = Symbol::from(r.symbol.trim());
+            let base_asset = r.base_asset.to_string(); // or .clone() if already String
+            (symbol, base_asset)
+        })
+        .collect();
 
     // Prepare headers once
     let headers = make_headers();
@@ -591,19 +605,19 @@ async fn main() -> Result<()> {
 ///   - an order book with both best bid and best ask present.
 /// Returns true if coverage achieved before timeout, else false.
 async fn wait_for_data(
-    pt: Arc<RwLock<PriceTracker>>,
-    bm: Arc<RwLock<PricePointBookManager>>,
+    price_tracker: Arc<RwLock<PriceTracker>>,
+    book_manager: Arc<RwLock<PricePointBookManager>>,
     symbols: &[Symbol],
 ) {
     for _ in 0..60 {
-        let have_prices = !pt
+        let have_prices = !price_tracker
             .read()
             .get_prices(PriceType::VolumeWeighted, symbols)
             .prices
             .is_empty();
         let have_books = {
-            let g = bm.read();
-            symbols.iter().any(|s| g.get_order_book(s).is_some())
+            let book_manager_read = book_manager.read();
+            symbols.iter().any(|symbol| book_manager_read.get_order_book(symbol).is_some())
         };
         tracing::info!("Warm-up: have {} / {} prices", have_prices, symbols.len());
         if have_prices && have_books {
