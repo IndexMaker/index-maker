@@ -1,0 +1,5 @@
+[profile.default]
+src = "contract"
+out = "out"
+evm_version = "paris"
+solc_version = "0.8.26"
