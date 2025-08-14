@@ -6794,6 +6794,7 @@ version = "0.1.0"
 dependencies = [
  "binance-market-data",
  "chrono",
+ "clap",
  "csv",
  "eyre",
  "index-maker",

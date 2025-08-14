@@ -1,6 +1,10 @@
-use std::sync::Arc;
+use std::{
+    collections::{btree_set::SymmetricDifference, HashMap},
+    sync::Arc,
+};
 
-use chrono::Duration;
+use chrono::{Duration, Timelike, Utc};
+use clap::{arg, command, parser, Parser};
 use index_maker::app::market_data::MarketDataConfig;
 use itertools::Itertools;
 use rust_decimal::dec;
@@ -17,9 +21,31 @@ use tokio::{
 };
 use tracker::{metrics_collector::MetricsCollector, symbols_csv::Assets};
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[arg(long, short)]
+    pub interval_seconds: Option<i64>,
+
+    #[arg(long, short)]
+    pub duration_minutes: Option<u64>,
+}
+
 #[tokio::main]
 async fn main() {
     init_log!();
+
+    let cli = Cli::parse();
+
+    let stats_interval = cli
+        .interval_seconds
+        .map_or(Duration::minutes(5), |x| Duration::seconds(x));
+
+    let run_for = cli
+        .duration_minutes
+        .map_or(std::time::Duration::from_secs(24 * 60 * 60), |x| {
+            std::time::Duration::from_secs(x * 60)
+        });
 
     let assets = Assets::try_new_from_csv("indexes/symbols.csv")
         .await
@@ -85,6 +111,25 @@ async fn main() {
         .map(|asset| asset.traded_market.clone())
         .collect_vec();
 
+    let base_asset_by_symbol: HashMap<Symbol, Symbol> = assets
+        .assets
+        .iter()
+        .map(|asset| (asset.traded_market.clone(), asset.base_asset.clone()))
+        .collect();
+
+    tokio::fs::create_dir_all("hourly_batches")
+        .await
+        .expect("Failed to create ouput directory");
+
+    let get_flush_path_fn = || {
+        let now = Utc::now();
+        format!(
+            "hourly_batches/{}_hour{:02}.csv",
+            now.date_naive(),
+            now.hour()
+        )
+    };
+
     let mut tick_period = tokio::time::interval(std::time::Duration::from_secs(5));
     let mut metrics_collector = MetricsCollector::new(
         price_tracker,
@@ -107,7 +152,9 @@ async fn main() {
             dec!(0.04),
             dec!(0.05),
         ],
-        Duration::minutes(5),
+        stats_interval,
+        base_asset_by_symbol,
+        get_flush_path_fn,
     );
 
     processing_task.start(async move |cancel_token| {
@@ -131,7 +178,6 @@ async fn main() {
         .start()
         .expect("Failed to start market data");
 
-    let run_for = std::time::Duration::from_secs(24 * 60 * 60);
     let stop_at = tokio::time::Instant::now() + run_for;
     let stop_timer = tokio::time::sleep_until(stop_at);
     tokio::pin!(stop_timer);

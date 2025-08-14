@@ -3,12 +3,10 @@ use std::{
     sync::Arc,
 };
 
-use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
-use serde_json::json;
 use symm_core::{
     core::{
         bits::{Amount, PriceType, Side, Symbol},
@@ -18,6 +16,8 @@ use symm_core::{
 };
 
 use crate::metrics_buffer::MetricsBuffer;
+
+pub const LIQUIDITY_TOLERANCE: Amount = Amount::from_parts(1, 0, 0, false, 8);
 
 pub struct MetricsCollector<BookManager>
 where
@@ -31,6 +31,8 @@ where
     aggregation_period: chrono::Duration,
     has_market_data: bool,
     metrics_buffer: Option<MetricsBuffer>,
+    base_asset_by_symbol: HashMap<Symbol, Symbol>,
+    get_flush_path_fn: Box<dyn Fn() -> String + Send + Sync>,
 }
 
 impl<BookManager> MetricsCollector<BookManager>
@@ -44,6 +46,8 @@ where
         labels: Vec<impl Into<String>>,
         thresholds: Vec<Amount>,
         aggregation_period: chrono::Duration,
+        base_asset_by_symbol: HashMap<Symbol, Symbol>,
+        flush_path_fn: impl Fn() -> String + Send + Sync + 'static,
     ) -> Self {
         Self {
             price_tracker,
@@ -54,6 +58,8 @@ where
             aggregation_period,
             has_market_data: false,
             metrics_buffer: None,
+            base_asset_by_symbol,
+            get_flush_path_fn: Box::new(flush_path_fn),
         }
     }
 
@@ -112,11 +118,71 @@ where
         map
     }
 
+    fn cumulative_to_differencial_labels(labels: &Vec<String>) -> Vec<String> {
+        labels.windows(2).map(|x| x.join("/")).collect_vec()
+    }
+
+    fn cumulative_to_differencial_liqiuidity_map(
+        price_limits: HashMap<Symbol, Vec<Amount>>,
+        bands: HashMap<Symbol, Vec<Amount>>,
+    ) -> HashMap<Symbol, Vec<Option<Amount>>> {
+        bands
+            .into_iter()
+            .map(|(symbol, bands)| {
+                if let Some(price_limits) = price_limits.get(&symbol) {
+                    let bands = bands
+                        .iter()
+                        .zip(price_limits)
+                        // Convert liquidity to USD
+                        .map(|(&band_liquidity, &price)| safe!(band_liquidity * price))
+                        .map(|x| {
+                            if x.is_none() {
+                                tracing::warn!(%symbol, "Price multiplication error");
+                            }
+                            x
+                        })
+                        .tuple_windows()
+                        // Difference between higer and lower band
+                        .map(|(lower_band, higher_band)| safe!(higher_band - lower_band?))
+                        .map(|x| {
+                            if x.is_none() {
+                                tracing::warn!(%symbol, "High-Low subtraction error");
+                            }
+                            x
+                        })
+                        // Sanitize removing non-positive values
+                        .map(|liquidity_value| {
+                            liquidity_value.and_then(|x| (LIQUIDITY_TOLERANCE < x).then_some(x))
+                        })
+                        .collect_vec();
+                    (symbol, bands)
+                } else {
+                    let bands = bands
+                        .iter()
+                        .tuple_windows()
+                        // This will happen if price tracker and book manager
+                        // are out of sync and one has symbol, while other
+                        // doesn't. We just return None, and that will be
+                        // reported as missing value.
+                        .map(|(_, _)| None)
+                        .collect_vec();
+                    tracing::warn!(%symbol, "Missing price limits");
+                    (symbol, bands)
+                }
+            })
+            .collect()
+    }
+
     fn get_price_limits(
         &self,
         prices: &HashMap<Symbol, Amount>,
         threshold: Amount,
-    ) -> eyre::Result<(HashMap<Symbol, Amount>, HashMap<Symbol, Amount>)> {
+    ) -> eyre::Result<(
+        HashMap<Symbol, Amount>,
+        HashMap<Symbol, Amount>,
+        HashMap<Symbol, Amount>,
+        HashMap<Symbol, Amount>,
+    )> {
         let (price_bands, errors): (Vec<_>, Vec<_>) = prices
             .iter()
             .map(
@@ -151,10 +217,11 @@ where
             )
         })(&self.book_manager.read());
 
-        Ok((bid_liquidity?, ask_liquidity?))
+        Ok((bid_limits, bid_liquidity?, ask_limits, ask_liquidity?))
     }
 
     fn collect_liquidity_bands(&mut self) -> eyre::Result<()> {
+        // First obtain prices at the tob of the book using volume weighted approach
         let prices = self
             .price_tracker
             .read()
@@ -165,6 +232,7 @@ where
             Err(eyre!("Missing prices"))?;
         }
 
+        // Map list of thresholds into liquidity bands, for each band we will have map Symbol => Liquidity
         let (liquidity_bands, errors): (Vec<_>, Vec<_>) = self
             .thresholds
             .iter()
@@ -178,15 +246,37 @@ where
             ))?;
         }
 
-        let bid_bands = Self::transpose_liquidity_map(liquidity_bands.iter().map(|band| &band.0));
-        let ask_bands = Self::transpose_liquidity_map(liquidity_bands.iter().map(|band| &band.1));
+        // Transpose vector of Symbol => Liquidity map into map Symbol => vector of liquidity,
+        // i.e. convert vector of maps into map of vectors
+        let bid_limits = Self::transpose_liquidity_map(liquidity_bands.iter().map(|band| &band.0));
+        let bid_bands = Self::transpose_liquidity_map(liquidity_bands.iter().map(|band| &band.1));
+        let ask_limits = Self::transpose_liquidity_map(liquidity_bands.iter().map(|band| &band.2));
+        let ask_bands = Self::transpose_liquidity_map(liquidity_bands.iter().map(|band| &band.3));
 
-        let metrics_buffer = self
+        // Transform from cumulative form to differencial form,
+        // i.e. from form (0..10), (0..20), ..(0..500) to form (10..20), (20..30), ..(400..500)
+        // We transform both data and labels.
+        let labels = Self::cumulative_to_differencial_labels(&self.labels);
+        let bid_bands = Self::cumulative_to_differencial_liqiuidity_map(bid_limits, bid_bands);
+        let ask_bands = Self::cumulative_to_differencial_liqiuidity_map(ask_limits, ask_bands);
+
+        // Send collected bands into metrics collection buffer, which buffers one period,
+        // after which we take the stats and flush them into CSV file.
+        let should_flush = self
             .metrics_buffer
-            .get_or_insert_with(|| MetricsBuffer::new(self.aggregation_period));
+            .get_or_insert_with(|| MetricsBuffer::new(labels, self.aggregation_period))
+            .ingest(bid_bands, ask_bands)?;
 
-        if metrics_buffer.ingest(&self.labels, bid_bands, ask_bands)? {
-            self.metrics_buffer = None;
+        // Metrics buffer is full we need to flush it, i.e. collection time interval
+        // is fully covered by metrics buffer, and we can calcualte stats, write them
+        // to CSV, and start over with new metrics buffer.
+        if should_flush {
+            let flush_path = (*self.get_flush_path_fn)();
+
+            self.metrics_buffer
+                .take()
+                .unwrap()
+                .flush_stats(&self.base_asset_by_symbol, &flush_path)?;
         }
 
         Ok(())

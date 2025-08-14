@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 binance-market-data = { workspace = true }
+clap = { workspace = true }
 chrono = { workspace = true }
 csv = { workspace = true }
 eyre = { workspace = true }
