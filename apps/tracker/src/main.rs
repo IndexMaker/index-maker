@@ -34,6 +34,9 @@ struct Cli {
 
     #[arg(long, short)]
     pub mode: Option<String>,
+
+    #[arg(long, short)]
+    pub symbols: Option<String>,
 }
 
 #[tokio::main]
@@ -60,7 +63,9 @@ async fn main() {
             _ => panic!("Invalid mode"),
         });
 
-    let assets = Assets::try_new_from_csv("indexes/symbols.csv")
+    let symbols_path = cli.symbols.map_or("indexes/symbols.csv".to_owned(), |x| x);
+
+    let assets = Assets::try_new_from_csv(&symbols_path)
         .await
         .expect("Failed to load assets");
 

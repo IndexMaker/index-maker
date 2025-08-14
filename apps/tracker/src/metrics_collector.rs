@@ -3,10 +3,12 @@ use std::{
     sync::Arc,
 };
 
+use clap::error;
 use eyre::{eyre, OptionExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
+use serde_json::json;
 use symm_core::{
     core::{
         bits::{Amount, PriceType, Side, Symbol},
@@ -89,7 +91,7 @@ where
             symbols_count,
         );
 
-        self.has_market_data = missing_prices == 0 && missing_books == 0;
+        self.has_market_data = missing_prices < (symbols_count / 4) && missing_books == 0;
         Ok(())
     }
 
@@ -225,21 +227,53 @@ where
 
     fn collect_liquidity_bands(&mut self) -> eyre::Result<()> {
         // First obtain prices at the tob of the book using volume weighted approach
-        let prices = self
-            .price_tracker
-            .read()
-            .get_prices(PriceType::VolumeWeighted, &self.symbols);
+        let prices = {
+            let mut prices = self
+                .price_tracker
+                .read()
+                .get_prices(PriceType::VolumeWeighted, &self.symbols);
 
-        if !prices.missing_symbols.is_empty() {
-            self.has_market_data = false;
-            Err(eyre!("Missing prices"))?;
-        }
+            if !prices.missing_symbols.is_empty() {
+                tracing::warn!(
+                    missing_symbols = %json!(prices.missing_symbols),
+                    "Missing symbols - will try to use Best Book Offer");
+
+                let best_book_offer = self
+                    .book_manager
+                    .read()
+                    .get_top_level(&prices.missing_symbols)?;
+
+                let (best_book_offers, errors): (Vec<_>, Vec<_>) = best_book_offer
+                    .into_iter()
+                    .map(|(symbol, bbo)| -> eyre::Result<(Symbol, Amount)> {
+                        Ok((
+                            symbol,
+                            bbo.volume_weighted()
+                                .ok_or_eyre("Failed to compute volume weighted best book offer")?,
+                        ))
+                    })
+                    .partition_result();
+
+                if !errors.is_empty() {
+                    self.has_market_data = false;
+
+                    Err(eyre!(
+                        "Missing prices: {}",
+                        errors.into_iter().map(|err| format!("{:?}", err)).join(";")
+                    ))?;
+                }
+
+                prices.prices.extend(best_book_offers);
+            }
+
+            prices.prices
+        };
 
         // Map list of thresholds into liquidity bands, for each band we will have map Symbol => Liquidity
         let (liquidity_bands, errors): (Vec<_>, Vec<_>) = self
             .thresholds
             .iter()
-            .map(|threshold| self.get_price_limits(&prices.prices, *threshold))
+            .map(|threshold| self.get_price_limits(&prices, *threshold))
             .partition_result();
 
         if !errors.is_empty() {
@@ -262,6 +296,8 @@ where
         let labels = Self::cumulative_to_differencial_labels(&self.labels);
         let bid_bands = Self::cumulative_to_differencial_liqiuidity_map(bid_limits, bid_bands);
         let ask_bands = Self::cumulative_to_differencial_liqiuidity_map(ask_limits, ask_bands);
+
+        tracing::info!("Collected bands for {} symbols", bid_bands.len());
 
         // Send collected bands into metrics collection buffer, which buffers one period,
         // after which we take the stats and flush them into CSV file.
