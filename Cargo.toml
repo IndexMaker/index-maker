@@ -12,6 +12,7 @@ members = [
     "examples",
     "proc-macros/derive-with-baggage",
     "proc-macros/safe-math",
+    "apps/anvil_orchestrator",
 ]
 
 [package]
