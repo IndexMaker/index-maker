@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>FIX Client + Signature Generator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div id="custom-alert-modal">
+    <div class="modal-content">
+      <span class="close-button" id="custom-alert-close">&times;</span>
+      <p id="custom-alert-message"></p>
+    </div>
+  </div>
+
+  <div class="title">
+    <h1>Index Maker: FIX Test Client</h1>
+  </div>
+
+  <div class="input-container">
+    <label for"mode">Mode:</label>
+    <select id="mode">
+      <option value="empty">(Select one...)</option>
+      <option value="quote">Quote Request (no signature)</option>
+      <option value="index">Index Order (requires signature)</option>
+    </select>
+  </div>
+
+  <div id="privateKeySection" class="input-container">
+    <label for"privateKey">Private Key:</label>
+    <input type="text" id="privateKey" value="" size="80" />
+    <br />
+  </div>
+
+  <div class="input-container">
+    <label for="wsUrl">WebSocket URL:</label>
+    <input type="text" id="wsUrl" value="ws://127.0.0.1:3000/ws" size="50" />
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+  </div>
+
+  <div class="textSpace">
+    <div class="textBody">
+      <label for="fixMessageJson">FIX Message JSON (Signature or non-signature)</label>
+      <textarea id="fixMessageJson" class="input-textarea">
+      </textarea>
+      <br />
+      <button id="signBtn">Send Message</button>
+    </div>
+
+    <div class="textBody">
+      <label id="quotesLabel" style="display: none;" for="quotes">Quotes</label>
+      <div id="quotesBody" style="display: none;" class="quotes-container">
+        <table id="quotes-table">
+          <thead>
+            <tr class="header-row">
+              <th style="width: 30%; text-align: left;">Quote ID</th>
+              <th style="width: 20%">Amount</th>
+              <th style="width: 20%">Quote</th>
+              <th style="width: 30%; text-align: right;">Created At</th>
+            </tr>
+          </thead>
+          <tbody id="quotes">
+          </tbody>
+        </table>
+      </div>
+      <label id="ordersLabel" style="display: none;" for="orders">Orders</label>
+      <div id="ordersBody" style="display: none;" class="orders-container">
+        <table id="orders-table">
+          <thead>
+            <tr class="header-row">
+              <th style="width: 30%; text-align: left;">Order ID</th>
+              <th style="width: 20%">Amount</th>
+              <th style="width: 25%">Progress</th>
+              <th style="width: 5%; text-align: right;">%</th>
+              <th style="width: 30%; text-align: right;">Created At</th>
+            </tr>
+          </thead>
+          <tbody id="orders">
+          </tbody>
+        </table>
+      </div>
+      <label for="log">Log</label>
+      <div class="log-container">
+        <div id="log">
+          <div>Not connected</div>
+          <div>Please connect first</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+
+</html>

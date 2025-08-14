@@ -31,6 +31,7 @@ pub enum SolverOrderStatus {
     Minted,
     InvalidSymbol,
     InvalidOrder,
+    InvalidCollateral,
     ServiceUnavailable,
     InternalError,
 }
@@ -83,6 +84,12 @@ pub struct SolverOrder {
     pub tracing_data: TracingData,
 }
 
+impl SolverOrder {
+    pub fn get_key(&self) -> (u32, Address, ClientOrderId) {
+        (self.chain_id, self.address, self.client_order_id.clone())
+    }
+}
+
 impl WithTracingData for SolverOrder {
     fn get_tracing_data_mut(&mut self) -> &mut TracingData {
         &mut self.tracing_data
@@ -104,19 +111,34 @@ pub struct SolverOrderAssetLot {
     /// Symbol of an asset
     pub symbol: Symbol,
 
-    /// Quantity allocated to index order
-    pub quantity: Amount,
-
     /// Executed price
     pub price: Amount,
 
-    /// Execution fee
-    pub fee: Amount,
+    /// Original quantity
+    pub original_quantity: Amount,
+
+    // Remaining quantity in the lot not assigned to any index order
+    pub remaining_quantity: Amount,
+
+    /// Original execution fee
+    pub original_fee: Amount,
+
+    /// Quantity allocated to index order
+    pub assigned_quantity: Amount,
+    
+    /// Execution fee allocated to index order
+    pub assigned_fee: Amount,
+
+    /// Time when lot was created
+    pub created_timestamp: DateTime<Utc>,
+
+    /// Time when lot was assigned to index order
+    pub assigned_timestamp: DateTime<Utc>,
 }
 
 impl SolverOrderAssetLot {
     pub fn compute_collateral_spent(&self) -> Option<Amount> {
-        safe!(safe!(self.quantity * self.price) + self.fee)
+        safe!(safe!(self.assigned_quantity * self.price) + self.assigned_fee)
     }
 }
 

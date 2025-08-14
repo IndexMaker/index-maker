@@ -903,6 +903,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "anvil_orchestrator"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-evm-connector",
+ "anyhow",
+ "hex",
+ "reqwest 0.11.27",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1184,6 +1201,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "axum-server",
+ "chrono",
  "eyre",
  "futures-util",
  "itertools 0.14.0",

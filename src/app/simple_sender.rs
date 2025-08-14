@@ -9,10 +9,13 @@ use std::{
 use chrono::{Duration, Utc};
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock;
+use rust_decimal::dec;
+use safe_math::safe;
 use symm_core::{
     core::{
         async_loop::AsyncLoop,
         bits::{Amount, SingleOrder},
+        decimal_ext::DecimalExt,
         functional::{
             IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
         },
@@ -87,6 +90,9 @@ impl SimpleOrderHandler {
 
         let lot_number = self.last_lot_number.fetch_add(1, Ordering::Relaxed);
 
+        let fee_rate = dec!(0.0005);
+        let fee = safe!(safe!(order.price * order.quantity) * fee_rate).ok_or_eyre("Math error")?;
+
         self.observer
             .read()
             .publish_single(OrderConnectorNotification::Fill {
@@ -97,7 +103,7 @@ impl SimpleOrderHandler {
                 quantity: order.quantity,
                 timestamp: order.created_timestamp,
                 lot_id: format!("{}-L-{}", order.order_id, lot_number).into(),
-                fee: Amount::ZERO,
+                fee,
             });
 
         self.observer

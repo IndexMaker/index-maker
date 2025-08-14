@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1.4
+
+# Stage 1: Build the application
+# Use the official Rust image based on Debian Trixie for a consistent environment
+FROM --platform=linux/amd64 rust:slim-trixie as builder
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Install build dependencies required for OpenSSL
+# We are installing build-essential, libssl-dev, and perl to ensure all
+# dependencies for compiling native code, including OpenSSL, are met.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libssl-dev \
+    perl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the codebase into the container
+COPY . .
+
+# Build the final release binary for the default GNU target
+RUN cargo build --release --features alpine-deploy
+
+# Stage 2: Create the final, minimal runtime image
+# Use the Debian Trixie slim image for a small final image
+FROM --platform=linux/amd64 debian:trixie-slim
+
+# Install ca-certificates for HTTPS/TLS, crucial for network communication
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the built binary from the builder stage
+COPY --from=builder /app/target/release/index-maker ./
+COPY --from=builder /app/configs ./configs
+COPY --from=builder /app/indexes ./indexes
+
+# Set the default command to run your application
+CMD ["./index-maker", "-b", "0.0.0.0:3000", "-c", "configs", "quote-server"]
+
+# Optional: Expose the port your application listens on
+EXPOSE 3000

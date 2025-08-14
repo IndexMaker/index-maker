@@ -15,11 +15,10 @@ use serde_json::json;
 use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use crate::{
-    server::server::{
+    collateral::collateral_position::CollateralPosition, server::server::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
-    },
-    solver::{index_order::IndexOrder, mint_invoice::MintInvoice},
+    }, solver::{index_order::IndexOrder, mint_invoice::MintInvoice}
 };
 use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
@@ -685,8 +684,10 @@ impl IndexOrderManager {
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
         payment_id: &PaymentId,
+        filled_quantity: Amount,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
+        position: CollateralPosition,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let (index_order, update) = self
@@ -712,8 +713,10 @@ impl IndexOrderManager {
             &index_order.read(),
             &update.read(),
             payment_id,
+            filled_quantity,
             amount_paid,
             lots,
+            position,
             timestamp,
         )?;
 
@@ -767,12 +770,14 @@ impl IndexOrderManager {
                 update.filled_quantity = update_filled_quantity;
                 update.collateral_spent = update_collateral_spent;
                 update.engaged_collateral = update_engaged_collateral;
+                update.timestamp = timestamp;
             });
 
             index_order.with_upgraded(|index_order| {
                 index_order.filled_quantity = index_order_filled_quantity;
                 index_order.collateral_spent = index_order_collateral_spent;
                 index_order.engaged_collateral = index_order_engaged_collateral;
+                index_order.last_update_timestamp = timestamp;
             });
 
             let status_string = match status {

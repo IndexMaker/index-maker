@@ -3,6 +3,7 @@ pub mod server;
 pub mod server_plugin;
 pub mod server_state;
 pub mod session;
+pub mod session_state;
 pub mod plugins {
     pub mod observer_plugin;
     pub mod seq_num_plugin;

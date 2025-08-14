@@ -38,8 +38,8 @@ pub enum CollateralEvent {
         client_order_id: ClientOrderId,
 
         collateral_amount: Amount,
-        fee: Amount,
         timestamp: DateTime<Utc>,
+        status: RoutingStatus,
     },
     PreAuthResponse {
         #[baggage]
@@ -71,6 +71,7 @@ pub enum CollateralEvent {
         amount_paid: Amount,
         timestamp: DateTime<Utc>,
         status: ConfirmStatus,
+        position: CollateralPosition,
     },
 }
 
@@ -100,7 +101,7 @@ impl CollateralManager {
     pub fn process_collateral(
         &mut self,
         _host: &dyn CollateralManagerHost,
-        _timestamp: DateTime<Utc>,
+        timestamp: DateTime<Utc>,
     ) -> Result<()> {
         let process_collateral_span = span!(Level::TRACE, "process-collateral");
         let _guard = process_collateral_span.enter();
@@ -177,7 +178,7 @@ impl CollateralManager {
             tracing::warn!(
                 "Errors in processing: {}",
                 failures
-                    .into_iter()
+                    .iter()
                     .map(|(err, request)| {
                         format!(
                             "\n in {} {} {}: {:?}",
@@ -189,6 +190,17 @@ impl CollateralManager {
                     })
                     .join(", ")
             );
+            for (_, request) in failures {
+                self.observer
+                    .publish_single(CollateralEvent::CollateralReady {
+                        chain_id: request.chain_id,
+                        address: request.address,
+                        client_order_id: request.client_order_id,
+                        timestamp,
+                        collateral_amount: request.collateral_amount,
+                        status: RoutingStatus::NotReady,
+                    });
+            }
         }
 
         Ok(())
@@ -306,16 +318,18 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds
-            .write()
-            .confirm_payment(
-                payment_id,
-                timestamp,
-                side,
-                amount_paid,
-                self.zero_threshold,
-            )
-            .ok_or_eyre("Math Problem")?;
+        let (status, position) = (|funds_write: &mut CollateralPosition| 
+            -> Result<(ConfirmStatus, CollateralPosition)>{
+            Ok((funds_write
+                .confirm_payment(
+                    payment_id,
+                    timestamp,
+                    side,
+                    amount_paid,
+                    self.zero_threshold,
+                ).ok_or_eyre("Math Problem")?, 
+                funds_write.clone()))
+        })(&mut funds.write())?;
 
         self.observer
             .publish_single(CollateralEvent::ConfirmResponse {
@@ -326,6 +340,7 @@ impl CollateralManager {
                 amount_paid,
                 timestamp,
                 status,
+                position,
             });
 
         Ok(())
@@ -419,7 +434,7 @@ impl CollateralManager {
                         client_order_id,
                         timestamp,
                         collateral_amount: amount,
-                        fee,
+                        status: RoutingStatus::Ready { fee },
                     });
             }
         }
@@ -461,7 +476,7 @@ mod test {
     };
 
     use crate::{
-        collateral::collateral_manager::PreAuthStatus,
+        collateral::{collateral_manager::PreAuthStatus, collateral_position::RoutingStatus},
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
             solver_order::{SolverOrder, SolverOrderStatus},
@@ -571,15 +586,23 @@ mod test {
             .set_observer_fn(move |e| match e {
                 CollateralEvent::CollateralReady {
                     collateral_amount,
-                    fee,
+                    status,
                     ..
-                } => {
-                    tracing::info!(
-                        "Collateral Ready Event {:0.5} {:0.5}",
-                        collateral_amount,
-                        fee
-                    );
-                }
+                } => match status {
+                    RoutingStatus::Ready { fee } => {
+                        tracing::info!(
+                            "Collateral Ready Event {:0.5} {:0.5}",
+                            collateral_amount,
+                            fee
+                        );
+                    }
+                    RoutingStatus::NotReady => {
+                        tracing::warn!(
+                            "Collateral Ready Event {:0.5} NotReady",
+                            collateral_amount,
+                        );
+                    }
+                },
                 CollateralEvent::PreAuthResponse { status, .. } => match status {
                     PreAuthStatus::Approved { .. } => {
                         tracing::info!("PreAuthResponse Event: Approved");

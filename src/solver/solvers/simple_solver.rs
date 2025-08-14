@@ -338,6 +338,19 @@ impl SimpleSolver {
                     .ok_or_eyre("Missing liquidity")?;
 
                 if liquidity_levels.quantity < *liquidity {
+                    let asset_volley_size =
+                        safe!(liquidity_levels.price * liquidity_levels.quantity)
+                            .ok_or_eyre("Failed to compute asset volley size")?;
+
+                    if asset_volley_size < self.min_asset_volley_size {
+                        tracing::warn!(
+                            %symbol,
+                            %asset_volley_size,
+                            "Capping asset liquidity would result in less than minimum asset volley size."
+                        );
+                        continue;
+                    }
+
                     *price_limit = liquidity_levels.price;
                     *liquidity = liquidity_levels.quantity;
                 }
@@ -477,9 +490,11 @@ impl SimpleSolver {
             )
         })?;
 
+        let collateral_carried = safe!(collateral_amount + order_upread.collateral_carried)
+            .ok_or_eyre("Carried collateral addition error")?;
+
         let collateral_available =
-            safe!(safe!(collateral_amount + order_upread.collateral_carried) / self.fee_factor)
-                .ok_or_eyre("Fee factor multiplication error")?;
+            safe!(collateral_carried / self.fee_factor).ok_or_eyre("Fee factor division error")?;
 
         // Cap order volley size
         let collateral_usable = collateral_available.min(self.max_order_volley_size);
@@ -1496,6 +1511,7 @@ impl SolverStrategy for SimpleSolver {
             .ok_or_eyre("Math error while calculating remaining volley size")?;
 
         if max_volley_size < self.min_total_volley_available {
+            tracing::debug!("Remaining total volley reached minimum. Must wait...");
             return Ok(None);
         }
 

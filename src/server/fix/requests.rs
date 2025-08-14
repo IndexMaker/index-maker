@@ -6,9 +6,9 @@ use axum_fix_server::{
     plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
 };
 use eyre::{eyre, Result};
-use k256::ecdsa::signature::DigestVerifier;
 use k256::ecdsa::{Signature, VerifyingKey};
 use k256::elliptic_curve::generic_array::GenericArray;
+use k256::{ecdsa::signature::DigestVerifier, pkcs8::DecodePublicKey};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
@@ -286,6 +286,11 @@ impl FixRequest {
             return Err(eyre!("Invalid uncompressed SEC1 public key format"));
         }
 
+        let expected_address = Address::from_raw_public_key(&pub_key_bytes[1..]);
+        if expected_address != self.address {
+            return Err(eyre!("Invalid address"));
+        }
+
         // Decode signature
         let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))?;
         if sig_bytes.len() != 64 {
@@ -306,14 +311,14 @@ impl FixRequest {
         let id = match &self.body {
             RequestBody::NewIndexOrderBody {
                 client_order_id, ..
-            } => client_order_id,
-            RequestBody::CancelIndexOrderBody {
+            }
+            | RequestBody::CancelIndexOrderBody {
                 client_order_id, ..
             } => client_order_id,
             RequestBody::NewQuoteRequestBody {
                 client_quote_id, ..
-            } => client_quote_id,
-            RequestBody::CancelQuoteRequestBody {
+            }
+            | RequestBody::CancelQuoteRequestBody {
                 client_quote_id, ..
             } => client_quote_id,
             _ => return Err(eyre!("Unsupported msg_type")),
@@ -355,7 +360,7 @@ mod tests {
             "timestamp": "2025-07-30T11:58:59.323Z"
           },
           "chain_id": 1,
-          "address": "0x1234567890abcdef1234567890abcdef12345678",
+          "address": "0xc7dd6ddef2b3038286616b8b3a01c6bdc3b4726a",
           "client_order_id": "Q-1753953950462",
           "symbol": "SY100",
           "side": "1",
@@ -395,7 +400,7 @@ mod tests {
             "timestamp": "2025-07-30T10:13:59.648Z"
           },
           "chain_id": 1,
-          "address": "0x1234567890abcdef1234567890abcdef12345678",
+          "address": "0xc7dd6ddef2b3038286616b8b3a01c6bdc3b4726a",
           "client_quote_id": "Q-1753870439648",
           "symbol": "SY100",
           "side": "1",
