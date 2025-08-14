@@ -19,7 +19,9 @@ use tokio::{
     signal::unix::{signal, SignalKind},
     sync::mpsc::unbounded_channel,
 };
-use tracker::{metrics_collector::MetricsCollector, symbols_csv::Assets};
+use tracker::{
+    metrics_buffer::MetricsWriterMode, metrics_collector::MetricsCollector, symbols_csv::Assets,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -29,6 +31,9 @@ struct Cli {
 
     #[arg(long, short)]
     pub duration_minutes: Option<u64>,
+
+    #[arg(long, short)]
+    pub mode: Option<String>,
 }
 
 #[tokio::main]
@@ -45,6 +50,14 @@ async fn main() {
         .duration_minutes
         .map_or(std::time::Duration::from_secs(24 * 60 * 60), |x| {
             std::time::Duration::from_secs(x * 60)
+        });
+
+    let mode = cli
+        .mode
+        .map_or(MetricsWriterMode::Flat, |x| match x.as_str() {
+            "flat" => MetricsWriterMode::Flat,
+            "columns" => MetricsWriterMode::Columns,
+            _ => panic!("Invalid mode"),
         });
 
     let assets = Assets::try_new_from_csv("indexes/symbols.csv")
@@ -152,6 +165,7 @@ async fn main() {
             dec!(0.04),
             dec!(0.05),
         ],
+        mode,
         stats_interval,
         base_asset_by_symbol,
         get_flush_path_fn,

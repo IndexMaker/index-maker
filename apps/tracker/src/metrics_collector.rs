@@ -15,7 +15,7 @@ use symm_core::{
     market_data::{order_book::order_book_manager::OrderBookManager, price_tracker::PriceTracker},
 };
 
-use crate::metrics_buffer::MetricsBuffer;
+use crate::metrics_buffer::{MetricsBuffer, MetricsWriterMode};
 
 pub const LIQUIDITY_TOLERANCE: Amount = Amount::from_parts(1, 0, 0, false, 8);
 
@@ -28,6 +28,7 @@ where
     symbols: Vec<Symbol>,
     labels: Vec<String>,
     thresholds: Vec<Amount>,
+    mode: MetricsWriterMode,
     aggregation_period: chrono::Duration,
     has_market_data: bool,
     metrics_buffer: Option<MetricsBuffer>,
@@ -45,6 +46,7 @@ where
         symbols: Vec<Symbol>,
         labels: Vec<impl Into<String>>,
         thresholds: Vec<Amount>,
+        mode: MetricsWriterMode,
         aggregation_period: chrono::Duration,
         base_asset_by_symbol: HashMap<Symbol, Symbol>,
         flush_path_fn: impl Fn() -> String + Send + Sync + 'static,
@@ -55,6 +57,7 @@ where
             symbols,
             labels: labels.into_iter().map_into().collect_vec(),
             thresholds,
+            mode,
             aggregation_period,
             has_market_data: false,
             metrics_buffer: None,
@@ -264,7 +267,7 @@ where
         // after which we take the stats and flush them into CSV file.
         let should_flush = self
             .metrics_buffer
-            .get_or_insert_with(|| MetricsBuffer::new(labels, self.aggregation_period))
+            .get_or_insert_with(|| MetricsBuffer::new(labels, self.mode, self.aggregation_period))
             .ingest(bid_bands, ask_bands)?;
 
         // Metrics buffer is full we need to flush it, i.e. collection time interval

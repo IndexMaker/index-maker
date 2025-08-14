@@ -1,4 +1,7 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    ops::Index,
+};
 
 use chrono::{DateTime, Utc};
 use eyre::eyre;
@@ -107,20 +110,33 @@ impl MetricsBufferSide {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum MetricsWriterMode {
+    Columns,
+    Flat,
+}
+
 pub struct MetricsBuffer {
     created_time: DateTime<Utc>,
     aggregation_period: chrono::Duration,
     labels: Vec<String>,
+    mode: MetricsWriterMode,
     bid_buffers: MetricsBufferSide,
     ask_buffers: MetricsBufferSide,
 }
 
 impl MetricsBuffer {
-    pub fn new(labels: Vec<String>, aggregation_period: chrono::Duration) -> Self {
+    pub fn new(
+        labels: Vec<String>,
+        mode: MetricsWriterMode,
+
+        aggregation_period: chrono::Duration,
+    ) -> Self {
         Self {
             created_time: Utc::now(),
             aggregation_period,
             labels,
+            mode,
             bid_buffers: MetricsBufferSide::new(),
             ask_buffers: MetricsBufferSide::new(),
         }
@@ -156,6 +172,107 @@ impl MetricsBuffer {
             "Flush"
         );
 
+        match self.mode {
+            MetricsWriterMode::Columns => self.flush_stats_columns(base_asset_by_symbol, path),
+            MetricsWriterMode::Flat => self.flush_stats_flat(base_asset_by_symbol, path),
+        }
+    }
+
+    fn flush_stats_columns(
+        &mut self,
+        base_asset_by_symbol: &HashMap<Symbol, Symbol>,
+        path: &str,
+    ) -> eyre::Result<()> {
+        let created_time = self.created_time;
+        let updated_time = Utc::now();
+
+        let prefix_headers: Vec<String> = vec![
+            "TimestampStart",
+            "TimestampEnd",
+            "Symbol",
+            "Base Asset",
+            "Band No.",
+            "Band",
+        ]
+        .into_iter()
+        .map_into()
+        .collect_vec();
+
+        let stats_headers = Stats::get_headers().into_iter().map_into().collect_vec();
+        let headers = chain!(prefix_headers, stats_headers).collect_vec();
+        let mut writer = CsvWriter::new(headers);
+
+        let (mut bid_stats, bid_stats_errors) = self.bid_buffers.flush_stats(&self.labels);
+        let (mut ask_stats, ask_stats_errors) = self.ask_buffers.flush_stats(&self.labels);
+
+        if !bid_stats_errors.is_empty() || !ask_stats_errors.is_empty() {
+            tracing::warn!(
+                "Some stats failed to compute: {}",
+                chain!(bid_stats_errors, ask_stats_errors)
+                    .into_iter()
+                    .map(|err| format!("{:?}", err))
+                    .join(";")
+            );
+        }
+
+        for (symbol, base_asset) in base_asset_by_symbol {
+            let prefix_data = [
+                ("TimestampStart", created_time.timestamp().to_string()),
+                ("TimestampEnd", updated_time.timestamp().to_string()),
+                ("Symbol", symbol.to_string()),
+                ("Base Asset", base_asset.to_string()),
+            ];
+
+            let bid_stats = bid_stats.remove(symbol);
+            let ask_stats = ask_stats.remove(symbol);
+
+            for (major, side, stats) in [(100, "Bid", bid_stats), (200, "Ask", ask_stats)] {
+                if let Some(stats) = stats {
+                    for (band, stats) in stats {
+                        // for Excel to order bands from lowest Bid to highest Ask
+                        let minor = self
+                            .labels
+                            .iter()
+                            .find_position(|&x| x.eq(&band))
+                            .map_or(0, |x| x.0);
+
+                        let minor = if major == 100 {
+                            self.labels.len() - minor
+                        } else {
+                            minor
+                        };
+
+                        let band_no = major + minor;
+
+                        let mut row_data: HashMap<_, _> = prefix_data
+                            .iter()
+                            .map(|(k, v)| (k.to_string(), v.clone()))
+                            .collect();
+
+                        row_data.insert("Band No.".to_owned(), band_no.to_string());
+                        row_data.insert("Band".to_owned(), format!("{} ({})", side, band));
+                        row_data.extend(stats);
+                        writer.push(row_data);
+                    }
+                }
+            }
+        }
+
+        tracing::info!(
+            num_records = %writer.len(),
+            %created_time,
+            %updated_time,
+            %path,
+            "Writing records to file");
+
+        writer.write_into_file(path)
+    }
+
+    fn flush_stats_flat(
+        &mut self,
+        base_asset_by_symbol: &HashMap<Symbol, Symbol>,
+        path: &str,
+    ) -> eyre::Result<()> {
         let created_time = self.created_time;
         let updated_time = Utc::now();
 
