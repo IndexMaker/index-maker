@@ -1,0 +1,24 @@
+[package]
+name = "tracker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binance-market-data = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+csv = { workspace = true }
+eyre = { workspace = true }
+index-maker = { workspace = true }
+itertools = { workspace = true }
+market-data = { workspace = true }
+parking_lot = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+safe-math = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+statrs = { workspace = true }
+symm-core = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
