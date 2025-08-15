@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  quote-server:
+  index-maker-issuer:
     platform: linux/amd64
     image: ${DOCKER_IMAGE_NAME}
     ports:
@@ -26,14 +26,30 @@ services:
 
     restart: unless-stopped
 
+  index-maker-tracker:
+    platform: linux/amd64
+    image: ${DOCKER_IMAGE_NAME}
+    ports: []
+
+    command: ["./tracker", "-i", "300", "-d", "1440", "-m", "flat" ]
+
+    environment:
+      RUST_LOG: ${RUST_LOG}
+    
+    volumes:
+      - ./hourly_batches:/app/hourly_batches
+    
+    depends_on:
+      otel-collector:
+        condition: service_started
+
   otel-collector:
     build:
       context: .
       dockerfile: Dockerfile.otlp.prod
     container_name: otel-collector
     ports:
-      - "4318:4318" # OTLP HTTP receiver
-      # - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318"
     command:
       - --config=/etc/otelcol-contrib/config.yaml
     restart: unless-stopped

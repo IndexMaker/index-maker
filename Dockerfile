@@ -14,6 +14,9 @@ COPY . .
 # Build the final release binary for the musl target
 RUN cargo build --release --target=x86_64-unknown-linux-musl --features alpine-deploy
 
+# Build tracker
+RUN cargo build --release -p tracker --target=x86_64-unknown-linux-musl --features alpine-deploy
+
 # Stage 2: Create the final, minimal runtime image
 FROM --platform=linux/amd64 alpine:3.22
 
@@ -22,6 +25,7 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/index-maker ./
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/tracker ./
 COPY --from=builder /app/configs ./configs
 COPY --from=builder /app/indexes ./indexes
 
