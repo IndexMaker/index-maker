@@ -1,10 +1,10 @@
 use std::{
-    collections::{btree_set::SymmetricDifference, HashMap},
+    collections::HashMap,
     sync::Arc,
 };
 
 use chrono::{Duration, Timelike, Utc};
-use clap::{arg, command, parser, Parser};
+use clap::{arg, command, Parser};
 use index_maker::app::market_data::MarketDataConfig;
 use itertools::Itertools;
 use rust_decimal::dec;
@@ -81,6 +81,7 @@ async fn main() {
         )
         .with_book_manager(true)
         .with_price_tracker(true)
+        .max_subscriber_symbols(32usize)
         .build()
         .expect("Failed to build market data");
 

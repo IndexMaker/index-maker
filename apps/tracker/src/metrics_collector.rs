@@ -236,7 +236,7 @@ where
             if !prices.missing_symbols.is_empty() {
                 tracing::warn!(
                     missing_symbols = %json!(prices.missing_symbols),
-                    "Missing symbols - will try to use Best Book Offer");
+                    "Missing prices, will try to use Best Book Offer");
 
                 let best_book_offer = self
                     .book_manager
