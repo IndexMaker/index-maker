@@ -6,14 +6,14 @@ receivers:
 
 processors:
   batch:
-    send_batch_size: 4
-    timeout: 1s
+    send_batch_size: 100
+    timeout: 10s
 
 exporters:
   otlp/elastic:
     endpoint: "https://index-maker-ded0ed.ingest.us-east-1.aws.elastic.cloud:443"
     headers:
-      Authorization: "<ELASTIC_API_KEY>"
+      Authorization: ${env:ELASTIC_API_KEY}
     tls:
       insecure: false
   debug:
@@ -24,12 +24,12 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/elastic,debug]
+      exporters: [otlp/elastic]
 
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/elastic,debug]
+      exporters: [otlp/elastic]
 
     metrics:
       receivers: [otlp]

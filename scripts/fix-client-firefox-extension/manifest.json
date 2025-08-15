@@ -1,0 +1,34 @@
+{
+  "manifest_version": 2,
+  "name": "FIX Test Client",
+  "version": "1.0",
+  "description": "A Firefox extension for a FIX protocol test client with signature generation.",
+  "permissions": [
+    "activeTab",
+    "<all_urls>"
+  ],
+  "browser_action": {
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_security_policy": "script-src 'self' https://esm.sh; object-src 'self'",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "fix-test-client@indexmaker.com"
+    }
+  }
+}

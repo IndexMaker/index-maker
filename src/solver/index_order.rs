@@ -269,23 +269,23 @@ impl IndexOrder {
         client_order_id: &ClientOrderId,
         collateral_amount: Amount,
         tolerance: Amount,
-    ) -> Result<Option<Amount>> {
-        if let Some(unmatched_collateral) =
-            self.match_engage_one(client_order_id, collateral_amount, tolerance)?
-        {
+    ) -> Result<(Amount, Option<Amount>)> {
+        let (remaining_collateral, maybe_some_unmatched_collateral) =
+            self.match_engage_one(client_order_id, collateral_amount, tolerance)?;
+        if let Some(unmatched_collateral) = maybe_some_unmatched_collateral {
             let engaged_collateral =
                 safe!(collateral_amount - unmatched_collateral).ok_or_eyre("Math Problem")?;
             safe!(self.engaged_collateral += engaged_collateral).ok_or_eyre("Math Problem")?;
             self.remaining_collateral =
                 safe!(self.remaining_collateral - engaged_collateral).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
-            Ok(Some(unmatched_collateral))
+            Ok((remaining_collateral, Some(unmatched_collateral)))
         } else {
             safe!(self.engaged_collateral += collateral_amount).ok_or_eyre("Math Problem")?;
             self.remaining_collateral =
                 safe!(self.remaining_collateral - collateral_amount).ok_or_eyre("Math Problem")?;
             self.engaged_side = Some(self.side);
-            Ok(None)
+            Ok((remaining_collateral, None))
         }
     }
 
@@ -307,6 +307,8 @@ impl IndexOrder {
         self.order_updates.retain(|o| {
             if o.read().client_order_id.eq(client_order_id) {
                 self.closed_updates.push_back(o.clone());
+                self.remaining_collateral =
+                    safe!(self.remaining_collateral - o.read().remaining_collateral).unwrap();
                 false
             } else {
                 true
@@ -465,7 +467,7 @@ impl IndexOrder {
         client_order_id: &ClientOrderId,
         collateral_amount: Amount,
         tolerance: Amount,
-    ) -> Result<Option<Amount>> {
+    ) -> Result<(Amount, Option<Amount>)> {
         let (remaining_collateral, unmatched_collateral) = (|| -> Result<(Amount, Amount)> {
             let update = self
                 .order_updates
@@ -503,9 +505,9 @@ impl IndexOrder {
         }
 
         if unmatched_collateral < tolerance {
-            Ok(None)
+            Ok((remaining_collateral, None))
         } else {
-            Ok(Some(unmatched_collateral))
+            Ok((remaining_collateral, Some(unmatched_collateral)))
         }
     }
 }

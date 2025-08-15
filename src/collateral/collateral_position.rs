@@ -7,20 +7,28 @@ use itertools::Itertools;
 use eyre::{OptionExt, Result};
 use safe_math::safe;
 
+use serde::{Deserialize, Serialize};
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     decimal_ext::DecimalExt,
 };
 
+pub enum RoutingStatus {
+    Ready { fee: Amount },
+    NotReady,
+}
+
 pub enum PreAuthStatus {
     Approved { payment_id: PaymentId },
     NotEnoughFunds,
 }
+
 pub enum ConfirmStatus {
     Authorized,
     NotEnoughFunds,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CollateralSpend {
     /// Client Order ID
     pub client_order_id: ClientOrderId,
@@ -38,6 +46,7 @@ pub struct CollateralSpend {
     pub timestamp: DateTime<Utc>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CollateralLot {
     /// Payment ID of this funding (credit/debit)
     pub payment_id: PaymentId,
@@ -79,6 +88,7 @@ impl CollateralLot {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CollateralSide {
     /// Total amount of funding (unconfirmed)
     pub unconfirmed_balance: Amount,
@@ -450,6 +460,7 @@ impl CollateralSide {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CollateralPosition {
     /// Chain ID
     pub chain_id: u32,

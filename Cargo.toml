@@ -14,6 +14,7 @@ members = [
     "proc-macros/safe-math",
     "apps/liquidity_tracker",
     "apps/tracker",
+    "apps/anvil_orchestrator",
 ]
 
 [package]

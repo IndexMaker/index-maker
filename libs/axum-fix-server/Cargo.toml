@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+chrono = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }

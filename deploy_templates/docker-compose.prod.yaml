@@ -3,7 +3,7 @@ version: '3.8'
 services:
   quote-server:
     platform: linux/amd64
-    image: <DOCKER_IMAGE_NAME>
+    image: ${DOCKER_IMAGE_NAME}
     ports:
        - "3000:3000"
 
@@ -12,12 +12,13 @@ services:
               "-c", "configs", 
               "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
               "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
-              "--batch-size", "4",
+              "--batch-size", "50",
               "--simulate-sender",
               "fix-server", "1000000"]
 
     environment:
-      RUST_LOG: debug,binance_sdk=off,hyper=off
+      RUST_LOG: ${RUST_LOG}
+      SERVER_PRIVATE_KEY: ${SERVER_PRIVATE_KEY}
     
     depends_on:
       otel-collector:

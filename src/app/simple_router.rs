@@ -4,8 +4,11 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 
 use chrono::Utc;
+use rust_decimal::dec;
+use safe_math::safe;
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Symbol},
+    decimal_ext::DecimalExt,
     functional::{
         IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
     },
@@ -99,6 +102,10 @@ impl CollateralBridge for SimpleBridge {
         amount: Amount,
         cumulative_fee: Amount,
     ) -> Result<()> {
+        let fee_rate = dec!(0.001);
+        let fee = safe!(amount * fee_rate).ok_or_eyre("Math problem")?;
+        let amount = safe!(amount - fee).ok_or_eyre("Math problem")?;
+        let cumulative_fee = safe!(cumulative_fee + fee).ok_or_eyre("Math problem")?;
         self.observer
             .publish_single(CollateralRouterEvent::HopComplete {
                 chain_id,

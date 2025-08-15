@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use eyre::Result;
+use eyre::{OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use rust_decimal::Decimal;
 use safe_math::safe;
 
-use crate::solver::solver_order::SolverOrderAssetLot;
+use crate::{collateral::collateral_position::CollateralPosition, solver::solver_order::SolverOrderAssetLot};
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
     decimal_ext::DecimalExt,
@@ -169,8 +168,8 @@ pub fn print_mint_invoice(
             .coalesce(|a, b| {
                 if a.lot_id.eq(&b.lot_id) {
                     Ok(SolverOrderAssetLot {
-                        fee: a.fee + b.fee,
-                        quantity: a.quantity + b.quantity,
+                        assigned_fee: a.assigned_fee + b.assigned_fee,
+                        assigned_quantity: a.assigned_quantity + b.assigned_quantity,
                         ..a
                     })
                 } else {
@@ -178,15 +177,15 @@ pub fn print_mint_invoice(
                 }
             })
             .collect_vec();
-        let total_amount: Amount = lots.iter().map(|x| x.quantity * x.price + x.fee).sum();
+        let total_amount: Amount = lots.iter().map(|x| x.assigned_quantity * x.price + x.assigned_fee).sum();
         let sub_totals = lots
             .iter()
             .map(|x| {
                 (
                     x.symbol.clone(),
-                    x.quantity,
-                    x.fee,
-                    x.price * x.quantity + x.fee,
+                    x.assigned_quantity,
+                    x.assigned_fee,
+                    x.price * x.assigned_quantity + x.assigned_fee,
                 )
             })
             .sorted_by_cached_key(|(symbol, _, _, _)| symbol.clone())
@@ -203,10 +202,10 @@ pub fn print_mint_invoice(
                 "{: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
                 format!("{}", lot.lot_id),
                 lot.symbol,
-                lot.quantity,
+                lot.assigned_quantity,
                 lot.price,
-                lot.fee,
-                lot.quantity * lot.price + lot.fee
+                lot.assigned_fee,
+                lot.assigned_quantity * lot.price + lot.assigned_fee
             )
         }
 
@@ -276,16 +275,20 @@ pub fn print_mint_invoice(
 
 #[derive(Debug)]
 pub struct MintInvoice {
-    pub timestamp: DateTime<Utc>,
     pub client_order_id: ClientOrderId,
-    pub index_id: Symbol,
-    pub collateral_spent: Decimal,
-    pub total_collateral: Decimal,
-    pub engaged_collateral: Decimal,
-    pub management_fee: Decimal,
     pub payment_id: PaymentId,
+    pub symbol: Symbol,
+    pub filled_quantity: Amount,
+    pub total_amount: Amount,
     pub amount_paid: Amount,
+    pub amount_remaining: Amount,
+    pub management_fee: Amount,
+    pub assets_value: Amount,
+    pub exchange_fee: Amount,
+    pub fill_rate: Amount,
     pub lots: Vec<SolverOrderAssetLot>,
+    pub position: CollateralPosition,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl MintInvoice {
@@ -293,43 +296,67 @@ impl MintInvoice {
         index_order: &IndexOrder,
         update: &IndexOrderUpdate,
         payment_id: &PaymentId,
+        filled_quantity: Amount,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
+        position: CollateralPosition,
         timestamp: DateTime<Utc>,
     ) -> Result<Self> {
-        let lots_clone = lots.clone();
-
         print_mint_invoice(
             index_order,
             update,
             payment_id,
             amount_paid,
-            lots,
+            lots.clone(),
             timestamp,
         )?;
 
-        let total_amount: Amount = lots_clone
-            .iter()
-            .map(|x| x.quantity * x.price + x.fee)
-            .sum();
+        let total_amount = update.original_collateral_amount;
+        let management_fee = update.update_fee;
 
-        let total_collateral = safe!(
-            safe!(total_amount + update.update_fee)
-                + index_order.engaged_collateral.unwrap_or_default()
+        let amount_paid = safe!(amount_paid + management_fee)
+                .ok_or_eyre("Math problem")?;
+
+        let amount_remaining =
+            safe!(update.original_collateral_amount - amount_paid)
+                .ok_or_eyre("Math problem")?;
+
+        let fill_rate = safe!(
+            safe!(update.collateral_spent - update.update_fee)
+                / safe!(update.original_collateral_amount - update.update_fee)
+                    .ok_or_eyre("Math problem")?
         )
-        .unwrap_or_default();
+        .ok_or_eyre("Math problem")?;
+
+        let assets_value = lots
+            .iter()
+            .map(|lot| safe!(lot.price * lot.assigned_quantity))
+            .fold_options(Some(Amount::ZERO), |a, v| safe!(a + v))
+            .flatten()
+            .ok_or_eyre("Math error")?;
+
+        let exchange_fee = lots
+            .iter()
+            .map(|lot| Some(lot.assigned_fee))
+            .fold_options(Some(Amount::ZERO), |a, v| safe!(a + v))
+            .flatten()
+            .ok_or_eyre("Math error")?;
 
         Ok(Self {
-            timestamp,
             client_order_id: update.client_order_id.clone(),
-            index_id: index_order.symbol.clone(),
-            collateral_spent: index_order.collateral_spent,
-            total_collateral,
-            engaged_collateral: index_order.engaged_collateral.unwrap_or_default(),
-            management_fee: update.update_fee,
             payment_id: payment_id.clone(),
+            symbol: index_order.symbol.clone(),
+            filled_quantity,
+            total_amount,
             amount_paid,
-            lots: lots_clone,
+            amount_remaining,
+            management_fee,
+            assets_value,
+            exchange_fee,
+            fill_rate,
+            lots,
+            position,
+            timestamp,
         })
     }
 }

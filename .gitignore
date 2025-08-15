@@ -7,3 +7,5 @@ CLAUDE.md
 .claude
 /logs
 .deploy
+/apps/*/out
+/apps/*/cache

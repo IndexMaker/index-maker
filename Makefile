@@ -14,7 +14,7 @@
 IMAGE_NAME?=index-maker-quote-server
 
 TEMPLATES_DIR?=deploy_templates
-DEPLOY_DIR?=.deploy
+DEPLOY_DIR?=~/.index-maker-deploy
 REMOTE_DIR?=staging
 
 DOCKER_IMAGE_NAME=$(IMAGE_NAME):$(IMAGE_VERSION)
@@ -41,6 +41,8 @@ DOCKER_BUILD_FLAGS?=
 	check_env \
 	build \
 	prepare \
+	prepare_image \
+	prepare_scripts \
 	deploy \
 	clean \
 	purge
@@ -57,23 +59,34 @@ check_env: \
 	check_ssh_env \
 	check_image_version_env \
 	check_elastic_env
+	@echo "Env OK."
 
 build: \
 	build_docker_image
+	@echo "Image ${IMAGE_VERSION} built successfully."
 
 prepare: \
+	prepare_image \
+	prepare_scripts
+
+prepare_image: \
 	clean \
-	save_docker_image \
+	save_docker_image
+	@echo "Image ${IMAGE_VERSION} saved to ${DEPLOY_DIR}."
+
+prepare_scripts: \
 	docker_compose_yaml \
 	otel_collector_config_yaml \
 	build_service_sh \
 	stop_service_sh \
+	service_logs_sh \
 	dockerfile_oltp
+	@echo "Scripts copied to ${DEPLOY_DIR}."
 
 deploy: \
 	copy_to_remote \
 	run_build_service
-	@echo "Deployed, you can check logs with 'docker-compose -f docker-compose.prod.yaml logs'"
+	@echo "Deployed."
 
 clean:
 	rm -rf $(DEPLOY_DIR)
@@ -99,45 +112,50 @@ endif
 
 
 deploy_dir: check_image_version_env
-	mkdir -p $(DEPLOY_DIR)
+	@mkdir -p $(DEPLOY_DIR)
 
 build_docker_image: check_image_version_env
-	docker buildx build $(DOCKER_BUILD_FLAGS) --platform linux/amd64 -t $(DOCKER_IMAGE_NAME) .
+	@docker buildx build $(DOCKER_BUILD_FLAGS) --platform linux/amd64 -t $(DOCKER_IMAGE_NAME) .
 
 save_docker_image: deploy_dir
-	docker save -o $(DEPLOY_DIR)/$(TAR_ARCHIVE_NAME) $(DOCKER_IMAGE_NAME)
+	@docker save -o $(DEPLOY_DIR)/$(TAR_ARCHIVE_NAME) $(DOCKER_IMAGE_NAME)
 
 docker_compose_yaml: deploy_dir
-	cat $(TEMPLATES_DIR)/docker-compose.prod.yaml.template \
-	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
-	> $(DEPLOY_DIR)/docker-compose.prod-$(IMAGE_VERSION).yaml
+	@cp $(TEMPLATES_DIR)/docker-compose.prod.yaml \
+	$(DEPLOY_DIR)/docker-compose.prod.yaml
 
 otel_collector_config_yaml: deploy_dir check_elastic_env
-	cat $(TEMPLATES_DIR)/otel-collector-config.prod.yaml.template \
-	| sed -e "s/<ELASTIC_API_KEY>/$(ELASTIC_API_KEY)/g" \
-	> $(DEPLOY_DIR)/otel-collector-config.prod.yaml
+	@cp $(TEMPLATES_DIR)/otel-collector-config.prod.yaml \
+	$(DEPLOY_DIR)/otel-collector-config.prod.yaml
 
 build_service_sh: deploy_dir
-	cat $(TEMPLATES_DIR)/build-service.sh.template \
+	@cat $(TEMPLATES_DIR)/build-service.sh.template \
 	| sed -e "s/<IMAGE_VERSION>/$(IMAGE_VERSION)/g" \
+	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
 	| sed -e "s/<TAR_ARCHIVE_NAME>/$(TAR_ARCHIVE_NAME)/g" \
 	> $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
-	chmod a+x $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
+	@chmod a+x $(DEPLOY_DIR)/build-service-$(IMAGE_VERSION).sh
 
 stop_service_sh: deploy_dir
-	cat $(TEMPLATES_DIR)/stop-service.sh.template \
-	| sed -e "s/<IMAGE_VERSION>/$(IMAGE_VERSION)/g" \
+	@cat $(TEMPLATES_DIR)/stop-service.sh.template \
+	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
 	> $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
-	chmod a+x $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
+	@chmod a+x $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
+
+service_logs_sh: deploy_dir
+	@cat $(TEMPLATES_DIR)/service-logs.sh.template \
+	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
+	> $(DEPLOY_DIR)/service-logs-$(IMAGE_VERSION).sh
+	@chmod a+x $(DEPLOY_DIR)/service-logs-$(IMAGE_VERSION).sh
 
 dockerfile_oltp: deploy_dir
-	cp $(TEMPLATES_DIR)/Dockerfile.otlp.prod $(DEPLOY_DIR)
+	@cp $(TEMPLATES_DIR)/Dockerfile.otlp.prod $(DEPLOY_DIR)
 
 copy_to_remote: check_ssh_env deploy_dir
-	scp $(DEPLOY_DIR)/* $(SSH_USER)@index_maker:/home/$(SSH_USER)/$(REMOTE_DIR)
+	@scp $(DEPLOY_DIR)/* $(SSH_USER)@index_maker:/home/$(SSH_USER)/$(REMOTE_DIR)
 
 run_build_service: check_ssh_env check_image_version_env
-	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./build-service-$(IMAGE_VERSION).sh"
+	@ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./build-service-$(IMAGE_VERSION).sh"
 
 run_stop_service: check_ssh_env check_image_version_env
-	ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./stop-service.sh"
+	@ssh $(SSH_USER)@index_maker "cd $(REMOTE_DIR) && ./stop-service.sh"

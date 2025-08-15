@@ -12,7 +12,7 @@ use safe_math::safe;
 
 use serde_json::json;
 use symm_core::core::{
-    bits::{self, Address, Amount, ClientOrderId, PricePointEntry, PriceType, Side, Symbol},
+    bits::{Address, Amount, ClientOrderId, PricePointEntry, PriceType, Side, Symbol},
     decimal_ext::DecimalExt,
     telemetry::TracingData,
 };
@@ -338,6 +338,19 @@ impl SimpleSolver {
                     .ok_or_eyre("Missing liquidity")?;
 
                 if liquidity_levels.quantity < *liquidity {
+                    let asset_volley_size =
+                        safe!(liquidity_levels.price * liquidity_levels.quantity)
+                            .ok_or_eyre("Failed to compute asset volley size")?;
+
+                    if asset_volley_size < self.min_asset_volley_size {
+                        tracing::warn!(
+                            %symbol,
+                            %asset_volley_size,
+                            "Capping asset liquidity would result in less than minimum asset volley size."
+                        );
+                        continue;
+                    }
+
                     *price_limit = liquidity_levels.price;
                     *liquidity = liquidity_levels.quantity;
                 }
@@ -477,9 +490,11 @@ impl SimpleSolver {
             )
         })?;
 
+        let collateral_carried = safe!(collateral_amount + order_upread.collateral_carried)
+            .ok_or_eyre("Carried collateral addition error")?;
+
         let collateral_available =
-            safe!(safe!(collateral_amount + order_upread.collateral_carried) / self.fee_factor)
-                .ok_or_eyre("Fee factor multiplication error")?;
+            safe!(collateral_carried / self.fee_factor).ok_or_eyre("Fee factor division error")?;
 
         // Cap order volley size
         let collateral_usable = collateral_available.min(self.max_order_volley_size);
@@ -1486,10 +1501,17 @@ impl SolverStrategy for SimpleSolver {
 
         let total_volley_size = strategy_host.get_total_volley_size()?;
 
+        tracing::info!(
+            %total_volley_size,
+            max_total_volley_size = %self.max_total_volley_size,
+            order_batch_len = %order_batch.len(),
+            "Solve Engagements");
+
         let max_volley_size = safe!(self.max_total_volley_size - total_volley_size)
             .ok_or_eyre("Math error while calculating remaining volley size")?;
 
         if max_volley_size < self.min_total_volley_available {
+            tracing::debug!("Remaining total volley reached minimum. Must wait...");
             return Ok(None);
         }
 

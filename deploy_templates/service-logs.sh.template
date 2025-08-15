@@ -3,4 +3,4 @@
 . ~/.index_maker
 export DOCKER_IMAGE_NAME="<DOCKER_IMAGE_NAME>"
 
-docker-compose -f docker-compose.prod.yaml down
+docker-compose -f docker-compose.prod.yaml logs -f quote-server

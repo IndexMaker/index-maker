@@ -36,6 +36,7 @@ use symm_core::{
         test_util::{get_mock_address_1, get_mock_address_2},
     },
     market_data::market_data_connector::Subscription,
+    order_sender::order_connector::SessionId,
 };
 use tokio::{
     signal::unix::{signal, SignalKind},
@@ -256,12 +257,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----
 
     let price_threshold = dec!(0.01);
-    let max_levels = 3usize;
-    let fee_factor = dec!(1.001);
+    let max_levels = 5usize;
+    let fee_factor = dec!(1.005);
     let max_order_volley_size = dec!(20.0);
     let max_volley_size = dec!(100.0);
     let min_asset_volley_size = dec!(5.0);
-    let asset_volley_step_size = dec!(0.2);
+    let asset_volley_step_size = dec!(0.1);
     let max_total_volley_size = dec!(1000.0);
     let min_total_volley_available = dec!(100.0);
 
@@ -271,16 +272,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let max_batch_size = 4usize;
     let zero_threshold = dec!(0.000000000000000001);
-    let client_order_wait_period = TimeDelta::seconds(5);
+    let client_order_wait_period = TimeDelta::seconds(10);
     let client_quote_wait_period = TimeDelta::seconds(1);
 
+    ////
+    // Default addresses from Anvil. To get private key run:
+    //      anvil --fork-url https://arb1.lava.build
+    //
     let chain_addresses_to_fund = vec![
-        (1, get_mock_address_1()),
-        (2, get_mock_address_1()),
-        (1, get_mock_address_2()),
-        (2, get_mock_address_2()),
-        (1, address!("0x1234567890abcdef1234567890abcdef12345678")),
-        (2, address!("0x1234567890abcdef1234567890abcdef12345678")),
+        (1, address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")),
+        (1, address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")),
+        (1, address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC")),
+        (1, address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906")),
+        (1, address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65")),
+        (1, address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc")),
+        (1, address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9")),
+        (1, address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955")),
+        (1, address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f")),
+        (1, address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720")),
     ];
 
     let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
@@ -293,7 +302,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let credentials = if cli.simulate_sender {
         tracing::warn!("Using simulated order sender");
-        OrderSenderCredentials::Simple
+        OrderSenderCredentials::Simple(SessionId::from("SimpleSenderSession"))
     } else {
         tracing::info!(
             "Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading"

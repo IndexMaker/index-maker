@@ -10,6 +10,7 @@ pub mod app {
     pub mod quote_request_manager;
     pub mod simple_chain;
     pub mod simple_router;
+    pub mod simple_sender;
     pub mod simple_server;
     pub mod simple_solver;
     pub mod solver;
