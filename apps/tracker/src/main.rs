@@ -10,7 +10,7 @@ use itertools::Itertools;
 use rust_decimal::dec;
 use symm_core::{
     core::{
-        async_loop::AsyncLoop, bits::Symbol, functional::IntoObservableManyArc, logging::log_init,
+        async_loop::AsyncLoop, bits::{Amount, Symbol}, functional::IntoObservableManyArc, logging::log_init,
     },
     init_log,
     market_data::market_data_connector::{MarketDataEvent, Subscription},
@@ -155,9 +155,10 @@ async fn main() {
         book_manager,
         symbols,
         vec![
-            "10", "20", "30", "40", "50", "75", "100", "150", "200", "300", "400", "500",
+            "0", "10", "20", "30", "40", "50", "75", "100", "150", "200", "300", "400", "500",
         ],
         vec![
+            Amount::ZERO,
             dec!(0.001),
             dec!(0.002),
             dec!(0.003),

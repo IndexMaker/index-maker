@@ -3,15 +3,19 @@ name = "tracker"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+alpine-deploy = ["openssl/vendored"]
+
 [dependencies]
 binance-market-data = { workspace = true }
-clap = { workspace = true }
 chrono = { workspace = true }
+clap = { workspace = true }
 csv = { workspace = true }
 eyre = { workspace = true }
 index-maker = { workspace = true }
 itertools = { workspace = true }
 market-data = { workspace = true }
+openssl = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }

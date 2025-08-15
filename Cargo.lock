@@ -6818,6 +6818,7 @@ dependencies = [
  "index-maker",
  "itertools 0.14.0",
  "market-data",
+ "openssl",
  "parking_lot 0.12.4",
  "rust_decimal",
  "rust_decimal_macros",
