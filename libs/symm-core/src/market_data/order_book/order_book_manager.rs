@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::{
     core::{
-        bits::{Amount, PricePointEntry, Side, Symbol},
+        bits::{Amount, LastPriceEntry, PricePointEntry, Side, Symbol},
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
     },
     market_data::{market_data_connector::MarketDataEvent, order_book::order_book::PricePointBook},
@@ -47,6 +47,8 @@ pub trait OrderBookManager {
         max_levels: usize,
         symbols: &Vec<Symbol>,
     ) -> Result<HashMap<Symbol, Option<PricePointEntry>>>;
+
+    fn get_top_level(&self, symbols: &Vec<Symbol>) -> Result<HashMap<Symbol, LastPriceEntry>>;
 }
 
 pub struct PricePointBookManager {
@@ -169,6 +171,21 @@ impl OrderBookManager for PricePointBookManager {
                 // get liquidity from order book
                 let liquidity_entry = order_book.get_liquidity_levels(side, max_levels)?;
                 result.insert(symbol.clone(), liquidity_entry);
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn get_top_level(&self, symbols: &Vec<Symbol>) -> Result<HashMap<Symbol, LastPriceEntry>> {
+        let mut result = HashMap::new();
+
+        // get top level for each symbol
+        for symbol in symbols {
+            if let Some(order_book) = self.order_books.get(&symbol) {
+                // get top level from order book
+                let top_level = order_book.get_top_level()?;
+                result.insert(symbol.clone(), top_level);
             }
         }
 

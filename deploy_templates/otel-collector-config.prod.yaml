@@ -13,7 +13,7 @@ exporters:
   otlp/elastic:
     endpoint: "https://index-maker-ded0ed.ingest.us-east-1.aws.elastic.cloud:443"
     headers:
-      Authorization: "<ELASTIC_API_KEY>"
+      Authorization: ${env:ELASTIC_API_KEY}
     tls:
       insecure: false
   debug:

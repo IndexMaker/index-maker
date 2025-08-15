@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{f64::consts::E, sync::Arc};
 
-use crossbeam::atomic::AtomicCell;
+use crossbeam::{atomic::AtomicCell, epoch::Pointable};
 use intrusive_collections::{
     intrusive_adapter,
     rbtree::{Cursor, CursorMut},
@@ -11,11 +11,11 @@ use rust_decimal::Decimal;
 use safe_math::safe;
 
 use crate::core::{
-    bits::{Amount, PricePointEntry, Side},
+    bits::{Amount, LastPriceEntry, PricePointEntry, Side},
     decimal_ext::DecimalExt,
 };
 
-use eyre::{eyre, Ok, Result};
+use eyre::{eyre, Ok, OptionExt, Result};
 
 pub struct PricePointBookEntry {
     price: Amount,
@@ -192,6 +192,22 @@ impl PricePointEntries {
             Ok(None)
         }
     }
+
+    pub fn get_top_level(&self) -> Result<Option<PricePointEntry>> {
+        let ops = PricePointEntriesOps::try_new(self.side, self.tolerance, Amount::default())
+            .ok_or(eyre!("Math overflow"))?;
+
+        let cursor = ops.begin_ops(&self.entries);
+
+        if let Some(entry) = cursor.get() {
+            Ok(Some(PricePointEntry {
+                price: entry.price,
+                quantity: entry.quantity.load(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 pub struct PricePointBook {
@@ -247,6 +263,27 @@ impl PricePointBook {
             Side::Buy => self.bid_entries.get_liquidity_levels(max_levels),
             Side::Sell => self.ask_entries.get_liquidity_levels(max_levels),
         }
+    }
+
+    pub fn get_top_level(&self) -> Result<LastPriceEntry> {
+        let best_bid = self.bid_entries.get_top_level()?;
+        let best_ask = self.ask_entries.get_top_level()?;
+
+        let (best_bid_price, best_bid_quantity) =
+            best_bid.map_or((None, Amount::ZERO), |x| (Some(x.price), x.quantity));
+
+        let (best_ask_price, best_ask_quantity) =
+            best_ask.map_or((None, Amount::ZERO), |x| (Some(x.price), x.quantity));
+
+        Ok(LastPriceEntry {
+            sequence_number: self.sequence_number.ok_or_eyre("No sequence number")?,
+            best_bid_price,
+            best_ask_price,
+            best_bid_quantity,
+            best_ask_quantity,
+            last_trade_price: None,
+            last_trade_quantity: Amount::ZERO,
+        })
     }
 
     pub fn get_sequence_number(&self) -> Option<u64> {

@@ -87,6 +87,7 @@ impl BatchAssetLot {
             symbol,
             price: self.price,
             original_quantity: self.original_quantity,
+            remaining_quantity: self.remaining_quantity,
             original_fee: self.fee,
             assigned_quantity: quantity,
             assigned_fee: safe!(self.fee * safe!(quantity / self.original_quantity)?)?,
@@ -353,24 +354,20 @@ impl BatchOrderStatus {
         .ok_or_eyre("Math Problem")?;
 
         tracing::info!(
-            side = ?position.side,
-            symbol = %position.symbol,
-            order_quantity = %position.order_quantity,
-            volley_size = %position.volley_size,
-            position = %position.position,
-            realized_value = %position.realized_value,
-            fee = %position.fee,
-            "Batch Position",
-        );
-
-        tracing::info!(
             batch_order_id = %batch_order_id,
+            symbol = %position.symbol,
+            side = ?position.side,
             volley_size = %self.volley_size,
             filled_volley = %self.filled_volley,
             filled_fraction = %self.filled_fraction,
             realized_value = %self.realized_value,
             fee = %self.fee,
-            "Batch Status"
+            position_order_quantity = %position.order_quantity,
+            position_volley_size = %position.volley_size,
+            position = %position.position,
+            position_realized_value = %position.realized_value,
+            position_fee = %position.fee,
+            "Batch Position"
         );
 
         Ok(())
@@ -1536,6 +1533,7 @@ mod test {
             remaining_collateral,
             engaged_collateral,
             collateral_carried: dec!(0.0),
+            collateral_routed: engaged_collateral + remaining_collateral,
             collateral_spent: dec!(0.0),
             filled_quantity: dec!(0.0),
             timestamp,
@@ -1603,6 +1601,7 @@ mod test {
                 symbol: get_mock_asset_name_1(),
                 price: *p,
                 original_quantity: *q,
+                remaining_quantity: Amount::ZERO,
                 original_fee: *fee,
                 assigned_quantity: *q,
                 assigned_fee: *fee,
@@ -1815,6 +1814,7 @@ mod test {
             remaining_collateral: dec!(2000.0),
             engaged_collateral: dec!(1200.0),
             collateral_carried: dec!(0.0),
+            collateral_routed: dec!(3200.0),
             collateral_spent: dec!(0.0),
             filled_quantity: dec!(0.0),
             timestamp,
@@ -1960,6 +1960,7 @@ mod test {
             symbol: get_mock_asset_name_1(),
             price: dec!(100.0),
             original_quantity: dec!(5.0),
+            remaining_quantity: Amount::ZERO,
             original_fee: dec!(0.5),
             assigned_quantity: dec!(5.0),
             assigned_fee: dec!(0.5),

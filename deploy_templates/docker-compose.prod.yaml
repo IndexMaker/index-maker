@@ -3,7 +3,7 @@ version: '3.8'
 services:
   quote-server:
     platform: linux/amd64
-    image: <DOCKER_IMAGE_NAME>
+    image: ${DOCKER_IMAGE_NAME}
     ports:
        - "3000:3000"
 
@@ -17,7 +17,8 @@ services:
               "fix-server", "1000000"]
 
     environment:
-      RUST_LOG: info,binance_sdk=off,hyper=off
+      RUST_LOG: ${RUST_LOG}
+      SERVER_PRIVATE_KEY: ${SERVER_PRIVATE_KEY}
     
     depends_on:
       otel-collector:
