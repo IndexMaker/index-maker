@@ -32,13 +32,13 @@ impl IndexOrderUpdateReport {
     pub fn report_closed_update(&self, update: Arc<RwLock<IndexOrderUpdate>>) {
         tracing::info_span!("closed-update").in_scope(|| {
             let update_read = update.read();
-            tracing::info!(
+            tracing::debug!(
                 "Closing Index Order [{}:{}] {}",
                 self.chain_id,
                 self.address,
                 update_read.client_order_id,
             );
-            tracing::info!(
+            tracing::debug!(
                 "{} {} rc={:0.5} cs={:0.5} ec={:0.5} fill={:0.5} fee={:0.5} (closed)",
                 update_read.client_order_id,
                 self.symbol,
@@ -48,7 +48,7 @@ impl IndexOrderUpdateReport {
                 update_read.filled_quantity,
                 update_read.update_fee,
             );
-            tracing::info!("");
+            tracing::debug!("");
         });
     }
 }
@@ -60,17 +60,17 @@ fn print_heading(
     timestamp: DateTime<Utc>,
 ) {
     tracing::info_span!("heading").in_scope(|| {
-        tracing::info!("== {} == ", title);
-        tracing::info!("");
-        tracing::info!("Date:  {} ", timestamp);
-        tracing::info!("To:    [{}:{}]", index_order.chain_id, index_order.address);
-        tracing::info!("Order: {}", update.client_order_id);
-        tracing::info!("Index: {}", index_order.symbol);
-        tracing::info!("");
-        tracing::info!("Collateral Spent: {:0.5}", index_order.collateral_spent);
-        tracing::info!("Filed Quantity: {:0.5}", index_order.filled_quantity);
-        tracing::info!("");
-        tracing::info!("");
+        tracing::debug!("== {} == ", title);
+        tracing::debug!("");
+        tracing::debug!("Date:  {} ", timestamp);
+        tracing::debug!("To:    [{}:{}]", index_order.chain_id, index_order.address);
+        tracing::debug!("Order: {}", update.client_order_id);
+        tracing::debug!("Index: {}", index_order.symbol);
+        tracing::debug!("");
+        tracing::debug!("Collateral Spent: {:0.5}", index_order.collateral_spent);
+        tracing::debug!("Filed Quantity: {:0.5}", index_order.filled_quantity);
+        tracing::debug!("");
+        tracing::debug!("");
     });
 }
 
@@ -82,60 +82,60 @@ pub fn print_fill_report(
 ) -> Result<()> {
     tracing::info_span!("fill-report").in_scope(|| {
         print_heading("Fill Report", index_order, update, timestamp);
-        tracing::info!("{: ^22}| {: ^10} |{: ^10}", "Item", "Qty", "Amount");
-        tracing::info!("{}", (0..46).map(|_| "-").join(""));
-        tracing::info!("{: <22}| {: >10.5} |{: ^10}", "Filled", fill_amount, "");
-        tracing::info!(
+        tracing::debug!("{: ^22}| {: ^10} |{: ^10}", "Item", "Qty", "Amount");
+        tracing::debug!("{}", (0..46).map(|_| "-").join(""));
+        tracing::debug!("{: <22}| {: >10.5} |{: ^10}", "Filled", fill_amount, "");
+        tracing::debug!(
             "{: <22}| {: >10.5} |{: >10.5}",
             "Total Filled",
             update.filled_quantity,
             update.collateral_spent
         );
-        tracing::info!("{}", (0..46).map(|_| "-").join(""));
-        tracing::info!(
+        tracing::debug!("{}", (0..46).map(|_| "-").join(""));
+        tracing::debug!(
             "{: <22}  {: <10} |{: >10.5}",
             "Collateral",
             "Remaining",
             update.remaining_collateral + update.engaged_collateral.unwrap_or_default()
         );
-        tracing::info!("{}", (0..46).map(|_| "-").join(""));
-        tracing::info!(
+        tracing::debug!("{}", (0..46).map(|_| "-").join(""));
+        tracing::debug!(
             "{: <22}  {: <10} |{: >10.5}",
             "of which",
             "Engaged",
             update.engaged_collateral.unwrap_or_default()
         );
-        tracing::info!(
+        tracing::debug!(
             "{: <22}  {: <10} |{: >10.5}",
             " ",
             "Unengaged",
             update.remaining_collateral,
         );
 
-        tracing::info!("{}", (0..46).map(|_| "-").join(""));
+        tracing::debug!("{}", (0..46).map(|_| "-").join(""));
 
-        tracing::info!("");
-        tracing::info!("-- All User Orders --");
-        tracing::info!("");
-        tracing::info!("To:    [{}:{}]", index_order.chain_id, index_order.address);
-        tracing::info!("Index: {}", index_order.symbol);
-        tracing::info!("");
-        tracing::info!("{}", (0..46).map(|_| "-").join(""));
-        tracing::info!(
+        tracing::debug!("");
+        tracing::debug!("-- All User Orders --");
+        tracing::debug!("");
+        tracing::debug!("To:    [{}:{}]", index_order.chain_id, index_order.address);
+        tracing::debug!("Index: {}", index_order.symbol);
+        tracing::debug!("");
+        tracing::debug!("{}", (0..46).map(|_| "-").join(""));
+        tracing::debug!(
             "{: <22}| {: >10.5} |{: >10.5}",
             "Total Filled",
             index_order.filled_quantity,
             index_order.collateral_spent
         );
-        tracing::info!("{}", (0..46).map(|_| "-").join(""));
-        tracing::info!(
+        tracing::debug!("{}", (0..46).map(|_| "-").join(""));
+        tracing::debug!(
             "{: <22}  {: <10} |{: >10.5}",
             "Total Collateral",
             "Remaining",
             index_order.remaining_collateral + index_order.engaged_collateral.unwrap_or_default()
         );
 
-        tracing::info!("");
+        tracing::debug!("");
         Ok(())
     })
 }
@@ -151,7 +151,7 @@ pub fn print_mint_invoice(
 ) -> Result<()> {
     tracing::info_span!("mint-invoice").in_scope(|| {
         print_heading("Mint Invoice", index_order, update, timestamp);
-        tracing::info!(
+        tracing::debug!(
             "{: ^12}| {: ^10} |{: ^10} |{: ^10} |{: ^10} |{: ^10}",
             "Lot",
             "Symbol",
@@ -161,7 +161,7 @@ pub fn print_mint_invoice(
             "Amount"
         );
 
-        tracing::info!("{}", (0..72).map(|_| "-").join(""));
+        tracing::debug!("{}", (0..72).map(|_| "-").join(""));
         let lots = lots
             .into_iter()
             .sorted_by_cached_key(|x| x.lot_id.cloned())
@@ -198,7 +198,7 @@ pub fn print_mint_invoice(
             })
             .collect_vec();
         for lot in lots {
-            tracing::info!(
+            tracing::debug!(
                 "{: <12}| {: <10} |{: >10.5} |{: >10.5} |{: >10.5} |{: >10.5}",
                 format!("{}", lot.lot_id),
                 lot.symbol,
@@ -209,10 +209,10 @@ pub fn print_mint_invoice(
             )
         }
 
-        tracing::info!("{}", (0..72).map(|_| "-").join(""));
+        tracing::debug!("{}", (0..72).map(|_| "-").join(""));
         for sub_total in sub_totals {
             let average_price = (sub_total.3 - sub_total.2) / sub_total.1;
-            tracing::info!(
+            tracing::debug!(
                 "{: <12}| {: <10} |{: >10.5} |~{: >9.4} |{: >10.5} |{: >10.5}",
                 "Sub-Total",
                 sub_total.0,
@@ -223,52 +223,52 @@ pub fn print_mint_invoice(
             )
         }
 
-        tracing::info!("{}", (0..72).map(|_| "-").join(""));
-        tracing::info!("{: <46} Sub Total     |{: >10.5}", " ", total_amount,);
-        tracing::info!(
+        tracing::debug!("{}", (0..72).map(|_| "-").join(""));
+        tracing::debug!("{: <46} Sub Total     |{: >10.5}", " ", total_amount,);
+        tracing::debug!(
             "{: <46} Paid          |{: >10.5}",
             format!("{}", payment_id),
             amount_paid,
         );
-        tracing::info!(
+        tracing::debug!(
             "{: <46} Balance       |{: >10.5}",
             " ",
             (total_amount - amount_paid),
         );
 
-        tracing::info!("{}", (0..72).map(|_| "-").join(""));
+        tracing::debug!("{}", (0..72).map(|_| "-").join(""));
         let total_collateral =
             total_amount + update.update_fee + index_order.engaged_collateral.unwrap_or_default();
         let total_paid = amount_paid + update.update_fee;
-        tracing::info!(
+        tracing::debug!(
             "{: <46} Deposited     |{: >10.5}",
             "Collateral",
             total_collateral,
         );
-        tracing::info!(
+        tracing::debug!(
             "{: <46} Paid          |{: >10.5}",
             "Management Fee",
             update.update_fee,
         );
-        tracing::info!("{: <46} Total Paid    |{: >10.5}", " ", total_paid,);
-        tracing::info!(
+        tracing::debug!("{: <46} Total Paid    |{: >10.5}", " ", total_paid,);
+        tracing::debug!(
             "{: <46} Balance       |{: >10.5}",
             "Reached minting threshold before full spend",
             index_order.engaged_collateral.unwrap_or_default()
         );
 
-        tracing::info!("{}", (0..72).map(|_| "-").join(""));
-        tracing::info!(
+        tracing::debug!("{}", (0..72).map(|_| "-").join(""));
+        tracing::debug!(
             "{: <46} Fill Rate     |{: >9.5}%",
             "Collateral used",
             Amount::ONE_HUNDRED * total_paid / total_collateral
         );
-        tracing::info!(
+        tracing::debug!(
             "{: <46} Fill Rate     |{: >9.5}%",
             "Less management fee",
             Amount::ONE_HUNDRED * amount_paid / (total_collateral - update.update_fee)
         );
-        tracing::info!("");
+        tracing::debug!("");
         Ok(())
     })
 }
@@ -318,7 +318,7 @@ impl MintInvoice {
                 .ok_or_eyre("Math problem")?;
 
         let amount_remaining =
-            safe!(update.original_collateral_amount - amount_paid)
+            safe!(update.original_collateral_amount - update.collateral_spent)
                 .ok_or_eyre("Math problem")?;
 
         let fill_rate = safe!(

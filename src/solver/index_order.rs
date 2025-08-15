@@ -468,6 +468,25 @@ impl IndexOrder {
         collateral_amount: Amount,
         tolerance: Amount,
     ) -> Result<(Amount, Option<Amount>)> {
+        // Skip if order fully engaged
+        if let Some(_) = self
+            .engaged_updates
+            .back()
+            .filter(|x| x.read().client_order_id.eq(client_order_id))
+        {
+            if collateral_amount < tolerance {
+                // We're just confirming that order was fully engaged, and 
+                // that the new engagement amount is zero.
+                return Ok((Amount::ZERO, None));
+            } else {
+                Err(eyre!(
+                    "Cannot engage fully engaged order: {} {}",
+                    client_order_id,
+                    collateral_amount
+                ))?;
+            }
+        }
+
         let (remaining_collateral, unmatched_collateral) = (|| -> Result<(Amount, Amount)> {
             let update = self
                 .order_updates

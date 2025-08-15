@@ -345,6 +345,9 @@ const createInvoicePage = (invoiceData) => {
 </div>
 `;
 
+  const amountRemaining = parseFloat(invoiceData.amount_remaining);
+  const fillRate = Math.min(parseFloat(invoiceData.fill_rate) * 100, 100.0);
+
   const accountingSheetHtml = `
 <div class="content-container">
   <h2>Accounting Summary</h2>
@@ -357,36 +360,32 @@ const createInvoicePage = (invoiceData) => {
     </thead>
     <tbody>
       <tr class="table-row">
-        <td class="table-cell left">Quantity Filled</td>
-        <td class="table-cell right">${parseFloat(invoiceData.filled_quantity).toFixed(7)}</td>
-      </tr>
-      <tr class="table-row">
-        <td class="table-cell left">Fill Rate</td>
-        <td class="table-cell right">${parseFloat(invoiceData.fill_rate).toFixed(7)}</td>
-      </tr>
-      <tr class="table-row">
-        <td class="table-cell left">Assets Value</td>
-        <td class="table-cell right">${parseFloat(invoiceData.assets_value).toFixed(7)}</td>
+        <td class="table-cell left">Paid In</td>
+        <td class="table-cell right">${parseFloat(invoiceData.amount_paid).toFixed(7)} CR</td>
       </tr>
       <tr class="table-row">
         <td class="table-cell left">Exchange Fee</td>
-        <td class="table-cell right">${parseFloat(invoiceData.exchange_fee).toFixed(7)}</td>
+        <td class="table-cell right">${parseFloat(invoiceData.exchange_fee).toFixed(7)} DR</td>
       </tr>
       <tr class="table-row">
         <td class="table-cell left">Management Fee</td>
-        <td class="table-cell right">${parseFloat(invoiceData.management_fee).toFixed(7)}</td>
+        <td class="table-cell right">${parseFloat(invoiceData.management_fee).toFixed(7)} DR</td>
       </tr>
       <tr class="table-row">
-        <td class="table-cell left">Total Amount</td>
-        <td class="table-cell right">${parseFloat(invoiceData.total_amount).toFixed(7)}</td>
+        <td class="table-cell left">Management Delta</td>
+        <td class="table-cell right">${amountRemaining.toFixed(7)} USDC</td>
       </tr>
       <tr class="table-row">
-        <td class="table-cell left">Amount Paid</td>
-        <td class="table-cell right">${parseFloat(invoiceData.amount_paid).toFixed(7)}</td>
+        <td class="table-cell left">Assets Value</td>
+        <td class="table-cell right">${parseFloat(invoiceData.assets_value).toFixed(7)} USDC</td>
       </tr>
       <tr class="table-row">
-        <td class="table-cell left">Amount Remaining</td>
-        <td class="table-cell right">${parseFloat(invoiceData.amount_remaining).toFixed(7)}</td>
+        <td class="table-cell left">Quantity Filled</td>
+        <td class="table-cell right">${parseFloat(invoiceData.filled_quantity).toFixed(7)} ${invoiceData.symbol}</td>
+      </tr>
+      <tr class="table-row">
+        <td class="table-cell left">Fill Rate</td>
+        <td class="table-cell right">${fillRate.toFixed(2)} %</td>
       </tr>
     </tbody>
   </table>
@@ -415,8 +414,8 @@ const createInvoicePage = (invoiceData) => {
       <tr>
         <th class="table-header left" style="width: 20px;"></th>
         <th class="table-header left">Symbol</th>
-        <th class="table-header right">Value</th>
-        <th class="table-header right">Price</th>
+        <th class="table-header right">Value (USDC)</th>
+        <th class="table-header right">Price (USDC)</th>
         <th class="table-header right">Assigned Qty</th>
         <th class="table-header right">Assigned Fee</th>
         <th class="table-header right">Assigned At</th>

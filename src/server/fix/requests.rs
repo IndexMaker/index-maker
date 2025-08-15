@@ -247,7 +247,7 @@ impl AxumServerRequest for FixRequest {
 
         // Set the session_id
         request.session_id = this_session_id.clone();
-        tracing::info!(
+        tracing::debug!(
             session_id = %request.session_id,
             msg_type = %request.standard_header.msg_type,
             "FIX server request received",
