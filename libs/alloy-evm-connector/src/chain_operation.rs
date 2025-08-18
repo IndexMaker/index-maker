@@ -8,6 +8,7 @@ use eyre::OptionExt;
 use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
+use serde::de::IntoDeserializer;
 use std::sync::Arc;
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
@@ -65,16 +66,30 @@ impl ChainOperation {
         let chain_observer = self.chain_observer.clone();
 
         self.operation_loop.start(async move |cancel_token| {
-            Self::operation_loop(
+            match Self::operation_loop(
                 chain_id,
                 rpc_url,
                 private_key,
                 command_receiver,
                 result_sender,
-                chain_observer,
+                chain_observer.clone(),
                 cancel_token,
             )
             .await
+            {
+                Err(err) => {
+                    tracing::warn!("Failed to start chain operation loop: {:?}", err);
+                    chain_observer
+                        .read()
+                        .publish_single(ChainNotification::ChainDisconnected {
+                            chain_id,
+                            reason: format!("{}", err),
+                            timestamp: Utc::now(),
+                        });
+                    Err(err)
+                }
+                Ok(()) => Ok(()),
+            }
         });
 
         Ok(())
@@ -205,6 +220,7 @@ impl ChainOperation {
             let observer = chain_observer.read();
             observer.publish_single(ChainNotification::ChainDisconnected {
                 chain_id,
+                reason: "Chain operation loop exited successfully".into(),
                 timestamp: Utc::now(),
             });
         }

@@ -11,13 +11,12 @@ use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     index::basket::Basket,
 };
-use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use serde_json::json;
 use symm_core::{
     core::{
-        functional::{IntoObservableSingleFun, IntoObservableSingleVTable},
+        functional::IntoObservableSingleFun,
         logging::log_init,
     },
     init_log,
@@ -28,21 +27,20 @@ pub fn handle_chain_event(event: &ChainNotification) {
         ChainNotification::ChainConnected {
             chain_id,
             timestamp,
-        } => {}
+        } => {
+            tracing::info!(%chain_id, %timestamp, "Chain connected");
+        }
         ChainNotification::ChainDisconnected {
             chain_id,
+            reason,
             timestamp,
-        } => {}
+        } => {
+            tracing::info!(%chain_id, %timestamp, "Chain disconnected: {}", reason);
+        }
         ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-            println!(
-                "(evm-connector-main) CuratorWeightsSet {}: {}",
-                symbol,
-                basket_definition
-                    .weights
-                    .iter()
-                    .map(|w| format!("{}:{}", w.asset.ticker, w.weight))
-                    .join(", ")
-            );
+            tracing::info!(
+                    %symbol, basket_definition = %json!(basket_definition.weights),
+                    "Curator weights set");
         }
         ChainNotification::Deposit {
             chain_id,
@@ -50,10 +48,7 @@ pub fn handle_chain_event(event: &ChainNotification) {
             amount,
             timestamp,
         } => {
-            println!(
-                "(evm-connector-main) Deposit {} {} {} {}",
-                chain_id, address, amount, timestamp
-            );
+            tracing::info!(%chain_id, %address, %amount, %timestamp, "Deposit");
         }
         ChainNotification::WithdrawalRequest {
             chain_id,
@@ -61,10 +56,7 @@ pub fn handle_chain_event(event: &ChainNotification) {
             amount,
             timestamp,
         } => {
-            println!(
-                "(evm-connector-main) WithdrawalRequest {} {} {} {}",
-                chain_id, address, amount, timestamp
-            );
+            tracing::info!(%chain_id, %address, %amount, %timestamp, "Withdrawal request");
         }
     }
 }
@@ -85,20 +77,13 @@ pub async fn main() {
             ChainNotification::ChainConnected {
                 chain_id,
                 timestamp,
-            } => {
-                tracing::info!(%chain_id, %timestamp, "Chain connected");
-            }
+            } => {}
             ChainNotification::ChainDisconnected {
                 chain_id,
+                reason,
                 timestamp,
-            } => {
-                tracing::info!(%chain_id, %timestamp, "Chain disconnected");
-            }
+            } => {}
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-                tracing::info!(
-                    %symbol, basket_definition = %json!(basket_definition.weights),
-                    "Curator weights set");
-
                 // When we receive curator weights, we respond with solver weights set
                 let individual_prices = HashMap::from_iter([
                     ("A1".into(), dec!(100000.0)),
@@ -118,7 +103,6 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
-                tracing::info!(%chain_id, %address, %amount, %timestamp, "Deposit");
                 // When we receive deposit, we respond with mint and burn
                 evm_connector.write().mint_index(
                     chain_id,
@@ -138,7 +122,6 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
-                tracing::info!(%chain_id, %address, %amount, %timestamp, "Withdrawal request");
                 // When we receive withdrawal request, we respond with withdraw
                 evm_connector
                     .write()
@@ -148,6 +131,7 @@ pub async fn main() {
     };
 
     evm_connector.write().set_observer_fn(move |e| {
+        tracing::info!("Received chain event!");
         handle_chain_event(&e);
         event_tx.send(e).unwrap();
     });
