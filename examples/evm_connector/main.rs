@@ -1,16 +1,3 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    thread::{sleep, spawn},
-    time::Duration,
-};
-use serde_json::json;
-use symm_core::{
-    core::{
-        logging::log_init,
-    },
-    init_log,
-};
 use alloy::{
     primitives::{keccak256, Address, Bytes, B256, U256},
     providers::{Provider, ProviderBuilder},
@@ -29,10 +16,15 @@ use index_core::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use symm_core::core::{
-    bits::Amount,
-    functional::{IntoObservableSingleFun},
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    thread::{sleep, spawn},
+    time::Duration,
 };
+use symm_core::core::{bits::Amount, functional::IntoObservableSingleFun};
+use symm_core::{core::logging::log_init, init_log};
 
 sol! {
     event Deposit(address indexed account, uint256 chainId, uint256 amount);
@@ -177,7 +169,6 @@ pub async fn main() {
     // Clone the sender for the observer callback
     let tx_for_observer = event_tx.clone();
     evm_connector.write().set_observer_fn(move |e| {
-        // still forward internal connector events
         tx_for_observer.send(e).unwrap();
     });
 
@@ -193,7 +184,6 @@ pub async fn main() {
             .expect("Failed to connect to ARBITRUM");
     }
 
-    // ---------- On-chain Deposit subscription (3-arg event) ----------
     // Normalize DEFAULT_RPC to ws:// if http:// is provided
     let raw = std::env::var("DEFAULT_RPC").unwrap_or_else(|_| "ws://127.0.0.1:8545".to_string());
     let ws_url = if raw.starts_with("http://") {
@@ -205,9 +195,10 @@ pub async fn main() {
     };
 
     // SAME address you use in the FE
-    let deposit_addr: Address = "0x3d72617b8ef426fefd1ea0765684a51862304b78"
+    let deposit_addr: Address = std::env::var("DEPOSIT_ADDR")
+        .expect("0x3d72617b8ef426fefd1ea0765684a51862304b78")
         .parse()
-        .expect("invalid DepositEmitter address");
+        .expect("Invalid DEPOSIT_ADDR (must be 0x-prefixed, 40 hex chars)");
 
     // WS provider for logs
     let ws = WsConnect::new(ws_url);
