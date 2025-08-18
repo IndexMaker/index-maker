@@ -1,67 +1,46 @@
-use alloy::{
-    primitives::{keccak256, Address, Bytes, B256, U256},
-    providers::{Provider, ProviderBuilder},
-    sol,
-    transports::ws::WsConnect,
-};
-use alloy_evm_connector::evm_connector::EvmConnector;
-use alloy_rpc_types_eth::Filter;
-use chrono::Utc;
-use crossbeam::{channel::unbounded, select};
-use futures_util::StreamExt;
-use index_core::{
-    blockchain::chain_connector::{ChainConnector, ChainNotification},
-    index::basket::Basket,
-};
-use itertools::Itertools;
-use parking_lot::RwLock;
-use rust_decimal::dec;
-use serde_json::json;
 use std::{
     collections::HashMap,
     sync::Arc,
     thread::{sleep, spawn},
     time::Duration,
 };
-use symm_core::core::{bits::Amount, functional::IntoObservableSingleFun};
-use symm_core::{core::logging::log_init, init_log};
 
-sol! {
-    event Deposit(address indexed account, uint256 chainId, uint256 amount);
-}
-
-fn u256_to_amount_usdc(v: U256) -> eyre::Result<Amount> {
-    // Insert decimal point 6 places from the right to avoid precision loss.
-    let s = v.to_string();
-    let s_fmt = if s.len() <= 6 {
-        format!("0.{:0>6}", s)
-    } else {
-        let (intp, frac) = s.split_at(s.len() - 6);
-        format!("{}.{}", intp, frac)
-    };
-    Ok(s_fmt.parse::<Amount>()?)
-}
+use alloy_evm_connector::evm_connector::EvmConnector;
+use crossbeam::{channel::unbounded, select};
+use index_core::{
+    blockchain::chain_connector::{ChainConnector, ChainNotification},
+    index::basket::Basket,
+};
+use parking_lot::RwLock;
+use rust_decimal::dec;
+use serde_json::json;
+use symm_core::{
+    core::{
+        functional::IntoObservableSingleFun,
+        logging::log_init,
+    },
+    init_log,
+};
 
 pub fn handle_chain_event(event: &ChainNotification) {
     match event {
         ChainNotification::ChainConnected {
             chain_id,
             timestamp,
-        } => {}
+        } => {
+            tracing::info!(%chain_id, %timestamp, "Chain connected");
+        }
         ChainNotification::ChainDisconnected {
             chain_id,
+            reason,
             timestamp,
-        } => {}
+        } => {
+            tracing::info!(%chain_id, %timestamp, "Chain disconnected: {}", reason);
+        }
         ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-            println!(
-                "(evm-connector-main) CuratorWeightsSet {}: {}",
-                symbol,
-                basket_definition
-                    .weights
-                    .iter()
-                    .map(|w| format!("{}:{}", w.asset.ticker, w.weight))
-                    .join(", ")
-            );
+            tracing::info!(
+                    %symbol, basket_definition = %json!(basket_definition.weights),
+                    "Curator weights set");
         }
         ChainNotification::Deposit {
             chain_id,
@@ -69,10 +48,7 @@ pub fn handle_chain_event(event: &ChainNotification) {
             amount,
             timestamp,
         } => {
-            println!(
-                "(evm-connector-main) Deposit {} {} {} {}",
-                chain_id, address, amount, timestamp
-            );
+            tracing::info!(%chain_id, %address, %amount, %timestamp, "Deposit");
         }
         ChainNotification::WithdrawalRequest {
             chain_id,
@@ -80,10 +56,7 @@ pub fn handle_chain_event(event: &ChainNotification) {
             amount,
             timestamp,
         } => {
-            println!(
-                "(evm-connector-main) WithdrawalRequest {} {} {} {}",
-                chain_id, address, amount, timestamp
-            );
+            tracing::info!(%chain_id, %address, %amount, %timestamp, "Withdrawal request");
         }
     }
 }
@@ -104,20 +77,13 @@ pub async fn main() {
             ChainNotification::ChainConnected {
                 chain_id,
                 timestamp,
-            } => {
-                tracing::info!(%chain_id, %timestamp, "Chain connected");
-            }
+            } => {}
             ChainNotification::ChainDisconnected {
                 chain_id,
+                reason,
                 timestamp,
-            } => {
-                tracing::info!(%chain_id, %timestamp, "Chain disconnected");
-            }
+            } => {}
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-                tracing::info!(
-                    %symbol, basket_definition = %json!(basket_definition.weights),
-                    "Curator weights set");
-
                 // When we receive curator weights, we respond with solver weights set
                 let individual_prices = HashMap::from_iter([
                     ("A1".into(), dec!(100000.0)),
@@ -137,7 +103,12 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
-                tracing::info!(%chain_id, %address, %amount, %timestamp, "Deposit");
+                tracing::info!(
+                    "Deposit(3) account={:#x} chainId={} amount={}",
+                    address,
+                    chain_id,
+                    amount
+                );
                 // When we receive deposit, we respond with mint and burn
                 evm_connector.write().mint_index(
                     chain_id,
@@ -157,7 +128,6 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
-                tracing::info!(%chain_id, %address, %amount, %timestamp, "Withdrawal request");
                 // When we receive withdrawal request, we respond with withdraw
                 evm_connector
                     .write()
@@ -166,141 +136,30 @@ pub async fn main() {
         }
     };
 
-    // Clone the sender for the observer callback
-    let tx_for_observer = event_tx.clone();
     evm_connector.write().set_observer_fn(move |e| {
-        tx_for_observer.send(e).unwrap();
+        tracing::info!("Received chain event!");
+        handle_chain_event(&e);
+        event_tx.send(e).unwrap();
     });
 
-    // Start + connect
-    {
-        let mut conn = evm_connector.write();
-        conn.start().expect("Failed to start EvmConnector");
-    }
-    {
-        let mut conn = evm_connector.write();
-        conn.connect_arbitrum()
-            .await
-            .expect("Failed to connect to ARBITRUM");
-    }
+    tracing::info!("Starting EVM connector...");
 
-    // Normalize DEFAULT_RPC to ws:// if http:// is provided
-    let raw = std::env::var("DEFAULT_RPC").unwrap_or_else(|_| "ws://127.0.0.1:8545".to_string());
-    let ws_url = if raw.starts_with("http://") {
-        raw.replacen("http://", "ws://", 1)
-    } else if raw.starts_with("https://") {
-        raw.replacen("https://", "wss://", 1)
-    } else {
-        raw
-    };
+    evm_connector
+        .write()
+        .start()
+        .expect("Failed to start EVM connector");
 
-    // SAME address you use in the FE
-    let deposit_addr: Address = std::env::var("DEPOSIT_ADDR")
-        .expect("0x3d72617b8ef426fefd1ea0765684a51862304b78")
-        .parse()
-        .expect("Invalid DEPOSIT_ADDR (must be 0x-prefixed, 40 hex chars)");
+    tracing::info!("Connecting EVM connector...");
 
-    // WS provider for logs
-    let ws = WsConnect::new(ws_url);
-    let provider = ProviderBuilder::new()
-        .on_ws(ws)
+    let anvil_url = String::from("http://127.0.0.1:8545");
+    let anvil_default_pk =
+        String::from("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+
+    evm_connector
+        .write()
+        .connect_chain(42161, anvil_url, anvil_default_pk)
         .await
-        .expect("ws connect failed");
-
-    // 3-arg event signature (NOTE: *no* 'indexed' in the signature string)
-    let deposit3_sig: B256 = keccak256("Deposit(address,uint256,uint256)".as_bytes());
-
-    // Optional other events
-    let withdraw_sig: B256 = keccak256("Withdraw(uint256,address,bytes)".as_bytes());
-
-    // Filter: contract + the 3-arg deposit (+ optional withdraw)
-    let filter = alloy_rpc_types_eth::Filter::new()
-        .address(deposit_addr)
-        .events(vec![
-            b"Deposit(address,uint256,uint256)" as &[u8],
-            b"Withdraw(uint256,address,bytes)" as &[u8],
-        ]);
-
-    // Subscribe and turn into a Stream
-    let mut sub = provider
-        .subscribe_logs(&filter)
-        .await
-        .expect("subscribe_logs");
-    let mut stream = sub.into_stream();
-
-    // helper: U256 → Amount (USDC 6 decimals)
-    let u256_to_amount_usdc = |v: U256| -> eyre::Result<Amount> {
-        let s = v.to_string();
-        let s_fmt = if s.len() <= 6 {
-            format!("0.{:0>6}", s)
-        } else {
-            let (intp, frac) = s.split_at(s.len() - 6);
-            format!("{}.{}", intp, frac)
-        };
-        Ok(s_fmt.parse::<Amount>()?)
-    };
-
-    // Clone sender for this async task
-    let tx_for_logs = event_tx.clone();
-    tokio::spawn(async move {
-        while let Some(log_entry) = stream.next().await {
-            // topic0 decides which event we got
-            let Some(topic0) = log_entry.topic0().copied() else {
-                tracing::warn!("log without topic0");
-                continue;
-            };
-            let data: &[u8] = log_entry.inner.data.data.as_ref();
-
-            if topic0 == deposit3_sig {
-                // event Deposit(address indexed account, uint256 chainId, uint256 amount)
-                // topics[1] = indexed account (left-padded 32)
-                // data[0..32] = chainId, data[32..64] = amount
-                let topics = log_entry.topics();
-                if topics.len() < 2 || data.len() < 64 {
-                    tracing::warn!("Malformed Deposit log (3-arg)");
-                    continue;
-                }
-
-                // decode indexed account
-                let acct_topic = topics[1].as_slice();
-                let sender = Address::from_slice(&acct_topic[12..32]);
-
-                // decode data
-                let chain_id_raw = U256::from_be_slice(&data[0..32]);
-                let amount_raw = U256::from_be_slice(&data[32..64]);
-
-                let amount = match u256_to_amount_usdc(amount_raw) {
-                    Ok(a) => a,
-                    Err(e) => {
-                        tracing::error!("amount convert failed: {e:?}");
-                        continue;
-                    }
-                };
-
-                let chain_id_u32: u32 = chain_id_raw.to_string().parse::<u64>().unwrap_or(0) as u32;
-
-                let _ = tx_for_logs.send(ChainNotification::Deposit {
-                    chain_id: chain_id_u32,
-                    address: sender,
-                    amount,
-                    timestamp: Utc::now(),
-                });
-
-                tracing::info!(
-                    "Deposit(3) account={:#x} chainId={} amount={}",
-                    sender,
-                    chain_id_u32,
-                    amount
-                );
-            } else if topic0 == withdraw_sig {
-                tracing::info!("Withdrawal event received ({} bytes)", data.len());
-            } else {
-                tracing::debug!("Unrecognized topic0: {topic0:?}");
-            }
-        }
-    });
-
-    // ---------- Existing crossbeam loop ----------
+        .expect("Failed to connect to ARBITRUM");
 
     spawn(move || {
         tracing::info!("Listening for EVM events...");
@@ -314,10 +173,9 @@ pub async fn main() {
         }
     });
 
-    // Keep process alive (adjust as needed)
     sleep(Duration::from_secs(600));
 
-    // Proper shutdown
+    // Properly shutdown the connector to avoid the error
     tracing::info!("Shutting down EvmConnector...");
     evm_connector
         .write()

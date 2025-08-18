@@ -29,15 +29,13 @@ use index_core::collateral::collateral_router::{CollateralBridge, CollateralDesi
 /// Follows the same pattern as binance connectors with public API + internal arbiter
 pub struct EvmConnector {
     /// Observer for publishing chain events to the main system
-    observer: SingleObserver<ChainNotification>,
+    observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     /// Arbiter for coordinating chain operations (owned by EvmConnector)
     arbiter: Option<Arbiter>,
     /// Sender for chain operation requests
     request_sender: Option<UnboundedSender<ChainOperationRequest>>,
     /// Shared state for chain operations (owned by EvmConnector)
     chain_operations: Arc<AtomicLock<ChainOperations>>,
-    /// Shared observer for event publishing (following binance pattern)
-    shared_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     /// Current state tracking
     connected_chains: Vec<u32>,
 }
@@ -45,18 +43,14 @@ pub struct EvmConnector {
 impl EvmConnector {
     pub fn new() -> Self {
         // Create shared state following binance pattern
-        let observer = SingleObserver::new();
-        let shared_observer = Arc::new(AtomicLock::new(SingleObserver::new()));
-        let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new(
-            shared_observer.clone(),
-        )));
+        let observer = Arc::new(AtomicLock::new(SingleObserver::new()));
+        let chain_operations = Arc::new(AtomicLock::new(ChainOperations::new(observer.clone())));
 
         Self {
             observer,
             arbiter: None,
             request_sender: None,
             chain_operations,
-            shared_observer,
             connected_chains: Vec::new(),
         }
     }
@@ -245,36 +239,11 @@ impl EvmConnector {
         operations.execute_command(chain_id, command)?;
         Ok(())
     }
-
-    // Event notification methods (for internal use)
-    fn notify_curator_weights_set(&self, symbol: Symbol, basket_definition: BasketDefinition) {
-        self.observer
-            .publish_single(ChainNotification::CuratorWeightsSet(
-                symbol,
-                basket_definition,
-            ));
-    }
-
-    fn notify_withdrawal_request(
-        &self,
-        chain_id: u32,
-        address: Address,
-        amount: Amount,
-        timestamp: DateTime<Utc>,
-    ) {
-        self.observer
-            .publish_single(ChainNotification::WithdrawalRequest {
-                chain_id,
-                address,
-                amount,
-                timestamp,
-            });
-    }
 }
 
 impl IntoObservableSingleVTable<ChainNotification> for EvmConnector {
     fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
-        self.observer.set_observer(observer);
+        self.observer.write().set_observer(observer);
     }
 }
 
@@ -350,11 +319,5 @@ impl ChainConnector for EvmConnector {
         if let Err(e) = self.send_command(chain_id, command) {
             tracing::error!("Failed to send withdraw command: {}", e);
         }
-    }
-}
-
-impl IntoObservableSingle<ChainNotification> for EvmConnector {
-    fn get_single_observer_mut(&mut self) -> &mut SingleObserver<ChainNotification> {
-        &mut self.observer
     }
 }
