@@ -21,3 +21,4 @@ tracing = { workspace = true }
 axum = { workspace = true }
 axum-server = { workspace = true }
 symm-core = { workspace = true }
+thiserror = { workspace = true }

@@ -9,5 +9,6 @@ pub mod plugins {
     pub mod seq_num_plugin;
     pub mod serde_plugin;
     pub mod user_plugin;
+    pub mod rate_limit_plugin;
     //pub mod sign_plugin;
 }
