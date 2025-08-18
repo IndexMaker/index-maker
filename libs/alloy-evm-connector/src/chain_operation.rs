@@ -158,77 +158,137 @@ impl ChainOperation {
             .saturating_sub(startup_lookback.into());
 
         // ---- Helpers ----
-        let mut handle_logs = |logs: Vec<Log>| -> Result<()> {
-            for log_entry in logs {
-                tracing::debug!(%chain_id, "HTTP poll: got log");
-                let data: &[u8] = log_entry.inner.data.data.as_ref();
-                let topic0 = match log_entry.topic0() {
-                    Some(t) => t,
-                    None => {
-                        tracing::warn!("Log without topic0");
-                        continue;
-                    }
-                };
+        // let mut handle_logs = |logs: Vec<Log>| -> Result<()> {
+        //     for log_entry in logs {
+        //         tracing::debug!(%chain_id, "HTTP poll: got log");
+        //         let data: &[u8] = log_entry.inner.data.data.as_ref();
+        //         let topic0 = match log_entry.topic0() {
+        //             Some(t) => t,
+        //             None => {
+        //                 tracing::warn!("Log without topic0");
+        //                 continue;
+        //             }
+        //         };
 
-                if *topic0 == deposit_sig {
-                    if data.len() >= 160 {
-                        let amount_raw = U256::from_be_slice(&data[0..32]);
-                        let sender = Address::from_slice(&data[32 + 12..64]);
-                        let amount = amount_raw.into_amount_usdc()?;
+        //         if *topic0 == deposit_sig {
+        //             // data has TWO 32-byte words: dstChainId, amount
+        //             if data.len() >= 64 {
+        //                 // sender is indexed, lives in topics[1]
+        //                 let sender_topic = log_entry
+        //                     .topic1()
+        //                     .ok_or_else(|| anyhow!("missing topic1"))?;
+        //                 let sender = Address::from_slice(&sender_topic.as_slice()[12..32]); // last 20 bytes
 
-                        let observer = chain_observer.read();
-                        observer.publish_single(ChainNotification::Deposit {
-                            chain_id,
-                            address: sender,
-                            amount,
-                            timestamp: Utc::now(),
-                        });
+        //                 // decode data words
+        //                 let dst_chain_id = U256::from_be_slice(&data[0..32]);
+        //                 let amount_raw = U256::from_be_slice(&data[32..64]);
 
-                        tracing::info!("Deposit event: sender={} amount={}", sender, amount);
-                    } else {
-                        tracing::warn!("Malformed deposit log: insufficient data");
-                    }
-                } else if *topic0 == withdraw_sig {
-                    tracing::info!("Withdrawal event received: {:?}", data);
-                } else {
-                    tracing::warn!("Unknown event signature: {:?}", topic0);
-                }
-            }
-            Ok(())
-        };
+        //                 // if your helper expects USDC 6dp, convert the SECOND word
+        //                 let amount = amount_raw.into_amount_usdc()?;
+
+        //                 // publish
+        //                 let observer = chain_observer.read();
+        //                 observer.publish_single(ChainNotification::Deposit {
+        //                     chain_id,
+        //                     address: sender,
+        //                     amount,
+        //                     timestamp: Utc::now(),
+        //                 });
+
+        //                 tracing::info!(
+        //                     "Deposit event: sender={} dst_chain_id={} amount={}",
+        //                     sender,
+        //                     dst_chain_id,
+        //                     amount
+        //                 );
+        //             } else {
+        //                 tracing::warn!(
+        //                     "Malformed deposit log: expected 64 bytes, got {}",
+        //                     data.len()
+        //                 );
+        //             }
+        //         }
+        //     }
+        //     Ok(())
+        // };
 
         // ---- Main loop (HTTP polling + commands + cancel) ----
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    break;
-                }
+                _ = cancel_token.cancelled() => break,
 
-                // Drive polling on a timer
                 _ = tokio::time::sleep(poll_interval) => {
-                    // Get current tip and fetch logs for [next_block, tip]
                     let tip = provider.get_block_number().await?;
                     if tip >= next_block {
-                        // IMPORTANT: clone filter and bound by block range
                         let range_filter = base_filter.clone()
                             .from_block(next_block)
                             .to_block(tip);
 
                         match provider.get_logs(&range_filter).await {
                             Ok(logs) => {
-                                handle_logs(logs)?;
-                                // Move the cursor past the tip we just scanned
+                                for log_entry in logs {
+                                    tracing::debug!(%chain_id, "HTTP poll: got log");
+
+                                    // topic0 = signature
+                                    let Some(topic0) = log_entry.topic0() else {
+                                        tracing::warn!("Log without topic0");
+                                        continue;
+                                    };
+                                    
+                                    let ld = log_entry.data();        // &LogData
+                                    let topics = ld.topics();         // &[B256]
+                                    let data: &[u8] = ld.data.as_ref();
+
+                                    if *topic0 == deposit_sig {
+                                        // public getters
+                                        if topics.len() < 2 {
+                                            tracing::warn!("Deposit log missing indexed sender in topics[1]");
+                                            continue;
+                                        }
+                                        if data.len() < 64 {
+                                            tracing::warn!("Malformed deposit log: expected 64 bytes, got {}", data.len());
+                                            continue;
+                                        }
+
+                                        // sender = last 20 bytes of topics[1]
+                                        let t1 = topics[1].as_slice();        // &[u8; 32]
+                                        let sender = Address::from_slice(&t1[12..32]);
+
+                                        let dst_chain_id = U256::from_be_slice(&data[0..32]);
+                                        let amount_raw   = U256::from_be_slice(&data[32..64]);
+                                        let amount       = amount_raw.into_amount_usdc()?; // your helper
+
+                                        let observer = chain_observer.read();
+                                        observer.publish_single(ChainNotification::Deposit {
+                                            chain_id,
+                                            address: sender,
+                                            amount,
+                                            timestamp: Utc::now(),
+                                        });
+
+                                        tracing::info!(
+                                            "Deposit event: sender={} dst_chain_id={} amount={}",
+                                            sender, dst_chain_id, amount
+                                        );
+                                    } else if *topic0 == withdraw_sig {
+                                        // Keep as-is (you can decode similarly via topics/data if needed)
+                                        tracing::info!("Withdrawal event received: {:?}", data);
+                                    } else {
+                                        tracing::warn!("Unknown event signature: {:?}", topic0);
+                                    }
+                                }
+
+                                // advance cursor past scanned tip
                                 next_block = tip.saturating_add(1u64.into());
                             }
                             Err(e) => {
                                 tracing::warn!("get_logs failed: {}", e);
-                                // Back off a little, but keep going
+                                // keep going; cursor unchanged
                             }
                         }
                     }
                 }
 
-                // Execute chain commands as before
                 Some(command) = command_receiver.recv() => {
                     let result = Self::execute_command(
                         chain_id,
@@ -257,7 +317,7 @@ impl ChainOperation {
             }
         }
 
-        // ---- Notify disconnected ----
+        // --- Emit disconnected ---
         {
             let observer = chain_observer.read();
             observer.publish_single(ChainNotification::ChainDisconnected {
@@ -270,7 +330,7 @@ impl ChainOperation {
         tracing::info!(%chain_id, "Chain operation loop stopped");
         Ok(())
     }
-    
+
     async fn execute_command<P: Provider + Clone + 'static>(
         chain_id: u32,
         command: ChainCommand,
