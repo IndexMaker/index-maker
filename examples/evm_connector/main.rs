@@ -6,7 +6,10 @@ use std::{
 };
 
 use alloy_evm_connector::evm_connector::EvmConnector;
-use crossbeam::{channel::unbounded, select};
+use crossbeam::{
+    channel::{bounded, unbounded},
+    select,
+};
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     index::basket::Basket,
@@ -15,12 +18,10 @@ use parking_lot::RwLock;
 use rust_decimal::dec;
 use serde_json::json;
 use symm_core::{
-    core::{
-        functional::IntoObservableSingleFun,
-        logging::log_init,
-    },
+    core::{functional::IntoObservableSingleFun, logging::log_init},
     init_log,
 };
+use tokio::signal::unix::{signal, SignalKind};
 
 pub fn handle_chain_event(event: &ChainNotification) {
     match event {
@@ -103,12 +104,6 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
-                tracing::info!(
-                    "Deposit(3) account={:#x} chainId={} amount={}",
-                    address,
-                    chain_id,
-                    amount
-                );
                 // When we receive deposit, we respond with mint and burn
                 evm_connector.write().mint_index(
                     chain_id,
@@ -139,7 +134,9 @@ pub async fn main() {
     evm_connector.write().set_observer_fn(move |e| {
         tracing::info!("Received chain event!");
         handle_chain_event(&e);
-        event_tx.send(e).unwrap();
+        if let Err(err) = event_tx.send(e) {
+            tracing::warn!("Failed to send EVM event into channel: {:?}", err);
+        }
     });
 
     tracing::info!("Starting EVM connector...");
@@ -161,19 +158,29 @@ pub async fn main() {
         .await
         .expect("Failed to connect to ARBITRUM");
 
-    spawn(move || {
+    let (stop_tx, stop_rx) = bounded(1);
+
+    std::thread::spawn(move || {
         tracing::info!("Listening for EVM events...");
         loop {
             select! {
+                recv(stop_rx) -> _ => {
+                    break;
+                }
                 recv(event_rx) -> res => {
                     handle_event_internal(res.unwrap());
                 }
             }
-            tracing::info!("Finished listening for EVM events.");
         }
+        tracing::info!("Finished listening for EVM events.");
     });
 
-    sleep(Duration::from_secs(600));
+    let mut sigint = signal(SignalKind::interrupt()).expect("Failed to obtain SIGINT");
+    let _ = sigint.recv().await;
+
+    if let Err(err) = stop_tx.send(1) {
+        tracing::warn!("Failed to send stop: {:?}", err);
+    }
 
     // Properly shutdown the connector to avoid the error
     tracing::info!("Shutting down EvmConnector...");
