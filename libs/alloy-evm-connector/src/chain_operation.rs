@@ -96,6 +96,7 @@ impl ChainOperation {
         chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
         cancel_token: CancellationToken,
     ) -> Result<()> {
+        tracing::info!(%chain_id, %rpc_url, "Chain operation loop started");
         // Initialize provider and contracts
         let wallet = LocalSigner::from_str(&private_key)?;
         let provider = ProviderBuilder::new()
@@ -124,15 +125,17 @@ impl ChainOperation {
             b"Deposit(uint256,address,uint256,address,address)" as &[u8],
             b"Withdraw(uint256,address,bytes)" as &[u8],
         ]);
-        let mut log_stream = provider.subscribe_logs(&filter).await?;
+        let log_stream = provider.subscribe_logs(&filter).await?;
         let mut stream = log_stream.into_stream();
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => break,
-
+                _ = cancel_token.cancelled() => {
+                    break
+                },
                 maybe_log = stream.next() => {
-                     match maybe_log {
+                    match maybe_log {
                         Some(log_entry) => {
+                            tracing::debug!(%chain_id, "Chain operation log stream event received");
                             let data: &[u8] = log_entry.inner.data.data.as_ref();
                             let topic0 = log_entry.topic0().unwrap();
 
@@ -206,10 +209,7 @@ impl ChainOperation {
             });
         }
 
-        tracing::info!(
-            "Chain operation for chain {} stopped successfully",
-            chain_id
-        );
+        tracing::info!(%chain_id, "Chain operation loop stopped");
         Ok(())
     }
 

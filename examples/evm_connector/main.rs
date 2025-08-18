@@ -14,7 +14,14 @@ use index_core::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use symm_core::core::functional::{IntoObservableSingleFun, IntoObservableSingleVTable};
+use serde_json::json;
+use symm_core::{
+    core::{
+        functional::{IntoObservableSingleFun, IntoObservableSingleVTable},
+        logging::log_init,
+    },
+    init_log,
+};
 
 pub fn handle_chain_event(event: &ChainNotification) {
     match event {
@@ -64,6 +71,8 @@ pub fn handle_chain_event(event: &ChainNotification) {
 
 #[tokio::main]
 pub async fn main() {
+    init_log!();
+
     let evm_connector = Arc::new(RwLock::new(EvmConnector::new()));
 
     let (event_tx, event_rx) = unbounded::<ChainNotification>();
@@ -76,12 +85,20 @@ pub async fn main() {
             ChainNotification::ChainConnected {
                 chain_id,
                 timestamp,
-            } => {}
+            } => {
+                tracing::info!(%chain_id, %timestamp, "Chain connected");
+            }
             ChainNotification::ChainDisconnected {
                 chain_id,
                 timestamp,
-            } => {}
+            } => {
+                tracing::info!(%chain_id, %timestamp, "Chain disconnected");
+            }
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
+                tracing::info!(
+                    %symbol, basket_definition = %json!(basket_definition.weights),
+                    "Curator weights set");
+
                 // When we receive curator weights, we respond with solver weights set
                 let individual_prices = HashMap::from_iter([
                     ("A1".into(), dec!(100000.0)),
@@ -101,6 +118,7 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
+                tracing::info!(%chain_id, %address, %amount, %timestamp, "Deposit");
                 // When we receive deposit, we respond with mint and burn
                 evm_connector.write().mint_index(
                     chain_id,
@@ -120,6 +138,7 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
+                tracing::info!(%chain_id, %address, %amount, %timestamp, "Withdrawal request");
                 // When we receive withdrawal request, we respond with withdraw
                 evm_connector
                     .write()
@@ -133,17 +152,34 @@ pub async fn main() {
         event_tx.send(e).unwrap();
     });
 
+    tracing::info!("Starting EVM connector...");
+
     evm_connector
         .write()
-        .connect_arbitrum()
+        .start()
+        .expect("Failed to start EVM connector");
+
+    tracing::info!("Connecting EVM connector...");
+
+    let anvil_url = String::from("http://127.0.0.1:8545");
+    let anvil_default_pk =
+        String::from("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+
+    evm_connector
+        .write()
+        .connect_chain(42161, anvil_url, anvil_default_pk)
         .await
         .expect("Failed to connect to ARBITRUM");
 
-    spawn(move || loop {
-        select! {
-            recv(event_rx) -> res => {
-                handle_event_internal(res.unwrap());
+    spawn(move || {
+        tracing::info!("Listening for EVM events...");
+        loop {
+            select! {
+                recv(event_rx) -> res => {
+                    handle_event_internal(res.unwrap());
+                }
             }
+            tracing::info!("Finished listening for EVM events.");
         }
     });
 
@@ -156,5 +192,6 @@ pub async fn main() {
         .stop()
         .await
         .expect("Failed to stop EvmConnector");
+
     tracing::info!("EvmConnector shutdown complete");
 }
