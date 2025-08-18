@@ -9,7 +9,7 @@ use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
 use serde::de::IntoDeserializer;
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -144,7 +144,6 @@ impl ChainOperation {
             b"Withdraw(uint256,address,bytes)" as &[u8],
         ]);
 
-        // ---- Polling parameters ----
         let poll_interval = Duration::from_secs(3);
         let startup_lookback: u64 = std::env::var("LOG_STARTUP_LOOKBACK")
             .ok()
@@ -157,62 +156,6 @@ impl ChainOperation {
             .await?
             .saturating_sub(startup_lookback.into());
 
-        // ---- Helpers ----
-        // let mut handle_logs = |logs: Vec<Log>| -> Result<()> {
-        //     for log_entry in logs {
-        //         tracing::debug!(%chain_id, "HTTP poll: got log");
-        //         let data: &[u8] = log_entry.inner.data.data.as_ref();
-        //         let topic0 = match log_entry.topic0() {
-        //             Some(t) => t,
-        //             None => {
-        //                 tracing::warn!("Log without topic0");
-        //                 continue;
-        //             }
-        //         };
-
-        //         if *topic0 == deposit_sig {
-        //             // data has TWO 32-byte words: dstChainId, amount
-        //             if data.len() >= 64 {
-        //                 // sender is indexed, lives in topics[1]
-        //                 let sender_topic = log_entry
-        //                     .topic1()
-        //                     .ok_or_else(|| anyhow!("missing topic1"))?;
-        //                 let sender = Address::from_slice(&sender_topic.as_slice()[12..32]); // last 20 bytes
-
-        //                 // decode data words
-        //                 let dst_chain_id = U256::from_be_slice(&data[0..32]);
-        //                 let amount_raw = U256::from_be_slice(&data[32..64]);
-
-        //                 // if your helper expects USDC 6dp, convert the SECOND word
-        //                 let amount = amount_raw.into_amount_usdc()?;
-
-        //                 // publish
-        //                 let observer = chain_observer.read();
-        //                 observer.publish_single(ChainNotification::Deposit {
-        //                     chain_id,
-        //                     address: sender,
-        //                     amount,
-        //                     timestamp: Utc::now(),
-        //                 });
-
-        //                 tracing::info!(
-        //                     "Deposit event: sender={} dst_chain_id={} amount={}",
-        //                     sender,
-        //                     dst_chain_id,
-        //                     amount
-        //                 );
-        //             } else {
-        //                 tracing::warn!(
-        //                     "Malformed deposit log: expected 64 bytes, got {}",
-        //                     data.len()
-        //                 );
-        //             }
-        //         }
-        //     }
-        //     Ok(())
-        // };
-
-        // ---- Main loop (HTTP polling + commands + cancel) ----
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => break,
@@ -228,6 +171,14 @@ impl ChainOperation {
                             Ok(logs) => {
                                 for log_entry in logs {
                                     tracing::debug!(%chain_id, "HTTP poll: got log");
+                                    let mut seen: HashSet<(alloy_primitives::B256, u64)> = HashSet::new();
+                                    let Some(txh) = log_entry.transaction_hash else { continue; };
+                                    let li = log_entry.log_index.unwrap_or_default(); // u64
+                                    let key = (txh, li);
+
+                                    if !log_entry.removed && !seen.insert(key) {
+                                        continue;
+                                    }
 
                                     // topic0 = signature
                                     let Some(topic0) = log_entry.topic0() else {
@@ -235,8 +186,8 @@ impl ChainOperation {
                                         continue;
                                     };
                                     
-                                    let ld = log_entry.data();        // &LogData
-                                    let topics = ld.topics();         // &[B256]
+                                    let ld = log_entry.data();        
+                                    let topics = ld.topics();         
                                     let data: &[u8] = ld.data.as_ref();
 
                                     if *topic0 == deposit_sig {
@@ -251,12 +202,12 @@ impl ChainOperation {
                                         }
 
                                         // sender = last 20 bytes of topics[1]
-                                        let t1 = topics[1].as_slice();        // &[u8; 32]
+                                        let t1 = topics[1].as_slice();        
                                         let sender = Address::from_slice(&t1[12..32]);
 
                                         let dst_chain_id = U256::from_be_slice(&data[0..32]);
                                         let amount_raw   = U256::from_be_slice(&data[32..64]);
-                                        let amount       = amount_raw.into_amount_usdc()?; // your helper
+                                        let amount       = amount_raw.into_amount_usdc()?; 
 
                                         let observer = chain_observer.read();
                                         observer.publish_single(ChainNotification::Deposit {
@@ -271,7 +222,6 @@ impl ChainOperation {
                                             sender, dst_chain_id, amount
                                         );
                                     } else if *topic0 == withdraw_sig {
-                                        // Keep as-is (you can decode similarly via topics/data if needed)
                                         tracing::info!("Withdrawal event received: {:?}", data);
                                     } else {
                                         tracing::warn!("Unknown event signature: {:?}", topic0);
@@ -283,7 +233,6 @@ impl ChainOperation {
                             }
                             Err(e) => {
                                 tracing::warn!("get_logs failed: {}", e);
-                                // keep going; cursor unchanged
                             }
                         }
                     }
