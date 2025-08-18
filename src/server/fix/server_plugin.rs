@@ -5,6 +5,7 @@ use crate::server::{
         messages::{FixHeader, FixTrailer, RequestBody, ResponseBody},
         requests::FixRequest,
         responses::FixResponse,
+        rate_limit_config::FixRateLimitConfig,
     },
     server::{ServerEvent, ServerResponse},
 };
@@ -16,6 +17,7 @@ use axum_fix_server::{
         seq_num_plugin::{SeqNumPlugin, WithSeqNumPlugin},
         serde_plugin::SerdePlugin,
         user_plugin::{UserPlugin, WithUserPlugin},
+        rate_limit_plugin::{RateLimitPlugin, WithRateLimitPlugin, RateLimitError},
     },
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
@@ -38,16 +40,34 @@ pub struct ServerPlugin {
     serde_plugin: SerdePlugin<FixRequest, FixResponse>,
     seq_num_plugin: SeqNumPlugin<FixRequest, FixResponse>,
     user_plugin: UserPlugin,
+    rate_limit_plugin: RateLimitPlugin<FixRequest, FixResponse>,
 }
 
 impl ServerPlugin {
-    pub fn new() -> Self {
+    pub fn new(rate_limit_config: FixRateLimitConfig) -> Self {
         Self {
             observer_plugin: ObserverPlugin::new(),
             serde_plugin: SerdePlugin::new(),
             seq_num_plugin: SeqNumPlugin::new(),
             user_plugin: UserPlugin::new(),
+            rate_limit_plugin: RateLimitPlugin::new(rate_limit_config.base),
         }
+    }
+    
+    fn handle_rate_limit_violation(
+        &self,
+        error: RateLimitError,
+        session_id: &SessionId,
+    ) -> Result<String> {
+        let error_msg = format!("Rate limit exceeded: {}", error);
+        
+        // create a NAK response for rate limiting
+        let user_id = &(0, address!("0x0000000000000000000000000000000000000000"));
+        let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
+        let mut nak = FixResponse::create_nak(user_id, session_id, seq_num, error_msg);
+        nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+        
+        self.serde_plugin.process_outgoing(nak)
     }
 
     fn process_error(
@@ -545,13 +565,20 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
 
 impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
+        // pre-process rate limit check
+        if let Err(rate_error) = self.rate_limit_plugin.check_rate_limits(session_id, &(0, address!("0x0000000000000000000000000000000000000000"))) {
+            return self.handle_rate_limit_violation(rate_error, session_id);
+        }
+        
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
+
+                let user_id = WithRateLimitPlugin::get_user_id(&result);
+                
                 // verify signature before proceed anything
                 match result.verify_signature() {
                     Ok(_) => {}
                     Err(_) => {
-                        let user_id = result.get_user_id();
                         let err_msg = "Not authorised".to_string();
                         let nak = FixResponse::create_nak(
                             &user_id,
@@ -564,20 +591,25 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                 }
                 // end verification part
 
-                let user_id = &result.get_user_id();
                 self.user_plugin.add_add_user_session(&user_id, session_id);
+                
+                                
+                // message-specific rate limiting
+                if let Err(rate_error) = self.rate_limit_plugin.consume_message_weight(&result, session_id) {
+                    return self.handle_rate_limit_violation(rate_error, session_id);
+                }
 
                 let seq_num = result.get_seq_num();
                 if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
                     // Convert FixRequest to ServerEvent
                     let event = self.fix_request_to_server_event(result).map_err(|e| {
-                        let error_msg = self.process_error(user_id, e.to_string(), session_id);
+                        let error_msg = self.process_error(&user_id, e.to_string(), session_id);
                         eyre::eyre!(
                             error_msg.unwrap_or_else(|_| "Failed to process error".to_string())
                         )
                     })?;
                     self.observer_plugin.publish_request(&Arc::new(event));
-                    self.process_ack(user_id, session_id)
+                    self.process_ack(&user_id, session_id)
                         .map_err(|e| eyre::eyre!("Process ACK failed: {}", e))
                 } else {
                     let error_msg = format!(
@@ -585,7 +617,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                         seq_num,
                         self.seq_num_plugin.last_received_seq_num(session_id)
                     );
-                    let error_msg = self.process_error(user_id, error_msg, session_id)?;
+                    let error_msg = self.process_error(&user_id, error_msg, session_id)?;
                     Err(eyre::eyre!(error_msg))
                 }
             }
@@ -602,7 +634,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
         result = HashSet::new();
 
         let fix_response = self.server_response_to_fix_response(response)?;
-        let user_id = fix_response.get_user_id();
+        let user_id = WithUserPlugin::get_user_id(&fix_response);
 
         if let Ok(sessions) = self.user_plugin.get_user_sessions(&user_id) {
             for session in sessions {
@@ -630,10 +662,12 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     }
 
     fn create_session(&self, session_id: &SessionId) -> Result<()> {
+        self.rate_limit_plugin.create_session(session_id)?;
         self.seq_num_plugin.create_session(session_id)
     }
 
     fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
+        self.rate_limit_plugin.destroy_session(session_id)?;
         self.user_plugin.remove_session(session_id);
         self.seq_num_plugin.destroy_session(session_id)
     }

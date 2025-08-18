@@ -3,7 +3,7 @@ use std::fmt;
 use crate::server::fix::messages::*;
 use axum_fix_server::{
     messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
-    plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
+    plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin,rate_limit_plugin::{WithRateLimitPlugin, RateLimitKey, MessageType}},
 };
 use eyre::{eyre, Result};
 use k256::ecdsa::{Signature, VerifyingKey};
@@ -39,6 +39,35 @@ impl WithSeqNumPlugin for FixRequest {
 }
 
 impl WithUserPlugin for FixRequest {
+    fn get_user_id(&self) -> (u32, Address) {
+        (self.chain_id, self.address)
+    }
+}
+
+impl WithRateLimitPlugin for FixRequest {
+    fn get_rate_limit_key(&self) -> RateLimitKey {
+        RateLimitKey::User(self.chain_id, self.address)
+    }
+    
+    fn get_message_weight(&self) -> usize {
+        match self.standard_header.msg_type.as_str() {
+            "NewIndexOrder" => 10,
+            "CancelIndexOrder" => 5,
+            "NewQuoteRequest" => 5,
+            "CancelQuoteRequest" => 3,
+            "AccountToCustody" | "CustodyToAccount" => 1,
+            _ => 1,
+        }
+    }
+    
+    fn get_message_type(&self) -> MessageType {
+        match self.standard_header.msg_type.as_str() {
+            "NewIndexOrder" | "CancelIndexOrder" => MessageType::Order,
+            "NewQuoteRequest" | "CancelQuoteRequest" => MessageType::Quote,
+            _ => MessageType::Administrative,
+        }
+    }
+    
     fn get_user_id(&self) -> (u32, Address) {
         (self.chain_id, self.address)
     }
@@ -415,5 +444,101 @@ mod tests {
             fix.verify_signature().is_ok(),
             "Quote request without signature should pass verification"
         );
+    }
+    
+    #[test]
+    fn test_with_rate_limit_plugin_implementation() {
+        use axum_fix_server::plugins::rate_limit_plugin::{WithRateLimitPlugin, MessageType, RateLimitKey};
+        use symm_core::core::test_util::{get_mock_address_1, get_mock_address_2};
+        
+        let user_id = (1, get_mock_address_1());
+        let session_id = SessionId::from("test_session");
+        
+        // Test different message types and their weights/classifications
+        let test_cases = vec![
+            ("NewIndexOrder", 10, MessageType::Order),
+            ("CancelIndexOrder", 5, MessageType::Order),
+            ("NewQuoteRequest", 5, MessageType::Quote),
+            ("CancelQuoteRequest", 3, MessageType::Quote),
+            ("AccountToCustody", 1, MessageType::Administrative),
+            ("CustodyToAccount", 1, MessageType::Administrative),
+            ("Heartbeat", 1, MessageType::Administrative),
+            ("UnknownMessage", 1, MessageType::Administrative), // Default case
+        ];
+        
+        for (msg_type, expected_weight, expected_type) in test_cases {
+            let request = FixRequest {
+                session_id: session_id.clone(),
+                standard_header: FixHeader {
+                    msg_type: msg_type.to_string(),
+                    sender_comp_id: "CLIENT".to_string(),
+                    target_comp_id: "SERVER".to_string(),
+                    seq_num: 1,
+                    timestamp: chrono::Utc::now(),
+                },
+                chain_id: user_id.0,
+                address: user_id.1,
+                body: RequestBody::NewIndexOrderBody {
+                    client_order_id: "O123".to_string(),
+                    symbol: "BTC".to_string(),
+                    side: "1".to_string(),
+                    amount: "100".to_string(),
+                },
+                standard_trailer: Some(FixTrailer::new()),
+            };
+            
+            // Test trait implementation
+            assert_eq!(axum_fix_server::plugins::rate_limit_plugin::WithRateLimitPlugin::get_user_id(&request), user_id);
+            assert_eq!(request.get_rate_limit_key(), RateLimitKey::User(user_id.0, user_id.1));
+            assert_eq!(request.get_message_weight(), expected_weight, "Message type {} should have weight {}", msg_type, expected_weight);
+            assert_eq!(request.get_message_type(), expected_type, "Message type {} should be classified as {:?}", msg_type, expected_type);
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_key_consistency() {
+        use axum_fix_server::plugins::rate_limit_plugin::{WithRateLimitPlugin, RateLimitKey};
+        use symm_core::core::test_util::{get_mock_address_1, get_mock_address_2};
+        
+        let user_id_1 = (1, get_mock_address_1());
+        let user_id_2 = (2, get_mock_address_2());
+        let session_id = SessionId::from("key_test_session");
+        
+        let request_1a = create_test_request(&user_id_1, &session_id, "NewIndexOrder");
+        let request_1b = create_test_request(&user_id_1, &session_id, "CancelIndexOrder");
+        let request_2 = create_test_request(&user_id_2, &session_id, "NewIndexOrder");
+        
+        // Same user should have same rate limit key regardless of message type
+        assert_eq!(request_1a.get_rate_limit_key(), request_1b.get_rate_limit_key());
+        
+        // Different users should have different rate limit keys
+        assert_ne!(request_1a.get_rate_limit_key(), request_2.get_rate_limit_key());
+        
+        // Verify key structure
+        assert_eq!(request_1a.get_rate_limit_key(), RateLimitKey::User(1, get_mock_address_1()));
+        assert_eq!(request_2.get_rate_limit_key(), RateLimitKey::User(2, get_mock_address_2()));
+    }
+
+    // Helper function for creating test requests
+    fn create_test_request(user_id: &(u32, Address), session_id: &SessionId, msg_type: &str) -> FixRequest {
+        FixRequest {
+            session_id: session_id.clone(),
+            standard_header: FixHeader {
+                msg_type: msg_type.to_string(),
+                sender_comp_id: "CLIENT".to_string(),
+                target_comp_id: "SERVER".to_string(),
+                seq_num: 1,
+                timestamp: chrono::Utc::now(),
+            },
+            chain_id: user_id.0,
+            address: user_id.1,
+            body: RequestBody::NewIndexOrderBody {
+                client_order_id: "O123".to_string(),
+                symbol: "BTC".to_string(),
+                side: "1".to_string(),
+                amount: "100".to_string(),
+            },
+            standard_trailer: Some(FixTrailer::new()),
+        }
     }
 }

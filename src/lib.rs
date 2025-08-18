@@ -30,6 +30,7 @@ pub mod server {
         pub mod responses;
         pub mod server;
         pub mod server_plugin;
+        pub mod rate_limit_config;
     }
 }
 
