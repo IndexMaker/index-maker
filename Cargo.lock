@@ -2747,6 +2747,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-evm-connector",
+ "alloy-rpc-types-eth",
+ "anyhow",
  "axum-fix-server",
  "binance-market-data",
  "binance-order-sending",

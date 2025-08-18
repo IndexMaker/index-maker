@@ -4,19 +4,23 @@ use std::{
     thread::{sleep, spawn},
     time::Duration,
 };
-
+use serde_json::json;
+use symm_core::{
+    core::{
+        logging::log_init,
+    },
+    init_log,
+};
 use alloy::{
     primitives::{keccak256, Address, Bytes, B256, U256},
     providers::{Provider, ProviderBuilder},
     sol,
-    sol_types::SolEvent,
     transports::ws::WsConnect,
 };
 use alloy_evm_connector::evm_connector::EvmConnector;
 use alloy_rpc_types_eth::Filter;
 use chrono::Utc;
 use crossbeam::{channel::unbounded, select};
-use eyre::eyre;
 use futures_util::StreamExt;
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
@@ -27,7 +31,7 @@ use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::core::{
     bits::Amount,
-    functional::{IntoObservableSingleFun, IntoObservableSingleVTable},
+    functional::{IntoObservableSingleFun},
 };
 
 sol! {
@@ -94,8 +98,7 @@ pub fn handle_chain_event(event: &ChainNotification) {
 
 #[tokio::main]
 pub async fn main() {
-    use chrono::Utc;
-    use futures_util::StreamExt;
+    init_log!();
 
     let evm_connector = Arc::new(RwLock::new(EvmConnector::new()));
 
@@ -106,9 +109,24 @@ pub async fn main() {
     let handle_event_internal = move |e: ChainNotification| {
         let evm_connector = evm_connector_weak.upgrade().unwrap();
         match e {
-            ChainNotification::ChainConnected { .. } => {}
-            ChainNotification::ChainDisconnected { .. } => {}
+            ChainNotification::ChainConnected {
+                chain_id,
+                timestamp,
+            } => {
+                tracing::info!(%chain_id, %timestamp, "Chain connected");
+            }
+            ChainNotification::ChainDisconnected {
+                chain_id,
+                timestamp,
+            } => {
+                tracing::info!(%chain_id, %timestamp, "Chain disconnected");
+            }
             ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
+                tracing::info!(
+                    %symbol, basket_definition = %json!(basket_definition.weights),
+                    "Curator weights set");
+
+                // When we receive curator weights, we respond with solver weights set
                 let individual_prices = HashMap::from_iter([
                     ("A1".into(), dec!(100000.0)),
                     ("A2".into(), dec!(1000.0)),
@@ -127,10 +145,8 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
-                println!(
-                    "(evm-connector-main) Deposit {} {} {} {}",
-                    chain_id, address, amount, timestamp
-                );
+                tracing::info!(%chain_id, %address, %amount, %timestamp, "Deposit");
+                // When we receive deposit, we respond with mint and burn
                 evm_connector.write().mint_index(
                     chain_id,
                     "I1".into(),
@@ -149,6 +165,8 @@ pub async fn main() {
                 amount,
                 timestamp,
             } => {
+                tracing::info!(%chain_id, %address, %amount, %timestamp, "Withdrawal request");
+                // When we receive withdrawal request, we respond with withdraw
                 evm_connector
                     .write()
                     .withdraw(chain_id, address, amount, dec!(1000.0), timestamp);
@@ -292,11 +310,16 @@ pub async fn main() {
     });
 
     // ---------- Existing crossbeam loop ----------
-    spawn(move || loop {
-        select! {
-            recv(event_rx) -> res => {
-                handle_event_internal(res.unwrap());
+
+    spawn(move || {
+        tracing::info!("Listening for EVM events...");
+        loop {
+            select! {
+                recv(event_rx) -> res => {
+                    handle_event_internal(res.unwrap());
+                }
             }
+            tracing::info!("Finished listening for EVM events.");
         }
     });
 
@@ -310,5 +333,6 @@ pub async fn main() {
         .stop()
         .await
         .expect("Failed to stop EvmConnector");
+
     tracing::info!("EvmConnector shutdown complete");
 }
