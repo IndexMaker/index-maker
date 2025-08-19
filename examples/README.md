@@ -21,7 +21,7 @@ Open up in a web browser:
 [path-to-index-maker]/apps/test_client/client.html
 ```
 
-Put noted above address into "DepositEmitter Address" field. The "address" of the "Requset JSON" needs to be
+Put noted above address into "DepositEmitter Address" field. The "address" of the "Request JSON" needs to be
 one of the hard-coded addresses (check the code) to enable collateral routing, and otherwise deposit will
 be seen, but not routed.
 
