@@ -54,12 +54,15 @@ async fn main() {
     let usdc_contract_whale = ERC20::new(usdc_address, &provider_for_whale);
 
     let whale_balance = usdc_contract_whale.balanceOf(whale_address).call().await.unwrap();
+    let decimals = usdc_contract_whale.decimals().call().await.unwrap();
 
     tracing::info!(
-        "Whale USDC balance: {} USDC, Whale address: {}, USDC address: {}",
+        "Whale USDC balance: {} ({} USDC), Whale address: {}, USDC address: {}, Decimals: {}",
+        whale_balance,
         whale_balance.into_amount_usdc().unwrap(),
         whale_address,
         usdc_address,
+        decimals,
     );
 
 
