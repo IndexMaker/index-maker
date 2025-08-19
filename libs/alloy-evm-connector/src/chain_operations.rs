@@ -52,9 +52,10 @@ impl ChainOperations {
 
     /// Add a new chain operation using credentials (following binance pattern)
     pub fn add_operation_with_credentials(&mut self, credentials: EvmCredentials) -> Result<()> {
-        let chain_id = credentials.get_chain_id() as u32;
+        let chain_id = credentials.get_chain_id();
         let rpc_url = credentials.get_rpc_url();
         let private_key = credentials.get_private_key();
+        tracing::debug!(%chain_id, %rpc_url, "Adding chain operation with credentials");
 
         self.add_operation(chain_id, rpc_url, private_key)
     }
@@ -101,6 +102,7 @@ impl ChainOperations {
             self.chain_observer.clone(),
         );
 
+        tracing::debug!(%chain_id, "Starting chain operation");
         operation.start(command_receiver)?;
 
         // Store the operation and command sender
@@ -175,7 +177,8 @@ impl ChainOperations {
     ) -> Result<()> {
         match request {
             ChainOperationRequest::AddOperation { credentials } => {
-                let chain_id = credentials.get_chain_id() as u32;
+                let chain_id = credentials.get_chain_id();
+                tracing::debug!(%chain_id, "Add chain operation");
 
                 // Check if we've reached the maximum number of operations
                 let can_add = {
@@ -202,6 +205,7 @@ impl ChainOperations {
             }
 
             ChainOperationRequest::RemoveOperation { chain_id } => {
+                tracing::debug!(%chain_id, "Remove chain operation");
                 // Following sonia's advice: extract operation while holding lock,
                 // then call async method on cloned Arc outside the lock
                 let operation_to_stop = {

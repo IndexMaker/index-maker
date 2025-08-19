@@ -8,8 +8,8 @@ use eyre::OptionExt;
 use eyre::Result;
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
-use std::str::FromStr;
-use std::sync::Arc;
+use serde::de::IntoDeserializer;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use symm_core::core::functional::{PublishSingle, SingleObserver};
 use symm_core::core::{async_loop::AsyncLoop, bits::Amount, decimal_ext::DecimalExt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -23,6 +23,11 @@ use crate::utils::{calculate_gas_fee_usdc, IntoEvmAmount};
 use index_core::blockchain::chain_connector::ChainNotification;
 use symm_core::core::bits::{Address as CoreAddress, Symbol};
 
+use crate::utils::IntoAmount;
+use alloy_primitives::{keccak256, Address, U256};
+use alloy_rpc_types_eth::{Filter, Log};
+use futures::StreamExt;
+use std::str::FromStr;
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
 pub struct ChainOperation {
@@ -61,16 +66,30 @@ impl ChainOperation {
         let chain_observer = self.chain_observer.clone();
 
         self.operation_loop.start(async move |cancel_token| {
-            Self::operation_loop(
+            match Self::operation_loop(
                 chain_id,
                 rpc_url,
                 private_key,
                 command_receiver,
                 result_sender,
-                chain_observer,
+                chain_observer.clone(),
                 cancel_token,
             )
             .await
+            {
+                Err(err) => {
+                    tracing::warn!("Failed to start chain operation loop: {:?}", err);
+                    chain_observer
+                        .read()
+                        .publish_single(ChainNotification::ChainDisconnected {
+                            chain_id,
+                            reason: format!("{}", err),
+                            timestamp: Utc::now(),
+                        });
+                    Err(err)
+                }
+                Ok(()) => Ok(()),
+            }
         });
 
         Ok(())
@@ -83,7 +102,7 @@ impl ChainOperation {
         }
     }
 
-    async fn operation_loop(
+    pub async fn operation_loop(
         chain_id: u32,
         rpc_url: String,
         private_key: String,
@@ -92,18 +111,20 @@ impl ChainOperation {
         chain_observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
         cancel_token: CancellationToken,
     ) -> Result<()> {
-        // Initialize provider and contracts
+        tracing::info!(%chain_id, %rpc_url, "Chain operation loop started (HTTP polling)");
+
+        // ---- Provider & wallet (HTTP) ----
         let wallet = LocalSigner::from_str(&private_key)?;
         let provider = ProviderBuilder::new()
             .wallet(wallet.clone())
             .connect_http(rpc_url.parse()?);
 
-        // Initialize AcrossDepositBuilder for this chain
+        // ---- Optional: init AcrossDepositBuilder ----
         let deposit_builder = AcrossDepositBuilder::new(provider.clone(), wallet.address())
             .await
             .ok();
 
-        // Emit connected event
+        // ---- Notify connected ----
         {
             let observer = chain_observer.read();
             observer.publish_single(ChainNotification::ChainConnected {
@@ -112,11 +133,111 @@ impl ChainOperation {
             });
         }
 
+        // ---- Event signatures / filter scaffold ----
+        let deposit_sig = keccak256("Deposit(address,uint256,uint256)".as_bytes());
+        let withdraw_sig = keccak256("Withdraw(uint256,address,bytes)".as_bytes());
+
+        // Base filter (we'll add from/to block per poll)
+        // Keep your existing multi-event builder; we’ll clone and bound it per query.
+        let base_filter = Filter::new().events(vec![
+            b"Deposit(address,uint256,uint256)" as &[u8],
+            b"Withdraw(uint256,address,bytes)" as &[u8],
+        ]);
+
+        let poll_interval = Duration::from_secs(3);
+        let startup_lookback: u64 = std::env::var("LOG_STARTUP_LOOKBACK")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3); // re-scan a few recent blocks on startup
+
+        // Establish block cursor (with a small lookback to avoid missing recent events)
+        let mut next_block = provider
+            .get_block_number()
+            .await?
+            .saturating_sub(startup_lookback.into());
+
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    break;
+                _ = cancel_token.cancelled() => break,
+
+                _ = tokio::time::sleep(poll_interval) => {
+                    let tip = provider.get_block_number().await?;
+                    if tip >= next_block {
+                        let range_filter = base_filter.clone()
+                            .from_block(next_block)
+                            .to_block(tip);
+
+                        match provider.get_logs(&range_filter).await {
+                            Ok(logs) => {
+                                for log_entry in logs {
+                                    tracing::debug!(%chain_id, "HTTP poll: got log");
+                                    let mut seen: HashSet<(alloy_primitives::B256, u64)> = HashSet::new();
+                                    let Some(txh) = log_entry.transaction_hash else { continue; };
+                                    let li = log_entry.log_index.unwrap_or_default(); // u64
+                                    let key = (txh, li);
+
+                                    if !log_entry.removed && !seen.insert(key) {
+                                        continue;
+                                    }
+
+                                    // topic0 = signature
+                                    let Some(topic0) = log_entry.topic0() else {
+                                        tracing::warn!("Log without topic0");
+                                        continue;
+                                    };
+                                    
+                                    let ld = log_entry.data();        
+                                    let topics = ld.topics();         
+                                    let data: &[u8] = ld.data.as_ref();
+
+                                    if *topic0 == deposit_sig {
+                                        // public getters
+                                        if topics.len() < 2 {
+                                            tracing::warn!("Deposit log missing indexed sender in topics[1]");
+                                            continue;
+                                        }
+                                        if data.len() < 64 {
+                                            tracing::warn!("Malformed deposit log: expected 64 bytes, got {}", data.len());
+                                            continue;
+                                        }
+
+                                        // sender = last 20 bytes of topics[1]
+                                        let t1 = topics[1].as_slice();        
+                                        let sender = Address::from_slice(&t1[12..32]);
+
+                                        let dst_chain_id = U256::from_be_slice(&data[0..32]);
+                                        let amount_raw   = U256::from_be_slice(&data[32..64]);
+                                        let amount       = amount_raw.into_amount_usdc()?; 
+
+                                        let observer = chain_observer.read();
+                                        observer.publish_single(ChainNotification::Deposit {
+                                            chain_id,
+                                            address: sender,
+                                            amount,
+                                            timestamp: Utc::now(),
+                                        });
+
+                                        tracing::info!(
+                                            "Deposit event: sender={} dst_chain_id={} amount={}",
+                                            sender, dst_chain_id, amount
+                                        );
+                                    } else if *topic0 == withdraw_sig {
+                                        tracing::info!("Withdrawal event received: {:?}", data);
+                                    } else {
+                                        tracing::warn!("Unknown event signature: {:?}", topic0);
+                                    }
+                                }
+
+                                // advance cursor past scanned tip
+                                next_block = tip.saturating_add(1u64.into());
+                            }
+                            Err(e) => {
+                                tracing::warn!("get_logs failed: {}", e);
+                            }
+                        }
+                    }
                 }
+
                 Some(command) = command_receiver.recv() => {
                     let result = Self::execute_command(
                         chain_id,
@@ -145,19 +266,17 @@ impl ChainOperation {
             }
         }
 
-        // Emit disconnected event
+        // --- Emit disconnected ---
         {
             let observer = chain_observer.read();
             observer.publish_single(ChainNotification::ChainDisconnected {
                 chain_id,
+                reason: "Chain operation loop exited successfully".into(),
                 timestamp: Utc::now(),
             });
         }
 
-        tracing::info!(
-            "Chain operation for chain {} stopped successfully",
-            chain_id
-        );
+        tracing::info!(%chain_id, "Chain operation loop stopped");
         Ok(())
     }
 

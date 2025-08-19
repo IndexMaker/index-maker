@@ -706,9 +706,10 @@ impl Solver {
             }
             ChainNotification::ChainDisconnected {
                 chain_id,
+                reason,
                 timestamp,
             } => {
-                tracing::info!("(solver) Chain {} disconnected at {}", chain_id, timestamp);
+                tracing::info!("(solver) Chain {} disconnected at {}: {}", chain_id, reason, timestamp);
                 Ok(())
             }
         }

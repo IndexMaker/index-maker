@@ -30,3 +30,7 @@ tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rpc-types-eth = { workspace = true }

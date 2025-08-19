@@ -45,6 +45,7 @@ pub enum ChainNotification {
     },
     ChainDisconnected {
         chain_id: u32,
+        reason: String,
         timestamp: DateTime<Utc>,
     },
 }
