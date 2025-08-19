@@ -307,6 +307,9 @@ impl ChainOperation {
                 let token_contract = ERC20::new(token_address, provider.clone());
                 let transfer_amount = amount.into_evm_amount(6)?;
 
+                let allowance = token_contract.allowance(from, to).call().await?;
+                tracing::info!(%allowance, %from, %to, "Transfer allowance");
+
                 match token_contract
                     .transferFrom(from, to, transfer_amount)
                     .send()

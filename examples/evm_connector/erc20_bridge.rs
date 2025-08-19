@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use alloy::network::EthereumWallet;
+use alloy::network::{EthereumWallet, NetworkWallet};
 use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
@@ -11,6 +11,7 @@ use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use alloy_evm_connector::utils::{IntoAmount, IntoEvmAmount};
 use alloy_rpc_types_eth::TransactionInfo;
+use index_maker::app;
 use rust_decimal::dec;
 use std::str::FromStr;
 use symm_core::core::bits::{Amount, ClientOrderId, Symbol};
@@ -26,24 +27,17 @@ async fn main() {
     let rpc_url = EvmConnectorConfig::get_default_rpc_url();
     tracing::info!("RPC Url: {}", rpc_url);
 
-    let admin_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
-    let admin_private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    let from_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+
     let address1 = address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
     let address1_private_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
-    let address2 = address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
-    let _address2_private_key =
-        "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
-    let usdc_address = config.get_usdc_address("arbitrum").unwrap();
 
-    // Setup provider
-    let anvil_funder_signer: PrivateKeySigner =
-        admin_private_key.parse().expect("Invalid private key");
-    let anvil_funder_wallet = EthereumWallet::from(anvil_funder_signer);
-    let funder_provider = ProviderBuilder::new()
-        .wallet(anvil_funder_wallet.clone())
-        .connect(&rpc_url)
-        .await
-        .expect("Failed to create provider");
+    let address2 = address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
+    let address2_private_key = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
+    
+    let address3 = address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906");
+
+    let usdc_address = config.get_usdc_address("arbitrum").unwrap();
 
     // Fund address1 with USDC (whale impersonation)
     let whale_address = address!("0x9dfb9014e88087fba78cc9309c64031d02be9a33");
@@ -53,7 +47,11 @@ async fn main() {
         .expect("Failed to create provider");
     let usdc_contract_whale = ERC20::new(usdc_address, &provider_for_whale);
 
-    let whale_balance = usdc_contract_whale.balanceOf(whale_address).call().await.unwrap();
+    let whale_balance = usdc_contract_whale
+        .balanceOf(whale_address)
+        .call()
+        .await
+        .unwrap();
     let decimals = usdc_contract_whale.decimals().call().await.unwrap();
 
     tracing::info!(
@@ -64,7 +62,6 @@ async fn main() {
         usdc_address,
         decimals,
     );
-
 
     // Impersonate whale account
     let impersonate_cmd = serde_json::json!({
@@ -103,10 +100,15 @@ async fn main() {
         .await
         .unwrap();
 
-    // Approve USDC transfer
-    let address1_signer: PrivateKeySigner =
-        address1_private_key.parse().expect("Invalid private key");
-    let address1_wallet = EthereumWallet::from(address1_signer);
+    // First some examples of how we can use ERC20 transfer(), vs approve() and transferFrom()
+    // ---
+
+    let address1_wallet = EthereumWallet::from(
+        address1_private_key
+            .parse::<PrivateKeySigner>()
+            .expect("Invalid private key"),
+    );
+
     let address1_provider = ProviderBuilder::new()
         .wallet(address1_wallet)
         .connect(&rpc_url)
@@ -114,15 +116,76 @@ async fn main() {
         .expect("Failed to create provider");
 
     let usdc_contract_address1 = ERC20::new(usdc_address, &address1_provider);
-    let approve_amount = dec!(1.0).into_evm_amount_usdc().unwrap(); // 1 USDC
+    let approve_amount = dec!(10.0).into_evm_amount_usdc().unwrap(); // 1 USDC
+
+    // Here we call transfer() -- this is direct transfer from our wallet to
+    // some other wallet in this case address1 is our wallet and address2 is
+    // other wallet.
     usdc_contract_address1
-        .approve(admin_address, approve_amount)
+        .transfer(address2, approve_amount)
         .send()
         .await
         .unwrap()
         .get_receipt()
         .await
         .unwrap();
+
+    let address2_wallet = EthereumWallet::from(
+        address2_private_key
+            .parse::<PrivateKeySigner>()
+            .expect("Invalid private key"),
+    );
+
+    let address2_provider = ProviderBuilder::new()
+        .wallet(address2_wallet)
+        .connect(&rpc_url)
+        .await
+        .expect("Failed to create provider");
+
+    // Here we call approve() and then transferFrom() -- we own our wallet, so
+    // we approve that owner of the other wallet can withdraw form us given
+    // amount.
+    let usdc_contract_address2 = ERC20::new(usdc_address, &address2_provider);
+    usdc_contract_address1
+        .approve(address2, approve_amount)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    // Now the other party is withdrawing from us, so they use their PK to
+    // identify them-selves, and they can withdraw to any addess they like.
+    usdc_contract_address2
+        .transferFrom(address1, address3, approve_amount)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    // We can use public (no-PK) provider to obtain balances
+    let public_provider = ProviderBuilder::new()
+        .connect(&rpc_url)
+        .await
+        .expect("Failed to create provider");
+    let usdc_contract_public = ERC20::new(usdc_address, &public_provider);
+
+    let balance = usdc_contract_public
+        .balanceOf(address1)
+        .call()
+        .await
+        .unwrap();
+    tracing::info!(%balance, balance_usd=%balance.into_amount_usdc().unwrap(), "Address1 Balance");
+
+    let balance = usdc_contract_public
+        .balanceOf(address2)
+        .call()
+        .await
+        .unwrap();
+    tracing::info!(%balance, balance_usd=%balance.into_amount_usdc().unwrap(), "Address2 Balance");
 
     // Test ERC20 bridge transfer
     let mut connector = EvmConnector::new();
@@ -146,15 +209,15 @@ async fn main() {
     let client_order_id = ClientOrderId::from("TEST_ERC20_E2E");
     let route_from = Symbol::from("EVM:ARBITRUM:USDC");
     let route_to = Symbol::from("EVM:ARBITRUM:USDC");
-    let amount = Amount::from_str("1.0").unwrap();
-    let cumulative_fee = Amount::from_str("0.0").unwrap();
+    let amount = dec!(1.0);
+    let cumulative_fee = dec!(0.0);
 
     // Execute transfer
     {
         let bridge = erc20_bridge.read().unwrap();
         bridge.transfer_funds(
             chain_id,
-            admin_address,
+            from_address,
             client_order_id,
             route_from,
             route_to,
