@@ -185,9 +185,9 @@ impl ChainOperation {
                                         tracing::warn!("Log without topic0");
                                         continue;
                                     };
-                                    
-                                    let ld = log_entry.data();        
-                                    let topics = ld.topics();         
+
+                                    let ld = log_entry.data();
+                                    let topics = ld.topics();
                                     let data: &[u8] = ld.data.as_ref();
 
                                     if *topic0 == deposit_sig {
@@ -202,12 +202,12 @@ impl ChainOperation {
                                         }
 
                                         // sender = last 20 bytes of topics[1]
-                                        let t1 = topics[1].as_slice();        
+                                        let t1 = topics[1].as_slice();
                                         let sender = Address::from_slice(&t1[12..32]);
 
                                         let dst_chain_id = U256::from_be_slice(&data[0..32]);
                                         let amount_raw   = U256::from_be_slice(&data[32..64]);
-                                        let amount       = amount_raw.into_amount_usdc()?; 
+                                        let amount       = amount_raw.into_amount_usdc()?;
 
                                         tracing::info!(
                                             "Deposit event: sender={} dst_chain_id={} amount={}",
@@ -253,9 +253,12 @@ impl ChainOperation {
                             transaction_hash: tx_hash,
                             result_data: None,
                         },
-                        Err(e) => ChainOperationResult::Failure {
-                            chain_id,
-                            error: e.to_string(),
+                        Err(err) => {
+                            tracing::warn!(?err, "Chain operation failure");
+                            ChainOperationResult::Failure {
+                                chain_id,
+                                error: format!("{:?}", err),
+                            }
                         },
                     };
 
@@ -298,6 +301,8 @@ impl ChainOperation {
                 callback,
                 ..
             } => {
+                tracing::info!(%token_address, %from, %to, %amount, %cumulative_fee, "Erc20 Transfer");
+
                 // Create ERC20 contract instance
                 let token_contract = ERC20::new(token_address, provider.clone());
                 let transfer_amount = amount.into_evm_amount(6)?;
@@ -390,6 +395,10 @@ impl ChainOperation {
                 callback,
                 ..
             } => {
+                tracing::info!(
+                    %from, %to, %deposit_amount, %origin_chain_id, %destination_chain_id, %cumulative_fee,
+                    "Across Transfer");
+
                 if let Some(builder) = deposit_builder {
                     // Use config USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
                     let config = EvmConnectorConfig::default();
