@@ -46,7 +46,7 @@ async fn main() {
         .expect("Failed to create provider");
 
     // Fund address1 with USDC (whale impersonation)
-    let whale_address = address!("0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D");
+    let whale_address = address!("0x9dfb9014e88087fba78cc9309c64031d02be9a33");
     let provider_for_whale = ProviderBuilder::new()
         .connect(&rpc_url)
         .await
