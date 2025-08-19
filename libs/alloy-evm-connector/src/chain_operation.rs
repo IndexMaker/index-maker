@@ -1,7 +1,8 @@
 use alloy::{
     hex,
+    network::EthereumWallet,
     providers::{Provider, ProviderBuilder},
-    signers::local::LocalSigner,
+    signers::local::{LocalSigner, PrivateKeySigner},
 };
 use chrono::Utc;
 use eyre::OptionExt;
@@ -26,7 +27,7 @@ use symm_core::core::bits::{Address as CoreAddress, Symbol};
 use crate::utils::IntoAmount;
 use alloy_primitives::{keccak256, Address, U256};
 use alloy_rpc_types_eth::{Filter, Log};
-use futures::StreamExt;
+use futures::{task::ArcWake, StreamExt};
 use std::str::FromStr;
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
@@ -114,10 +115,11 @@ impl ChainOperation {
         tracing::info!(%chain_id, %rpc_url, "Chain operation loop started (HTTP polling)");
 
         // ---- Provider & wallet (HTTP) ----
-        let wallet = LocalSigner::from_str(&private_key)?;
+        let wallet = private_key.parse::<PrivateKeySigner>()?;
         let provider = ProviderBuilder::new()
             .wallet(wallet.clone())
-            .connect_http(rpc_url.parse()?);
+            .connect(&rpc_url)
+            .await?;
 
         // ---- Optional: init AcrossDepositBuilder ----
         let deposit_builder = AcrossDepositBuilder::new(provider.clone(), wallet.address())

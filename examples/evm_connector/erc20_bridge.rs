@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use alloy::network::{EthereumWallet, NetworkWallet};
+use alloy::network::EthereumWallet;
 use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
@@ -10,11 +10,8 @@ use alloy_evm_connector::contracts::ERC20;
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use alloy_evm_connector::utils::{IntoAmount, IntoEvmAmount};
-use alloy_rpc_types_eth::TransactionInfo;
-use index_maker::app;
 use rust_decimal::dec;
-use std::str::FromStr;
-use symm_core::core::bits::{Amount, ClientOrderId, Symbol};
+use symm_core::core::bits::{ClientOrderId, Symbol};
 
 #[tokio::main]
 async fn main() {
@@ -22,6 +19,32 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     tracing::info!("=== ERC20 Transfer Test ===");
+
+    ////////
+    // 
+    // IMPORTANT NOTE
+    // ==============
+    // To run this example successfully you need to create .env file
+    // which must contain PRIVATE_KEY same as `address2_private_key` below.
+    //
+    // While this isn't how EVM connector & bridges were supposed to be working
+    // atm this is what needs to be done to make this example pass.
+    //
+    // TODO
+    // ====
+    // We need to change how Alloy EVM Connector works.
+    //
+    // - EVM Connector should have Arbiter
+    //
+    // - Each EVM Designation should have its own Private Key, and
+    //   its own command polling loop for any operations that require signing
+    //   like transfers.
+    //
+    // - In case of transfer across two newtorks, Across Bridge should initialize
+    //   AcrossDepositBuilder, which then can be used from source designation to
+    //   destination designation.
+    //
+    //
 
     let config = EvmConnectorConfig::default();
     let rpc_url = EvmConnectorConfig::get_default_rpc_url();
@@ -34,7 +57,7 @@ async fn main() {
 
     let address2 = address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
     let address2_private_key = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
-    
+
     let address3 = address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906");
 
     let usdc_address = config.get_usdc_address("arbitrum").unwrap();
@@ -116,11 +139,12 @@ async fn main() {
         .expect("Failed to create provider");
 
     let usdc_contract_address1 = ERC20::new(usdc_address, &address1_provider);
-    let approve_amount = dec!(10.0).into_evm_amount_usdc().unwrap(); // 1 USDC
+    let approve_amount = dec!(1.0).into_evm_amount_usdc().unwrap(); // 1 USDC
 
     // Here we call transfer() -- this is direct transfer from our wallet to
     // some other wallet in this case address1 is our wallet and address2 is
     // other wallet.
+    tracing::info!("Address1 is directly transferring to Address2");
     usdc_contract_address1
         .transfer(address2, approve_amount)
         .send()
@@ -146,6 +170,7 @@ async fn main() {
     // we approve that owner of the other wallet can withdraw form us given
     // amount.
     let usdc_contract_address2 = ERC20::new(usdc_address, &address2_provider);
+    tracing::info!("Address1 is approving Address2 to withdraw");
     usdc_contract_address1
         .approve(address2, approve_amount)
         .send()
@@ -155,8 +180,16 @@ async fn main() {
         .await
         .unwrap();
 
+    let allowance = usdc_contract_address2
+        .allowance(address1, address2)
+        .call()
+        .await
+        .unwrap();
+    tracing::info!(%allowance, "Allowance");
+
     // Now the other party is withdrawing from us, so they use their PK to
     // identify them-selves, and they can withdraw to any addess they like.
+    tracing::info!("Address2 is withdrawing from Address1 and sending that to Address3");
     usdc_contract_address2
         .transferFrom(address1, address3, approve_amount)
         .send()
@@ -187,7 +220,16 @@ async fn main() {
         .unwrap();
     tracing::info!(%balance, balance_usd=%balance.into_amount_usdc().unwrap(), "Address2 Balance");
 
+    let balance = usdc_contract_public
+        .balanceOf(address3)
+        .call()
+        .await
+        .unwrap();
+    tracing::info!(%balance, balance_usd=%balance.into_amount_usdc().unwrap(), "Address3 Balance");
+
     // Test ERC20 bridge transfer
+    tracing::info!("We'll check Erc20 Bridge now...");
+
     let mut connector = EvmConnector::new();
     connector.start().expect("Failed to start EvmConnector");
     connector
@@ -214,6 +256,29 @@ async fn main() {
 
     // Execute transfer
     {
+        // Not ideal, but required to pass this example.
+        // We need to remove dependency on approve(), which comes from
+        // the use of transferFrom() within ChainOperations. Once we
+        // rework EVM Connector so that we have separate polling loop
+        // for each EVM Designation with its own PK, then we can use
+        // transfer() method, and that will transfer from the wallet
+        // represented by that Designation into target wallet.
+        usdc_contract_address1
+            .approve(address2, approve_amount)
+            .send()
+            .await
+            .unwrap()
+            .get_receipt()
+            .await
+            .unwrap();
+
+        let allowance = usdc_contract_address2
+            .allowance(address1, address2)
+            .call()
+            .await
+            .unwrap();
+        tracing::info!(%allowance, %address1, %address2, "Allowance");
+
         let bridge = erc20_bridge.read().unwrap();
         bridge.transfer_funds(
             chain_id,
