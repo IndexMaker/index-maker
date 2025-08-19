@@ -1,10 +1,15 @@
-use alloy_evm_connector::evm_connector::EvmConnector;
+use alloy::primitives::{self, address};
+use alloy_evm_connector::{
+    designation::{self, EvmCollateralDesignation},
+    evm_connector::EvmConnector,
+};
 use crossbeam::{
     channel::{bounded, unbounded},
     select,
 };
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
+    collateral::collateral_router::{CollateralDesignation, CollateralRouterEvent},
     index::basket::Basket,
 };
 use parking_lot::RwLock;
@@ -16,7 +21,12 @@ use std::{
     thread::{sleep, spawn},
 };
 use symm_core::{
-    core::{functional::IntoObservableSingleFun, logging::log_init},
+    core::{
+        self,
+        bits::{self, Amount, ClientOrderId},
+        functional::{IntoObservableSingleFun, IntoObservableSingleVTable},
+        logging::log_init,
+    },
     init_log,
 };
 
@@ -68,18 +78,16 @@ pub async fn main() {
     let (event_tx, event_rx) = crossbeam::channel::unbounded::<ChainNotification>();
     let evm_connector_weak = Arc::downgrade(&evm_connector);
 
-    let custody_a = alloy::primitives::address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
-    let custody_b = alloy::primitives::address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
+    let custody_a = address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+    let custody_b = address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
 
     // Precompute route/amounts for bridge transfers
     let chain_id = alloy_evm_connector::config::EvmConnectorConfig::default()
         .get_chain_id("arbitrum")
         .expect("chain id");
-    let client_order_id = symm_core::core::bits::ClientOrderId::from("TEST_ERC20_FROM_DEPOSIT");
-    let route_from = symm_core::core::bits::Symbol::from("EVM:ARBITRUM:USDC");
-    let route_to = symm_core::core::bits::Symbol::from("EVM:ARBITRUM:USDC");
-    let bridge_amount: symm_core::core::bits::Amount = dec!(1.0);
-    let cumulative_fee: symm_core::core::bits::Amount = dec!(0.0);
+    let client_order_id = ClientOrderId::from("TEST_ERC20_FROM_DEPOSIT");
+    let bridge_amount: Amount = dec!(1.0);
+    let cumulative_fee: Amount = dec!(0.0);
 
     // Observer to forward events to our internal handler channel
     evm_connector.write().set_observer_fn(move |e| {
@@ -109,21 +117,46 @@ pub async fn main() {
 
     // === Create the bridge IMMEDIATELY after connector is up (bridges aren't dynamic) ===
     // Use std::sync::RwLock for designations (as in the bridge sample)
-    let src = Arc::new(std::sync::RwLock::new(
-        alloy_evm_connector::designation::EvmCollateralDesignation::arbitrum_usdc(custody_a),
+    let src_custody = Arc::new(std::sync::RwLock::new(
+        EvmCollateralDesignation::arbitrum_usdc_with_name(custody_a, "CUSTODY_A"),
     ));
-    let dst = Arc::new(std::sync::RwLock::new(
-        alloy_evm_connector::designation::EvmCollateralDesignation::arbitrum_usdc(custody_b),
+    let dst_custody = Arc::new(std::sync::RwLock::new(
+        EvmCollateralDesignation::arbitrum_usdc_with_name(custody_b, "CUSTODY_B"),
     ));
+
+    let src_custody_name = src_custody.read().unwrap().get_full_name();
+    let dst_custody_name = dst_custody.read().unwrap().get_full_name();
+
     let bridge = evm_connector
         .write()
-        .create_bridge(src.clone(), dst.clone());
+        .create_bridge(src_custody.clone(), dst_custody.clone());
 
     tracing::info!(
         "BRIDGE_CREATED: from {:?} (Arb USDC) -> {:?} (Arb USDC)",
         custody_a,
         custody_b
     );
+
+    bridge
+        .write()
+        .unwrap()
+        .set_observer_fn(|e: CollateralRouterEvent| match e {
+            CollateralRouterEvent::HopComplete {
+                chain_id,
+                address,
+                client_order_id: _,
+                timestamp: _,
+                source,
+                destination,
+                route_from: _,
+                route_to: _,
+                amount,
+                fee,
+            } => {
+                tracing::info!(%chain_id, %address, %amount, %source, %destination, %fee,
+                    "Collateral routing hop complete");
+            }
+        });
 
     // Capture for event loop
     let bridge_for_events = bridge.clone();
@@ -145,22 +178,14 @@ pub async fn main() {
                     };
 
                     match e {
-                        ChainNotification::ChainConnected {
-                            chain_id,
-                            timestamp,
-                        } => {}
-                        ChainNotification::ChainDisconnected {
-                            chain_id,
-                            reason,
-                            timestamp,
-                        } => {}
+                        ChainNotification::ChainConnected { .. } => {}
+                        ChainNotification::ChainDisconnected { .. } => {}
                         ChainNotification::CuratorWeightsSet(symbol, basket_definition) => {
-                            let individual_prices = HashMap::from_iter([
-                                ("A1".into(), dec!(100000.0)),
-                                ("A2".into(), dec!(1000.0)),
-                                ("A3".into(), dec!(10.0)),
-                                ("A4".into(), dec!(100.0)),
-                            ]);
+                            let individual_prices = basket_definition.weights
+                                .iter()
+                                .map(|w| (w.asset.ticker.clone(), dec!(100.0)))
+                                .collect();
+
                             let basket = Arc::new(
                                 Basket::new_with_prices(basket_definition, &individual_prices, dec!(1000.0))
                                     .unwrap(),
@@ -174,8 +199,8 @@ pub async fn main() {
                                     chain_id,
                                     address,
                                     client_order_id.clone(),
-                                    route_from.clone(),
-                                    route_to.clone(),
+                                    src_custody_name.clone(),
+                                    dst_custody_name.clone(),
                                     bridge_amount.clone(),
                                     cumulative_fee.clone(),
                                 ) {

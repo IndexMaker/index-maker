@@ -1,19 +1,22 @@
 use alloy::primitives::address;
+use alloy_evm_connector::evm_connector;
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
-use index_core::blockchain::chain_connector::ChainNotification;
+use index_core::blockchain::chain_connector::{ChainConnector, ChainNotification};
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
         batch_manager::BatchManagerConfig,
         collateral_manager::CollateralManagerConfig,
+        collateral_router::CollateralRouterConfig,
+        evm_connector::EvmConnectorConfig,
         fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
         order_sender::{OrderSenderConfig, OrderSenderCredentials},
         quote_request_manager::QuoteRequestManagerConfig,
-        simple_chain::SimpleChainConnectorConfig,
+        simple_chain::{SimpleChainConnector, SimpleChainConnectorConfig},
         simple_router::SimpleCollateralRouterConfig,
         simple_server::{SimpleServer, SimpleServerConfig},
         simple_solver::SimpleSolverConfig,
@@ -28,12 +31,16 @@ use index_maker::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{env, sync::Arc};
+use std::{
+    env,
+    sync::{Arc, RwLock as ComponentLock},
+};
+
 use symm_core::{
     core::{
         bits::{Amount, PriceType, Side, Symbol},
         logging::log_init,
-        test_util::{get_mock_address_1, get_mock_address_2},
+        test_util::get_mock_address_1,
     },
     market_data::market_data_connector::Subscription,
     order_sender::order_connector::SessionId,
@@ -54,6 +61,9 @@ struct Cli {
 
     #[arg(long, short)]
     simulate_sender: bool,
+
+    #[arg(long)]
+    simulate_chain: bool,
 
     #[arg(long, short)]
     bind_address: Option<String>,
@@ -207,6 +217,75 @@ impl AppMode {
     }
 }
 
+enum ChainMode {
+    Simulated {
+        chain_config: Arc<SimpleChainConnectorConfig>,
+    },
+    Real {
+        chain_config: Arc<EvmConnectorConfig>,
+    },
+}
+
+impl ChainMode {
+    fn new_with_router(
+        simulate_chain: bool,
+        main_quote_currency: Symbol,
+        router_config: &CollateralRouterConfig,
+    ) -> Self {
+        if simulate_chain {
+            let simple_chain_connector_config = SimpleChainConnectorConfig::builder()
+                .build_arc()
+                .expect("Failed to build chain connector");
+
+            SimpleCollateralRouterConfig::builder()
+                .chain_id(1u32)
+                .source(format!("SRC:BINANCE:{}", main_quote_currency))
+                .destination(format!("DST:BINANCE:{}", main_quote_currency))
+                .with_router(router_config.clone())
+                .build()
+                .expect("Failed to build collateral router");
+
+            Self::Simulated {
+                chain_config: simple_chain_connector_config,
+            }
+        } else {
+            let evm_connector_config = EvmConnectorConfig::builder()
+                .with_router(router_config.clone())
+                .build_arc()
+                .expect("Failed to build evm chain connector");
+
+            Self::Real {
+                chain_config: evm_connector_config,
+            }
+        }
+    }
+
+    fn get_chain_connector_config(&self) -> Arc<dyn ChainConnectorConfig + Send + Sync> {
+        match self {
+            ChainMode::Simulated { chain_config } => {
+                chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>
+            }
+            ChainMode::Real { chain_config } => {
+                chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>
+            }
+        }
+    }
+
+    async fn run(&self) -> eyre::Result<()> {
+        match self {
+            ChainMode::Simulated { .. } => Ok(()),
+            ChainMode::Real { chain_config } => chain_config.start().await,
+        }
+    }
+    
+    async fn stop(&self) -> eyre::Result<()> {
+        match self {
+            ChainMode::Simulated { .. } => Ok(()),
+            ChainMode::Real { chain_config } => chain_config.stop().await,
+        }
+    }
+}
+
 fn get_otlp_url(value: Option<String>) -> Option<Option<String>> {
     if let Some(value) = value {
         if value.as_str().eq("default") {
@@ -248,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let config_path = cli.config_path.unwrap_or("configs".into());
-    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDT".into());
+    let main_quote_currency = cli.main_quote_currency.unwrap_or("USDC".into());
     let bind_address = cli.bind_address.unwrap_or(String::from("127.0.0.1:3000"));
 
     let app_mode = AppMode::new(&cli.command, bind_address);
@@ -320,24 +399,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ==== Fake stuff
     // ----
 
-    let router_config = SimpleCollateralRouterConfig::builder()
-        .chain_id(1u32)
-        .source(format!("SRC:BINANCE:{}", main_quote_currency))
-        .destination(format!("DST:BINANCE:{}", main_quote_currency))
-        .build()
-        .expect("Failed to build collateral router");
-
     let order_id_config = TimestampOrderIdsConfig::builder()
         .build_arc()
         .expect("Failed to build order ID provider");
 
     let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
 
-    let chain_connector_config = SimpleChainConnectorConfig::builder()
-        .build_arc()
-        .expect("Failed to build chain connector");
+    let router_config = CollateralRouterConfig::builder()
+        .build()
+        .expect("Failed to build collateral router");
 
-    let simple_chain = chain_connector_config.expect_chain_connector_cloned();
+    let chain_mode =
+        ChainMode::new_with_router(cli.simulate_chain, main_quote_currency, &router_config);
 
     // ==== Real stuff
     // ----
@@ -428,7 +501,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_quote_request_manager(quote_request_manager_config)
         .with_strategy(strategy_config as Arc<dyn SolverStrategyConfig + Send + Sync>)
         .with_order_ids(order_id_config as Arc<dyn OrderIdProviderConfig + Send + Sync>)
-        .with_chain_connector(chain_connector_config as Arc<dyn ChainConnectorConfig + Send + Sync>)
+        .with_chain_connector(chain_mode.get_chain_connector_config())
         .build()
         .expect("Failed to build solver");
 
@@ -447,6 +520,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     app_mode.run().await;
+    chain_mode.run().await.expect("Failed to start chain connector");
 
     tracing::info!("Awaiting market data...");
     loop {
@@ -481,17 +555,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             tracing::info!("Sending deposit...");
 
-            simple_chain
-                .write()
-                .expect("Failed to lock chain connector")
-                .publish_event(ChainNotification::Deposit {
-                    chain_id: 1,
-                    address: get_mock_address_1(),
-                    amount: *collateral_amount,
-                    timestamp: Utc::now(),
-                });
+            if let ChainMode::Simulated { chain_config } = &chain_mode {
+                let simple_chain = chain_config.expect_chain_connector_cloned();
 
-            sleep(std::time::Duration::from_secs(2)).await;
+                simple_chain
+                    .write()
+                    .expect("Failed to lock chain connector")
+                    .publish_event(ChainNotification::Deposit {
+                        chain_id: 1,
+                        address: get_mock_address_1(),
+                        amount: *collateral_amount,
+                        timestamp: Utc::now(),
+                    });
+
+                sleep(std::time::Duration::from_secs(2)).await;
+            }
 
             tracing::info!("Sending index order...");
 
@@ -514,22 +592,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             tracing::info!("Sending deposit...");
 
-            for (chain_id, address) in chain_addresses_to_fund {
-                simple_chain
-                    .write()
-                    .expect("Failed to lock chain connector")
-                    .publish_event(ChainNotification::Deposit {
-                        chain_id,
-                        address,
-                        amount: *collateral_amount,
-                        timestamp: Utc::now(),
-                    });
+            if let ChainMode::Simulated { chain_config } = &chain_mode {
+                let simple_chain = chain_config.expect_chain_connector_cloned();
+
+                for (chain_id, address) in chain_addresses_to_fund {
+                    simple_chain
+                        .write()
+                        .expect("Failed to lock chain connector")
+                        .publish_event(ChainNotification::Deposit {
+                            chain_id,
+                            address,
+                            amount: *collateral_amount,
+                            timestamp: Utc::now(),
+                        });
+                }
             }
 
-            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {:?})", fix_server_config.address);
+            tracing::info!("Awaiting index order... (Please, send NewIndexOrder message to FIX server running at: {:?})",
+                fix_server_config.address);
         }
         AppMode::QuoteServer { fix_server_config } => {
-            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {:?})", fix_server_config.address);
+            tracing::info!("Awaiting quote request... (Please, send NewQuoteRequest message to FIX server running at: {:?})",
+                fix_server_config.address);
         }
     };
 
@@ -561,6 +645,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     app_mode.stop().await;
+    chain_mode.stop().await.expect("Failed to stop chain connector");
 
     tracing::info!("Done.");
 

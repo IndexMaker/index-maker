@@ -209,6 +209,11 @@ impl ChainOperation {
                                         let amount_raw   = U256::from_be_slice(&data[32..64]);
                                         let amount       = amount_raw.into_amount_usdc()?; 
 
+                                        tracing::info!(
+                                            "Deposit event: sender={} dst_chain_id={} amount={}",
+                                            sender, dst_chain_id, amount
+                                        );
+
                                         let observer = chain_observer.read();
                                         observer.publish_single(ChainNotification::Deposit {
                                             chain_id,
@@ -217,10 +222,6 @@ impl ChainOperation {
                                             timestamp: Utc::now(),
                                         });
 
-                                        tracing::info!(
-                                            "Deposit event: sender={} dst_chain_id={} amount={}",
-                                            sender, dst_chain_id, amount
-                                        );
                                     } else if *topic0 == withdraw_sig {
                                         tracing::info!("Withdrawal event received: {:?}", data);
                                     } else {

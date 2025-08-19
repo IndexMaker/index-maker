@@ -1,5 +1,7 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
+use crate::app::collateral_router::CollateralRouterConfig;
+
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
 
@@ -14,9 +16,9 @@ use symm_core::core::{
     },
 };
 
-use eyre::{eyre, OptionExt, Result};
+use eyre::{OptionExt, Result};
 use index_core::collateral::collateral_router::{
-    CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
+    CollateralBridge, CollateralDesignation, CollateralRouterEvent,
 };
 
 struct SimpleDesignation {
@@ -123,65 +125,6 @@ impl CollateralBridge for SimpleBridge {
     }
 }
 
-fn build_collateral_router(
-    collateral_router: Arc<ComponentLock<CollateralRouter>>,
-    chain_id: u32,
-    source: &str,
-    destination: &str,
-) -> Result<()> {
-    if let Ok(mut router) = collateral_router.write() {
-        router.add_bridge(Arc::new(ComponentLock::new(SimpleBridge::new(
-            source,
-            destination,
-        ))))?;
-        router.add_route(&[Symbol::from(source), Symbol::from(destination)])?;
-        router.add_chain_source(chain_id, Symbol::from(source))?;
-        router.set_default_destination(Symbol::from(destination))?;
-        Ok(())
-    } else {
-        Err(eyre!("Failed to obtain lock on collateral router"))
-    }
-}
-
-#[derive(Clone, Builder)]
-#[builder(
-    pattern = "owned",
-    build_fn(name = "try_build", error = "ConfigBuildError")
-)]
-pub struct CollateralRouterConfig {
-    #[builder(setter(skip))]
-    router: Option<Arc<ComponentLock<CollateralRouter>>>,
-}
-
-impl CollateralRouterConfig {
-    #[must_use]
-    pub fn builder() -> CollateralRouterConfigBuilder {
-        CollateralRouterConfigBuilder::default()
-    }
-
-    pub fn expect_router_cloned(&self) -> Arc<ComponentLock<CollateralRouter>> {
-        self.router.clone().ok_or(()).expect("Failed to get router")
-    }
-
-    pub fn try_get_collateral_router_cloned(&self) -> Result<Arc<ComponentLock<CollateralRouter>>> {
-        self.router
-            .clone()
-            .ok_or_eyre("Failed to get collateral router")
-    }
-}
-
-impl CollateralRouterConfigBuilder {
-    pub fn build(self) -> Result<CollateralRouterConfig, ConfigBuildError> {
-        let mut config = self.try_build()?;
-
-        config
-            .router
-            .replace(Arc::new(ComponentLock::new(CollateralRouter::new())));
-
-        Ok(config)
-    }
-}
-
 #[derive(Clone, Builder)]
 #[builder(
     pattern = "owned",
@@ -196,6 +139,9 @@ pub struct SimpleCollateralRouterConfig {
 
     #[builder(setter(into, strip_option), default)]
     destination: String,
+
+    #[builder(setter(into, strip_option), default)]
+    pub with_router: Option<CollateralRouterConfig>,
 }
 
 impl SimpleCollateralRouterConfig {
@@ -208,16 +154,29 @@ impl SimpleCollateralRouterConfig {
 impl SimpleCollateralRouterConfigBuilder {
     pub fn build(self) -> Result<CollateralRouterConfig, ConfigBuildError> {
         let simple_config = self.try_build()?;
-        let config = CollateralRouterConfig::builder().build()?;
+        let config = simple_config
+            .with_router
+            .unwrap_or(CollateralRouterConfig::builder().build()?);
 
         let collateral_router = config.try_get_collateral_router_cloned()?;
 
-        build_collateral_router(
-            collateral_router,
-            simple_config.chain_id,
-            simple_config.source.as_str(),
-            simple_config.destination.as_str(),
-        )?;
+        if let Ok(mut router) = collateral_router.write() {
+            let chain_id = simple_config.chain_id;
+            let source = simple_config.source.as_str();
+            let destination = simple_config.destination.as_str();
+
+            router.add_bridge(Arc::new(ComponentLock::new(SimpleBridge::new(
+                source,
+                destination,
+            ))))?;
+            router.add_route(&[Symbol::from(source), Symbol::from(destination)])?;
+            router.add_chain_source(chain_id, Symbol::from(source))?;
+            router.set_default_destination(Symbol::from(destination))?;
+        } else {
+            Err(ConfigBuildError::Other(String::from(
+                "Failed to obtain lock on collateral router",
+            )))?;
+        }
 
         Ok(config)
     }

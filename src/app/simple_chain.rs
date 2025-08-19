@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 

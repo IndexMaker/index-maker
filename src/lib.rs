@@ -2,7 +2,9 @@ pub mod app {
     pub mod basket_manager;
     pub mod batch_manager;
     pub mod collateral_manager;
+    pub mod collateral_router;
     pub mod config;
+    pub mod evm_connector;
     pub mod fix_server;
     pub mod index_order_manager;
     pub mod market_data;
