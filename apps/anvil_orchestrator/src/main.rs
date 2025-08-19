@@ -1,3 +1,4 @@
+use alloy_evm_connector::{contracts::ERC20, IntoAmount};
 use anyhow::{anyhow, Context, Result};
 use rust_decimal::Decimal;
 use serde_json::json;
@@ -226,6 +227,24 @@ async fn fund_usdc_to_accounts(
 
     // 2) provider WITHOUT wallet (node accepts txs from impersonated addr)
     let provider = ProviderBuilder::new().connect(rpc_url).await?;
+
+    let usdc_contract_whale = ERC20::new(usdc, &provider);
+
+    let whale_balance = usdc_contract_whale.balanceOf(whale).call().await.unwrap();
+    let whale_balance_usdc = whale_balance.into_amount_usdc().unwrap();
+    let amount_usdc = amount.into_amount_usdc().unwrap();
+
+    tracing::info!(
+        "Whale USDC balance: {} USDC, Amount to transfer: {} USDC, Whale address: {}, USDC address: {}",
+        whale_balance_usdc,
+        amount_usdc,
+        whale,
+        usdc,
+    );
+
+    if whale_balance < amount {
+        panic!("Whale does not have enough balance!");
+    }
 
     // 3) transfer USDC for each recipient
     for &to in recipients {

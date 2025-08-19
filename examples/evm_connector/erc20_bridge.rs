@@ -10,6 +10,7 @@ use alloy_evm_connector::contracts::ERC20;
 use alloy_evm_connector::designation::EvmCollateralDesignation;
 use alloy_evm_connector::evm_connector::EvmConnector;
 use alloy_evm_connector::utils::{IntoAmount, IntoEvmAmount};
+use alloy_rpc_types_eth::TransactionInfo;
 use rust_decimal::dec;
 use std::str::FromStr;
 use symm_core::core::bits::{Amount, ClientOrderId, Symbol};
@@ -23,6 +24,8 @@ async fn main() {
 
     let config = EvmConnectorConfig::default();
     let rpc_url = EvmConnectorConfig::get_default_rpc_url();
+    tracing::info!("RPC Url: {}", rpc_url);
+
     let admin_address = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
     let admin_private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     let address1 = address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
@@ -49,6 +52,16 @@ async fn main() {
         .await
         .expect("Failed to create provider");
     let usdc_contract_whale = ERC20::new(usdc_address, &provider_for_whale);
+
+    let whale_balance = usdc_contract_whale.balanceOf(whale_address).call().await.unwrap();
+
+    tracing::info!(
+        "Whale USDC balance: {} USDC, Whale address: {}, USDC address: {}",
+        whale_balance.into_amount_usdc().unwrap(),
+        whale_address,
+        usdc_address,
+    );
+
 
     // Impersonate whale account
     let impersonate_cmd = serde_json::json!({
