@@ -258,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let price_threshold = dec!(0.01);
     let max_levels = 5usize;
-    let fee_factor = dec!(1.005);
+    let fee_factor = dec!(1.002);
     let max_order_volley_size = dec!(20.0);
     let max_volley_size = dec!(100.0);
     let min_asset_volley_size = dec!(5.0);
