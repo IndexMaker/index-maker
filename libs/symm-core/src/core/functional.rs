@@ -39,6 +39,14 @@ impl<T> SingleObserver<T> {
         }
     }
 
+    pub fn new_with_fn(observer: impl NotificationHandlerOnce<T> + 'static) -> Self {
+        Self::new_with_observer(Box::new(observer))
+    }
+
+    pub fn new_from(value: impl IntoNotificationHandlerOnceBox<T>) -> Self {
+        Self::new_with_observer(value.into_notification_handler_once_box())
+    }
+
     pub fn has_observer(&self) -> bool {
         self.observer.is_some()
     }
@@ -134,6 +142,10 @@ impl<T> MultiObserver<T> {
 
     pub fn new_with_observers(observers: Vec<Box<dyn NotificationHandler<T>>>) -> Self {
         Self { observers }
+    }
+
+    pub fn new_from(value: impl IntoNotificationHandlerBox<T>) -> Self {
+        Self::new_with_observers(vec![value.into_notification_handler_box()])
     }
 
     /// There can be multiple observers, and so we call it 'add'
