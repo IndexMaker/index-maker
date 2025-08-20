@@ -77,6 +77,9 @@ alloy-rpc-types-eth = { workspace = true }
 csv = { workspace = true }
 statrs = { workspace = true }
 rust_decimal_macros = { workspace = true }
+alloy-merkle-tree = { workspace = true }
+alloy-consensus = { workspace = true }
+alloy-network = { workspace = true }
 
 [dev-dependencies]
 paste = { workspace = true }
@@ -150,3 +153,6 @@ alloy-rpc-types-eth = "1.0.24"
 csv = "1"
 statrs = "0.16"
 rust_decimal_macros = "1"
+alloy-merkle-tree = "0.7.4"
+alloy-consensus = "1.0.25"
+alloy-network = "1.0.25"

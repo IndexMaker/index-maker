@@ -32,7 +32,12 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
+alloy-merkle-tree = { workspace = true }
+alloy-consensus = { workspace = true }
+alloy-network = { workspace = true }
 anyhow = "1"
+dotenvy = "0.15"
+hex = "0.4"
 
 [[example]]
 name = "binance-market-data"
@@ -77,3 +82,7 @@ path = "evm_connector/erc20_bridge.rs"
 [[example]]
 name = "across-bridge"
 path = "evm_connector/across_bridge.rs"
+
+[[example]]
+name = "otcIndex-tester"
+path = "otcIndex_tester/main.rs"
