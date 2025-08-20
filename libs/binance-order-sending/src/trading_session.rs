@@ -5,7 +5,7 @@ use binance_sdk::models::{self, WebsocketApiRateLimit};
 use binance_sdk::spot::websocket_api::{
     ExchangeInfoParams, OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum,
     UserDataStreamEventsResponse, UserDataStreamStartParams, UserDataStreamSubscribeParams,
-    WebsocketApi,
+    WebsocketApi, PingParams
 };
 use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
@@ -329,6 +329,32 @@ impl TradingSession {
         tracing::debug!("Subscribe user data: {:#?}", res.data());
 
         Ok(TradingUserData::new(stream))
+    }
+    
+    /// Check if the WebSocket connection is healthy
+    pub async fn is_connection_healthy(&self) -> bool {
+        self.wsapi.is_connected().await
+    }
+
+    /// Attempt to ping the WebSocket connection
+    pub async fn ping_connection(&self) -> Result<()> {
+        tracing::trace!("Pinging WebSocket connection for session {}", self.session_id);
+        
+        match self.wsapi.ping(PingParams::default()).await {
+            Ok(_) => {
+                tracing::trace!("WebSocket connection is healthy for session {}", self.session_id);
+                Ok(())
+            }
+            Err(err) => {
+                tracing::warn!("Failed to ping WebSocket connection for session {}: {:?}", self.session_id, err);
+                Err(eyre!("WebSocket ping failed: {:?}", err))
+            }
+        }
+    }
+
+    /// Enhanced error classification for connection issues
+    pub fn classify_error(&self, error: &eyre::Error) -> bool {
+        crate::error_classifier::ErrorClassifier::is_disconnection_error(error)
     }
 }
 

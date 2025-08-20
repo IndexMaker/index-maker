@@ -8,3 +8,5 @@ pub mod sessions;
 pub mod subaccounts;
 pub mod trading_markets;
 pub mod trading_session;
+pub mod session_termination;
+pub mod error_classifier;
