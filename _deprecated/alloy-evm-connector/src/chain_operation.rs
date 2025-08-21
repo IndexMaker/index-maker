@@ -1,7 +1,8 @@
 use alloy::{
     hex,
+    network::EthereumWallet,
     providers::{Provider, ProviderBuilder},
-    signers::local::LocalSigner,
+    signers::local::{LocalSigner, PrivateKeySigner},
 };
 use chrono::Utc;
 use eyre::OptionExt;
@@ -26,7 +27,7 @@ use symm_core::core::bits::{Address as CoreAddress, Symbol};
 use crate::utils::IntoAmount;
 use alloy_primitives::{keccak256, Address, U256};
 use alloy_rpc_types_eth::{Filter, Log};
-use futures::StreamExt;
+use futures::{task::ArcWake, StreamExt};
 use std::str::FromStr;
 /// Individual chain operation worker
 /// Handles blockchain operations for a specific chain
@@ -114,10 +115,11 @@ impl ChainOperation {
         tracing::info!(%chain_id, %rpc_url, "Chain operation loop started (HTTP polling)");
 
         // ---- Provider & wallet (HTTP) ----
-        let wallet = LocalSigner::from_str(&private_key)?;
+        let wallet = private_key.parse::<PrivateKeySigner>()?;
         let provider = ProviderBuilder::new()
             .wallet(wallet.clone())
-            .connect_http(rpc_url.parse()?);
+            .connect(&rpc_url)
+            .await?;
 
         // ---- Optional: init AcrossDepositBuilder ----
         let deposit_builder = AcrossDepositBuilder::new(provider.clone(), wallet.address())
@@ -185,9 +187,9 @@ impl ChainOperation {
                                         tracing::warn!("Log without topic0");
                                         continue;
                                     };
-                                    
-                                    let ld = log_entry.data();        
-                                    let topics = ld.topics();         
+
+                                    let ld = log_entry.data();
+                                    let topics = ld.topics();
                                     let data: &[u8] = ld.data.as_ref();
 
                                     if *topic0 == deposit_sig {
@@ -202,12 +204,17 @@ impl ChainOperation {
                                         }
 
                                         // sender = last 20 bytes of topics[1]
-                                        let t1 = topics[1].as_slice();        
+                                        let t1 = topics[1].as_slice();
                                         let sender = Address::from_slice(&t1[12..32]);
 
                                         let dst_chain_id = U256::from_be_slice(&data[0..32]);
                                         let amount_raw   = U256::from_be_slice(&data[32..64]);
-                                        let amount       = amount_raw.into_amount_usdc()?; 
+                                        let amount       = amount_raw.into_amount_usdc()?;
+
+                                        tracing::info!(
+                                            "Deposit event: sender={} dst_chain_id={} amount={}",
+                                            sender, dst_chain_id, amount
+                                        );
 
                                         let observer = chain_observer.read();
                                         observer.publish_single(ChainNotification::Deposit {
@@ -217,10 +224,6 @@ impl ChainOperation {
                                             timestamp: Utc::now(),
                                         });
 
-                                        tracing::info!(
-                                            "Deposit event: sender={} dst_chain_id={} amount={}",
-                                            sender, dst_chain_id, amount
-                                        );
                                     } else if *topic0 == withdraw_sig {
                                         tracing::info!("Withdrawal event received: {:?}", data);
                                     } else {
@@ -252,9 +255,12 @@ impl ChainOperation {
                             transaction_hash: tx_hash,
                             result_data: None,
                         },
-                        Err(e) => ChainOperationResult::Failure {
-                            chain_id,
-                            error: e.to_string(),
+                        Err(err) => {
+                            tracing::warn!(?err, "Chain operation failure");
+                            ChainOperationResult::Failure {
+                                chain_id,
+                                error: format!("{:?}", err),
+                            }
                         },
                     };
 
@@ -297,9 +303,14 @@ impl ChainOperation {
                 callback,
                 ..
             } => {
+                tracing::info!(%token_address, %from, %to, %amount, %cumulative_fee, "Erc20 Transfer");
+
                 // Create ERC20 contract instance
                 let token_contract = ERC20::new(token_address, provider.clone());
                 let transfer_amount = amount.into_evm_amount(6)?;
+
+                let allowance = token_contract.allowance(from, to).call().await?;
+                tracing::info!(%allowance, %from, %to, "Transfer allowance");
 
                 match token_contract
                     .transferFrom(from, to, transfer_amount)
@@ -389,6 +400,10 @@ impl ChainOperation {
                 callback,
                 ..
             } => {
+                tracing::info!(
+                    %from, %to, %deposit_amount, %origin_chain_id, %destination_chain_id, %cumulative_fee,
+                    "Across Transfer");
+
                 if let Some(builder) = deposit_builder {
                     // Use config USDC addresses: USDC_ARBITRUM_ADDRESS as input, USDC_BASE_ADDRESS as output
                     let config = EvmConnectorConfig::default();
