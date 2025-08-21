@@ -3710,7 +3710,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-chain-connector",
- "alloy-evm-connector",
  "alloy-primitives",
  "alloy-rpc-types-eth",
  "async-trait",

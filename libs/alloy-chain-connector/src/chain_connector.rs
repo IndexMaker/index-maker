@@ -31,7 +31,7 @@ pub struct RealChainConnector {
     subaccount_rx: Option<UnboundedReceiver<Credentials>>,
     sessions: Arc<AtomicLock<Sessions>>,
     arbiter: Arbiter,
-    issuers: HashMap<u32, String>,
+    issuers: HashMap<u32, (String, Address)>,
 }
 
 impl RealChainConnector {
@@ -96,9 +96,14 @@ impl RealChainConnector {
         issuer.send_command(command)
     }
 
-    pub fn set_issuer(&mut self, chain_id: u32, account_name: String) -> Result<()> {
+    pub fn set_issuer(
+        &mut self,
+        chain_id: u32,
+        account_name: String,
+        contract_address: Address,
+    ) -> Result<()> {
         self.issuers
-            .insert(chain_id, account_name)
+            .insert(chain_id, (account_name, contract_address))
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate issuer entry")
@@ -109,11 +114,14 @@ impl RealChainConnector {
         chain_id: u32,
         command: IssuerCommand,
     ) -> Result<()> {
-        let account_name = self.issuers.get(&chain_id).ok_or_eyre("Issuer not found")?;
+        let (account_name, contract_address) =
+            self.issuers.get(&chain_id).ok_or_eyre("Issuer not found")?;
+
         self.send_command_to_session(
             account_name,
             Command {
                 command: CommandVariant::Issuer(command),
+                contract_address: *contract_address,
                 error_observer: SingleObserver::new(),
             },
         )
@@ -215,47 +223,5 @@ impl IntoObservableSingleArc<ChainNotification> for RealChainConnector {
 impl IntoObservableSingleVTable<ChainNotification> for RealChainConnector {
     fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<ChainNotification>>) {
         self.observer.write().set_observer(observer);
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::sync::Arc;
-
-    use chrono::Utc;
-    use index_core::blockchain::chain_connector::ChainConnector;
-    use rust_decimal::dec;
-    use symm_core::core::{bits::Symbol, test_util::get_mock_address_1};
-
-    use crate::{chain_connector::RealChainConnector, credentials::Credentials};
-
-    #[test]
-    #[ignore]
-    fn sbe_chain_connector() {
-        let mut chain_connector = RealChainConnector::new();
-
-        chain_connector.start().unwrap();
-
-        chain_connector
-            .logon(vec![Credentials::new(
-                String::from("ArbitrumIssuer"),
-                42161,
-                String::from("https://127.0.0.1:8545"),
-                Arc::new(|| String::from("PK1234")),
-            )])
-            .unwrap();
-
-        chain_connector
-            .set_issuer(42161, String::from("ArbitrumIssuer"))
-            .unwrap();
-
-        chain_connector.mint_index(
-            42161,
-            Symbol::from("SY100"),
-            dec!(1.0),
-            get_mock_address_1(),
-            dec!(10.0),
-            Utc::now(),
-        );
     }
 }

@@ -83,6 +83,7 @@ impl SignerWalletCollateralDesignation {
 
         let _ = amount;
         let command = Command {
+            contract_address: self.token_address,
             command: CommandVariant::Basic(BasicCommand::Transfer {
                 to: receipient,
                 amount,

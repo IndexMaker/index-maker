@@ -74,6 +74,7 @@ pub enum CommandVariant {
 }
 
 pub struct Command {
+    pub contract_address: Address,
     pub command: CommandVariant,
     pub error_observer: SingleObserver<eyre::Report>,
 }

@@ -2,7 +2,6 @@
 members = [
     ".",
     "libs/alloy-chain-connector",
-    "libs/alloy-evm-connector",
     "libs/axum-fix-server",
     "libs/binance-market-data",
     "libs/binance-order-sending",
@@ -13,9 +12,10 @@ members = [
     "examples",
     "proc-macros/derive-with-baggage",
     "proc-macros/safe-math",
-    "apps/liquidity_tracker",
     "apps/tracker",
     "apps/anvil_orchestrator",
+    "_deprecated/liquidity_tracker",
+    "_deprecated/alloy-evm-connector",
 ]
 
 [package]
@@ -30,7 +30,6 @@ alpine-deploy = ["openssl/vendored"]
 [dependencies]
 alloy = { workspace = true }
 alloy-chain-connector = { workspace = true }
-alloy-evm-connector = { workspace = true }
 async-trait = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
@@ -87,7 +86,7 @@ test-case = { workspace = true }
 [workspace.dependencies]
 alloy = { version = "1.0.9", features = ["full"] }
 alloy-chain-connector = { path = "./libs/alloy-chain-connector" }
-alloy-evm-connector = { path = "./libs/alloy-evm-connector" }
+alloy-evm-connector = { path = "./_deprecated/alloy-evm-connector" }
 async-trait = "0.1.88"
 axum = { version = "0.7", features = ["ws"] }
 axum-fix-server = { path = "./libs/axum-fix-server" }

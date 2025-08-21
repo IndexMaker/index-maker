@@ -7,7 +7,6 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
-    bits::Amount,
     functional::{PublishSingle, SingleObserver},
 };
 use tokio::task::JoinError;
@@ -23,7 +22,6 @@ use crate::{
         basic_session::RpcBasicSession, custody_session::RpcCustodySession,
         issuer_session::RpcIssuerSession, issuer_stream::RpcIssuerStream,
     },
-    util::amount_converter::AmountConverter,
 };
 
 pub struct Session {
@@ -56,6 +54,7 @@ impl Session {
         credentials: Credentials,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id();
+        let usdc_address = credentials.get_usdc_address();
         let signer_address = credentials.get_signer_address()?;
 
         self.session_loop.start(async move |cancel_token| {
@@ -80,20 +79,12 @@ impl Session {
                 }
             };
 
-            let rpc_basic_session = match RpcBasicSession::try_new(provider.clone(), signer_address).await {
-                Ok(x) => x,
-                Err(err) => {
-                    on_error(format!("Failed to create basic RPC session: {:?}", err));
-                    return credentials;
-                },
-            };
+            let rpc_basic_session = RpcBasicSession::new(provider.clone());
 
-            let converter = rpc_basic_session.get_amount_converter();
+            let rpc_issuer_session = RpcIssuerSession::new(provider.clone());
+            let rpc_issuer_stream = RpcIssuerStream::new(provider.clone());
 
-            let rpc_issuer_session = RpcIssuerSession::new(provider.clone(), signer_address, converter.clone());
-            let rpc_issuer_stream = RpcIssuerStream::new(provider.clone(), signer_address, converter.clone());
-
-            let rpc_custody_session = RpcCustodySession::new(provider, signer_address, converter.clone());
+            let rpc_custody_session = RpcCustodySession::new(provider);
 
             observer
                 .read()
@@ -107,7 +98,7 @@ impl Session {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
-                    maybe_event = rpc_issuer_stream.next_event() => {
+                    maybe_event = rpc_issuer_stream.next_event(usdc_address) => {
                         match maybe_event {
                             Ok(event) => {
                                 observer.read().publish_single(event);
@@ -121,13 +112,16 @@ impl Session {
                     Some(command) = command_rx.recv() => {
                         if let Err(err) = match command.command {
                             CommandVariant::Basic(basic_command) => {
-                                rpc_basic_session.send_basic_command(basic_command).await
+                                rpc_basic_session.send_basic_command(
+                                    command.contract_address, basic_command).await
                             }
                             CommandVariant::Issuer(issuer_command) => {
-                                rpc_issuer_session.send_issuer_command(issuer_command).await
+                                rpc_issuer_session.send_issuer_command(
+                                    command.contract_address, issuer_command, usdc_address).await
                             }
                             CommandVariant::Custody(custody_command) => {
-                                rpc_custody_session.send_custody_command(custody_command).await
+                                rpc_custody_session.send_custody_command(
+                                    command.contract_address, custody_command, usdc_address).await
                             }
                         } {
                             tracing::warn!("Command failed: {:?}", err);

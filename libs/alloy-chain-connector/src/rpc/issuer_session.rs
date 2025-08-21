@@ -3,7 +3,7 @@ use symm_core::core::{bits::Address, functional::PublishSingle};
 
 use crate::{
     command::IssuerCommand,
-    contracts::OTCIndex,
+    contracts::{OTCIndex, ERC20},
     util::{
         amount_converter::AmountConverter, gas_util::compute_gas_used,
         timestamp_util::timestamp_from_date, verification_data::build_verification_data,
@@ -16,25 +16,27 @@ where
     P: Provider + WalletProvider,
 {
     provider: P,
-    signer_address: Address,
-    converter: AmountConverter,
 }
 
 impl<P> RpcIssuerSession<P>
 where
     P: Provider + WalletProvider,
 {
-    pub fn new(provider: P, signer_address: Address, converter: AmountConverter) -> Self {
-        Self {
-            provider,
-            signer_address,
-            converter,
-        }
+    pub fn new(provider: P) -> Self {
+        Self { provider }
     }
 
-    pub async fn send_issuer_command(&self, command: IssuerCommand) -> eyre::Result<()> {
+    pub async fn send_issuer_command(
+        &self,
+        contract_address: Address,
+        command: IssuerCommand,
+        usdc_address: Address,
+    ) -> eyre::Result<()> {
         let provider = &self.provider;
-        let index = OTCIndex::new(self.signer_address, provider);
+        let index = OTCIndex::new(contract_address, provider);
+        let usdc = ERC20::new(usdc_address, provider);
+        let decimals = usdc.decimals().call().await?;
+        let converter = AmountConverter::new(decimals);
 
         match command {
             IssuerCommand::SetSolverWeights {
@@ -44,7 +46,7 @@ where
                 observer,
             } => {
                 let timestamp = timestamp_from_date(timestamp);
-                let price = self.converter.from_amount(price)?;
+                let price = converter.from_amount(price)?;
                 let weights = bytes_from_weights(basket);
 
                 let receipt = index
@@ -54,7 +56,7 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&self.converter, receipt)?;
+                let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
             }
             IssuerCommand::MintIndex {
@@ -63,7 +65,7 @@ where
                 seq_num_execution_report,
                 observer,
             } => {
-                let amount = self.converter.from_amount(amount)?;
+                let amount = converter.from_amount(amount)?;
 
                 let receipt = index
                     .mint(target, amount, seq_num_execution_report)
@@ -72,7 +74,7 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&self.converter, receipt)?;
+                let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
             }
             IssuerCommand::BurnIndex {
@@ -81,7 +83,7 @@ where
                 seq_num_new_order_single,
                 observer,
             } => {
-                let amount = self.converter.from_amount(amount)?;
+                let amount = converter.from_amount(amount)?;
 
                 let receipt = index
                     .burn(amount, target, seq_num_new_order_single)
@@ -90,7 +92,7 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&self.converter, receipt)?;
+                let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
             }
             IssuerCommand::Withdraw {
@@ -99,7 +101,7 @@ where
                 execution_report,
                 observer,
             } => {
-                let amount = self.converter.from_amount(amount)?;
+                let amount = converter.from_amount(amount)?;
                 let verification_data = build_verification_data();
 
                 let receipt = index
@@ -109,7 +111,7 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&self.converter, receipt)?;
+                let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
             }
         }

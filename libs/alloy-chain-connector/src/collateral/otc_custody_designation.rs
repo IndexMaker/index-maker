@@ -86,6 +86,7 @@ impl OTCCustodyCollateralDesignation {
             .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
         let command = Command {
+            contract_address: self.contract_address,
             command: CommandVariant::Custody(CustodyCommand::CustodyToAddress {
                 token: self.token_address,
                 destination,
@@ -119,6 +120,7 @@ impl OTCCustodyCollateralDesignation {
             .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
         let command = Command {
+            contract_address: self.contract_address,
             command: CommandVariant::Custody(CustodyCommand::AddressToCustody {
                 custody_id: self.custody_id,
                 token: self.token_address,
@@ -174,6 +176,7 @@ impl CollateralDesignation for OTCCustodyCollateralDesignation {
         let (err_tx, err_rx) = bounded(1);
 
         let command = Command {
+            contract_address: self.contract_address,
             command: CommandVariant::Custody(CustodyCommand::GetCustodyBalances {
                 custody_id: U256::ZERO,
                 token: self.token_address,
