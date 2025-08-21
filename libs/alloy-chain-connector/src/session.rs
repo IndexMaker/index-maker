@@ -79,12 +79,20 @@ impl Session {
                 }
             };
 
+            let public_provider = match credentials.connect_public().await {
+                Ok(ok) => ok,
+                Err(err) => {
+                    on_error(format!("Failed to connect public session: {:?}", err));
+                    return credentials;
+                }
+            };
+
             let rpc_basic_session = RpcBasicSession::new(provider.clone());
 
             let rpc_issuer_session = RpcIssuerSession::new(provider.clone());
-            let rpc_issuer_stream = RpcIssuerStream::new(provider.clone());
+            let rpc_custody_session = RpcCustodySession::new(provider.clone());
 
-            let rpc_custody_session = RpcCustodySession::new(provider);
+            let mut rpc_issuer_stream = RpcIssuerStream::new(public_provider);
 
             observer
                 .read()
@@ -93,22 +101,19 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
+            if let Err(err) = rpc_issuer_stream
+                .subscribe(chain_id, usdc_address, observer.clone())
+                .await
+            {
+                on_error(format!("Failed to subscribe to RPC events: {:?}", err));
+                return credentials;
+            }
+
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     },
-                    maybe_event = rpc_issuer_stream.next_event(usdc_address) => {
-                        match maybe_event {
-                            Ok(event) => {
-                                observer.read().publish_single(event);
-                            },
-                            Err(err) => {
-                                on_error(format!("Failed to receive RPC stream event: {:?}", err));
-                                return credentials;
-                            }
-                        }
-                    }
                     Some(command) = command_rx.recv() => {
                         if let Err(err) = match command.command {
                             CommandVariant::Basic(basic_command) => {
@@ -129,6 +134,10 @@ impl Session {
                         }
                     },
                 }
+            }
+
+            if let Err(err) = rpc_issuer_stream.unsubscribe().await {
+                tracing::warn!("Failed to unsubscribe from RPC events: {:?}", err);
             }
 
             observer
