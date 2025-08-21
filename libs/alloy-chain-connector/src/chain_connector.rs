@@ -91,7 +91,7 @@ impl RealChainConnector {
         let sessions_read = self.sessions.read();
         let issuer = sessions_read
             .get_session(account_name)
-            .ok_or_eyre("Issuer session not found")?;
+            .ok_or_eyre("Session not found")?;
 
         issuer.send_command(command)
     }

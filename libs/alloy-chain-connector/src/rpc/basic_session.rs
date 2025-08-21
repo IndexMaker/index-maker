@@ -45,14 +45,18 @@ where
                 observer,
             } => {
                 let signer_address = provider.default_signer_address();
-                let balance_raw = contract.balanceOf(signer_address).call().await?;
-                let balance = converter.into_amount(balance_raw)?;
+                let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
+                let sender_balance = converter.into_amount(sender_balance_raw)?;
+                let receipient_balance_raw = contract.balanceOf(receipient).call().await?;
+                let receipient_balance = converter.into_amount(receipient_balance_raw)?;
                 tracing::info!(
                     %contract_address,
                     %signer_address,
                     %receipient,
-                    %balance,
-                    %balance_raw,
+                    %sender_balance,
+                    %sender_balance_raw,
+                    %receipient_balance,
+                    %receipient_balance_raw,
                     %amount,
                     "Send Transfer");
 
@@ -67,14 +71,18 @@ where
                 let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
                 
-                let balance_raw = contract.balanceOf(signer_address).call().await?;
-                let balance = converter.into_amount(balance_raw)?;
+                let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
+                let sender_balance = converter.into_amount(sender_balance_raw)?;
+                let receipient_balance_raw = contract.balanceOf(receipient).call().await?;
+                let receipient_balance = converter.into_amount(receipient_balance_raw)?;
                 tracing::info!(
                     %contract_address,
                     %signer_address,
                     %receipient,
-                    %balance,
-                    %balance_raw,
+                    %sender_balance,
+                    %sender_balance_raw,
+                    %receipient_balance,
+                    %receipient_balance_raw,
                     %amount,
                     %amount_raw,
                     %gas_amount,
