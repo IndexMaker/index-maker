@@ -2444,6 +2444,12 @@ mod test {
         ])
         .unwrap();
 
+        // simulate connect
+        chain_connector
+            .write()
+            .unwrap()
+            .connect(chain_id, timestamp);
+
         // send basket weights
         chain_connector
             .write()
