@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, Weak};
 
-use alloy_primitives::{fixed_bytes, U256};
+use alloy_primitives::U256;
 use crossbeam::channel::bounded;
 use eyre::{eyre, OptionExt};
 use index_core::collateral::collateral_router::CollateralDesignation;
@@ -12,7 +12,6 @@ use symm_core::core::{
 use crate::{
     chain_connector::RealChainConnector,
     command::{Command, CommandVariant, CustodyCommand},
-    util::build_verification_data,
 };
 
 pub struct OTCCustodyCollateralDesignation {
@@ -25,6 +24,7 @@ pub struct OTCCustodyCollateralDesignation {
     chain_id: u32,
     contract_address: Address,
     token_address: Address,
+    custody_id: U256,
 }
 
 impl OTCCustodyCollateralDesignation {
@@ -37,6 +37,7 @@ impl OTCCustodyCollateralDesignation {
         chain_id: u32,
         contract_address: Address,
         token_address: Address,
+        custody_id: U256,
     ) -> Self {
         let full_name = Symbol::from(format!(
             "{}:{}:{}",
@@ -52,6 +53,7 @@ impl OTCCustodyCollateralDesignation {
             chain_id,
             contract_address,
             token_address,
+            custody_id,
         }
     }
 
@@ -71,7 +73,7 @@ impl OTCCustodyCollateralDesignation {
         &self,
         destination: Address,
         amount: Amount,
-        observer: SingleObserver<U256>,
+        observer: SingleObserver<Amount>,
         error_observer: SingleObserver<eyre::Report>,
     ) -> eyre::Result<()> {
         let chain_connector = self
@@ -83,15 +85,11 @@ impl OTCCustodyCollateralDesignation {
             .read()
             .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
-        let _ = amount;
-        let verification_data = build_verification_data();
-
         let command = Command {
             command: CommandVariant::Custody(CustodyCommand::CustodyToAddress {
                 token: self.token_address,
                 destination,
-                amount: U256::from(0),
-                verification_data,
+                amount,
                 observer,
             }),
             error_observer,
@@ -106,7 +104,7 @@ impl OTCCustodyCollateralDesignation {
         &self,
         source: Address,
         amount: Amount,
-        observer: SingleObserver<U256>,
+        observer: SingleObserver<Amount>,
         error_observer: SingleObserver<eyre::Report>,
     ) -> eyre::Result<()> {
         let _ = source;
@@ -120,15 +118,11 @@ impl OTCCustodyCollateralDesignation {
             .read()
             .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
-        let _ = amount;
-
         let command = Command {
             command: CommandVariant::Custody(CustodyCommand::AddressToCustody {
-                id: fixed_bytes!(
-                    "0x0000000000000000000000000000000000000000000000000000000000000000"
-                ),
+                custody_id: self.custody_id,
                 token: self.token_address,
-                amount: U256::from(0),
+                amount,
                 observer,
             }),
             error_observer,
@@ -181,9 +175,7 @@ impl CollateralDesignation for OTCCustodyCollateralDesignation {
 
         let command = Command {
             command: CommandVariant::Custody(CustodyCommand::GetCustodyBalances {
-                id: fixed_bytes!(
-                    "0x0000000000000000000000000000000000000000000000000000000000000000"
-                ),
+                custody_id: U256::ZERO,
                 token: self.token_address,
                 observer: SingleObserver::new_from(balance_tx),
             }),

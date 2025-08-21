@@ -120,6 +120,7 @@ pub mod test_util {
     pub struct MockChainConnector {
         observer: SingleObserver<ChainNotification>,
         pub implementor: SingleObserver<MockChainInternalNotification>,
+        connected: bool,
     }
 
     impl MockChainConnector {
@@ -127,12 +128,19 @@ pub mod test_util {
             Self {
                 observer: SingleObserver::new(),
                 implementor: SingleObserver::new(),
+                connected: false,
             }
         }
 
         /// Receive events from chain
-        pub fn connect(&mut self) {
-            // connect to blockchain
+        pub fn connect(&mut self, chain_id: u32, timestamp: DateTime<Utc>) {
+            assert_eq!(self.connected, false);
+            self.connected = true;
+            self.observer
+                .publish_single(super::ChainNotification::ChainConnected {
+                    chain_id,
+                    timestamp,
+                });
         }
 
         /// Notify about on chain events
@@ -141,6 +149,7 @@ pub mod test_util {
             symbol: Symbol,
             basket_definition: BasketDefinition,
         ) {
+            assert!(self.connected);
             self.observer
                 .publish_single(super::ChainNotification::CuratorWeightsSet(
                     symbol,
@@ -155,6 +164,7 @@ pub mod test_util {
             amount: Amount,
             timestamp: DateTime<Utc>,
         ) {
+            assert!(self.connected);
             self.observer.publish_single(ChainNotification::Deposit {
                 chain_id,
                 address,
@@ -170,6 +180,7 @@ pub mod test_util {
             amount: Amount,
             timestamp: DateTime<Utc>,
         ) {
+            assert!(self.connected);
             self.observer
                 .publish_single(ChainNotification::WithdrawalRequest {
                     chain_id,
@@ -186,6 +197,7 @@ pub mod test_util {
             Self {
                 observer,
                 implementor,
+                connected: false,
             }
         }
     }
@@ -319,6 +331,9 @@ mod tests {
         .unwrap();
 
         let chain_observer = SingleObserver::new_with_observer(Box::new(move |notification| {
+            if matches!(notification, ChainNotification::ChainConnected { .. }) {
+                return;
+            }
             assert!(matches!(
                 notification,
                 ChainNotification::CuratorWeightsSet(_, _)
@@ -423,7 +438,7 @@ mod tests {
             Utc::now(),
         );
 
-        mock_chain_connection.write().connect();
+        mock_chain_connection.write().connect(1, Utc::now());
         mock_chain_connection
             .read()
             .notify_curator_weights_set(get_mock_index_name_1(), basket_definition);

@@ -15,32 +15,32 @@ use symm_core::core::{
 };
 
 use crate::collateral::{
-    otc_custody_designation::OTCCustodyCollateralDesignation,
+    signer_wallet_designation::SignerWalletCollateralDesignation,
     wallet_designation::WalletCollateralDesignation,
 };
 
-pub struct OTCCustodyToWalletCollateralBridge {
+pub struct SignerWalletToWalletCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,
-    custody: Arc<RwLock<OTCCustodyCollateralDesignation>>,
+    signer_wallet: Arc<RwLock<SignerWalletCollateralDesignation>>,
     wallet: Arc<RwLock<WalletCollateralDesignation>>,
 }
 
-impl OTCCustodyToWalletCollateralBridge {
+impl SignerWalletToWalletCollateralBridge {
     pub fn new(
-        custody: Arc<RwLock<OTCCustodyCollateralDesignation>>,
+        custody: Arc<RwLock<SignerWalletCollateralDesignation>>,
         wallet: Arc<RwLock<WalletCollateralDesignation>>,
     ) -> Self {
         Self {
             observer: Arc::new(AtomicLock::new(SingleObserver::new())),
-            custody,
+            signer_wallet: custody,
             wallet,
         }
     }
 }
 
-impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
+impl CollateralBridge for SignerWalletToWalletCollateralBridge {
     fn get_source(&self) -> Arc<RwLock<dyn CollateralDesignation>> {
-        self.custody.clone() as Arc<RwLock<dyn CollateralDesignation>>
+        self.signer_wallet.clone() as Arc<RwLock<dyn CollateralDesignation>>
     }
 
     fn get_destination(&self) -> Arc<RwLock<dyn CollateralDesignation>> {
@@ -74,20 +74,20 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
             .then_some(())
             .ok_or_eyre("Incorrect chain ID")?;
 
-        let custody = self
-            .custody
+        let signer_wallet = self
+            .signer_wallet
             .read()
             .map_err(|err| eyre!("Failed to obtain lock on custody: {:?}", err))?;
 
-        (wallet_chain_id == custody.get_chain_id())
+        (wallet_chain_id == signer_wallet.get_chain_id())
             .then_some(())
             .ok_or_eyre("Incorrect chain ID")?;
 
-        (wallet_token_address == custody.get_token_address())
+        (wallet_token_address == signer_wallet.get_token_address())
             .then_some(())
             .ok_or_eyre("Incorrect token address")?;
 
-        let custody_name = custody.get_full_name();
+        let signer_wallet_name = signer_wallet.get_full_name();
         let outer_observer = self.observer.clone();
 
         let observer = SingleObserver::new_with_fn(move |gas_amount| {
@@ -101,7 +101,7 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                     client_order_id: client_order_id.clone(),
                     timestamp: Utc::now(),
                     source: wallet_name.clone(),
-                    destination: custody_name.clone(),
+                    destination: signer_wallet_name.clone(),
                     route_from: route_from.clone(),
                     route_to: route_to.clone(),
                     amount,
@@ -113,13 +113,13 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
             move |err| tracing::warn!(%address, "Failed to transfer funds: {:?}", err),
         );
 
-        custody.custody_to_address(wallet_address, amount, observer, error_observer)?;
+        signer_wallet.transfer_to_account(wallet_address, amount, observer, error_observer)?;
 
         Ok(())
     }
 }
 
-impl IntoObservableSingleVTable<CollateralRouterEvent> for OTCCustodyToWalletCollateralBridge {
+impl IntoObservableSingleVTable<CollateralRouterEvent> for SignerWalletToWalletCollateralBridge {
     fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
         self.observer.write().set_observer(observer);
     }

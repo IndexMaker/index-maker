@@ -1,54 +1,74 @@
-use alloy_primitives::{Bytes, FixedBytes, U256};
-use symm_core::core::{bits::Address, functional::SingleObserver};
+use std::sync::Arc;
 
-use crate::contracts::VerificationData;
+use alloy_primitives::{Bytes, U256};
+use chrono::{DateTime, Utc};
+use index_core::index::basket::Basket;
+use symm_core::core::{
+    bits::{Address, Amount},
+    functional::SingleObserver,
+};
+
+pub enum BasicCommand {
+    BalanceOf {
+        account: Address,
+        observer: SingleObserver<Amount>,
+    },
+    Transfer {
+        to: Address,
+        amount: Amount,
+        observer: SingleObserver<Amount>,
+    },
+}
 
 pub enum IssuerCommand {
     SetSolverWeights {
-        timestamp: U256,
-        weights: Bytes,
-        price: U256,
+        basket: Arc<Basket>,
+        price: Amount,
+        timestamp: DateTime<Utc>,
+        observer: SingleObserver<Amount>,
     },
     MintIndex {
         target: Address,
-        amount: U256,
+        amount: Amount,
         seq_num_execution_report: U256,
+        observer: SingleObserver<Amount>,
     },
     BurnIndex {
-        amount: U256,
         target: Address,
+        amount: Amount,
         seq_num_new_order_single: U256,
+        observer: SingleObserver<Amount>,
     },
     Withdraw {
-        amount: U256,
-        to: Address,
-        verification_data: VerificationData,
+        receipient: Address,
+        amount: Amount,
         execution_report: Bytes,
+        observer: SingleObserver<Amount>,
     },
 }
 
 pub enum CustodyCommand {
     AddressToCustody {
-        id: FixedBytes<32>,
+        custody_id: U256,
         token: Address,
-        amount: U256,
-        observer: SingleObserver<U256>,
+        amount: Amount,
+        observer: SingleObserver<Amount>,
     },
     CustodyToAddress {
         token: Address,
         destination: Address,
-        amount: U256,
-        verification_data: VerificationData,
-        observer: SingleObserver<U256>,
+        amount: Amount,
+        observer: SingleObserver<Amount>,
     },
     GetCustodyBalances {
-        id: FixedBytes<32>,
+        custody_id: U256,
         token: Address,
-        observer: SingleObserver<U256>,
+        observer: SingleObserver<Amount>,
     },
 }
 
 pub enum CommandVariant {
+    Basic(BasicCommand),
     Issuer(IssuerCommand),
     Custody(CustodyCommand),
 }

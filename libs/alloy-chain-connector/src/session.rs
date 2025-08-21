@@ -7,6 +7,7 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
+    bits::Amount,
     functional::{PublishSingle, SingleObserver},
 };
 use tokio::task::JoinError;
@@ -17,7 +18,12 @@ use tokio::{
 
 use crate::{
     command::{Command, CommandVariant},
-    credentials::Credentials, rpc::{custody_session::RpcCustodySession, issuer_session::RpcIssuerSession, issuer_stream::RpcIssuerStream},
+    credentials::Credentials,
+    rpc::{
+        basic_session::RpcBasicSession, custody_session::RpcCustodySession,
+        issuer_session::RpcIssuerSession, issuer_stream::RpcIssuerStream,
+    },
+    util::amount_converter::AmountConverter,
 };
 
 pub struct Session {
@@ -50,11 +56,11 @@ impl Session {
         credentials: Credentials,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id();
-        let address = credentials.get_signer_address()?;
+        let signer_address = credentials.get_signer_address()?;
 
         self.session_loop.start(async move |cancel_token| {
             let on_error = |reason| {
-                tracing::warn!(%chain_id, %address, "{:?}", reason);
+                tracing::warn!(%chain_id, %signer_address, "{:?}", reason);
                 observer
                     .read()
                     .publish_single(ChainNotification::ChainDisconnected {
@@ -64,7 +70,7 @@ impl Session {
                     });
             };
 
-            tracing::info!(%chain_id, %address, "Session loop started");
+            tracing::info!(%chain_id, %signer_address, "Session loop started");
 
             let provider = match credentials.connect().await {
                 Ok(ok) => ok,
@@ -74,10 +80,20 @@ impl Session {
                 }
             };
 
-            let rpc_issuer_session = RpcIssuerSession::new(provider.clone());
-            let rpc_issuer_stream = RpcIssuerStream::new(provider.clone());
+            let rpc_basic_session = match RpcBasicSession::try_new(provider.clone(), signer_address).await {
+                Ok(x) => x,
+                Err(err) => {
+                    on_error(format!("Failed to create basic RPC session: {:?}", err));
+                    return credentials;
+                },
+            };
 
-            let rpc_custody_session = RpcCustodySession::new(provider);
+            let converter = rpc_basic_session.get_amount_converter();
+
+            let rpc_issuer_session = RpcIssuerSession::new(provider.clone(), signer_address, converter.clone());
+            let rpc_issuer_stream = RpcIssuerStream::new(provider.clone(), signer_address, converter.clone());
+
+            let rpc_custody_session = RpcCustodySession::new(provider, signer_address, converter.clone());
 
             observer
                 .read()
@@ -104,6 +120,9 @@ impl Session {
                     }
                     Some(command) = command_rx.recv() => {
                         if let Err(err) = match command.command {
+                            CommandVariant::Basic(basic_command) => {
+                                rpc_basic_session.send_basic_command(basic_command).await
+                            }
                             CommandVariant::Issuer(issuer_command) => {
                                 rpc_issuer_session.send_issuer_command(issuer_command).await
                             }
@@ -126,7 +145,7 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
-            tracing::info!(%chain_id, %address, "Session loop exited");
+            tracing::info!(%chain_id, %signer_address, "Session loop exited");
             credentials
         });
 

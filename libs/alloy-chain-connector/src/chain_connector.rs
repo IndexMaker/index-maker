@@ -23,7 +23,6 @@ use crate::{
     credentials::Credentials,
     sessions::Sessions,
     subaccounts::SubAccounts,
-    util::build_verification_data,
 };
 
 pub struct RealChainConnector {
@@ -125,12 +124,12 @@ impl ChainConnector for RealChainConnector {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
         let chain_id = 0;
         let _ = symbol;
-        let _ = basket;
 
         let command = IssuerCommand::SetSolverWeights {
-            timestamp: U256::from(0),
-            weights: bytes!("0x0000"),
-            price: U256::from(0),
+            timestamp: Utc::now(),
+            basket,
+            price: Amount::ZERO,
+            observer: SingleObserver::new(),
         };
 
         if let Err(err) = self.send_command_to_issuer(chain_id, command) {
@@ -154,8 +153,9 @@ impl ChainConnector for RealChainConnector {
 
         let command = IssuerCommand::MintIndex {
             target: receipient,
-            amount: U256::ZERO,
+            amount: quantity,
             seq_num_execution_report: U256::ZERO,
+            observer: SingleObserver::new(),
         };
 
         if let Err(err) = self.send_command_to_issuer(chain_id, command) {
@@ -169,9 +169,10 @@ impl ChainConnector for RealChainConnector {
         let _ = quantity;
 
         let command = IssuerCommand::BurnIndex {
-            amount: U256::ZERO,
+            amount: quantity,
             target: receipient,
             seq_num_new_order_single: U256::ZERO,
+            observer: SingleObserver::new(),
         };
 
         if let Err(err) = self.send_command_to_issuer(chain_id, command) {
@@ -193,10 +194,10 @@ impl ChainConnector for RealChainConnector {
         let _ = execution_time;
 
         let command = IssuerCommand::Withdraw {
-            amount: U256::ZERO,
-            to: receipient,
-            verification_data: build_verification_data(),
+            amount,
+            receipient,
             execution_report: bytes!("0x0000"),
+            observer: SingleObserver::new(),
         };
 
         if let Err(err) = self.send_command_to_issuer(chain_id, command) {
@@ -229,7 +230,8 @@ mod test {
     use crate::{chain_connector::RealChainConnector, credentials::Credentials};
 
     #[test]
-    fn test_chain_connector() {
+    #[ignore]
+    fn sbe_chain_connector() {
         let mut chain_connector = RealChainConnector::new();
 
         chain_connector.start().unwrap();
