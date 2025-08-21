@@ -40,13 +40,25 @@ where
                 observer.publish_single(balance);
             }
             BasicCommand::Transfer {
-                to,
+                receipient,
                 amount,
                 observer,
             } => {
-                let amount = converter.from_amount(amount)?;
+                let signer_address = provider.default_signer_address();
+                let balance_raw = contract.balanceOf(signer_address).call().await?;
+                let balance = converter.into_amount(balance_raw)?;
+                tracing::info!(
+                    %contract_address,
+                    %signer_address,
+                    %receipient,
+                    %balance,
+                    %balance_raw,
+                    %amount,
+                    "Send Transfer");
+
+                let amount_raw = converter.from_amount(amount)?;
                 let receipt = contract
-                    .transfer(to, amount)
+                    .transfer(receipient, amount_raw)
                     .send()
                     .await?
                     .get_receipt()
@@ -54,6 +66,19 @@ where
 
                 let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
+                
+                let balance_raw = contract.balanceOf(signer_address).call().await?;
+                let balance = converter.into_amount(balance_raw)?;
+                tracing::info!(
+                    %contract_address,
+                    %signer_address,
+                    %receipient,
+                    %balance,
+                    %balance_raw,
+                    %amount,
+                    %amount_raw,
+                    %gas_amount,
+                    "Transfer Complete");
             }
         }
         Ok(())

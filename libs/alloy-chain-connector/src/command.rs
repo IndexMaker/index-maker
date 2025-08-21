@@ -14,7 +14,7 @@ pub enum BasicCommand {
         observer: SingleObserver<Amount>,
     },
     Transfer {
-        to: Address,
+        receipient: Address,
         amount: Amount,
         observer: SingleObserver<Amount>,
     },
