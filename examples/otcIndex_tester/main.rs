@@ -1,64 +1,61 @@
-//! RUST_LOG=info cargo run --example otc_alloy_isolated
-//!
-//! Required env:
-//!   BASE_FORK_URL   = "https://mainnet.base.org"     # or your archival Base RPC
-//!   OTC_INDEX_ADDR  = "0x..."                        # deployed OTCIndex (live on Base)
-//!   OTC_CUSTODY_ADDR= "0x..."                        # deployed OTCCustody (live on Base)
-//!   OPERATOR_PK     = "0x..."                        # hex private key (for Alloy signing demo)
-//!
-//! Optional env:
-//!   ANVIL_HTTP      = "http://127.0.0.1:8545"        # where fork will be exposed
-//!   POLL_MS         = "1000"                         # polling interval ms
-//!   FRONTEND_ADDR   = "0x..."                        # address to attribute as 'frontend' in Mint
-//!   EXEC_PRICE      = "1000000"                      # arbitrary execution price to log in Mint
-//!   EXEC_TIME       = "0"                            # unix ts override (0 => use block.timestamp)
-//!
-//! Flow:
-//!   1) Find deploy blocks of OTCIndex + OTCCustody on Base, fork Anvil from max block.
-//!   2) Wait for a real Deposit (from your JS client) on the forked node.
-//!   3) Build Merkle root (alloy-merkle-tree) over the deposit intent; sign root (Alloy signer).
-//!   4) Call OTCCustody.custodyToAddress(...) with VerificationData (may revert — OK for demo).
-//!   5) Impersonate OTCCustody and call IOTCIndex.mint(...).
-//!   6) Confirm Mint event -> logs "✅ Mint ..." and exit.
-
+use alloy_rpc_types_eth::TransactionInput;
+use anyhow::{anyhow, Context, Result};
+use dotenvy::dotenv;
+use serde_json::json;
 use std::{
     process::{Command, Stdio},
     str::FromStr,
     time::Duration,
 };
-
-use anyhow::{anyhow, Context, Result};
-use dotenvy::dotenv;
-use reqwest::Url;
-use serde_json::json;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use alloy::{dyn_abi::DynSolValue, signers::Signer};
-use alloy::{network::BlockResponse, primitives::LogData};
+use alloy::network::BlockResponse;
+use alloy::primitives::address;
 use alloy::{
-    primitives::{keccak256, Address, Bytes, Log as PrimLog, B256, U256},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder, RootProvider},
+    primitives::{keccak256, Address, Bytes, B256, U256},
+    providers::{ext::AnvilApi, Provider, ProviderBuilder},
     rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption, TransactionRequest},
     signers::local::PrivateKeySigner,
     sol,
-    sol_types::{SolCall, SolEvent},
+    sol_types::{SolCall, SolValue},
 };
 use alloy_consensus::BlockHeader;
-use alloy_merkle_tree::standard_binary_tree::StandardMerkleTree;
-use alloy_network::{ReceiptResponse, TransactionBuilder};
+use alloy_network::TransactionBuilder;
+
 sol! {
+    struct C2ALeafTuple {
+        string method;
+        uint256 chainId;
+        address custody;
+        uint8  state;
+        bytes  params;
+        uint8  pkParity;
+        bytes32 pkX;
+    }
+    struct MyTuple {
+        bytes32 leaf;
+        uint256 timestamp;
+        address destination;
+    }
     #[sol(rpc)]
     interface IOTCIndex {
-        // events
-        event Deposit(uint256 amount, address from, bytes quote, address affiliate);
+        event Deposit(
+            uint256 amount,
+            address from,
+            uint256 seqNumNewOrderSingle,
+            address affiliate1,
+            address affiliate2
+        );
+        event Mint(
+            uint256 amount,
+            address to,
+            uint256 seqNumExecutionReport
+        );
         event Withdraw(uint256 amount, address to, bytes executionReport);
-        event Mint(uint256 amount, address to, uint256 executionPrice, uint256 executionTime, address frontend);
-
-        // funcs we use
         function getCollateralToken() external view returns (address);
-        function mint(address target, uint256 amount, uint256 executionPrice, uint256 executionTime, address frontend) external;
+        function mint(address target, uint256 amount, uint256 seqNumExecutionReport) external;
     }
 }
 
@@ -72,7 +69,6 @@ sol! {
     }
 }
 
-/// Mirrors OTCCustody.VerificationData layout you provided.
 sol! {
     struct SchnorrCAKey { uint8 parity; bytes32 x; }
     struct SchnorrSignature { bytes32 e; bytes32 s; }
@@ -93,6 +89,13 @@ sol! {
         function getCustodyState(bytes32 id) external view returns (uint8);
         function getCustodyBalances(bytes32 id, address token) external view returns (uint256);
         function getCA(bytes32 id) external view returns (bytes32);
+    }
+
+    interface IERC20View { function decimals() external view returns (uint8); }
+
+    interface IERC20Transfer {
+        function transfer(address to, uint256 amount) external returns (bool);
+        function decimals() external view returns (uint8);
     }
 }
 
@@ -147,7 +150,7 @@ async fn main() -> Result<()> {
         .arg("--block-time")
         .arg("1")
         .arg("--port")
-        .arg(anvil_http.split(':').last().unwrap_or("8545")) // keep default if ANVIL_HTTP not set
+        .arg(anvil_http.split(':').last().unwrap_or("8545"))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -159,17 +162,92 @@ async fn main() -> Result<()> {
 
     let signer: PrivateKeySigner = std::env::var("OPERATOR_PK")?.parse()?;
     let provider = ProviderBuilder::new()
-        .wallet(signer)
+        // .wallet(signer)
         .connect("http://127.0.0.1:8545")
         .await?;
 
-    // (optional) enable auto-impersonation on the fork
     provider.anvil_auto_impersonate_account(true).await?;
     // contracts
     let index = IOTCIndex::new(index_addr, provider.clone());
     let custody = IOTCCustody::new(custody_addr, provider.clone());
     let collateral_fb = index.getCollateralToken().call().await?.0;
     let collateral: Address = collateral_fb.into();
+
+    let usdc: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".parse()?; // native USDC on Base
+    let rpc_url = "http://127.0.0.1:8545"; // or whatever you're using
+    let bare = ProviderBuilder::new().connect(rpc_url).await?;
+    // ** Whale address from env
+    let whale: Address = std::env::var("WHALE")
+        .expect("Set WHALE env to a Base USDC whale")
+        .parse()
+        .expect("Invalid WHALE");
+
+    bare.anvil_impersonate_account(whale).await?;
+    let whale_eth = U256::from(10_000u64) * exp10(18);
+    bare.anvil_set_balance(whale, whale_eth).await?;
+
+    let dec_data: Bytes = IERC20View::decimalsCall {}.abi_encode().into();
+    let dec_out = bare
+        .call(
+            TransactionRequest::default()
+                .to(usdc)
+                .input(TransactionInput::from(dec_data)),
+        )
+        .await?;
+    // ** uint8 is 32-byte padded; the last byte is fine
+    let decimals: u8 = *dec_out.last().unwrap_or(&6u8);
+    fn exp10(d: u8) -> U256 {
+        let mut x = U256::from(1u8);
+        for _ in 0..d {
+            x = x * U256::from(10u8);
+        }
+        x
+    }
+    let amount_units = U256::from(10_000u64) * exp10(decimals);
+
+    // ** Default 10 Anvil accounts
+    let recipients: [Address; 10] = [
+        address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+        address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+        address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+        address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
+        address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
+        address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
+        address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
+        address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
+        address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
+        address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
+    ];
+
+    // ** Impersonate whale on the fork
+    bare.anvil_impersonate_account(whale).await?;
+
+    // ** Transfer 10,000 collateral to each recipient
+    for &to in &recipients {
+        let calldata: Bytes = IERC20Transfer::transferCall {
+            to,
+            amount: amount_units,
+        }
+        .abi_encode()
+        .into();
+
+        let tx = TransactionRequest::default()
+            .with_from(whale)
+            .with_to(usdc)
+            .with_input(calldata)
+            .with_gas_limit(120_000u64);
+
+        let pending = bare.send_transaction(tx).await?;
+        let receipt = pending.get_receipt().await?;
+        if !receipt.status() {
+            error!("USDC transfer to {to:#x} failed: {:?}", receipt);
+            anyhow::bail!("USDC transfer failed");
+        }
+        info!("10_000 USDC -> {to:#x} | tx {:?}", receipt.transaction_hash);
+    }
+
+    // ** Stop impersonating (optional)
+    bare.anvil_stop_impersonating_account(whale).await?;
 
     // ---- 3) wait for real Deposit ----
     let start_block = provider.get_block_number().await?;
@@ -186,153 +264,8 @@ async fn main() -> Result<()> {
         index_addr, start_block
     );
     let (amount, from, quote, affiliate, seen_at) =
-        wait_for_deposit(&provider, &filter, index_addr, poll_ms).await?;
-    info!(
-        "🧾 Deposit: amount={} from={} affiliate={} (block #{})",
-        amount,
-        fmt(from),
-        fmt(affiliate),
-        seen_at
-    );
+        wait_for_deposit(&provider, &filter, index_addr, poll_ms, collateral).await?;
 
-    // ---- 4) Merkle + signing (Alloy-only) ----
-    // We make a leaf using a deterministic preimage. Adjust `leaf_bytes(...)` to match VerificationUtils format if needed.
-    let leaf = DynSolValue::Tuple(vec![
-        DynSolValue::Address(index_addr),
-        DynSolValue::Address(from),
-        DynSolValue::Uint(amount, 256),
-        // pack quote -> keccak -> FixedBytes(32)
-        DynSolValue::FixedBytes(keccak256(&quote.0), 32),
-        DynSolValue::Address(affiliate),
-    ]);
-
-    // Build the OZ-style standard tree (sorted)
-    let tree = StandardMerkleTree::of_sorted(&[leaf.clone()]);
-
-    // Root and proof
-    let root: B256 = tree.root();
-    let root_b256: B256 = tree.root();
-    let proof: Vec<B256> = tree
-        .get_proof(&leaf)
-        .map_err(|e| anyhow::anyhow!("get_proof failed"))?;
-
-    // Optional local verify
-    assert!(tree.verify_proof(&leaf, proof.clone()));
-
-    // Alloy signing (EIP-191 style hash; here we just sign the root directly)
-    let sig = operator_pk.sign_hash(&root_b256).await?;
-    let (sig_e, sig_s) = split_sig_to_e_s(&sig.as_bytes());
-
-    // ---- 5) Try calling custodyToAddress (may revert if Merkle rules differ; OK) ----
-    // We craft a VerificationData that passes basic guards (timestamp <= now, new nullifier).
-    let now: U256 = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await?
-        .map(|b| U256::from(b.header().timestamp()))
-        .unwrap_or(U256::ZERO);
-
-    // OTCCustody state check requires v.state == custodyState[v.id]
-    // We set id = root, so initCA(root) would have CA[root] = root; but custodyState[root] defaults to 0.
-    // Therefore we send state=0. If your real flow sets a different state, change here.
-    let v = VerificationData {
-        id: root_b256,
-        state: 0u8.into(),
-        timestamp: U256::from(now), // <= block.timestamp passes checkExpiry
-        pubKey: SchnorrCAKey {
-            parity: 0u8.into(),
-            x: B256::ZERO,
-        },
-        sig: SchnorrSignature { e: sig_e, s: sig_s },
-        merkleProof: proof.into_iter().map(Into::into).collect(),
-    };
-
-    // We also need custody to have enough balance for `amount`. Since we can't rely on your index's deposit path
-    // to have topped up custody, you can uncomment the funding block below to top-up via addressToCustody
-    // (requires the caller to hold collateral and approve OTCCustody).
-    //
-    //  provider.anvil_impersonate_account(from).await?;
-    //  approve + call `addressToCustody(v.id, collateral, amount)` here if desired.
-
-    let c2a = IOTCCustody::custodyToAddressCall {
-        token: collateral,
-        destination: from,
-        amount,
-        v,
-    }
-    .abi_encode();
-
-    let try_tx = TransactionRequest::default()
-        .to(custody_addr)
-        .with_from(Address::ZERO) // any; anvil accepts
-        .with_input(Bytes::from(c2a))
-        .with_gas_limit(1_500_000u64);
-
-    match provider.eth_send_transaction_sync(try_tx).await {
-        Ok(r) if r.status() => info!("✅ custodyToAddress tx sent: {:?}", r.transaction_hash()),
-        Ok(r) => warn!("custodyToAddress reverted (expected in demo unless leaf encoding matches VerificationUtils). Receipt: {:?}", r),
-        Err(e) => warn!("custodyToAddress call error (ok for demo): {e:#}"),
-    }
-
-    // ---- 6) Impersonate OTCCustody and call mint() ----
-    provider.anvil_impersonate_account(custody_addr).await?;
-    let exec_time = if exec_time_override.is_zero() {
-        U256::from(now)
-    } else {
-        exec_time_override
-    };
-
-    let mint_call = IOTCIndex::mintCall {
-        target: from,
-        amount,
-        executionPrice: exec_price,
-        executionTime: exec_time,
-        frontend,
-    }
-    .abi_encode();
-
-    let mint_tx = TransactionRequest::default()
-        .from(custody_addr)
-        .to(index_addr)
-        .with_input(Bytes::from(mint_call))
-        .with_gas_limit(1_000_000u64);
-
-    let mint_rcpt = provider.eth_send_transaction_sync(mint_tx).await?;
-    if !mint_rcpt.status() {
-        return Err(anyhow!(
-            "mint() reverted — check onlyOTCCustody gating/impersonation"
-        ));
-    }
-    info!("🎉 mint() ok. tx={:?}", mint_rcpt.transaction_hash());
-
-    // Confirm Mint event
-    let mint_logs = provider
-        .get_logs(
-            &Filter::new()
-                .address(index_addr)
-                .event("Mint(uint256,address,uint256,uint256,address)")
-                .select(FilterBlockOption::Range {
-                    from_block: Some(BlockNumberOrTag::Number(
-                        mint_rcpt.block_number().unwrap_or(start_block),
-                    )),
-                    to_block: Some(BlockNumberOrTag::Latest),
-                }),
-        )
-        .await?;
-    for l in mint_logs {
-        if let Ok(ev) = IOTCIndex::Mint::decode_log(&l.inner) {
-            // `ev` is the typed event struct
-            info!(
-                "✅ Mint: amount={} to={} price={} time={} frontend={}",
-                ev.amount,
-                fmt(ev.to),
-                ev.executionPrice,
-                ev.executionTime,
-                fmt(ev.frontend)
-            );
-        }
-    }
-
-    tracing::info!("Done. Your JS client should have observed the Mint event.");
     Ok(())
 }
 
@@ -352,26 +285,207 @@ async fn wait_for_rpc(rpc_url: &str) -> Result<()> {
     Err(anyhow::anyhow!("Timed out waiting for Anvil at {rpc_url}"))
 }
 
-/// Build the deposit "leaf" bytes. Adjust this to your on-chain VerificationUtils preimage format.
-fn leaf_bytes(
-    index: Address,
-    from: Address,
+fn abi_encode_address(addr: Address) -> Bytes {
+    let mut out = vec![0u8; 32];
+    out[12..].copy_from_slice(addr.as_slice());
+    out.into()
+}
+
+fn parse_b256(s: &str) -> Result<B256> {
+    let t = s.trim();
+    let t = t.strip_prefix("0x").unwrap_or(t);
+    if t.len() != 64 {
+        return Err(anyhow!("expected 32-byte hex (64 chars), got {}", t.len()));
+    }
+    if !t.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow!("non-hex character in OTC_CUSTODY_ID"));
+    }
+    // B256 implements FromStr on "0x…"
+    Ok(format!("0x{t}").parse::<B256>()?)
+}
+
+fn build_c2a_leaf(
+    custody_addr: Address,
+    chain_id: u64,
+    state_u8: u8,
+    destination: Address,
+    pk_parity: u8,
+    pk_x: B256,
+) -> B256 {
+    // params = abi.encode(destination)
+    let encoded_params: Bytes = abi_encode_address(destination);
+
+    // inner = keccak256(abi.encode(
+    //   "custodyToAddress", chainId, custody, state, params, pkParity, pkX
+    // ))
+    let value = C2ALeafTuple {
+        method: "custodyToAddress".to_string(),
+        chainId: U256::from(chain_id),
+        custody: custody_addr,
+        state: state_u8,
+        params: encoded_params,
+        pkParity: pk_parity,
+        pkX: pk_x,
+    };
+    let inner = keccak256(value.abi_encode());
+
+    keccak256(inner)
+}
+
+pub async fn make_merkle_passing_vdata<P: Provider>(
+    p: &P,
+    custody_addr: Address,
+    chain_id: u64,
+    destination: Address,
+) -> Result<VerificationData> {
+    // Build leaf for state=0, pk=(0,0)
+    let mut leaves = Vec::new();
+
+    // Then the custodyToAddress leaf
+    let c2a_leaf = match std::env::var("OTC_CUSTODY_ID") {
+        Ok(s) => parse_b256(&s).context("OTC_CUSTODY_ID must be 32-byte hex (bytes32)")?,
+        Err(_) => B256::repeat_byte(0x11),
+    };
+    let c2a_index = leaves.len(); // current length is the index
+    leaves.push(c2a_leaf);
+    let id: B256 = match std::env::var("OTC_CUSTODY_ID") {
+        Ok(s) => parse_b256(&s).context("OTC_CUSTODY_ID must be 32-byte hex (bytes32)")?,
+        Err(_) => B256::repeat_byte(0x11),
+    };
+    // fresh timestamp
+    let now: U256 = p
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await?
+        .map(|b| U256::from(b.header().timestamp()))
+        .unwrap_or(U256::ZERO);
+
+    let e = B256::from(keccak256(
+        MyTuple { leaf: c2a_leaf, timestamp: now, destination }.abi_encode()
+    ));
+    let s = B256::from([0x33; 32]);
+
+    let proof = merkle_proof_positional(&leaves, c2a_index); 
+    Ok(VerificationData {
+        id: c2a_leaf, 
+        state: 0,
+        timestamp: now,
+        pubKey: SchnorrCAKey {
+            parity: 0,
+            x: B256::ZERO,
+        },
+        sig: SchnorrSignature { e, s }, 
+        merkleProof: proof?,
+    })
+}
+
+async fn try_custody_to_address<P: Provider>(
+    p: &P,
+    custody_addr: Address,
+    token: Address,
+    to: Address,
     amount: U256,
-    quote: &Bytes,
-    affiliate: Address,
-) -> Vec<u8> {
-    // Example packed encoding:
-    // keccak( abi.encodePacked("deposit", index, from, amount, keccak(quote), affiliate) )
-    let mut out = Vec::new();
-    out.extend_from_slice(b"deposit");
-    out.extend_from_slice(index.as_slice());
-    out.extend_from_slice(from.as_slice());
-    let amt_be: [u8; 32] = amount.to_be_bytes();
-    out.extend_from_slice(&amt_be);
-    let qh = keccak256(&quote.0);
-    out.extend_from_slice(qh.as_slice());
-    out.extend_from_slice(affiliate.as_slice());
-    out
+) -> Result<()> {
+    let now: U256 = p
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await?
+        .map(|b| U256::from(b.header().timestamp()))
+        .unwrap_or(U256::ZERO);
+
+    
+    let chain_id = 8453u64;
+    let v = make_merkle_passing_vdata(&p, custody_addr, chain_id, to).await?;
+
+    let calldata: Bytes = IOTCCustody::custodyToAddressCall {
+        token,
+        destination: to,
+        amount,
+        v,
+    }
+    .abi_encode()
+    .into();
+
+    p.anvil_impersonate_account(custody_addr).await?;
+    let ten_k_eth = U256::from(10_000u64) * U256::from(10).pow(U256::from(18));
+    let _ = p.anvil_set_balance(custody_addr, ten_k_eth).await;
+
+    match p
+        .call(
+            TransactionRequest::default()
+                .to(custody_addr)
+                .input(calldata.clone().into()),
+        )
+        .await
+    {
+        Ok(_) => warn!("custodyToAddress eth_call unexpectedly succeeded"),
+        Err(e) => info!("❌ custodyToAddress eth_call reverted (expected in demo): {e:?}"),
+    }
+    p.anvil_stop_impersonating_account(custody_addr).await?;
+    Ok(())
+}
+
+async fn mint_from_custody<P: Provider>(
+    p: &P,
+    custody_addr: Address,
+    index_addr: Address,
+    to: Address,
+    amount: U256,
+    seq: U256,
+) -> anyhow::Result<()> {
+    let index_price: U256 = std::env::var("INDEX_PRICE")
+        .expect("INDEX_PRICE environment variable not set")
+        .parse()
+        .expect("INDEX_PRICE must be a valid number");
+
+    fn pow10(d: u32) -> U256 {
+        let mut x = U256::from(1);
+        for _ in 0..d {
+            x = x * U256::from(10);
+        }
+        x
+    }
+    let mint_amount = amount * pow10(18) / index_price;
+
+    p.anvil_impersonate_account(custody_addr).await?;
+    let ten_k_eth = U256::from(10_000u64) * U256::from(10).pow(U256::from(18));
+    let _ = p.anvil_set_balance(custody_addr, ten_k_eth).await;
+
+    let call: Bytes = IOTCIndex::mintCall {
+        target: to,
+        amount: mint_amount,
+        seqNumExecutionReport: seq,
+    }
+    .abi_encode()
+    .into();
+
+    let tx = TransactionRequest::default()
+        .from(custody_addr)
+        .to(index_addr)
+        .input(call.into())
+        .gas_limit(300_000u64);
+
+    let pending = p.send_transaction(tx).await?;
+    let rc = pending.get_receipt().await?;
+    if !rc.status() {
+        anyhow::bail!("mint() reverted: {:?}", rc);
+    }
+    let mint_as_f64 = mint_amount.to_string().parse::<f64>().unwrap() / 1e18;
+    // Enhanced logging with all relevant information
+    tracing::info!(
+        "✅ Mint successful - \
+        Tx: {:?}, \
+        Deposit amount: {:?}, \
+        Index price: {:?}, \
+        Mint amount: {:?}, \
+        To: {:?}",
+        rc.transaction_hash,
+        amount,
+        index_price,
+        mint_as_f64,
+        to
+    );
+
+    p.anvil_stop_impersonating_account(custody_addr).await?;
+    Ok(())
 }
 
 /// Waits for the very first Deposit and returns its fields + the block number it was seen at.
@@ -380,24 +494,55 @@ async fn wait_for_deposit<P: Provider>(
     base_filter: &Filter,
     index_addr: Address,
     poll_ms: u64,
+    collateral: Address,
 ) -> Result<(U256, Address, Bytes, Address, u64)> {
     let mut last_from = current_block(provider).await?;
+    let base = Filter::new().address(index_addr);
     loop {
         let tip = current_block(provider).await?;
         if tip > last_from {
-            let range = Filter::new()
-                .address(index_addr) // <- no unwrap()
-                .event("Deposit(uint256,address,bytes,address)")
-                .select(FilterBlockOption::Range {
-                    from_block: Some(BlockNumberOrTag::Number(last_from + 1)),
-                    to_block: Some(BlockNumberOrTag::Number(tip)),
-                });
+            let range = base.clone().select(FilterBlockOption::Range {
+                from_block: Some(BlockNumberOrTag::Number(last_from + 1)),
+                to_block: Some(BlockNumberOrTag::Number(tip)),
+            });
 
             let logs = provider.get_logs(&range).await?;
             for l in logs {
-                if let Ok(ev) = IOTCIndex::Deposit::decode_log(&l.inner) {
-                    let bn = l.block_number.unwrap_or(tip);
-                    return Ok((ev.amount, ev.from, ev.quote.clone(), ev.affiliate, bn));
+                if let Ok(dl) = l.log_decode::<IOTCIndex::Deposit>() {
+                    let ev = dl.inner;
+                    info!(
+                        "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
+                        ev.amount, ev.from, ev.seqNumNewOrderSingle, ev.affiliate1, ev.affiliate2
+                    );
+                    let custody_addr: Address = std::env::var("OTC_CUSTODY_ADDR")
+                        .expect("OTC_CUSTODY_ADDR")
+                        .parse()?;
+                    if let Err(e) = try_custody_to_address(
+                        &provider,
+                        custody_addr,
+                        collateral,
+                        ev.from,
+                        ev.amount,
+                    )
+                    .await
+                    {
+                        warn!("custodyToAddress preview failed: {e:?}");
+                    }
+
+                    // 2) mint to depositor (demo path)
+                    if let Err(e) = mint_from_custody(
+                        &provider,
+                        custody_addr,
+                        index_addr,
+                        ev.from,
+                        ev.amount,
+                        ev.seqNumNewOrderSingle.into(),
+                    )
+                    .await
+                    {
+                        warn!("mint_from_custody failed: {e:?}");
+                    }
+                    continue;
                 }
             }
             last_from = tip;
@@ -410,7 +555,6 @@ async fn current_block<P: Provider>(provider: &P) -> Result<u64> {
     Ok(provider.get_block_number().await?)
 }
 
-/// Binary-search the first block where code exists for `addr`.
 async fn find_deploy_block<P: Provider>(p: &P, addr: Address, latest: u64) -> Result<u64> {
     let mut lo = 1u64;
     let mut hi = latest;
@@ -445,28 +589,6 @@ fn env_pk(key: &str) -> Result<PrivateKeySigner> {
     Ok(pk)
 }
 
-fn split_sig_to_e_s(sig: &[u8]) -> (B256, B256) {
-    // Alloy local signer returns 65-byte sig (r,s,v).
-    // For demo, derive 'e' from keccak(r||s||v) and 's' from s (32b).
-    // Your Schnorr scheme will differ — replace accordingly.
-    if sig.len() < 65 {
-        return (B256::ZERO, B256::ZERO);
-    }
-    let r = &sig[0..32];
-    let s = &sig[32..64];
-    let v = &sig[64..65];
-    let mut rs = Vec::with_capacity(65);
-    rs.extend_from_slice(r);
-    rs.extend_from_slice(s);
-    rs.extend_from_slice(v);
-    let e = keccak256(&rs);
-    (e, B256::from_slice(s))
-}
-
-fn fmt(a: Address) -> String {
-    format!("{:#x}", a)
-}
-
 fn parse_u256_decimal(s: &str) -> anyhow::Result<U256> {
     let s = s.trim();
     if s.is_empty() {
@@ -484,4 +606,63 @@ fn parse_u256_decimal(s: &str) -> anyhow::Result<U256> {
         acc = acc * U256::from(10u8) + U256::from(d);
     }
     Ok(acc)
+}
+
+fn keccak_pair(left: B256, right: B256) -> B256 {
+    let mut buf = [0u8; 64];
+    buf[..32].copy_from_slice(left.as_slice());
+    buf[32..].copy_from_slice(right.as_slice());
+    keccak256(&buf)
+}
+
+pub fn merkle_proof_positional(leaves: &[B256], mut index: usize) -> anyhow::Result<Vec<B256>> {
+    if leaves.is_empty() {
+        anyhow::bail!("no leaves");
+    }
+    if index >= leaves.len() {
+        anyhow::bail!("index {} out of bounds (0..{})", index, leaves.len().saturating_sub(1));
+    }
+    if leaves.len() == 1 {
+        return Ok(vec![]); 
+    }
+
+    let mut proof = Vec::<B256>::new();
+    let mut layer: Vec<B256> = leaves.to_vec();
+
+    while layer.len() > 1 {
+        let is_right = index % 2 == 1;
+        let sibling_idx = if is_right { index - 1 } else { index + 1 };
+
+        // push sibling if it exists in this layer
+        if sibling_idx < layer.len() {
+            proof.push(layer[sibling_idx]);
+        }
+
+        // build next layer
+        let mut next = Vec::<B256>::with_capacity((layer.len() + 1) / 2);
+        for i in (0..layer.len()).step_by(2) {
+            let parent = if i + 1 < layer.len() {
+                keccak_pair(layer[i], layer[i + 1]) 
+            } else {
+                layer[i]
+            };
+            next.push(parent);
+        }
+        layer = next;
+        index /= 2;
+    }
+
+    Ok(proof)
+}
+
+pub fn compute_root_from_indexed_proof(mut leaf: B256, proof: &[B256], mut index: usize) -> B256 {
+    for sib in proof {
+        leaf = if index % 2 == 0 {
+            keccak_pair(leaf, *sib) 
+        } else {
+            keccak_pair(*sib, leaf) 
+        };
+        index >>= 1;
+    }
+    leaf
 }
