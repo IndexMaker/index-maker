@@ -1,22 +1,21 @@
 use alloy::primitives::address;
-use alloy_evm_connector::evm_connector;
 use binance_order_sending::credentials::Credentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
-use index_core::blockchain::chain_connector::{ChainConnector, ChainNotification};
+use index_core::blockchain::chain_connector::ChainNotification;
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
         batch_manager::BatchManagerConfig,
+        chain_connector::RealChainConnectorConfig,
         collateral_manager::CollateralManagerConfig,
         collateral_router::CollateralRouterConfig,
-        evm_connector::EvmConnectorConfig,
         fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
         order_sender::{OrderSenderConfig, OrderSenderCredentials},
         quote_request_manager::QuoteRequestManagerConfig,
-        simple_chain::{SimpleChainConnector, SimpleChainConnectorConfig},
+        simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
         simple_server::{SimpleServer, SimpleServerConfig},
         simple_solver::SimpleSolverConfig,
@@ -31,10 +30,7 @@ use index_maker::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{
-    env,
-    sync::{Arc, RwLock as ComponentLock},
-};
+use std::{env, sync::Arc};
 
 use symm_core::{
     core::{
@@ -222,7 +218,7 @@ enum ChainMode {
         chain_config: Arc<SimpleChainConnectorConfig>,
     },
     Real {
-        chain_config: Arc<EvmConnectorConfig>,
+        chain_config: Arc<RealChainConnectorConfig>,
     },
 }
 
@@ -249,7 +245,7 @@ impl ChainMode {
                 chain_config: simple_chain_connector_config,
             }
         } else {
-            let evm_connector_config = EvmConnectorConfig::builder()
+            let evm_connector_config = RealChainConnectorConfig::builder()
                 .with_router(router_config.clone())
                 .build_arc()
                 .expect("Failed to build evm chain connector");
@@ -277,7 +273,7 @@ impl ChainMode {
             ChainMode::Real { chain_config } => chain_config.start().await,
         }
     }
-    
+
     async fn stop(&self) -> eyre::Result<()> {
         match self {
             ChainMode::Simulated { .. } => Ok(()),
@@ -520,7 +516,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     app_mode.run().await;
-    chain_mode.run().await.expect("Failed to start chain connector");
+    chain_mode
+        .run()
+        .await
+        .expect("Failed to start chain connector");
 
     tracing::info!("Awaiting market data...");
     loop {
@@ -645,7 +644,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     app_mode.stop().await;
-    chain_mode.stop().await.expect("Failed to stop chain connector");
+    chain_mode
+        .stop()
+        .await
+        .expect("Failed to stop chain connector");
 
     tracing::info!("Done.");
 
