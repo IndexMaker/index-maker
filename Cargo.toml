@@ -6,14 +6,15 @@ members = [
     "libs/binance-market-data",
     "libs/binance-order-sending",
     "libs/bitget-market-data",
+    "libs/ca-helper",
+    "libs/index-core",
     "libs/market-data",
     "libs/symm-core",
-    "libs/index-core",
     "examples",
     "proc-macros/derive-with-baggage",
     "proc-macros/safe-math",
-    "apps/tracker",
     "apps/anvil_orchestrator",
+    "apps/tracker",
     "_deprecated/liquidity_tracker",
     "_deprecated/alloy-evm-connector",
 ]
@@ -35,6 +36,7 @@ axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
 bitget-market-data = { workspace = true }
+ca-helper = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
@@ -100,6 +102,7 @@ binance-order-sending = { path = "libs/binance-order-sending" }
 #binance-sdk = { path = "./subs/binance-connector-rust", features = ["spot"] }
 binance-sdk = { version = "^7.0.0", features = ["spot"] }
 bitget-market-data = { path = "libs/bitget-market-data" }
+ca-helper = { path = "./libs/ca-helper" }
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8.4"

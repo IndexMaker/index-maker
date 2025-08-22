@@ -1709,6 +1709,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ca-helper"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "ethers",
+ "merkle-tree-rs",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "camino"
 version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3748,6 +3760,7 @@ dependencies = [
  "binance-market-data",
  "binance-order-sending",
  "bitget-market-data",
+ "ca-helper",
  "chrono",
  "clap",
  "crossbeam",
