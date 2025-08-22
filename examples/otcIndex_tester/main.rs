@@ -10,7 +10,6 @@ use std::{
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
-
 use alloy::network::BlockResponse;
 use alloy::primitives::address;
 use alloy::{
@@ -23,7 +22,8 @@ use alloy::{
 };
 use alloy_consensus::BlockHeader;
 use alloy_network::TransactionBuilder;
-
+use alloy_evm_connector::custody_helper::CAHelper;
+use alloy_evm_connector::custody_helper::Party;
 sol! {
     struct C2ALeafTuple {
         string method;
@@ -338,43 +338,52 @@ pub async fn make_merkle_passing_vdata<P: Provider>(
     chain_id: u64,
     destination: Address,
 ) -> Result<VerificationData> {
-    // Build leaf for state=0, pk=(0,0)
-    let mut leaves = Vec::new();
-
-    // Then the custodyToAddress leaf
-    let c2a_leaf = match std::env::var("OTC_CUSTODY_ID") {
-        Ok(s) => parse_b256(&s).context("OTC_CUSTODY_ID must be 32-byte hex (bytes32)")?,
-        Err(_) => B256::repeat_byte(0x11),
-    };
-    let c2a_index = leaves.len(); // current length is the index
-    leaves.push(c2a_leaf);
-    let id: B256 = match std::env::var("OTC_CUSTODY_ID") {
-        Ok(s) => parse_b256(&s).context("OTC_CUSTODY_ID must be 32-byte hex (bytes32)")?,
-        Err(_) => B256::repeat_byte(0x11),
-    };
-    // fresh timestamp
+    // 1) fresh timestamp from latest block
     let now: U256 = p
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await?
         .map(|b| U256::from(b.header().timestamp()))
         .unwrap_or(U256::ZERO);
 
+    // 2) Build a CA tree with ONE item: custodyToAddress(destination)
+    //    Make sure the pubKey you put in the leaf == pubKey you return in VerificationData.
+    let party = Party { parity: 0, x: B256::ZERO };
+    let state: u8 = 0;
+
+    let mut ca = CAHelper::new(chain_id as u32, custody_addr);
+    let leaf_index = ca.custody_to_address(destination, state, party.clone());
+
+    // 3) Merkle root -> VerificationData.id
+    let id_bytes32 = ca.get_ca_root();              // [u8;32]
+    let id = B256::from_slice(&id_bytes32);         // bytes32 root
+
+    // 4) Leaf (double-keccak of abi-encoded item) -> used in e computation
+    let leaf_bytes = CAHelper::compute_leaf(&ca.get_ca_items()[leaf_index]);
+    let leaf = B256::from_slice(leaf_bytes.as_ref());
+
+    // 5) Merkle proof for this leaf
+    let proof_arrs = ca.get_merkle_proof(leaf_index);          // Vec<[u8;32]>
+    let merkle_proof: Vec<B256> = proof_arrs
+        .iter()
+        .map(|a| B256::from_slice(a))
+        .collect();
+
+    // 6) Demo signature (leave as-is if you’re purposely bypassing Schnorr)
     let e = B256::from(keccak256(
-        MyTuple { leaf: c2a_leaf, timestamp: now, destination }.abi_encode()
+        MyTuple { leaf, timestamp: now, destination }.abi_encode()
     ));
     let s = B256::from([0x33; 32]);
 
-    let proof = merkle_proof_positional(&leaves, c2a_index); 
     Ok(VerificationData {
-        id: c2a_leaf, 
-        state: 0,
+        id,
+        state,
         timestamp: now,
         pubKey: SchnorrCAKey {
-            parity: 0,
-            x: B256::ZERO,
+            parity: party.parity,
+            x: party.x,
         },
-        sig: SchnorrSignature { e, s }, 
-        merkleProof: proof?,
+        sig: SchnorrSignature { e, s },
+        merkleProof: merkle_proof,
     })
 }
 
@@ -394,11 +403,11 @@ async fn try_custody_to_address<P: Provider>(
     
     let chain_id = 8453u64;
     let v = make_merkle_passing_vdata(&p, custody_addr, chain_id, to).await?;
-
+    let _amount: U256 = U256::from(0);
     let calldata: Bytes = IOTCCustody::custodyToAddressCall {
         token,
         destination: to,
-        amount,
+        amount: _amount,
         v,
     }
     .abi_encode()
@@ -416,7 +425,7 @@ async fn try_custody_to_address<P: Provider>(
         )
         .await
     {
-        Ok(_) => warn!("custodyToAddress eth_call unexpectedly succeeded"),
+        Ok(_) => warn!("custodyToAddress eth_call succeeded"),
         Err(e) => info!("❌ custodyToAddress eth_call reverted (expected in demo): {e:?}"),
     }
     p.anvil_stop_impersonating_account(custody_addr).await?;
