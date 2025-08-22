@@ -149,7 +149,7 @@ impl OrderSenderConfig {
             }
             Ok(())
         } else {
-            Err(eyre!(""))
+            Err(eyre!("Order sender not configured"))
         }
     }
 

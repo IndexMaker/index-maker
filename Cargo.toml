@@ -1,7 +1,7 @@
 [workspace]
 members = [
     ".",
-    "libs/alloy-evm-connector",
+    "libs/alloy-chain-connector",
     "libs/axum-fix-server",
     "libs/binance-market-data",
     "libs/binance-order-sending",
@@ -12,9 +12,10 @@ members = [
     "examples",
     "proc-macros/derive-with-baggage",
     "proc-macros/safe-math",
-    "apps/liquidity_tracker",
     "apps/tracker",
     "apps/anvil_orchestrator",
+    "_deprecated/liquidity_tracker",
+    "_deprecated/alloy-evm-connector",
 ]
 
 [package]
@@ -28,7 +29,7 @@ alpine-deploy = ["openssl/vendored"]
 
 [dependencies]
 alloy = { workspace = true }
-alloy-evm-connector = { workspace = true }
+alloy-chain-connector = { workspace = true }
 async-trait = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
@@ -87,7 +88,8 @@ test-case = { workspace = true }
 
 [workspace.dependencies]
 alloy = { version = "1.0.9", features = ["full"] }
-alloy-evm-connector = { path = "./libs/alloy-evm-connector" }
+alloy-chain-connector = { path = "./libs/alloy-chain-connector" }
+alloy-evm-connector = { path = "./_deprecated/alloy-evm-connector" }
 async-trait = "0.1.88"
 axum = { version = "0.7", features = ["ws"] }
 axum-fix-server = { path = "./libs/axum-fix-server" }
@@ -128,7 +130,7 @@ paste = "1.0.15"
 quote = "1.0.40"
 rand = "0.9.1"
 rand_core = "0.6"
-reqwest = "0.11"
+reqwest = { version = "0.11", features = ["json"] }
 rust_decimal = { version = "1.37.2", features = ["serde", "macros", "maths"] }
 safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
