@@ -10,7 +10,6 @@ use ethers::{
 use merkle_tree_rs::core::{get_proof, make_merkle_tree};
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum CAItemType {
     DeployConnector,
@@ -161,28 +160,6 @@ impl CAHelper {
         format!("0x{}", hex::encode(encoded))
     }
 
-    fn encode_calldata(&self, func_type: &str, func_args: &[&[u8]]) -> String {
-        // Create function selector using keccak256
-        let selector = alloy::primitives::keccak256(func_type.as_bytes())[..4].to_vec();
-
-        // Extract parameter types from function type
-        let param_types = func_type
-            .split_once('(')
-            .and_then(|(_, rest)| rest.split_once(')'))
-            .map(|(params, _)| params)
-            .unwrap_or("");
-
-        // Encode the function arguments
-        let encoded_args = SolValue::abi_encode_params(func_args);
-
-        // Concatenate selector and encoded arguments
-        let mut result = selector;
-        result.extend(encoded_args);
-
-        // Return as hex string with 0x prefix
-        format!("0x{}", hex::encode(result))
-    }
-
     fn add_item(
         &mut self,
         item_type: CAItemType,
@@ -294,7 +271,7 @@ impl CAHelper {
     }
 
     /// Build (or fetch cached) Merkle tree matching OpenZeppelin StandardMerkleTree behavior
-    fn get_merkle_tree(&mut self) -> &Vec<EBytes> {
+    pub fn get_merkle_tree(&mut self) -> &Vec<EBytes> {
         if self.merkle_tree.is_none() {
             // 1. compute leaves with their original indices
             let mut leaves_with_indices: Vec<(usize, EBytes)> = self
@@ -329,7 +306,7 @@ impl CAHelper {
     }
 
     /// Compute leaf hash identical to Solidity implementation.
-    fn compute_leaf(item: &CAItem) -> EBytes {
+    pub fn compute_leaf(item: &CAItem) -> EBytes {
         let tokens: Vec<Token> = vec![
             Token::String(item.item_type.to_string()),
             Token::Uint(U256::from(item.chain_id)),
@@ -371,7 +348,6 @@ impl CAHelper {
         }
 
         let sorted_position = *self.leaf_indices.get(index).expect("invalid idx");
-        let tree_size = self.merkle_tree.as_ref().unwrap().len();
 
         // Debug: let's see exactly what tree index we should be using
         // Based on tree structure, it seems like the mapping is inverted
@@ -394,16 +370,29 @@ impl CAHelper {
         self.leaf_indices.clear();
         self.custody_id = None;
     }
+}
 
-    /// Debug function to print leaf hashes for comparison with TypeScript
-    pub fn debug_leaves(&self) {
-        tracing::debug!("=== Debug: CA Items and Leaf Hashes ===");
-        for (i, item) in self.ca_items.iter().enumerate() {
-            let leaf_hash = Self::compute_leaf(item);
-            tracing::debug!("Item {}: {:?}", i, item);
-            tracing::debug!("Leaf {}: 0x{}", i, hex::encode(leaf_hash.as_ref()));
-            tracing::debug!("---");
-        }
+impl std::fmt::Debug for CAHelper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ca_items: Vec<_> = self
+            .ca_items
+            .iter()
+            .map(|item| {
+                let leaf_hash = Self::compute_leaf(item);
+                let leaf_hash_hex = hex::encode(leaf_hash.as_ref());
+
+                format!("{:?} ({})", item, leaf_hash_hex)
+            })
+            .collect();
+
+        f.debug_struct("CAHelper")
+            .field("ca_items", &ca_items)
+            .field("merkle_tree", &self.merkle_tree)
+            .field("leaf_indices", &self.leaf_indices)
+            .field("custody_id", &self.custody_id)
+            .field("chain_id", &self.chain_id)
+            .field("otc_custody_address", &self.otc_custody_address)
+            .finish()
     }
 }
 
