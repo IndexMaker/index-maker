@@ -7,6 +7,8 @@ publish = false
 [dependencies]
 alloy = { workspace = true }
 alloy-evm-connector = { workspace = true }
+alloy-chain-connector = { workspace = true }
+ca-helper = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }

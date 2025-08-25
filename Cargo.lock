@@ -98,6 +98,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-eth",
  "async-trait",
+ "ca-helper",
  "chrono",
  "crossbeam",
  "eyre",
@@ -2847,6 +2848,7 @@ name = "examples"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-chain-connector",
  "alloy-consensus",
  "alloy-evm-connector",
  "alloy-merkle-tree",
@@ -2857,6 +2859,7 @@ dependencies = [
  "binance-market-data",
  "binance-order-sending",
  "binance-sdk",
+ "ca-helper",
  "chrono",
  "clap",
  "crossbeam",

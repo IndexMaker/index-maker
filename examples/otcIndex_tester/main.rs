@@ -1,6 +1,20 @@
-use alloy_rpc_types_eth::TransactionInput;
+use alloy::network::BlockResponse;
+use alloy::primitives::address;
+use alloy::{
+    primitives::{keccak256, Address, Bytes, B256, U256},
+    providers::{ext::AnvilApi, Provider, ProviderBuilder},
+    rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption, TransactionRequest},
+    //signers::local::PrivateKeySigner,
+    sol,
+    sol_types::{SolCall, SolValue},
+};
+use alloy_chain_connector::util::amount_converter::AmountConverter;
+use alloy_consensus::BlockHeader;
 use anyhow::{anyhow, Context, Result};
+use ca_helper::contracts::{OTCCustody, SchnorrCAKey, SchnorrSignature, VerificationData, ERC20};
+use ca_helper::custody_helper::{CAHelper, Party};
 use dotenvy::dotenv;
+use rust_decimal::dec;
 use serde_json::json;
 use std::{
     process::{Command, Stdio},
@@ -10,20 +24,6 @@ use std::{
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
-use alloy::network::BlockResponse;
-use alloy::primitives::address;
-use alloy::{
-    primitives::{keccak256, Address, Bytes, B256, U256},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder},
-    rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption, TransactionRequest},
-    signers::local::PrivateKeySigner,
-    sol,
-    sol_types::{SolCall, SolValue},
-};
-use alloy_consensus::BlockHeader;
-use alloy_network::TransactionBuilder;
-use alloy_evm_connector::custody_helper::CAHelper;
-use alloy_evm_connector::custody_helper::Party;
 sol! {
     struct C2ALeafTuple {
         string method;
@@ -59,6 +59,7 @@ sol! {
     }
 }
 
+/*
 sol! {
     #[sol(rpc)]
     interface IERC20 {
@@ -98,6 +99,7 @@ sol! {
         function decimals() external view returns (uint8);
     }
 }
+*/
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -112,7 +114,7 @@ async fn main() -> Result<()> {
         .context("Please set BASE_FORK_URL to a Base RPC (archive preferred)")?;
     let index_addr: Address = env_addr("OTC_INDEX_ADDR")?;
     let custody_addr: Address = env_addr("OTC_CUSTODY_ADDR")?;
-    let operator_pk: PrivateKeySigner = env_pk("OPERATOR_PK")?;
+    //let operator_pk: PrivateKeySigner = env_pk("OPERATOR_PK")?;
 
     let anvil_http =
         std::env::var("ANVIL_HTTP").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
@@ -120,6 +122,7 @@ async fn main() -> Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
+    /*
     let frontend: Address = std::env::var("FRONTEND_ADDR")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -128,6 +131,9 @@ async fn main() -> Result<()> {
         parse_u256_decimal(&std::env::var("EXEC_PRICE").unwrap_or_else(|_| "1000000".to_string()))?;
     let exec_time_override =
         parse_u256_decimal(&std::env::var("EXEC_TIME").unwrap_or_else(|_| "0".to_string()))?;
+    */
+
+    info!("Connecting to live: {}", fork_url);
 
     // ---- 1) discover deploy blocks on live Base ----
     let live = ProviderBuilder::new().connect(&fork_url).await?;
@@ -139,7 +145,8 @@ async fn main() -> Result<()> {
 
     // ---- 2) start Anvil fork ----
     info!("Spawning anvil fork at block #{fork_block} …");
-    let mut anvil = Command::new("anvil")
+    //let mut anvil = Command::new("anvil")
+    let _ = Command::new("anvil")
         .arg("--fork-url")
         .arg(&fork_url)
         .arg("--fork-block-number")
@@ -160,7 +167,7 @@ async fn main() -> Result<()> {
     wait_for_rpc(&anvil_http).await?;
     info!("Anvil fork online at {}", anvil_http);
 
-    let signer: PrivateKeySigner = std::env::var("OPERATOR_PK")?.parse()?;
+    //let signer: PrivateKeySigner = std::env::var("OPERATOR_PK")?.parse()?;
     let provider = ProviderBuilder::new()
         // .wallet(signer)
         .connect("http://127.0.0.1:8545")
@@ -169,13 +176,18 @@ async fn main() -> Result<()> {
     provider.anvil_auto_impersonate_account(true).await?;
     // contracts
     let index = IOTCIndex::new(index_addr, provider.clone());
-    let custody = IOTCCustody::new(custody_addr, provider.clone());
-    let collateral_fb = index.getCollateralToken().call().await?.0;
-    let collateral: Address = collateral_fb.into();
+    //let custody = IOTCCustody::new(custody_addr, provider.clone());
+    let collateral = index.getCollateralToken().call().await?;
 
-    let usdc: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".parse()?; // native USDC on Base
     let rpc_url = "http://127.0.0.1:8545"; // or whatever you're using
     let bare = ProviderBuilder::new().connect(rpc_url).await?;
+
+    let usdc: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".parse()?; // native USDC on Base
+    let usdc_contract = ERC20::new(usdc, &bare);
+    let usdc_decimals = usdc_contract.decimals().call().await?;
+    let usdc_converter = AmountConverter::new(usdc_decimals);
+    let eth_converter = AmountConverter::new(18);
+
     // ** Whale address from env
     let whale: Address = std::env::var("WHALE")
         .expect("Set WHALE env to a Base USDC whale")
@@ -183,19 +195,17 @@ async fn main() -> Result<()> {
         .expect("Invalid WHALE");
 
     bare.anvil_impersonate_account(whale).await?;
-    let whale_eth = U256::from(10_000u64) * exp10(18);
-    bare.anvil_set_balance(whale, whale_eth).await?;
+    bare.anvil_set_balance(
+        whale,
+        eth_converter
+            .from_amount(dec!(10_000))
+            .map_err(|e| anyhow!(e))?,
+    )
+    .await?;
 
-    let usdc_contract = IERC20::new(usdc, bare.clone());
-    let decimals: u8 = usdc_contract.decimals().call().await?;
-    fn exp10(d: u8) -> U256 {
-        let mut x = U256::from(1u8);
-        for _ in 0..d {
-            x = x * U256::from(10u8);
-        }
-        x
-    }
-    let amount_units = U256::from(10_000u64) * exp10(decimals);
+    let amount_units = usdc_converter
+        .from_amount(dec!(10_000))
+        .map_err(|e| anyhow!(e))?;
 
     // ** Default 10 Anvil accounts
     let recipients: [Address; 10] = [
@@ -216,6 +226,14 @@ async fn main() -> Result<()> {
 
     // ** Transfer 10,000 collateral to each recipient
     for &to in &recipients {
+        let pending = usdc_contract
+            .transfer(to, amount_units)
+            .from(whale)
+            .gas(120_000u64)
+            .send()
+            .await?;
+
+        /*
         let calldata: Bytes = IERC20Transfer::transferCall {
             to,
             amount: amount_units,
@@ -230,6 +248,7 @@ async fn main() -> Result<()> {
             .with_gas_limit(120_000u64);
 
         let pending = bare.send_transaction(tx).await?;
+        */
         let receipt = pending.get_receipt().await?;
         if !receipt.status() {
             error!("USDC transfer to {to:#x} failed: {:?}", receipt);
@@ -243,20 +262,21 @@ async fn main() -> Result<()> {
 
     // ---- 3) wait for real Deposit ----
     let start_block = provider.get_block_number().await?;
-    let filter = Filter::new()
-        .address(index_addr)
-        .event("Deposit(uint256,address,bytes,address)")
-        .select(FilterBlockOption::Range {
-            from_block: Some(BlockNumberOrTag::Number(start_block)),
-            to_block: None,
-        });
+    //let filter = Filter::new()
+    //    .address(index_addr)
+    //    .event("Deposit(uint256,address,bytes,address)")
+    //    .select(FilterBlockOption::Range {
+    //        from_block: Some(BlockNumberOrTag::Number(start_block)),
+    //        to_block: None,
+    //    });
 
     info!(
         "Waiting for Deposit on OTCIndex {} from block #{} …",
         index_addr, start_block
     );
-    let (amount, from, quote, affiliate, seen_at) =
-        wait_for_deposit(&provider, &filter, index_addr, poll_ms, collateral).await?;
+    //let (amount, from, quote, affiliate, seen_at) =
+    // = wait_for_deposit(&provider, &filter, index_addr, poll_ms, collateral).await?;
+    let _ = wait_for_deposit(&provider, index_addr, poll_ms, collateral).await?;
 
     Ok(())
 }
@@ -277,6 +297,7 @@ async fn wait_for_rpc(rpc_url: &str) -> Result<()> {
     Err(anyhow::anyhow!("Timed out waiting for Anvil at {rpc_url}"))
 }
 
+/*
 fn abi_encode_address(addr: Address) -> Bytes {
     let mut out = vec![0u8; 32];
     out[12..].copy_from_slice(addr.as_slice());
@@ -323,6 +344,7 @@ fn build_c2a_leaf(
 
     keccak256(inner)
 }
+*/
 
 pub async fn make_merkle_passing_vdata<P: Provider>(
     p: &P,
@@ -339,30 +361,35 @@ pub async fn make_merkle_passing_vdata<P: Provider>(
 
     // 2) Build a CA tree with ONE item: custodyToAddress(destination)
     //    Make sure the pubKey you put in the leaf == pubKey you return in VerificationData.
-    let party = Party { parity: 0, x: B256::ZERO };
+    let party = Party {
+        parity: 0,
+        x: B256::ZERO,
+    };
     let state: u8 = 0;
 
     let mut ca = CAHelper::new(chain_id as u32, custody_addr);
     let leaf_index = ca.custody_to_address(destination, state, party.clone());
 
     // 3) Merkle root -> VerificationData.id
-    let id_bytes32 = ca.get_ca_root();              // [u8;32]
-    let id = B256::from_slice(&id_bytes32);         // bytes32 root
+    let id_bytes32 = ca.get_ca_root(); // [u8;32]
+    let id = B256::from_slice(&id_bytes32); // bytes32 root
 
     // 4) Leaf (double-keccak of abi-encoded item) -> used in e computation
     let leaf_bytes = CAHelper::compute_leaf(&ca.get_ca_items()[leaf_index]);
     let leaf = B256::from_slice(leaf_bytes.as_ref());
 
     // 5) Merkle proof for this leaf
-    let proof_arrs = ca.get_merkle_proof(leaf_index);          // Vec<[u8;32]>
-    let merkle_proof: Vec<B256> = proof_arrs
-        .iter()
-        .map(|a| B256::from_slice(a))
-        .collect();
+    let proof_arrs = ca.get_merkle_proof(leaf_index); // Vec<[u8;32]>
+    let merkle_proof: Vec<B256> = proof_arrs.iter().map(|a| B256::from_slice(a)).collect();
 
     // 6) Demo signature (leave as-is if you’re purposely bypassing Schnorr)
     let e = B256::from(keccak256(
-        MyTuple { leaf, timestamp: now, destination }.abi_encode()
+        MyTuple {
+            leaf,
+            timestamp: now,
+            destination,
+        }
+        .abi_encode(),
     ));
     let s = B256::from([0x33; 32]);
 
@@ -384,19 +411,18 @@ async fn try_custody_to_address<P: Provider>(
     custody_addr: Address,
     token: Address,
     to: Address,
-    amount: U256,
+    //amount: U256,
 ) -> Result<()> {
-    let now: U256 = p
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await?
-        .map(|b| U256::from(b.header().timestamp()))
-        .unwrap_or(U256::ZERO);
+    //let now: U256 = p
+    //    .get_block_by_number(BlockNumberOrTag::Latest)
+    //    .await?
+    //    .map(|b| U256::from(b.header().timestamp()))
+    //    .unwrap_or(U256::ZERO);
 
-    
     let chain_id = 8453u64;
     let v = make_merkle_passing_vdata(&p, custody_addr, chain_id, to).await?;
     let _amount: U256 = U256::from(0);
-    let calldata: Bytes = IOTCCustody::custodyToAddressCall {
+    let calldata: Bytes = OTCCustody::custodyToAddressCall {
         token,
         destination: to,
         amount: _amount,
@@ -492,7 +518,7 @@ async fn mint_from_custody<P: Provider>(
 /// Waits for the very first Deposit and returns its fields + the block number it was seen at.
 async fn wait_for_deposit<P: Provider>(
     provider: &P,
-    base_filter: &Filter,
+    //base_filter: &Filter,
     index_addr: Address,
     poll_ms: u64,
     collateral: Address,
@@ -523,7 +549,7 @@ async fn wait_for_deposit<P: Provider>(
                         custody_addr,
                         collateral,
                         ev.from,
-                        ev.amount,
+                        //ev.amount,
                     )
                     .await
                     {
@@ -584,6 +610,7 @@ fn env_addr(key: &str) -> Result<Address> {
     Address::from_str(s.trim()).with_context(|| format!("invalid {key}"))
 }
 
+/*
 fn env_pk(key: &str) -> Result<PrivateKeySigner> {
     let s = std::env::var(key).with_context(|| format!("missing env {key}"))?;
     let pk: PrivateKeySigner = s.trim().parse().context("invalid hex pk")?;
@@ -608,6 +635,7 @@ fn parse_u256_decimal(s: &str) -> anyhow::Result<U256> {
     }
     Ok(acc)
 }
+*/
 
 fn keccak_pair(left: B256, right: B256) -> B256 {
     let mut buf = [0u8; 64];
@@ -621,10 +649,14 @@ pub fn merkle_proof_positional(leaves: &[B256], mut index: usize) -> anyhow::Res
         anyhow::bail!("no leaves");
     }
     if index >= leaves.len() {
-        anyhow::bail!("index {} out of bounds (0..{})", index, leaves.len().saturating_sub(1));
+        anyhow::bail!(
+            "index {} out of bounds (0..{})",
+            index,
+            leaves.len().saturating_sub(1)
+        );
     }
     if leaves.len() == 1 {
-        return Ok(vec![]); 
+        return Ok(vec![]);
     }
 
     let mut proof = Vec::<B256>::new();
@@ -643,7 +675,7 @@ pub fn merkle_proof_positional(leaves: &[B256], mut index: usize) -> anyhow::Res
         let mut next = Vec::<B256>::with_capacity((layer.len() + 1) / 2);
         for i in (0..layer.len()).step_by(2) {
             let parent = if i + 1 < layer.len() {
-                keccak_pair(layer[i], layer[i + 1]) 
+                keccak_pair(layer[i], layer[i + 1])
             } else {
                 layer[i]
             };
@@ -659,9 +691,9 @@ pub fn merkle_proof_positional(leaves: &[B256], mut index: usize) -> anyhow::Res
 pub fn compute_root_from_indexed_proof(mut leaf: B256, proof: &[B256], mut index: usize) -> B256 {
     for sib in proof {
         leaf = if index % 2 == 0 {
-            keccak_pair(leaf, *sib) 
+            keccak_pair(leaf, *sib)
         } else {
-            keccak_pair(*sib, leaf) 
+            keccak_pair(*sib, leaf)
         };
         index >>= 1;
     }
