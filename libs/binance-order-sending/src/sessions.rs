@@ -13,7 +13,11 @@ use symm_core::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{credentials::Credentials, session::Session};
+use crate::{
+    credentials::Credentials, 
+    session::Session, 
+    session_termination::SessionTerminationResult
+};
 
 pub struct Sessions {
     sessions: HashMap<SessionId, Session>,
@@ -51,22 +55,47 @@ impl Sessions {
     }
 
     pub fn drain_all_sessions(&mut self) -> Vec<Session> {
-        self.sessions.drain().map(|(k, v)| v).collect_vec()
+        self.sessions.drain().map(|(_k, v)| v).collect_vec()
     }
 
-    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<()> {
+    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<Vec<SessionTerminationResult>> {
         let stop_futures = sessions.iter_mut().map(|sess| sess.stop()).collect_vec();
 
-        let (_, failures): (Vec<_>, Vec<_>) =
-            join_all(stop_futures).await.into_iter().partition_result();
-
+        let results = join_all(stop_futures).await;
+        let mut termination_results = Vec::new();
+        let mut failures = Vec::new();
+        
+        for result in results {
+            match result {
+                Ok(res) => termination_results.push(res),
+                Err(err) => failures.push(err),
+            }
+        }
+        
         if !failures.is_empty() {
-            Err(eyre!(
-                "Sessions join failed {}",
+            tracing::warn!(
+                "Some sessions failed to stop cleanly: {}",
                 failures.iter().map(|e| format!("{:?}", e)).join(";"),
-            ))?;
+            );
         }
 
-        Ok(())
+        Ok(termination_results)
+    }
+    
+    pub async fn handle_session_termination(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<SessionTerminationResult> {
+        if let Some(mut session) = self.remove_session(session_id) {
+            match session.stop().await {
+                Ok(res) => Some(res),
+                Err(err) => {
+                    tracing::warn!("Error stopping session {}: {:?}", session_id, err);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 }

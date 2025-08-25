@@ -59,6 +59,19 @@ impl Credentials {
     }
 }
 
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("account_name", &self.account_name)
+            .field("enable_trading", &self.enable_trading)
+            .field("get_api_key_fn", &"<function>")
+            .field("get_secret_fn", &"<function>")
+            .field("get_private_key_file_fn", &"<function>")
+            .field("get_private_key_passphrase_fn", &"<function>")
+            .finish()
+    }
+}
+
 pub trait ConfigureBinanceUsingCredentials
 where
     Self: Sized,
