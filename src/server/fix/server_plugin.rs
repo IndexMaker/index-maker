@@ -63,25 +63,27 @@ impl ServerPlugin {
     fn remember_comp_ids(&self, session_id: &SessionId, sender: &str, target: &str) {
         self.session_comp_ids
             .write()
-            .unwrap()
+            .expect("Session comp IDs lock was poisoned; cannot continue")
             .insert(session_id.clone(), (sender.to_string(), target.to_string()));
     }
 
     fn apply_swapped_comp_ids(&self, header: &mut FixHeader, session_id: &SessionId) {
-        if let Some((sender, target)) = self
-            .session_comp_ids
-            .read()
-            .unwrap()
-            .get(session_id)
-            .cloned()
-        {
-            // Response must swap: Sender=Server (= request Target), Target=Client (= request Sender)
-            header.add_sender(sender);
-            header.add_target(target);
-        } else {
-            // Fallback (if first packet somehow reaches here without a stored request)
-            header.add_sender("SERVER".to_string());
-            header.add_target("CLIENT".to_string());
+        match self.session_comp_ids.read() {
+            Ok(guard) => {
+                if let Some((sender, target)) = guard.get(session_id).cloned() {
+                    header.add_sender(sender);
+                    header.add_target(target);
+                } else {
+                    header.add_sender("SERVER".to_string());
+                    header.add_target("CLIENT".to_string());
+                }
+            }
+            Err(poison_err) => {
+                eprintln!(
+                    "Warning: Lock poisoned for session {:?}. Error: {}",
+                    session_id, poison_err
+                );
+            }
         }
     }
 
@@ -89,7 +91,6 @@ impl ServerPlugin {
         self.rate_limit_plugin.destroy_session(session_id)?;
         self.user_plugin.remove_session(session_id);
         self.seq_num_plugin.destroy_session(session_id)?;
-        // NEW:
         self.session_comp_ids.write().unwrap().remove(session_id);
         Ok(())
     }
@@ -688,7 +689,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                             result.get_seq_num(),
                             err_msg,
                         );
-                         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+                        nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
                         self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
                         return self.serde_plugin.process_outgoing(nak);
                     }
