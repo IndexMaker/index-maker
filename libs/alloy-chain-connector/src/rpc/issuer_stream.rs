@@ -13,7 +13,8 @@ use symm_core::core::{
     functional::{PublishSingle, SingleObserver},
 };
 
-use crate::{contracts::ERC20, util::amount_converter::AmountConverter};
+use crate::util::amount_converter::AmountConverter;
+use ca_helper::contracts::ERC20;
 
 pub struct RpcIssuerStream<P>
 where
@@ -35,11 +36,12 @@ where
     }
 
     pub async fn unsubscribe(&mut self) -> eyre::Result<()> {
-        let provider = self.subscription_loop
+        let provider = self
+            .subscription_loop
             .stop()
             .await
             .map_err(|err| eyre!("Failed to unsubscribe: {:?}", err))??;
-    
+
         self.provider.replace(provider);
         Ok(())
     }

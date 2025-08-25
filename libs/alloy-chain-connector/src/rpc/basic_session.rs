@@ -2,9 +2,10 @@ use alloy::providers::{Provider, WalletProvider};
 use alloy_primitives::Address;
 use symm_core::core::functional::PublishSingle;
 
+use ca_helper::contracts::ERC20;
+
 use crate::{
     command::BasicCommand,
-    contracts::ERC20,
     util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
 };
 
