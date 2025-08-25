@@ -186,16 +186,8 @@ async fn main() -> Result<()> {
     let whale_eth = U256::from(10_000u64) * exp10(18);
     bare.anvil_set_balance(whale, whale_eth).await?;
 
-    let dec_data: Bytes = IERC20View::decimalsCall {}.abi_encode().into();
-    let dec_out = bare
-        .call(
-            TransactionRequest::default()
-                .to(usdc)
-                .input(TransactionInput::from(dec_data)),
-        )
-        .await?;
-    // ** uint8 is 32-byte padded; the last byte is fine
-    let decimals: u8 = *dec_out.last().unwrap_or(&6u8);
+    let usdc_contract = IERC20::new(usdc, bare.clone());
+    let decimals: u8 = usdc_contract.decimals().call().await?;
     fn exp10(d: u8) -> U256 {
         let mut x = U256::from(1u8);
         for _ in 0..d {
