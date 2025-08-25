@@ -1,11 +1,14 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, RwLock},
+};
 
 use crate::server::{
     fix::{
         messages::{FixHeader, FixTrailer, RequestBody, ResponseBody},
+        rate_limit_config::FixRateLimitConfig,
         requests::FixRequest,
         responses::FixResponse,
-        rate_limit_config::FixRateLimitConfig,
     },
     server::{ServerEvent, ServerResponse},
 };
@@ -14,10 +17,10 @@ use axum_fix_server::{
     messages::{ServerResponse as AxumServerResponse, SessionId},
     plugins::{
         observer_plugin::ObserverPlugin,
+        rate_limit_plugin::{RateLimitError, RateLimitPlugin, WithRateLimitPlugin},
         seq_num_plugin::{SeqNumPlugin, WithSeqNumPlugin},
         serde_plugin::SerdePlugin,
         user_plugin::{UserPlugin, WithUserPlugin},
-        rate_limit_plugin::{RateLimitPlugin, WithRateLimitPlugin, RateLimitError},
     },
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
@@ -41,6 +44,8 @@ pub struct ServerPlugin {
     seq_num_plugin: SeqNumPlugin<FixRequest, FixResponse>,
     user_plugin: UserPlugin,
     rate_limit_plugin: RateLimitPlugin<FixRequest, FixResponse>,
+
+    session_comp_ids: RwLock<HashMap<SessionId, (String, String)>>,
 }
 
 impl ServerPlugin {
@@ -51,22 +56,59 @@ impl ServerPlugin {
             seq_num_plugin: SeqNumPlugin::new(),
             user_plugin: UserPlugin::new(),
             rate_limit_plugin: RateLimitPlugin::new(rate_limit_config.base),
+            session_comp_ids: RwLock::new(HashMap::new()),
         }
     }
-    
+
+    fn remember_comp_ids(&self, session_id: &SessionId, sender: &str, target: &str) {
+        self.session_comp_ids
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), (sender.to_string(), target.to_string()));
+    }
+
+    fn apply_swapped_comp_ids(&self, header: &mut FixHeader, session_id: &SessionId) {
+        if let Some((sender, target)) = self
+            .session_comp_ids
+            .read()
+            .unwrap()
+            .get(session_id)
+            .cloned()
+        {
+            // Response must swap: Sender=Server (= request Target), Target=Client (= request Sender)
+            header.add_sender(sender);
+            header.add_target(target);
+        } else {
+            // Fallback (if first packet somehow reaches here without a stored request)
+            header.add_sender("SERVER".to_string());
+            header.add_target("CLIENT".to_string());
+        }
+    }
+
+    fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
+        self.rate_limit_plugin.destroy_session(session_id)?;
+        self.user_plugin.remove_session(session_id);
+        self.seq_num_plugin.destroy_session(session_id)?;
+        // NEW:
+        self.session_comp_ids.write().unwrap().remove(session_id);
+        Ok(())
+    }
+
     fn handle_rate_limit_violation(
         &self,
         error: RateLimitError,
         session_id: &SessionId,
     ) -> Result<String> {
         let error_msg = format!("Rate limit exceeded: {}", error);
-        
+
         // create a NAK response for rate limiting
         let user_id = &(0, address!("0x0000000000000000000000000000000000000000"));
         let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
         let mut nak = FixResponse::create_nak(user_id, session_id, seq_num, error_msg);
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
-        
+
+        self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
+
         self.serde_plugin.process_outgoing(nak)
     }
 
@@ -80,6 +122,9 @@ impl ServerPlugin {
         //let nak: Response = Response::create_nak(session_id, seq_num, error_msg);
         let mut nak = FixResponse::format_errors(&user_id, session_id, error_msg, seq_num);
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+
+        self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
+
         self.serde_plugin.process_outgoing(nak)
     }
 
@@ -87,6 +132,9 @@ impl ServerPlugin {
         let seq_num = self.seq_num_plugin.last_received_seq_num(session_id);
         let mut ack = FixResponse::format_ack(&user_id, session_id, seq_num);
         ack.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+
+        self.apply_swapped_comp_ids(&mut ack.standard_header, session_id);
+
         self.serde_plugin.process_outgoing(ack)
     }
 
@@ -268,72 +316,92 @@ impl ServerPlugin {
     /// server_response_to_fix_response
     ///
     /// Converts a ServerResponse into a FixResponse
-    fn server_response_to_fix_response(&self, response: ServerResponse) -> Result<FixResponse> {
-        let (chain_id, address, session_id, msg_type, body) = match response {
+    fn server_response_to_fix_response(
+        &self,
+        response: &ServerResponse,
+        session_id: &SessionId,
+    ) -> Result<FixResponse> {
+        let (chain_id, address, msg_type, body) = match response {
             ServerResponse::NewIndexOrderAck {
                 chain_id,
                 address,
                 client_order_id,
-                timestamp,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "NewIndexOrder".to_string(),
-                ResponseBody::NewOrderBody {
-                    status: "new".to_string(),
-                    client_order_id: client_order_id.as_str().to_string(),
-                },
-            ),
+                timestamp: _,
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "NewIndexOrder".to_string(),
+                    ResponseBody::NewOrderBody {
+                        status: "new".to_string(),
+                        client_order_id: client_order_id.as_str().to_string(),
+                    },
+                )
+            }
+
             ServerResponse::NewIndexOrderNak {
                 chain_id,
                 address,
                 client_order_id,
-                timestamp,
+                timestamp: _,
                 reason,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "NewIndexOrder".to_string(),
-                ResponseBody::NewOrderFailBody {
-                    status: "rejected".to_string(),
-                    client_order_id: client_order_id.as_str().to_string(),
-                    reason: reason.to_string(),
-                },
-            ),
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "NewIndexOrder".to_string(),
+                    ResponseBody::NewOrderFailBody {
+                        status: "rejected".to_string(),
+                        client_order_id: client_order_id.as_str().to_string(),
+                        reason: reason.to_string(),
+                    },
+                )
+            }
+
             ServerResponse::CancelIndexOrderAck {
                 chain_id,
                 address,
                 client_order_id,
-                timestamp,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "CancelIndexOrder".to_string(),
-                ResponseBody::NewOrderBody {
-                    status: "canceled".to_string(),
-                    client_order_id: client_order_id.as_str().to_string(),
-                },
-            ),
+                timestamp: _,
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "CancelIndexOrder".to_string(),
+                    ResponseBody::NewOrderBody {
+                        status: "canceled".to_string(),
+                        client_order_id: client_order_id.as_str().to_string(),
+                    },
+                )
+            }
+
             ServerResponse::CancelIndexOrderNak {
                 chain_id,
                 address,
                 client_order_id,
-                timestamp,
+                timestamp: _,
                 reason,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "CancelIndexOrder".to_string(),
-                ResponseBody::NewOrderFailBody {
-                    status: "rejected".to_string(),
-                    client_order_id: client_order_id.as_str().to_string(),
-                    reason: reason.to_string(),
-                },
-            ),
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "CancelIndexOrder".to_string(),
+                    ResponseBody::NewOrderFailBody {
+                        status: "rejected".to_string(),
+                        client_order_id: client_order_id.as_str().to_string(),
+                        reason: reason.to_string(),
+                    },
+                )
+            }
+
             ServerResponse::IndexOrderFill {
                 chain_id,
                 address,
@@ -343,127 +411,157 @@ impl ServerPlugin {
                 collateral_remaining,
                 fill_rate,
                 status,
-                timestamp,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "IndexOrderFill".to_string(),
-                ResponseBody::IndexOrderFillBody {
-                    client_order_id: client_order_id.as_str().to_string(),
-                    filled_quantity: filled_quantity.to_string(),
-                    collateral_spent: collateral_spent.to_string(),
-                    collateral_remaining: collateral_remaining.to_string(),
-                    fill_rate: fill_rate.to_string(),
-                    status,
-                },
-            ),
+                timestamp: _,
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "IndexOrderFill".to_string(),
+                    ResponseBody::IndexOrderFillBody {
+                        client_order_id: client_order_id.as_str().to_string(),
+                        filled_quantity: filled_quantity.to_string(),
+                        collateral_spent: collateral_spent.to_string(),
+                        collateral_remaining: collateral_remaining.to_string(),
+                        fill_rate: fill_rate.to_string(),
+                        status: status.clone(),
+                    },
+                )
+            }
+
             ServerResponse::MintInvoice {
                 chain_id,
                 address,
                 mint_invoice,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "MintInvoice".to_string(),
-                ResponseBody::MintInvoiceBody {
-                    client_order_id: mint_invoice.client_order_id.to_string(),
-                    payment_id: mint_invoice.payment_id.to_string(),
-                    symbol: mint_invoice.symbol.to_string(),
-                    filled_quantity: mint_invoice.filled_quantity.to_string(),
-                    total_amount: mint_invoice.total_amount.to_string(),
-                    amount_paid: mint_invoice.amount_paid.to_string(),
-                    amount_remaining: mint_invoice.amount_remaining.to_string(),
-                    management_fee: mint_invoice.management_fee.to_string(),
-                    assets_value: mint_invoice.assets_value.to_string(),
-                    exchange_fee: mint_invoice.exchange_fee.to_string(),
-                    fill_rate: mint_invoice.fill_rate.to_string(),
-                    lots: mint_invoice.lots,
-                    position: mint_invoice.position,
-                    timestamp: mint_invoice.timestamp,
-                },
-            ),
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                let mi = mint_invoice;
+                (
+                    chain_id,
+                    address,
+                    "MintInvoice".to_string(),
+                    ResponseBody::MintInvoiceBody {
+                        client_order_id: mi.client_order_id.to_string(),
+                        payment_id: mi.payment_id.to_string(),
+                        symbol: mi.symbol.to_string(),
+                        filled_quantity: mi.filled_quantity.to_string(),
+                        total_amount: mi.total_amount.to_string(),
+                        amount_paid: mi.amount_paid.to_string(),
+                        amount_remaining: mi.amount_remaining.to_string(),
+                        management_fee: mi.management_fee.to_string(),
+                        assets_value: mi.assets_value.to_string(),
+                        exchange_fee: mi.exchange_fee.to_string(),
+                        fill_rate: mi.fill_rate.to_string(),
+                        // If these are not Copy, clone them. If they are Copy, you can deref (*) instead.
+                        lots: mi.lots.clone(),
+                        position: mi.position.clone(),
+                        timestamp: mi.timestamp.clone(),
+                    },
+                )
+            }
+
             ServerResponse::NewIndexQuoteAck {
                 chain_id,
                 address,
                 client_quote_id,
-                timestamp,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "NewIndexQuote".to_string(),
-                ResponseBody::IndexQuoteRequestBody {
-                    status: "new".to_string(),
-                    client_quote_id: client_quote_id.as_str().to_string(),
-                },
-            ),
+                timestamp: _,
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "NewIndexQuote".to_string(),
+                    ResponseBody::IndexQuoteRequestBody {
+                        status: "new".to_string(),
+                        client_quote_id: client_quote_id.as_str().to_string(),
+                    },
+                )
+            }
+
             ServerResponse::NewIndexQuoteNak {
                 chain_id,
                 address,
                 client_quote_id,
-                timestamp,
+                timestamp: _,
                 reason,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "NewIndexQuote".to_string(),
-                ResponseBody::IndexQuoteRequestFailBody {
-                    status: "rejected".to_string(),
-                    client_quote_id: client_quote_id.as_str().to_string(),
-                    reason: reason.to_string(),
-                },
-            ),
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "NewIndexQuote".to_string(),
+                    ResponseBody::IndexQuoteRequestFailBody {
+                        status: "rejected".to_string(),
+                        client_quote_id: client_quote_id.as_str().to_string(),
+                        reason: reason.to_string(),
+                    },
+                )
+            }
+
             ServerResponse::IndexQuoteResponse {
                 chain_id,
                 address,
                 client_quote_id,
                 quantity_possible,
-                timestamp,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "IndexQuoteResponse".to_string(),
-                ResponseBody::IndexQuoteBody {
-                    client_quote_id: client_quote_id.as_str().to_string(),
-                    quantity_possible: quantity_possible.to_string(),
-                },
-            ),
+                timestamp: _,
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "IndexQuoteResponse".to_string(),
+                    ResponseBody::IndexQuoteBody {
+                        client_quote_id: client_quote_id.as_str().to_string(),
+                        quantity_possible: quantity_possible.to_string(),
+                    },
+                )
+            }
+
             ServerResponse::CancelIndexQuoteAck {
                 chain_id,
                 address,
                 client_quote_id,
-                timestamp,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "CancelIndexQuote".to_string(),
-                ResponseBody::IndexQuoteRequestBody {
-                    status: "canceled".to_string(),
-                    client_quote_id: client_quote_id.as_str().to_string(),
-                },
-            ),
+                timestamp: _,
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "CancelIndexQuote".to_string(),
+                    ResponseBody::IndexQuoteRequestBody {
+                        status: "canceled".to_string(),
+                        client_quote_id: client_quote_id.as_str().to_string(),
+                    },
+                )
+            }
+
             ServerResponse::CancelIndexQuoteNak {
                 chain_id,
                 address,
                 client_quote_id,
-                timestamp,
+                timestamp: _,
                 reason,
-            } => (
-                chain_id,
-                address,
-                SessionId::from("S-1"),
-                "CancelIndexQuote".to_string(),
-                ResponseBody::IndexQuoteRequestFailBody {
-                    status: "rejected".to_string(),
-                    client_quote_id: client_quote_id.as_str().to_string(),
-                    reason: reason.to_string(),
-                },
-            ),
+            } => {
+                let chain_id = *chain_id;
+                let address = address.clone();
+                (
+                    chain_id,
+                    address,
+                    "CancelIndexQuote".to_string(),
+                    ResponseBody::IndexQuoteRequestFailBody {
+                        status: "rejected".to_string(),
+                        client_quote_id: client_quote_id.as_str().to_string(),
+                        reason: reason.to_string(),
+                    },
+                )
+            }
+
             _ => {
                 return Err(eyre!(
                     "Unsupported ServerResponse type for FixResponse conversion"
@@ -472,9 +570,8 @@ impl ServerPlugin {
         };
 
         let mut header = FixHeader::new(msg_type);
-        header.add_sender("SERVER".to_string()); // Adjust sender ID as per your logic
-        header.add_target("CLIENT".to_string()); // Adjust target ID as per your logic
-                                                 // SeqNum will be set later in process_outgoing or elsewhere if needed
+        self.apply_swapped_comp_ids(&mut header, session_id);
+        // SeqNum will be set later in process_outgoing or elsewhere if needed
 
         let msg_type = header.msg_type.as_str();
         let is_quote = msg_type.contains("Quote");
@@ -542,12 +639,13 @@ impl ServerPlugin {
             let pubkey_hex = hex::encode(pubkey_uncompressed.as_bytes());
 
             // set computed trailer
+            let _temp = format!("0x{}", pubkey_hex);
             trailer.add_public(format!("0x{}", pubkey_hex));
             trailer.add_signature(format!("0x{}", signature_hex));
         }
 
         Ok(FixResponse {
-            session_id,
+            session_id: session_id.clone(),
             standard_header: header,
             chain_id,
             address,
@@ -566,36 +664,48 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
 impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
         // pre-process rate limit check
-        if let Err(rate_error) = self.rate_limit_plugin.check_rate_limits(session_id, &(0, address!("0x0000000000000000000000000000000000000000"))) {
+        if let Err(rate_error) = self.rate_limit_plugin.check_rate_limits(
+            session_id,
+            &(0, address!("0x0000000000000000000000000000000000000000")),
+        ) {
             return self.handle_rate_limit_violation(rate_error, session_id);
         }
-        
+
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
-
                 let user_id = WithRateLimitPlugin::get_user_id(&result);
-                
+                let req_sender = result.standard_header.sender_comp_id.clone();
+                let req_target = result.standard_header.target_comp_id.clone();
+                self.remember_comp_ids(session_id, &req_sender, &req_target);
                 // verify signature before proceed anything
                 match result.verify_signature() {
                     Ok(_) => {}
                     Err(_) => {
                         let err_msg = "Not authorised".to_string();
-                        let nak = FixResponse::create_nak(
+                        let mut nak = FixResponse::create_nak(
                             &user_id,
                             session_id,
                             result.get_seq_num(),
                             err_msg,
                         );
-                        return Ok(serde_json::to_string(&nak)?);
+                         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
+                        self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
+                        return self.serde_plugin.process_outgoing(nak);
                     }
                 }
                 // end verification part
 
                 self.user_plugin.add_add_user_session(&user_id, session_id);
-                
-                                
+
+                let req_sender = result.standard_header.sender_comp_id.clone();
+                let req_target = result.standard_header.target_comp_id.clone();
+                self.remember_comp_ids(session_id, &req_sender, &req_target);
+
                 // message-specific rate limiting
-                if let Err(rate_error) = self.rate_limit_plugin.consume_message_weight(&result, session_id) {
+                if let Err(rate_error) = self
+                    .rate_limit_plugin
+                    .consume_message_weight(&result, session_id)
+                {
                     return self.handle_rate_limit_violation(rate_error, session_id);
                 }
 
@@ -633,15 +743,16 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
         let mut result: HashSet<(SessionId, String)>;
         result = HashSet::new();
 
-        let fix_response = self.server_response_to_fix_response(response)?;
+        let fix_response =
+            self.server_response_to_fix_response(&response, &SessionId::from("S-proto"))?;
         let user_id = WithUserPlugin::get_user_id(&fix_response);
 
         if let Ok(sessions) = self.user_plugin.get_user_sessions(&user_id) {
             for session in sessions {
-                let mut response = fix_response.clone();
-                response.set_seq_num(self.seq_num_plugin.next_seq_num(&session));
+                let mut fix_response = self.server_response_to_fix_response(&response, &session)?;
+                fix_response.set_seq_num(self.seq_num_plugin.next_seq_num(&session));
 
-                if let Ok(message) = self.serde_plugin.process_outgoing(response) {
+                if let Ok(message) = self.serde_plugin.process_outgoing(fix_response) {
                     result.insert((session, message));
                 } else {
                     return Err(eyre::eyre!("Cannot serialize response."));
@@ -649,10 +760,11 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
             }
         } else {
             let session_id = fix_response.get_session_id();
-            let mut response = fix_response.clone();
-            response.set_seq_num(self.seq_num_plugin.next_seq_num(&session_id.clone()));
+            let mut fix_response =
+                self.server_response_to_fix_response(&response, &session_id.clone())?;
+            fix_response.set_seq_num(self.seq_num_plugin.next_seq_num(&session_id.clone()));
 
-            if let Ok(message) = self.serde_plugin.process_outgoing(response) {
+            if let Ok(message) = self.serde_plugin.process_outgoing(fix_response) {
                 result.insert((session_id.clone(), message));
             } else {
                 return Err(eyre::eyre!("Cannot serialize response."));
