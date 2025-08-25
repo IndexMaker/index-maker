@@ -1,0 +1,127 @@
+# Index Maker Application Configuration
+# This is the main configuration file for the index-maker application
+
+[app]
+# Main quote currency for the application
+main_quote_currency = "USDC"
+# Whether to simulate order sending (for testing)
+simulate_sender = false
+# Whether to simulate chain operations (for testing)
+simulate_chain = false
+# Path to configuration files directory
+config_path = "configs"
+
+[solver]
+# Price threshold for solver decisions (decimal)
+price_threshold = "0.01"
+# Maximum levels for order book processing
+max_levels = 5
+# Fee factor for calculations (decimal)
+fee_factor = "1.002"
+# Maximum order volley size (decimal)
+max_order_volley_size = "20.0"
+# Maximum volley size (decimal)
+max_volley_size = "100.0"
+# Minimum asset volley size (decimal)
+min_asset_volley_size = "5.0"
+# Asset volley step size (decimal)
+asset_volley_step_size = "0.1"
+# Maximum total volley size (decimal)
+max_total_volley_size = "1000.0"
+# Minimum total volley available (decimal)
+min_total_volley_available = "100.0"
+# Zero threshold for calculations (decimal)
+zero_threshold = "0.0001"
+# Maximum batch size
+max_batch_size = 10
+# Fill threshold (decimal)
+fill_threshold = "0.9999"
+# Mint threshold (decimal)
+mint_threshold = "0.99"
+# Mint wait period in seconds
+mint_wait_period_secs = 10
+# Client order wait period in seconds
+client_order_wait_period_secs = 30
+# Client quote wait period in seconds
+client_quote_wait_period_secs = 5
+# Solver tick interval in milliseconds
+solver_tick_interval_ms = 100
+# Quotes tick interval in milliseconds
+quotes_tick_interval_ms = 10
+
+[market_data]
+# Market data provider (e.g., "binance", "bitget")
+provider = "binance"
+# Connection timeout in seconds
+connection_timeout_secs = 30
+# Number of reconnection attempts
+reconnection_attempts = 3
+
+[chain]
+# Chain provider (e.g., "ethereum", "arbitrum")
+provider = "ethereum"
+# RPC URL for chain connection (can be overridden by environment variable)
+# rpc_url = "https://mainnet.infura.io/v3/YOUR_PROJECT_ID"
+# Private key for transactions (should be set via environment variable)
+# private_key = ""
+# Gas price multiplier
+gas_price_multiplier = 1.1
+
+[order_sender]
+# Exchange provider (e.g., "binance", "bitget")
+provider = "binance"
+# API credentials (should be set via environment variables)
+# api_key = ""
+# api_secret = ""
+# Rate limiting (requests per second)
+rate_limit_per_second = 10
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+# Log file path (optional, logs to file if specified)
+# file_path = "logs/index-maker.log"
+# Disable terminal logging
+disable_terminal = false
+# OTLP trace URL for distributed tracing (optional)
+# otlp_trace_url = "http://localhost:4317"
+# OTLP log URL for log aggregation (optional)
+# otlp_log_url = "http://localhost:4317"
+# Batch size for log processing
+batch_size = 1000
+
+[server]
+# Bind address for the server
+bind_address = "127.0.0.1:3000"
+# Server timeout in seconds
+timeout_secs = 30
+
+# Environment Variable Mapping:
+# 
+# App Configuration:
+# - INDEX_MAKER_MAIN_QUOTE_CURRENCY
+# - INDEX_MAKER_SIMULATE_SENDER
+# - INDEX_MAKER_SIMULATE_CHAIN
+#
+# Logging Configuration:
+# - INDEX_MAKER_LOG_LEVEL
+# - INDEX_MAKER_LOG_FILE
+# - INDEX_MAKER_OTLP_TRACE_URL
+# - INDEX_MAKER_OTLP_LOG_URL
+#
+# Server Configuration:
+# - INDEX_MAKER_BIND_ADDRESS
+#
+# Chain Configuration:
+# - INDEX_MAKER_CHAIN_RPC_URL
+# - INDEX_MAKER_CHAIN_PRIVATE_KEY
+#
+# Order Sender Configuration:
+# - INDEX_MAKER_API_KEY
+# - INDEX_MAKER_API_SECRET
+#
+# Example usage:
+# export INDEX_MAKER_API_KEY="your_api_key_here"
+# export INDEX_MAKER_API_SECRET="your_api_secret_here"
+# export INDEX_MAKER_CHAIN_PRIVATE_KEY="your_private_key_here"
+# ./index-maker -c configs quote-server

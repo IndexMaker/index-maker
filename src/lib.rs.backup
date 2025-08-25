@@ -1,6 +1,4 @@
 pub mod app {
-    pub mod application;
-    pub mod config_loader;
     pub mod basket_manager;
     pub mod batch_manager;
     pub mod collateral_manager;
