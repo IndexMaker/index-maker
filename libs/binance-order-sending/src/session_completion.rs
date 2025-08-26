@@ -3,7 +3,6 @@ use symm_core::order_sender::order_connector::SessionId;
 use crate::credentials::Credentials;
 use crate::session_error::SessionError;
 
-#[derive(Debug)]
 pub enum SessionCompletionResult {
     Success(Credentials),
     Error { 
