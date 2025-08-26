@@ -40,6 +40,7 @@ alloy-network = { workspace = true }
 anyhow = "1"
 dotenvy = "0.15"
 hex = "0.4"
+k256 = { workspace = true }
 
 [[example]]
 name = "binance-market-data"

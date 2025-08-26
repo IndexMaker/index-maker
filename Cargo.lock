@@ -2870,6 +2870,7 @@ dependencies = [
  "index-core",
  "index-maker",
  "itertools 0.14.0",
+ "k256 0.13.4",
  "market-data",
  "parking_lot 0.12.4",
  "rand 0.9.2",
