@@ -351,11 +351,6 @@ impl TradingSession {
             }
         }
     }
-
-    /// Enhanced error classification for connection issues
-    pub fn classify_error(&self, error: &eyre::Error) -> bool {
-        crate::error_classifier::ErrorClassifier::is_disconnection_error(error)
-    }
 }
 
 pub struct TradingUserData {

@@ -55,11 +55,11 @@ impl Session {
         symbols: Vec<Symbol>,
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
-            tracing::info!("Session loop started with disconnection detection");
+            tracing::info!("Session loop started");
             let session_id = credentials.into_session_id();
             let session_id_clone = session_id.clone();
             let on_error = |reason| {
-                tracing::warn!("Session error: {:?}", reason);
+                tracing::warn!("{:?}", reason);
                 observer
                     .read()
                     .publish_single(OrderConnectorNotification::SessionLogout {

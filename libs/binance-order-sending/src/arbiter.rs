@@ -121,12 +121,6 @@ impl Arbiter {
                         Ok(_) => {
                             tracing::info!("Successfully recreated session {} after disconnection", termination_result.session_id);
                             
-                            observer.read().publish_single(
-                                OrderConnectorNotification::SessionLogon { 
-                                    session_id: termination_result.session_id, 
-                                    timestamp: Utc::now() 
-                                }
-                            );
                         }
                         Err(err) => {
                             tracing::error!("Failed to recreate session {} after disconnection: {:?}", termination_result.session_id, err);
