@@ -36,6 +36,7 @@ use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
     functional::{IntoObservableManyVTable, NotificationHandler},
 };
+use tracing::warn;
 
 // A composite plugin that can wrap other plugins and delegate functionality.
 pub struct ServerPlugin {
@@ -60,38 +61,39 @@ impl ServerPlugin {
         }
     }
 
-    fn remember_comp_ids(&self, session_id: &SessionId, sender: &str, target: &str) {
+    fn remember_comp_ids(&self, session_id: &SessionId, sender: &str, target: &str) -> Result<()> {
         self.session_comp_ids
             .write()
-            .expect("Session comp IDs lock was poisoned; cannot continue")
-            .insert(session_id.clone(), (sender.to_string(), target.to_string()));
+            .map_err(|e| eyre!("Failed to access session comp IDs: {:?}", e))?
+            .insert(session_id.clone(), (String::from(sender), String::from(target)));
+        Ok(())
     }
 
-    fn apply_swapped_comp_ids(&self, header: &mut FixHeader, session_id: &SessionId) {
-        match self.session_comp_ids.read() {
-            Ok(guard) => {
-                if let Some((sender, target)) = guard.get(session_id).cloned() {
-                    header.add_sender(sender);
-                    header.add_target(target);
-                } else {
-                    header.add_sender("SERVER".to_string());
-                    header.add_target("CLIENT".to_string());
-                }
-            }
-            Err(poison_err) => {
-                eprintln!(
-                    "Warning: Lock poisoned for session {:?}. Error: {}",
-                    session_id, poison_err
-                );
-            }
+    fn apply_swapped_comp_ids(&self, header: &mut FixHeader, session_id: &SessionId) -> Result<()> {
+        let guard = self
+            .session_comp_ids
+            .read()
+            .map_err(|e| eyre!("Failed to access session comp IDs: {:?}", e))?;
+
+        if let Some((sender, target)) = guard.get(session_id).cloned() {
+            header.add_sender(sender);
+            header.add_target(target);
+        } else {
+            header.add_sender(String::from("SERVER"));
+            header.add_target(String::from("CLIENT"));
         }
+        Ok(())
     }
 
     fn destroy_session(&self, session_id: &SessionId) -> Result<()> {
         self.rate_limit_plugin.destroy_session(session_id)?;
         self.user_plugin.remove_session(session_id);
         self.seq_num_plugin.destroy_session(session_id)?;
-        self.session_comp_ids.write().unwrap().remove(session_id);
+        if let Ok(mut guard) = self.session_comp_ids.write() {
+            guard.remove(session_id);
+        } else {
+            warn!("Failed to access session comp IDs : {:?}", session_id);
+        }
         Ok(())
     }
 
@@ -108,7 +110,9 @@ impl ServerPlugin {
         let mut nak = FixResponse::create_nak(user_id, session_id, seq_num, error_msg);
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
 
-        self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
+        if let Err(e) = self.apply_swapped_comp_ids(&mut nak.standard_header, session_id) {
+            return self.process_error(user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+        }
 
         self.serde_plugin.process_outgoing(nak)
     }
@@ -124,7 +128,9 @@ impl ServerPlugin {
         let mut nak = FixResponse::format_errors(&user_id, session_id, error_msg, seq_num);
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
 
-        self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
+        if let Err(e) = self.apply_swapped_comp_ids(&mut nak.standard_header, session_id) {
+            warn!("Failed to access session comp IDs : {:?}", e);
+        }
 
         self.serde_plugin.process_outgoing(nak)
     }
@@ -134,7 +140,9 @@ impl ServerPlugin {
         let mut ack = FixResponse::format_ack(&user_id, session_id, seq_num);
         ack.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
 
-        self.apply_swapped_comp_ids(&mut ack.standard_header, session_id);
+        if let Err(e) = self.apply_swapped_comp_ids(&mut ack.standard_header, session_id) {
+            return self.process_error(user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+        }
 
         self.serde_plugin.process_outgoing(ack)
     }
@@ -572,7 +580,6 @@ impl ServerPlugin {
 
         let mut header = FixHeader::new(msg_type);
         self.apply_swapped_comp_ids(&mut header, session_id);
-        // SeqNum will be set later in process_outgoing or elsewhere if needed
 
         let msg_type = header.msg_type.as_str();
         let is_quote = msg_type.contains("Quote");
@@ -675,14 +682,14 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
                 let user_id = WithRateLimitPlugin::get_user_id(&result);
-                let req_sender = result.standard_header.sender_comp_id.clone();
-                let req_target = result.standard_header.target_comp_id.clone();
-                self.remember_comp_ids(session_id, &req_sender, &req_target);
+                if let Err(e) = self.remember_comp_ids(session_id, &result.standard_header.sender_comp_id, &result.standard_header.target_comp_id) {
+                    return self.process_error(&user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+                }
                 // verify signature before proceed anything
                 match result.verify_signature() {
                     Ok(_) => {}
                     Err(_) => {
-                        let err_msg = "Not authorised".to_string();
+                        let err_msg = String::from("Not authorised");
                         let mut nak = FixResponse::create_nak(
                             &user_id,
                             session_id,
@@ -690,7 +697,9 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                             err_msg,
                         );
                         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
-                        self.apply_swapped_comp_ids(&mut nak.standard_header, session_id);
+                        if let Err(e) = self.apply_swapped_comp_ids(&mut nak.standard_header, session_id) {
+                            return self.process_error(&user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+                        }
                         return self.serde_plugin.process_outgoing(nak);
                     }
                 }
@@ -698,9 +707,9 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
 
                 self.user_plugin.add_add_user_session(&user_id, session_id);
 
-                let req_sender = result.standard_header.sender_comp_id.clone();
-                let req_target = result.standard_header.target_comp_id.clone();
-                self.remember_comp_ids(session_id, &req_sender, &req_target);
+                if let Err(e) = self.remember_comp_ids(session_id, &result.standard_header.sender_comp_id, &result.standard_header.target_comp_id) {
+                    return self.process_error(&user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+                }
 
                 // message-specific rate limiting
                 if let Err(rate_error) = self
