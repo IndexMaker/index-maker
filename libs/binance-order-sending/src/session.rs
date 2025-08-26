@@ -20,13 +20,13 @@ use tokio::{
 
 use crate::command::Command;
 use crate::credentials::Credentials;
-use crate::trading_session::TradingSessionBuilder;
-use crate::error_classifier::ErrorClassifier;
-use crate::session_termination::{SessionTerminationResult};
+use crate::trading_session::{TradingSession, TradingSessionBuilder, TradingUserData};
+use crate::session_completion::SessionCompletionResult;
+use crate::session_error::SessionError;
 
 pub struct Session {
     command_tx: UnboundedSender<Command>,
-    session_loop: AsyncLoop<SessionTerminationResult>,
+    session_loop: AsyncLoop<SessionCompletionResult>,
 }
 
 impl Session {
@@ -43,7 +43,7 @@ impl Session {
             .map_err(|err| eyre!("Failed to send command to session {}", err))
     }
 
-    pub async fn stop(&mut self) -> Result<SessionTerminationResult, Either<JoinError, Report>> {
+    pub async fn stop(&mut self) -> Result<SessionCompletionResult, Either<JoinError, Report>> {
         self.session_loop.stop().await
     }
 
@@ -58,138 +58,140 @@ impl Session {
             tracing::info!("Session loop started");
             let session_id = credentials.into_session_id();
             let session_id_clone = session_id.clone();
-            let on_error = |reason| {
-                tracing::warn!("{:?}", reason);
-                observer
-                    .read()
-                    .publish_single(OrderConnectorNotification::SessionLogout {
-                        session_id: session_id.clone(),
-                        reason,
-                        timestamp: Utc::now(),
-                    })
-            };
 
-            let mut trading_session = match TradingSessionBuilder::build(&credentials).await {
-                Err(err) => {
-                    let error_msg = format!("Failed to login: {:?}", err);
-                    on_error(error_msg.clone());
-                    
-                    if ErrorClassifier::is_disconnection_error(&err) {
-                        return SessionTerminationResult::disconnection(
-                            Some(credentials),
-                            session_id,
-                        );
-                    } else {
-                        return SessionTerminationResult::network_error(
-                            Some(credentials),
-                            session_id,
-                            error_msg,
-                        );
-                    }
-                }
-                Ok(s) => s,
-            };
+            // Single mutable variable to track session state (reviewer requirement)
+            let mut session_error: Option<SessionError> = None;
+            let mut trading_session: Option<TradingSession> = None;
+            let mut user_data: Option<TradingUserData> = None;
 
-            if let Err(err) = trading_session.logon().await {
-                let error_msg = format!("Failed to login: {:?}", err);
-                on_error(error_msg.clone());
-
-                if ErrorClassifier::is_disconnection_error(&err) {
-                    return SessionTerminationResult::disconnection(
-                        Some(credentials),
-                        session_id,
-                    );
-                } else {
-                    return SessionTerminationResult::network_error(
-                        Some(credentials),
-                        session_id,
-                        error_msg,
-                    );
-                }
-            }
-
-            if let Err(err) = trading_session.get_exchange_info(symbols).await {
-                let error_msg = format!("Failed to get exchange info: {:?}", err);
-                on_error(error_msg.clone());
-                
-                if ErrorClassifier::is_disconnection_error(&err) {
-                    return SessionTerminationResult::disconnection(
-                        Some(credentials),
-                        session_id,
-                    );
-                } else {
-                    return SessionTerminationResult::network_error(
-                        Some(credentials),
-                        session_id,
-                        error_msg,
-                    );
-                }
-            }
-
-            let user_data = match trading_session.get_user_data().await {
-                Err(err) => {
-                    let error_msg = format!("Failed to obtain user-data: {:?}", err);
-                    on_error(error_msg.clone());
-                    
-                    if ErrorClassifier::is_disconnection_error(&err) {
-                        return SessionTerminationResult::disconnection(
-                            Some(credentials),
-                            session_id,
-                        );
-                    } else {
-                        return SessionTerminationResult::network_error(
-                            Some(credentials),
-                            session_id,
-                            error_msg,
-                        );
-                    }
-                }
-                Ok(s) => s,
-            };
-
-            observer
-                .read()
-                .publish_single(OrderConnectorNotification::SessionLogon {
+            // Helper function for consistent error logging
+            let log_error = |phase: &str, error: &SessionError| {
+                tracing::warn!("Session {} failed during {}: {}", session_id, phase, error);
+                observer.read().publish_single(OrderConnectorNotification::SessionLogout {
                     session_id: session_id.clone(),
+                    reason: format!("Failed during {}: {}", phase, error),
                     timestamp: Utc::now(),
                 });
+            };
 
-            user_data.subscribe(observer.clone());
+            // SETUP PHASE 1: Build TradingSession
+            if session_error.is_none() {
+                match TradingSessionBuilder::build(&credentials).await {
+                    Ok(ts) => {
+                        tracing::debug!("TradingSession built successfully");
+                        trading_session = Some(ts);
+                    }
+                    Err(err) => {
+                        log_error("session build", &err);
+                        session_error = Some(err);
+                    }
+                }
+            }
 
-            loop {
-                select! {
-                    _ = cancel_token.cancelled() => {
-                        break;
-                    },
-                    Some(command) = command_rx.recv() => {
-                        if let Err(err) = trading_session.send_command(command, &observer).await {
-                            tracing::warn!("Failed to send command: {:?}", err);
-                            
-                            if ErrorClassifier::is_disconnection_error(&err) {
-                                user_data.unsubscribe().await;
-                                
-                                return SessionTerminationResult::disconnection(
-                                    Some(credentials),
-                                    session_id,
-                                );
+            // SETUP PHASE 2: Logon
+            if session_error.is_none() {
+                if let Some(ref mut ts) = trading_session {
+                    if let Err(err) = ts.logon().await {
+                        log_error("logon", &err);
+                        session_error = Some(err);
+                    } else {
+                        tracing::debug!("Logon completed successfully");
+                    }
+                }
+            }
+
+            // SETUP PHASE 3: Get Exchange Info
+            if session_error.is_none() {
+                if let Some(ref mut ts) = trading_session {
+                    if let Err(err) = ts.get_exchange_info(symbols.clone()).await {
+                        log_error("exchange info", &err);
+                        session_error = Some(err);
+                    } else {
+                        tracing::debug!("Exchange info obtained successfully");
+                    }
+                }
+            }
+
+            // SETUP PHASE 4: Get User Data
+            if session_error.is_none() {
+                if let Some(ref mut ts) = trading_session {
+                    match ts.get_user_data().await {
+                        Ok(ud) => {
+                            tracing::debug!("User data obtained successfully");
+                            user_data = Some(ud);
+
+                            // Publish successful logon only after complete setup
+                            observer.read().publish_single(OrderConnectorNotification::SessionLogon {
+                                session_id: session_id.clone(),
+                                timestamp: Utc::now(),
+                            });
+                        }
+                        Err(err) => {
+                            log_error("user data", &err);
+                            session_error = Some(err);
+                        }
+                    }
+                }
+            }
+
+            // MAIN LOOP: Only run if setup succeeded
+            if session_error.is_none() {
+                if let (Some(ref mut ts), Some(ref ud)) = (&mut trading_session, &user_data) {
+                    ud.subscribe(observer.clone());
+                    tracing::info!("Session {} entering main loop", session_id);
+
+                    loop {
+                        select! {
+                            _ = cancel_token.cancelled() => {
+                                tracing::info!("Session {} cancelled", session_id);
+                                break;
+                            }
+                            Some(command) = command_rx.recv() => {
+                                if let Err(err) = ts.send_command(command, &observer).await {
+                                    tracing::warn!("Command failed in session {}: {}", session_id, err);
+
+                                    // Only break on errors that should trigger reconnection
+                                    if err.should_reconnect() {
+                                        session_error = Some(err);
+                                        break;
+                                    }
+                                    // For non-reconnection errors, continue processing
+                                }
                             }
                         }
-                    },
+                    }
+
+                    // Cleanup after main loop
+                    tracing::debug!("Unsubscribing from user data stream");
+                    ud.unsubscribe().await;
                 }
             }
 
-            user_data.unsubscribe().await;
+            // SINGLE EXIT POINT: Create SessionCompletionResult from session_error
+            match session_error {
+                Some(error) => {
+                    let should_return_credentials = error.should_reconnect();
+                    tracing::warn!(
+                        "Session {} completed with error: {} (reconnect: {})",
+                        session_id, error, should_return_credentials
+                    );
 
-            observer
-                .read()
-                .publish_single(OrderConnectorNotification::SessionLogout {
-                    session_id: session_id_clone,
-                    reason: "Session ended".to_owned(),
-                    timestamp: Utc::now(),
-                });
-
-            tracing::info!("Session loop exited gracefully");
-            SessionTerminationResult::graceful(credentials, session_id)
+                    SessionCompletionResult::error(
+                        error,
+                        if should_return_credentials { Some(credentials) } else { None },
+                        session_id,
+                    )
+                }
+                None => {
+                    tracing::info!("Session {} completed successfully", session_id);
+                    observer.read().publish_single(OrderConnectorNotification::SessionLogout {
+                        session_id: session_id_clone,
+                        reason: String::from("Session ended gracefully"),
+                        timestamp: Utc::now(),
+                    });
+                    SessionCompletionResult::success(credentials)
+                }
+            }
         });
 
         Ok(())

@@ -14,9 +14,9 @@ use symm_core::{
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    credentials::Credentials, 
-    session::Session, 
-    session_termination::SessionTerminationResult
+    credentials::Credentials,
+    session::Session,
+    session_completion::SessionCompletionResult
 };
 
 pub struct Sessions {
@@ -58,20 +58,12 @@ impl Sessions {
         self.sessions.drain().map(|(_k, v)| v).collect_vec()
     }
 
-    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<Vec<SessionTerminationResult>> {
+    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<Vec<SessionCompletionResult>> {
         let stop_futures = sessions.iter_mut().map(|sess| sess.stop()).collect_vec();
 
-        let results = join_all(stop_futures).await;
-        let mut termination_results = Vec::new();
-        let mut failures = Vec::new();
-        
-        for result in results {
-            match result {
-                Ok(res) => termination_results.push(res),
-                Err(err) => failures.push(err),
-            }
-        }
-        
+        let (completion_results, failures): (Vec<_>, Vec<_>) =
+            join_all(stop_futures).await.into_iter().partition_result();
+
         if !failures.is_empty() {
             tracing::warn!(
                 "Some sessions failed to stop cleanly: {}",
@@ -79,13 +71,13 @@ impl Sessions {
             );
         }
 
-        Ok(termination_results)
+        Ok(completion_results)
     }
     
-    pub async fn handle_session_termination(
+    pub async fn stop_session(
         &mut self,
         session_id: &SessionId,
-    ) -> Option<SessionTerminationResult> {
+    ) -> Option<SessionCompletionResult> {
         if let Some(mut session) = self.remove_session(session_id) {
             match session.stop().await {
                 Ok(res) => Some(res),
