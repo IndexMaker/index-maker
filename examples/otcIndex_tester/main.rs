@@ -163,7 +163,6 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let fork_url = env::var("BASE_FORK_URL").context("Please set BASE_FORK_URL")?;
-    let index_addr: Address = env_addr("OTC_INDEX_ADDR")?;
     let custody_addr: Address = env_addr("OTC_CUSTODY_ADDR")?;
     let anvil_http = env::var("ANVIL_HTTP").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
     let poll_ms: u64 = env::var("POLL_MS")
@@ -171,26 +170,33 @@ async fn main() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
 
-    info!("Connecting to live: {}", fork_url);
+    let fork_block = if let Ok(fork_block) = env::var("FORK_BLOCK_NUMBER") {
+        fork_block
+    } else {
+        info!("Connecting to live: {}", fork_url);
 
-    // ---- 1) discover deploy blocks on live Base ----
-    let live = ProviderBuilder::new().connect(&fork_url).await?;
-    let latest = live.get_block_number().await?;
-    let idx_block = find_deploy_block(&live, index_addr, latest).await?;
-    let cty_block = find_deploy_block(&live, custody_addr, latest).await?;
-    let fork_block = idx_block.max(cty_block);
-    info!(
-        "Using fork from Base block #{fork_block} (OTCIndex at #{idx_block}, OTCCustody at #{cty_block})."
-    );
+        let index_addr: Address = env_addr("OTC_INDEX_ADDR")?;
+        //// ---- 1) discover deploy blocks on live Base ----
+        let live = ProviderBuilder::new().connect(&fork_url).await?;
+        let latest = live.get_block_number().await?;
+        let idx_block = find_deploy_block(&live, index_addr, latest).await?;
+        let cty_block = find_deploy_block(&live, custody_addr, latest).await?;
+        let fork_block = idx_block.max(cty_block);
+        info!(
+            "Using fork from Base block #{fork_block} (OTCIndex at #{idx_block}, OTCCustody at #{cty_block})."
+        );
+
+        fork_block.to_string()
+    };
 
     // ---- 2) start Anvil fork ----
     info!("Spawning anvil fork at block #{fork_block} …");
-    
+
     let _ = Command::new("anvil")
         .arg("--fork-url")
         .arg(&fork_url)
         .arg("--fork-block-number")
-        .arg(fork_block.to_string())
+        .arg(fork_block)
         .arg("--chain-id")
         .arg("8453")
         .arg("--auto-impersonate")
