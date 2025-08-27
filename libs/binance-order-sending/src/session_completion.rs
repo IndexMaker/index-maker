@@ -69,11 +69,12 @@ mod tests {
     #[test]
     fn test_success_completion() {
         let credentials = create_mock_credentials();
-        let result = SessionCompletionResult::success(credentials.clone());
+        let expected_account_name = credentials.account_name().to_string();
+        let result = SessionCompletionResult::success(credentials);
 
         assert!(!result.should_reconnect());
         assert!(result.get_error().is_none());
-        assert_eq!(result.get_credentials().unwrap().account_name(), credentials.account_name());
+        assert_eq!(result.get_credentials().unwrap().account_name(), expected_account_name);
     }
 
     #[test]
