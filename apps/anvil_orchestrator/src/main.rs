@@ -1,3 +1,4 @@
+use alloy_evm_connector::{contracts::ERC20, IntoAmount};
 use anyhow::{anyhow, Context, Result};
 use rust_decimal::Decimal;
 use serde_json::json;
@@ -70,11 +71,11 @@ async fn main() -> Result<()> {
 
     // used USDC.e token instead of Native USDC - "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
     let usdc_address = std::env::var("USDC_ADDRESS")
-        .unwrap_or_else(|_| "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8".to_string());
+        .unwrap_or_else(|_| "0xAf88d065E77c8cC2239327C5EDb3A432268e5831".to_string());
     let usdc: Address = usdc_address.parse().expect("Invalid USDC address");
 
     let whale_address = std::env::var("WHALE")
-        .unwrap_or_else(|_| "0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D".to_string());
+        .unwrap_or_else(|_| "0x9dfb9014e88087fba78cc9309c64031d02be9a33".to_string());
     let whale: Address = whale_address.parse().expect("Invalid whale address");
 
     // will fund 10 USDC as a test
@@ -130,12 +131,29 @@ async fn main() -> Result<()> {
     let provider = ProviderBuilder::new().connect(&rpc_url).await?;
     let bal = erc20_balance_of(&provider, usdc, recipients[0]).await?;
     println!("acct0 USDC: {} (raw)", bal);
-    println!("acct0 USDC: {} (6d)", bal / U256::from(1_000_000u64));
+    println!("acct0 USDC: {} (USDC)", bal / U256::from(1_000_000u64));
 
     info!("Press Ctrl+C to stop.");
 
     tokio::signal::ctrl_c().await.ok();
     let _ = anvil.kill();
+    Ok(())
+}
+
+async fn top_up_eth(rpc_url: &str, addr: Address, eth: u64) -> anyhow::Result<()> {
+    // 1 ETH = 10^18 wei
+    let wei_per_eth: U256 = U256::from(1_000_000_000_000_000_000u128);
+    let wei: U256 = U256::from(eth) * wei_per_eth;
+
+    reqwest::Client::new()
+        .post(rpc_url)
+        .json(&json!({
+            "jsonrpc":"2.0","id":1,"method":"anvil_setBalance",
+            "params":[format!("{:#x}", addr), format!("0x{:x}", wei)]
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }
 
@@ -213,6 +231,7 @@ async fn fund_usdc_to_accounts(
 ) -> Result<()> {
     // 1) impersonate
     let client = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let _ = client
         .post(rpc_url)
         .json(&json!({
@@ -224,8 +243,29 @@ async fn fund_usdc_to_accounts(
         .send()
         .await?;
 
+    // 1b) top up whale with ETH for gas
+    top_up_eth(rpc_url, whale, 10).await?;
+
     // 2) provider WITHOUT wallet (node accepts txs from impersonated addr)
     let provider = ProviderBuilder::new().connect(rpc_url).await?;
+
+    let usdc_contract_whale = ERC20::new(usdc, &provider);
+
+    let whale_balance = usdc_contract_whale.balanceOf(whale).call().await.unwrap();
+    let whale_balance_usdc = whale_balance.into_amount_usdc().unwrap();
+    let amount_usdc = amount.into_amount_usdc().unwrap();
+
+    tracing::info!(
+        "Whale USDC balance: {} USDC, Amount to transfer: {} USDC, Whale address: {}, USDC address: {}",
+        whale_balance_usdc,
+        amount_usdc,
+        whale,
+        usdc,
+    );
+
+    if whale_balance < amount {
+        panic!("Whale does not have enough balance!");
+    }
 
     // 3) transfer USDC for each recipient
     for &to in recipients {

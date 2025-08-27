@@ -706,9 +706,10 @@ impl Solver {
             }
             ChainNotification::ChainDisconnected {
                 chain_id,
+                reason,
                 timestamp,
             } => {
-                tracing::info!("(solver) Chain {} disconnected at {}", chain_id, timestamp);
+                tracing::info!("(solver) Chain {} disconnected at {}: {}", chain_id, reason, timestamp);
                 Ok(())
             }
         }
@@ -2442,6 +2443,12 @@ mod test {
             AssetWeight::new(get_mock_asset_2_arc(), dec!(0.2)),
         ])
         .unwrap();
+
+        // simulate connect
+        chain_connector
+            .write()
+            .unwrap()
+            .connect(chain_id, timestamp);
 
         // send basket weights
         chain_connector

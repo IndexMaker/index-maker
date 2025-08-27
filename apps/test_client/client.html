@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FIX Client • Quote / Index / Deposit (no wallet ext)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg:#0f1221; --panel:#171a2b; --muted:#9aa0b4; --text:#e6e9f2; --accent:#6aa3ff;
+      --good:#58d68d; --bad:#ff6b6b; --border:#25293e;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;padding:24px;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica Neue,Arial}
+    h1{margin:0 0 16px;font-size:20px}
+    h2{margin:18px 0 8px;font-size:16px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
+    label{display:block;font-weight:600;margin:8px 0 6px}
+    input,select,textarea{width:100%;background:#121528;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;outline:none}
+    textarea{height:220px;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .btn{background:#1e2340;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;cursor:pointer}
+    .btn:hover{background:#22284a}
+    .btn.primary{background:var(--accent);border-color:var(--accent);color:#0a0f1d;font-weight:700}
+    .chip{display:inline-block;padding:2px 8px;border-radius:999px;background:#11152a;border:1px solid var(--border);color:var(--muted);font-size:12px}
+    #log{height:280px;max-width: 50vw;overflow:auto;white-space:pre-wrap;background:#0c0f1f;border:1px solid var(--border);border-radius:12px;padding:10px;font-family:ui-monospace,monospace}
+    .muted{color:var(--muted);font-size:12px}
+    .hidden{display:none !important}
+    code{background:#101431;padding:1px 4px;border-radius:4px}
+    details{margin-top:6px}
+    summary{cursor:pointer;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <h1>FIX Client • Quote / Index / Deposit (no wallet ext)</h1>
+
+  <div class="grid">
+    <!-- Left column: Controls -->
+    <section class="panel">
+      <h2>Mode & Actions</h2>
+      <div class="two">
+        <div>
+          <label>Mode</label>
+          <select id="mode">
+            <option value="quote">Quote Request</option>
+            <option value="index">Index Order (signed)</option>
+            <option value="deposit">Deposit (local RPC)</option>
+          </select>
+        </div>
+        <div>
+          <label class="row" style="justify-content:space-between;">
+            <span>Submit</span> <span class="chip" id="submitChip">Send Message</span>
+          </label>
+          <button id="submitBtn" class="btn primary" style="width:100%;">Send Message</button>
+        </div>
+      </div>
+
+      <h2 style="margin-top:14px;">Chain & Contract</h2>
+      <div class="two">
+        <div>
+          <label>Anvil RPC URL</label>
+          <input id="rpcUrl" value="http://127.0.0.1:8545" />
+        </div>
+        <div>
+          <label>DepositEmitter Address</label>
+          <input id="contractAddr" value="0x3d72617b8ef426fefd1ea0765684a51862304b78" placeholder="0xb58f7a0d856eed18b9f19072dd0843bf03e4eb24" />
+        </div>
+      </div>
+
+      <div class="two" id="fromRow">
+        <div>
+          <label>From Address (unlocked)</label>
+          <input id="fromAddr" value="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" />
+        </div>
+        <!-- <div class="row" style="margin-top:26px;">
+          <button id="impersonateBtn" class="btn" title="anvil_impersonateAccount">Impersonate</button>
+          <button id="fundBtn" class="btn" title="Fund 1000 ETH on Anvil">Fund 1000 ETH</button>
+        </div> -->
+      </div>
+      <div class="muted" id="depositHint">
+        Deposit calls on-chain <code>deposit(uint256,address,uint256)</code> via raw JSON-RPC.
+        No wallet extension needed.
+      </div>
+
+      <h2>FIX WebSocket</h2>
+      <div class="row">
+        <input id="wsUrl" value="ws://127.0.0.1:3000/ws" />
+        <button id="connectBtn" class="btn">Connect</button>
+        <button id="disconnectBtn" class="btn" disabled>Disconnect</button>
+      </div>
+
+      <details>
+        <summary>Advanced</summary>
+        <div class="two" style="margin-top:8px">
+          <div id="indexPkBox">
+            <label>Index Signing Private Key</label>
+            <input id="indexPk" value="0xa71e5a7b07c4c0d1678679d37cd5dfb02f80750eb2e4450bdb5357f712f8421e" />
+            <div class="muted">Used only for <b>Mode=Index</b> to sign FIX payloads.</div>
+          </div>
+          <div id="variantBox">
+            <label>Deposit ABI Variant</label>
+            <select id="depVariant">
+              <option value="3" selected>deposit(uint256,address,uint256)</option>
+              <option value="5">deposit(uint256,address,uint256,address,address)</option>
+            </select>
+            <div class="muted">Pick 5-arg if your contract requires two extra addresses.</div>
+          </div>
+        </div>
+        <div class="two" id="extraAddrBox" style="margin-top:8px;display:none;">
+          <div>
+            <label>extra4 (address)</label>
+            <input id="extra4" value="0x0000000000000000000000000000000000000000" />
+          </div>
+          <div>
+            <label>extra5 (address)</label>
+            <input id="extra5" value="0x0000000000000000000000000000000000000000" />
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- Right column: JSON + Log -->
+    <section class="panel">
+      <h2>Request JSON</h2>
+      <textarea id="jsonBox"></textarea>
+      <div class="muted" id="jsonHint" style="margin-top:6px;">
+        Deposit expects exactly: <code>{"chain_id","address","amount"}</code>.
+        Amount may be raw units (e.g. "1000000") or decimal (e.g. "1.5" → 1.500000 with 6 decimals).
+      </div>
+
+      <h2 style="margin-top:14px;">Log</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+
+  <!-- Logic -->
+  <script type="module">
+    // ---------- Imports (no ethers/viem) ----------
+    import { keccak_256 } from "https://esm.sh/@noble/hashes@1.3.3/sha3";
+    import * as secp from "https://esm.sh/@noble/secp256k1@1.7.1";
+    import { sha256 } from "https://esm.sh/@noble/hashes@1.3.3/sha256";
+    import { hmac } from "https://esm.sh/@noble/hashes@1.3.3/hmac";
+    secp.utils.hmacSha256Sync = (key, msg) => hmac(sha256, key, msg);
+
+    // ---------- DOM ----------
+    const el = (id) => document.getElementById(id);
+    const modeEl = el("mode");
+    const submitBtn = el("submitBtn");
+    const submitChip = el("submitChip");
+    const jsonBox = el("jsonBox");
+
+    // ---------- Log ----------
+    function log(msg, kind="info") {
+      const time = new Date().toISOString();
+      const div = document.createElement("div");
+      div.style.color = kind === "error" ? "var(--bad)" : kind === "ok" ? "var(--good)" : "var(--muted)";
+      div.textContent = `[${time}] ${msg}`;
+      el("log").appendChild(div);
+      el("log").scrollTop = el("log").scrollHeight;
+    }
+    window.log = log; // make available for other scripts if needed
+
+    // ---------- Utils ----------
+    const isAddr = (s) => /^0x[0-9a-fA-F]{40}$/.test(String(s ?? "").trim());
+    const isHex  = (s) => /^0x[0-9a-fA-F]+$/.test(String(s ?? "").trim());
+    const zpad32 = (hex) => hex.padStart(64, "0");
+    const toHex  = (v) => (typeof v === "bigint" ? "0x"+v.toString(16) : isHex(v) ? String(v) : "0x"+BigInt(String(v)).toString(16));
+    const addrWord = (a) => {
+      const s = String(a).trim().toLowerCase();
+      if (!isAddr(s)) throw new Error("invalid address: "+a);
+      return "000000000000000000000000" + s.slice(2);
+    };
+    function selector(sig) {
+      const hash = keccak_256(new TextEncoder().encode(sig));
+      return "0x" + Array.from(hash.slice(0,4)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }
+    function parseAmount(x, decimals=6) {
+      if (typeof x === "bigint") return x;
+      const s = String(x ?? "").trim();
+      if (!s) throw new Error("amount required");
+      if (isHex(s)) return BigInt(s);
+      if (/^\d+$/.test(s)) return BigInt(s);
+      if (/^\d+\.\d+$/.test(s)) {
+        const [i,f]=s.split(".");
+        const fp=(f+"0".repeat(decimals)).slice(0,decimals);
+        return BigInt(i+fp);
+      }
+      throw new Error("invalid amount: "+x);
+    }
+    function parseChainId(x) {
+      const s = String(x ?? "").trim();
+      if (!s) throw new Error("chain_id required");
+      if (s.startsWith("0x") || s.startsWith("0X")) {
+        const v = parseInt(s,16);
+        if (!Number.isFinite(v) || v<=0) throw new Error("invalid chain_id");
+        return v;
+      }
+      const v = Number(s);
+      if (!Number.isFinite(v) || v<=0) throw new Error("invalid chain_id");
+      return v;
+    }
+    async function rpc(rpcUrl, method, params) {
+      const res = await fetch(rpcUrl, {
+        method:"POST",
+        headers:{ "content-type":"application/json" },
+        body: JSON.stringify({ jsonrpc:"2.0", id:1, method, params })
+      });
+      const j = await res.json();
+      if (j.error) throw new Error(j.error.message || "rpc error");
+      return j.result;
+    }
+
+    // ---------- ABI encoders for deposit ----------
+    function encodeDeposit3(chainId, account, amount) {
+      const sel = selector("deposit(uint256,address,uint256)").slice(2);
+      const w1 = zpad32(toHex(BigInt(chainId)).slice(2));
+      const w2 = addrWord(account);
+      const w3 = zpad32(toHex(parseAmount(amount, 6)).slice(2));
+      return "0x" + sel + w1 + w2 + w3;
+    }
+    function encodeDeposit5(chainId, account, amount, a4, a5) {
+      const sel = selector("deposit(uint256,address,uint256,address,address)").slice(2);
+      const w1 = zpad32(toHex(BigInt(chainId)).slice(2));
+      const w2 = addrWord(account);
+      const w3 = zpad32(toHex(parseAmount(amount, 6)).slice(2));
+      const w4 = addrWord(a4);
+      const w5 = addrWord(a5);
+      return "0x" + sel + w1 + w2 + w3 + w4 + w5;
+    }
+
+    // ---------- JSON prefills ----------
+    function buildIndexOrQuoteJson(mode) {
+      const now = new Date().toISOString();
+      const base = {
+        chain_id: 1,
+        address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        symbol: "SY100",
+        side: "1",
+        amount: "1000",
+      };
+      if (mode === "index") {
+        return {
+          standard_header: {
+            msg_type: "NewIndexOrder",
+            sender_comp_id: "CLIENT",
+            target_comp_id: "SERVER",
+            seq_num: 1,
+            timestamp: now,
+          },
+          client_order_id: "Q-" + Date.now(),
+          ...base,
+        };
+      } else {
+        return {
+          standard_header: {
+            msg_type: "NewQuoteRequest",
+            sender_comp_id: "CLIENT",
+            target_comp_id: "SERVER",
+            seq_num: 1,
+            timestamp: now,
+          },
+          client_quote_id: "Q-" + Date.now(),
+          ...base,
+        };
+      }
+    }
+    function refreshMode() {
+      const mode = modeEl.value;
+      submitBtn.textContent = mode === "deposit" ? "Deposit" : "Send Message";
+      submitChip.textContent = submitBtn.textContent;
+      el("fromRow").classList.toggle("hidden", mode !== "deposit");
+      el("depositHint").classList.toggle("hidden", mode !== "deposit");
+      el("indexPkBox").classList.toggle("hidden", mode !== "index");
+
+      if (mode === "deposit") {
+        jsonBox.value = JSON.stringify({
+          chain_id: 42161,
+          address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          amount: "1000000"
+        }, null, 2);
+      } else {
+        jsonBox.value = JSON.stringify(buildIndexOrQuoteJson(mode), null, 2);
+      }
+    }
+    modeEl.addEventListener("change", refreshMode);
+    refreshMode();
+
+    // Show extra address fields if variant=5
+    el("depVariant").addEventListener("change", () => {
+      const v = el("depVariant").value;
+      el("extraAddrBox").style.display = (v === "5" ? "grid" : "none");
+    });
+
+    // ---------- WS (for Quote/Index) ----------
+    let ws = null;
+    el("connectBtn").onclick = () => {
+      const url = el("wsUrl").value.trim();
+      ws = new WebSocket(url);
+      ws.onopen = () => { log(`WebSocket connected → ${url}`,"ok"); el("connectBtn").disabled=true; el("disconnectBtn").disabled=false; };
+      ws.onclose = () => { log("WebSocket disconnected"); el("connectBtn").disabled=false; el("disconnectBtn").disabled=true; };
+      ws.onerror = () => log("WebSocket error","error");
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          log("Received:\n"+JSON.stringify(msg,null,2));
+          const msgType = msg.standard_header?.msg_type;
+          if (!msgType) return;
+          if (msgType.includes("Quote") || msgType === "Deposit") { log("ℹ️ Non-order message — skipping signature verification."); return; }
+
+          const trailer = msg.standard_trailer;
+          if (trailer?.signature && trailer?.public_key) {
+            const signatureHex = trailer.signature[0];
+            const pubKeyHex = trailer.public_key[0];
+            const signPayload = (() => {
+              const { msg_type } = msg.standard_header || {};
+              if (msg_type === "ACK" || msg_type === "NAK") return null;
+              if (msg_type === "NewIndexOrder" || msg_type === "CancelIndexOrder") return { msg_type, id: msg.client_order_id };
+              if (msg_type === "NewQuoteRequest" || msg_type === "CancelQuoteRequest") return { msg_type, id: msg.client_quote_id };
+              log("Unsupported msg_type for signature verification","error"); return null;
+            })();
+            if (!signPayload) return;
+            const hash = sha256(new TextEncoder().encode(JSON.stringify(signPayload)));
+            const sigBytes = secp.utils.hexToBytes(signatureHex.slice(2));
+            const pubKeyBytes = secp.utils.hexToBytes(pubKeyHex.slice(2));
+            const verified = secp.verify(sigBytes, hash, pubKeyBytes);
+            log(verified ? "✅ Signature verified!" : "❌ Signature verification failed!", verified ? "ok" : "error");
+          }
+        } catch { log("Received (raw): "+e.data); }
+      };
+    };
+    el("disconnectBtn").onclick = () => ws?.close();
+
+    // ---------- Anvil helpers (impersonate / fund) ----------
+    // el("impersonateBtn").onclick = async () => {
+    //   try {
+    //     const rpcUrl = el("rpcUrl").value.trim();
+    //     const from = el("fromAddr").value.trim();
+    //     if (!isAddr(from)) return log("Invalid From address","error");
+    //     await rpc(rpcUrl,"anvil_impersonateAccount",[from]);
+    //     log(`Impersonating ${from}`,"ok");
+    //   } catch(e){ log(`Impersonate error: ${e.message || e}`,"error"); }
+    // };
+    // el("fundBtn").onclick = async () => {
+    //   try {
+    //     const rpcUrl = el("rpcUrl").value.trim();
+    //     const from = el("fromAddr").value.trim();
+    //     if (!isAddr(from)) return log("Invalid From address","error");
+    //     // 1000 ETH in wei
+    //     await rpc(rpcUrl,"anvil_setBalance",[from,"0x3635C9ADC5DEA00000"]);
+    //     log(`Funded ${from} with 1000 ETH (anvil_setBalance)`,"ok");
+    //   } catch(e){ log(`Fund error: ${e.message || e}`,"error"); }
+    // };
+
+    // ---------- Submit handler ----------
+    submitBtn.onclick = async () => {
+      try {
+        const mode = modeEl.value;
+        const jsonStr = jsonBox.value.trim();
+        if (!jsonStr) return log("JSON is empty","error");
+        const obj = JSON.parse(jsonStr);
+
+        if (mode === "deposit") {
+          const rpcUrl   = el("rpcUrl").value.trim() || "http://127.0.0.1:8545";
+          const contract = el("contractAddr").value.trim();
+          const from     = el("fromAddr").value.trim();
+          if (!isAddr(contract)) return log("Set a valid DepositEmitter address","error");
+          if (!isAddr(from)) return log("From address invalid","error");
+
+          let chainId, account, amount;
+          try {
+            chainId = parseChainId(obj.chain_id);
+            account = String(obj.address || "").trim();
+            amount  = parseAmount(obj.amount, 6);
+            if (!isAddr(account)) throw new Error("JSON.address must be 0x…40 hex");
+          } catch(e){ return log(e.message || String(e),"error"); }
+
+          const variant = el("depVariant").value;
+          const extra4 = el("extra4").value.trim();
+          const extra5 = el("extra5").value.trim();
+          if (variant === "5") {
+            if (!isAddr(extra4) || !isAddr(extra5)) return log("extra4/extra5 must be 0x…40","error");
+          }
+
+          const data = (variant === "5")
+            ? encodeDeposit5(chainId, account, amount, extra4, extra5)
+            : encodeDeposit3(chainId, account, amount);
+
+          log(`(Deposit) sending tx…\nfrom=${from}\ncontract=${contract}\ncalldata=${data}`);
+          const txHash = await rpc(rpcUrl, "eth_sendTransaction", [{ from, to: contract, data }]);
+          log(`tx: ${txHash}`);
+          let receipt=null;
+          while(!receipt){
+            await new Promise(r=>setTimeout(r,800));
+            receipt = await rpc(rpcUrl,"eth_getTransactionReceipt",[txHash]);
+          }
+          const ok = receipt.status === "0x1";
+          log(`receipt block=${parseInt(receipt.blockNumber,16)} status=${ok?"success":"revert"}`, ok?"ok":"error");
+          if (!ok) return;
+
+          // Optional: simple event peek (topics length)
+          log(`logs: ${receipt.logs.length} (Deposit should be among them)`);
+
+          return;
+        }
+
+        // ---- Quote / Index via WebSocket ----
+        if (!ws || ws.readyState !== 1) return log("WebSocket not connected","error");
+
+        if (mode === "index") {
+          const pk = el("indexPk").value.trim();
+          if (!pk || !pk.startsWith("0x")) return log("Index signing private key required","error");
+          const payload = JSON.parse(JSON.stringify(obj));
+          delete payload.standard_trailer;
+
+          const getMinimal = (m) => {
+            const { msg_type } = m.standard_header || {};
+            if (msg_type === "NewIndexOrder" || msg_type === "CancelIndexOrder") return { msg_type, id: m.client_order_id };
+            if (msg_type === "NewQuoteRequest" || msg_type === "CancelQuoteRequest") return { msg_type, id: m.client_quote_id };
+            throw new Error("Unsupported msg_type");
+          };
+          const signPayload = getMinimal(payload);
+          const hash = sha256(new TextEncoder().encode(JSON.stringify(signPayload)));
+          const priv = secp.utils.hexToBytes(pk.slice(2));
+          const sig = secp.signSync(hash, priv, { canonical: true, der: false });
+          const signatureHex = "0x" + secp.utils.bytesToHex(sig.slice(0,64));
+          const pubKey = secp.getPublicKey(priv, false);
+          const pubKeyHex = "0x" + secp.utils.bytesToHex(pubKey);
+          obj.standard_trailer = { public_key:[pubKeyHex], signature:[signatureHex] };
+          log("Signed FIX hash: 0x"+secp.utils.bytesToHex(hash),"ok");
+        } else {
+          delete obj.standard_trailer; // Quote: ensure no trailer
+        }
+
+        const jsonStrOut = JSON.stringify(obj);
+        log(`Sending (${mode}):\n`+JSON.stringify(obj,null,2));
+        ws.send(jsonStrOut);
+      } catch(e) {
+        log(`Error: ${e?.message || String(e)}`,"error");
+      }
+    };
+  </script>
+</body>
+</html>

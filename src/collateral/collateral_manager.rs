@@ -117,7 +117,7 @@ impl CollateralManager {
                         Side::Sell => position_read.side_dr.unconfirmed_balance,
                     };
                     if unconfirmed_balance < request.collateral_amount {
-                        tracing::debug!(
+                        tracing::trace!(
                             chain_id = %request.chain_id,
                             address = %request.address,
                             client_order_id = %request.client_order_id,
@@ -127,7 +127,7 @@ impl CollateralManager {
                         );
                         Either::Right(request)
                     } else {
-                        tracing::info!(
+                        tracing::debug!(
                             chain_id = %request.chain_id,
                             address = %request.address,
                             client_order_id = %request.client_order_id,
@@ -138,7 +138,7 @@ impl CollateralManager {
                         Either::Left(request)
                     }
                 } else {
-                    tracing::debug!(
+                    tracing::trace!(
                         chain_id = %request.chain_id,
                         address = %request.address,
                         client_order_id = %request.client_order_id,

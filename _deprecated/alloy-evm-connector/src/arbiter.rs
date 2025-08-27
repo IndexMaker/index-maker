@@ -41,6 +41,7 @@ impl Arbiter {
                         break;
                     }
                     Some(request) = operation_rx.recv() => {
+                        tracing::debug!("Chain operation request received");
 
                         // Handle the request using ChainOperations methods
                         match ChainOperations::handle_chain_operation_request(
