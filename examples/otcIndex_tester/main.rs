@@ -1,15 +1,23 @@
 use alloy::{
-    primitives::{address, keccak256, Address, Bytes, B256, U256},
+    primitives::{address, keccak256, Address, Bytes, FixedBytes, B256, U256},
     providers::{ext::AnvilApi, Provider, ProviderBuilder},
-    rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption, TransactionRequest},
-    sol,
+    rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption},
     sol_types::SolValue,
 };
 use alloy_chain_connector::util::amount_converter::AmountConverter;
+use alloy_consensus::BlockHeader;
+use alloy_network::BlockResponse;
 use anyhow::{anyhow, Context, Result};
-use ca_helper::contracts::{IndexFactory, OTCCustody, OTCIndex as OTCIndexContract, ERC20, SchnorrCAKey, SchnorrSignature, VerificationData};
+use ca_helper::contracts::{
+    IOTCIndex::Deposit, IndexFactory, OTCCustody, SchnorrCAKey, SchnorrSignature, VerificationData,
+    ERC20,
+};
 use ca_helper::custody_helper::{CAHelper, Party};
 use dotenvy::dotenv;
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::elliptic_curve::{bigint::U256 as ECUint, ops::Reduce};
+use k256::ProjectivePoint;
+use k256::{elliptic_curve::PrimeField, FieldBytes, Scalar};
 use rust_decimal::dec;
 use std::{
     env,
@@ -18,55 +26,66 @@ use std::{
     time::Duration,
 };
 use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 // ---------- helpers: key → (parity, x) for Schnorr pubkey ----------
-fn pubkey_parity_x(sk_hex: &str) -> Result<(u8, B256)> {
-    use k256::ecdsa::VerifyingKey as EcdsaVK;
+fn pubkey_parity_27_28_x(sk_hex: &str) -> anyhow::Result<(u8, B256, [u8; 32])> {
+    use k256::ecdsa::SigningKey;
 
-    let sk_bytes = hex::decode(sk_hex.trim_start_matches("0x"))?;
-    let signing_key = k256::ecdsa::SigningKey::from_bytes((&sk_bytes).into())?;
-    let vk: EcdsaVK = signing_key.verifying_key();
+    let sk_vec = hex::decode(sk_hex.trim_start_matches("0x"))?;
+    let sk32: [u8; 32] = sk_vec
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("bad sk length"))?;
 
-    // compressed: 0x02/0x03 || x
-    let ep = vk.to_encoded_point(true);
+    let sk = SigningKey::from_slice(&sk32)?;
+    let vk = sk.verifying_key();
+
+    let ep = vk.to_encoded_point(true); // 33 bytes: 0x02/0x03 || X
     let tag = ep.as_bytes()[0];
-    let parity = if tag == 0x02 { 0u8 } else { 1u8 };
+    let parity = if tag == 0x02 { 27u8 } else { 28u8 }; // this is required from our Solidity contracts
     let x_bytes = &ep.as_bytes()[1..33];
-    Ok((parity, B256::from_slice(x_bytes)))
+    Ok((parity, B256::from_slice(x_bytes), sk32))
 }
 
-// Deterministic Schnorr-ish helper to mirror on-chain challenge style:
-// e = keccak256(message); k = keccak256(sk||message); s = k + e*sk   (mod n)
-fn schnorr_sign_keccak_challenge(sk_hex: &str, message: &[u8]) -> Result<(B256, B256)> {
-    use k256::{elliptic_curve::ScalarPrimitive, Scalar};
+fn schnorr_sign_per_contract(
+    sk32: [u8; 32],
+    parity: u8, // 27/28
+    px: B256,   // pubkey X
+    message_data: &[u8],
+) -> anyhow::Result<(B256, B256)> {
+    let x = Scalar::from_repr(FieldBytes::from(sk32))
+        .into_option()
+        .ok_or_else(|| anyhow::anyhow!("sk out of range"))?;
 
-    let sk_be = hex::decode(sk_hex.trim_start_matches("0x"))?;
-    let x =
-        Scalar::from_repr(*ScalarPrimitive::from_bytes(&sk_be).ok_or_else(|| anyhow!("bad sk"))?)
-            .ok_or_else(|| anyhow!("sk out of range"))?;
+    // message = keccak256(messageData)
+    let message = B256::from(keccak256(message_data));
 
-    let e = B256::from(keccak256(message));
-    let e_scalar =
-        Scalar::from_repr(*ScalarPrimitive::from_bytes(e.as_slice()).unwrap_or_default())
-            .unwrap_or(Scalar::ZERO);
+    // deterministic k = reduce(keccak256(sk || message))
+    let mut kin = Vec::with_capacity(64);
+    kin.extend_from_slice(&sk32);
+    kin.extend_from_slice(message.as_slice());
+    let k = Scalar::reduce(ECUint::from_be_slice(keccak256(&kin).as_slice()));
 
-    let mut k_input = Vec::with_capacity(sk_be.len() + message.len());
-    k_input.extend_from_slice(&sk_be);
-    k_input.extend_from_slice(message);
-    let k_hash = keccak256(&k_input);
-    let k_scalar =
-        Scalar::from_repr(*ScalarPrimitive::from_bytes(k_hash.as_slice()).unwrap_or_default())
-            .unwrap_or(Scalar::ONE);
+    // R = k·G, ethereum address of R (keccak of uncompressed XY, take last 20 bytes)
+    let r_aff = (ProjectivePoint::GENERATOR * k).to_affine();
+    let r_uncompressed = r_aff.to_encoded_point(false); // 0x04 || X || Y (65 bytes)
+    let r_hash = keccak256(&r_uncompressed.as_bytes()[1..]); // hash 64-byte X||Y
+    let r_addr = Address::from_slice(&r_hash[12..]); // last 20 bytes
 
-    let s = k_scalar + (e_scalar * x);
-    let mut s32 = [0u8; 32];
-    s.to_bytes().copy_to_slice(&mut s32);
-    Ok((e, B256::from(s32)))
+    // e = keccak256(abi.encodePacked(R_address, parity, px, message))
+    let parity_b1: FixedBytes<1> = [parity].into();
+    let e_bytes: Bytes = SolValue::abi_encode_packed(&(r_addr, parity_b1, px, message)).into();
+    let e_b256 = B256::from(keccak256(e_bytes.as_ref()));
+    let e = Scalar::reduce(ECUint::from_be_slice(e_b256.as_slice()));
+
+    // s = k + e*x  (mod Q)
+    let s = k + e * x;
+
+    Ok((e_b256, B256::from_slice(s.to_bytes().as_slice())))
 }
 
-// Message domains (match OTCCustody.sol VerificationUtils.verifySchnorr)
 fn deploy_connector_message(
     ts: U256,
     id: B256,
@@ -74,14 +93,16 @@ fn deploy_connector_message(
     factory: Address,
     data: &Bytes,
 ) -> Bytes {
-    SolValue::abi_encode_params(&(
+    let data_hash = B256::from(keccak256(data));
+    SolValue::abi_encode_packed(&(
         ts,
         "deployConnector".to_string(),
         id,
         connector_type.to_string(),
         factory,
-        data.clone(),
+        data_hash,
     ))
+    .into()
 }
 
 fn call_connector_message(
@@ -92,28 +113,56 @@ fn call_connector_message(
     fixed: &Bytes,
     tail: &Bytes,
 ) -> Bytes {
-    SolValue::abi_encode_params(&(
+    let fixed_hash = B256::from(keccak256(fixed));
+    let tail_hash = B256::from(keccak256(tail));
+    SolValue::abi_encode_packed(&(
         ts,
         "callConnector".to_string(),
         id,
         connector_type.to_string(),
         connector_addr,
-        fixed.clone(),
-        tail.clone(),
+        fixed_hash,
+        tail_hash,
     ))
+    .into()
+}
+
+fn custody_to_address_message(
+    ts: U256,
+    id: B256,
+    token: Address,
+    destination: Address,
+    amount: U256,
+) -> Bytes {
+    SolValue::abi_encode_packed(&(
+        ts,
+        "custodyToAddress".to_string(),
+        id,
+        token,
+        destination,
+        amount,
+    ))
+    .into()
+}
+
+fn encode_mint_call(to: Address, amount: U256, seq: U256) -> Bytes {
+    let sel = keccak256(b"mint(address,uint256,uint256)");
+    let mut out = Vec::with_capacity(4 + 32 * 3);
+    out.extend_from_slice(&sel[..4]);
+    let enc = SolValue::abi_encode_params(&(to, amount, seq));
+    out.extend_from_slice(&enc);
+    out.into()
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
     let filter = EnvFilter::from_default_env()
-        .add_directive("otcindex_factory_flow=info".parse().unwrap())
+        .add_directive("otcIndex_tester=info".parse().unwrap())
         .add_directive("alloy_provider=warn".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    // ---- env ----
-    let fork_url =
-        env::var("BASE_FORK_URL").context("Please set BASE_FORK_URL (archive RPC preferred)")?;
+    let fork_url = env::var("BASE_FORK_URL").context("Please set BASE_FORK_URL")?;
     let index_addr: Address = env_addr("OTC_INDEX_ADDR")?;
     let custody_addr: Address = env_addr("OTC_CUSTODY_ADDR")?;
     let anvil_http = env::var("ANVIL_HTTP").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
@@ -136,6 +185,7 @@ async fn main() -> Result<()> {
 
     // ---- 2) start Anvil fork ----
     info!("Spawning anvil fork at block #{fork_block} …");
+    
     let _ = Command::new("anvil")
         .arg("--fork-url")
         .arg(&fork_url)
@@ -219,39 +269,38 @@ async fn main() -> Result<()> {
     }
     bare.anvil_stop_impersonating_account(whale).await?;
 
-    // =====================================================================
     // === Realistic ACL + Schnorr + deployConnector + callConnector     ===
-    // =====================================================================
 
-    // Factory + signer
     let index_factory_addr: Address = env_addr("INDEX_FACTORY_ADDR")?;
     let schnorr_sk_hex = env::var("SCHNORR_SK").unwrap_or_else(|_| {
         "0x1111111111111111111111111111111111111111111111111111111111111111".into()
     });
     let chain_id: u64 = 8453;
 
+    let operator: Address = env_addr("OPERATOR_ADDR")?;
     // 1) Build CA/ACL for deployConnector ("OTCIndex") and compute CustodyID
-    let (parity, x) = pubkey_parity_x(&schnorr_sk_hex)?;
-    let party = Party { parity, x };
+    let (parity, px, sk32) = pubkey_parity_27_28_x(&schnorr_sk_hex)?;
+    let party = Party { parity, x: px };
     let custody_state: u8 = 0;
 
-    // index params (mirror your TS script)
+    // index params (mirror AB's ts script)
     let index_params = (
         "Factory Index".to_string(),
         "FI".to_string(),
-        usdc,            // collateral
-        U256::from(6u8), // decimals
+        usdc,
+        U256::from(6u8),
         U256::from(100u64),
         U256::from(200u64),
-        U256::from_dec_str("1000000000000000000000")?, // 1000 * 1e18
-        U256::from_dec_str("1000000000000000000000")?,
+        u256("1000000000000000000000")?, // 1000 * 1e18
+        u256("1000000000000000000000")?,
         U256::from(51u8),
         U256::from(86400u64),
-        U256::from_dec_str("100000000000000000000")?, // 100 * 1e18
+        u256("1000000000000000000000")?, // 100 * 1e18
     );
     let deploy_data: Bytes = SolValue::abi_encode_params(&index_params).into();
 
     let mut ca = CAHelper::new(chain_id as u32, custody_addr);
+    // (A) deployConnector action leaf
     let leaf_idx_deploy = ca.deploy_connector(
         "OTCIndex",
         index_factory_addr,
@@ -259,6 +308,11 @@ async fn main() -> Result<()> {
         custody_state,
         party.clone(),
     );
+
+    // (B) custodyToAddress action leaf — send to your operator (or any address you want)
+    let receiver: Address = operator;
+    let leaf_idx_c2a = ca.custody_to_address(receiver, custody_state, party.clone());
+
     let custody_id = B256::from_slice(&ca.get_custody_id());
     info!(
         "CustodyID (CA root): 0x{}",
@@ -279,21 +333,27 @@ async fn main() -> Result<()> {
         index_factory_addr,
         &deploy_data,
     );
-    let (e, s) = schnorr_sign_keccak_challenge(&schnorr_sk_hex, msg.as_ref())?;
+    let (e, s) = schnorr_sign_per_contract(sk32, parity, px, msg.as_ref())?;
 
-    let proof = ca
+    let proof_deploy: Vec<B256> = ca
         .get_merkle_proof(leaf_idx_deploy)
         .into_iter()
         .map(|arr| B256::from_slice(&arr))
-        .collect::<Vec<_>>();
+        .collect();
+
+    let proof_c2a: Vec<B256> = ca
+        .get_merkle_proof(leaf_idx_c2a)
+        .into_iter()
+        .map(|arr| B256::from_slice(&arr))
+        .collect();
 
     let v_deploy = VerificationData {
         id: custody_id,
         state: custody_state,
         timestamp: latest_ts,
-        pubKey: SchnorrCAKey { parity, x },
+        pubKey: SchnorrCAKey { parity, x: px },
         sig: SchnorrSignature { e, s },
-        merkleProof: proof,
+        merkleProof: proof_deploy.clone(),
     };
 
     // 3) Call deployConnector on OTCCustody
@@ -304,37 +364,45 @@ async fn main() -> Result<()> {
     let _ = provider
         .anvil_set_balance(
             custody_addr,
-            U256::from_dec_str("10000000000000000000000")?, // 10k ETH
+            u256("10000000000000000000000")?, // 10k ETH
         )
         .await;
     provider
         .anvil_stop_impersonating_account(custody_addr)
         .await?;
 
-    let tx = OTCCustody::deployConnectorCall {
-        _connectorType: "OTCIndex".to_string(),
-        _factoryAddress: index_factory_addr,
-        _data: deploy_data.clone(),
-        v: v_deploy,
-    };
-    let rc = otc.deployConnector(tx).send().await?.get_receipt().await?;
+    let rc = otc
+        .deployConnector(
+            "OTCIndex".to_string(),
+            index_factory_addr,
+            deploy_data.clone(),
+            v_deploy,
+        )
+        .from(operator)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
     anyhow::ensure!(rc.status(), "deployConnector reverted: {:?}", rc);
     info!("✅ deployConnector ok: {:?}", rc.transaction_hash);
 
     // 4) Read IndexDeployed to get deployed index
-    let factory = IndexFactory::new(index_factory_addr, provider.clone());
-    let logs = provider
-        .get_logs(&Filter::new().address(index_factory_addr))
-        .await?;
     let mut deployed_index = Address::ZERO;
-    for lg in logs {
-        if let Ok(parsed) = lg.log_decode::<IndexFactory::IndexDeployed>() {
-            deployed_index = parsed.inner.indexAddress;
+
+    for lg in rc.logs() {
+        let log_addr = hex::encode(lg.address().as_slice()); // lowercase
+        let factory_addr = hex::encode(index_factory_addr.as_slice()); // lowercase
+        if log_addr == factory_addr {
+            if let Ok(parsed) = lg.log_decode::<IndexFactory::IndexDeployed>() {
+                deployed_index = parsed.inner.indexAddress;
+                break;
+            }
         }
     }
+
     anyhow::ensure!(
         deployed_index != Address::ZERO,
-        "IndexDeployed event not found"
+        "IndexDeployed not found in receipt — check factory address/ABI (logs dumped above)"
     );
 
     info!("🆕 OTCIndex deployed at: {deployed_index:#x}");
@@ -343,11 +411,76 @@ async fn main() -> Result<()> {
     let whitelisted = otc.isConnectorWhitelisted(deployed_index).call().await?;
     info!("Index auto-whitelisted: {}", whitelisted);
 
+    // ===== custodyToAddress (deposit then withdraw-to-address via Schnorr) =====
+    let c2a_amount_units = usdc_converter
+        .from_amount(dec!(100))
+        .map_err(|e| anyhow!(e))?;
+
+    let usdc_ext = ERC20::new(usdc, &provider);
+    // Approve USDC to Custody so it can transferFrom(operator)
+    let rc_app = usdc_ext
+        .approve(custody_addr, c2a_amount_units)
+        .from(operator)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    anyhow::ensure!(rc_app.status(), "USDC approve failed: {:?}", rc_app);
+
+    // Deposit into custody under this custodyId
+    let rc_dep = otc
+        .addressToCustody(custody_id, usdc, c2a_amount_units)
+        .from(operator)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    anyhow::ensure!(rc_dep.status(), "addressToCustody failed: {:?}", rc_dep);
+
+    // Build & sign custodyToAddress message with fresh timestamp
+    let ts_c2a: U256 = chain_now_ts(&provider).await?;
+
+    let msg_c2a = custody_to_address_message(ts_c2a, custody_id, usdc, receiver, c2a_amount_units);
+
+    let (e_c2a, s_c2a) = schnorr_sign_per_contract(sk32, parity, px, msg_c2a.as_ref())?;
+
+    let v_c2a = VerificationData {
+        id: custody_id,
+        state: custody_state,
+        timestamp: ts_c2a,
+        pubKey: SchnorrCAKey { parity, x: px },
+        sig: SchnorrSignature { e: e_c2a, s: s_c2a },
+        merkleProof: proof_c2a.clone(), // for the custodyToAddress leaf
+    };
+
+    // Execute custodyToAddress (moves funds from custody to `receiver`)
+    let rc_c2a = otc
+        .custodyToAddress(usdc, receiver, c2a_amount_units, v_c2a)
+        .from(operator)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    anyhow::ensure!(rc_c2a.status(), "custodyToAddress reverted: {:?}", rc_c2a);
+
+    info!("✅ custodyToAddress ok: {:?}", rc_c2a.transaction_hash);
+
+    let bal_after = usdc_contract.balanceOf(receiver).call().await?;
+    info!(
+        "USDC balance(receiver) after custodyToAddress: {}",
+        bal_after
+    );
+
     // 5) callConnector: curatorUpdate + solverUpdate (empty proof when whitelisted)
-    let ts1 = latest_ts + U256::from(1);
+    let ts1 = chain_now_ts(&provider).await?;
     let weights1 = Bytes::from(vec![0u8; 32]);
-    let price1 = U256::from_dec_str("120000000000000000000")?; // 120 * 1e18
-    let curator_call: Bytes = SolValue::abi_encode_params(&(ts1, weights1.clone(), price1)).into();
+    let price1 = u256("120000000000000000000")?;
+    let curator_call = encode_with_selector(
+        "curatorUpdate(uint256,bytes,uint256)",
+        ts1,
+        &weights1,
+        price1,
+    );
 
     let msg_curator = call_connector_message(
         ts1,
@@ -357,31 +490,43 @@ async fn main() -> Result<()> {
         &curator_call,
         &Bytes::default(),
     );
-    let (e2, s2) = schnorr_sign_keccak_challenge(&schnorr_sk_hex, msg_curator.as_ref())?;
-    let v_call1 = OTCCustody::VerificationData {
+    let (e2, s2) = schnorr_sign_per_contract(sk32, parity, px, msg_curator.as_ref())?;
+
+    let v_call1 = VerificationData {
         id: custody_id,
         state: custody_state,
         timestamp: ts1,
-        pubKey: SchnorrCAKey { parity, x },
+        pubKey: SchnorrCAKey { parity, x: px },
         sig: SchnorrSignature { e: e2, s: s2 },
-        merkleProof: vec![],
+        merkleProof: vec![], // index is already in whitelisted so empty proof OK
     };
 
-    let tx2 = OTCCustody::callConnectorCall {
-        connectorType: "OTCIndexConnector".to_string(),
-        connectorAddress: deployed_index,
-        fixedCallData: curator_call.clone(),
-        tailCallData: Bytes::default(),
-        v: v_call1,
-    };
-    let rc2 = otc.callConnector(tx2).send().await?.get_receipt().await?;
+    let rc2 = otc
+        .callConnector(
+            "OTCIndexConnector".to_string(),
+            deployed_index,
+            curator_call.clone(),
+            Bytes::default(),
+            v_call1,
+        )
+        .from(operator)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
     anyhow::ensure!(rc2.status(), "curatorUpdate reverted: {:?}", rc2);
     info!("✅ curatorUpdate ok: {:?}", rc2.transaction_hash);
 
-    let ts2 = ts1 + U256::from(1);
+    let ts2 = chain_now_ts(&provider).await?;
     let weights2 = Bytes::from(vec![1u8; 32]);
-    let price2 = U256::from_dec_str("130000000000000000000")?; // 130 * 1e18
-    let solver_call: Bytes = SolValue::abi_encode_params(&(ts2, weights2.clone(), price2)).into();
+    let price2 = u256("130000000000000000000")?;
+    let solver_call = encode_with_selector(
+        "solverUpdate(uint256,bytes,uint256)",
+        ts2,
+        &weights2,
+        price2,
+    );
 
     let msg_solver = call_connector_message(
         ts2,
@@ -391,34 +536,74 @@ async fn main() -> Result<()> {
         &solver_call,
         &Bytes::default(),
     );
-    let (e3, s3) = schnorr_sign_keccak_challenge(&schnorr_sk_hex, msg_solver.as_ref())?;
+    let (e3, s3) = schnorr_sign_per_contract(sk32, parity, px, msg_solver.as_ref())?;
     let v_call2 = VerificationData {
         id: custody_id,
         state: custody_state,
         timestamp: ts2,
-        pubKey: SchnorrCAKey { parity, x },
+        pubKey: SchnorrCAKey { parity, x: px },
         sig: SchnorrSignature { e: e3, s: s3 },
         merkleProof: vec![],
     };
 
-    let tx3 = OTCCustody::callConnectorCall {
-        connectorType: "OTCIndexConnector".to_string(),
-        connectorAddress: deployed_index,
-        fixedCallData: solver_call.clone(),
-        tailCallData: Bytes::default(),
-        v: v_call2,
-    };
-    let rc3 = otc.callConnector(tx3).send().await?.get_receipt().await?;
+    let rc3 = otc
+        .callConnector(
+            "OTCIndexConnector".to_string(),
+            deployed_index,
+            solver_call.clone(),
+            Bytes::default(),
+            v_call2,
+        )
+        .from(operator)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
     anyhow::ensure!(rc3.status(), "solverUpdate reverted: {:?}", rc3);
     info!("✅ solverUpdate ok: {:?}", rc3.transaction_hash);
 
-    // ---- optional: keep your Deposit watcher running after setup ----
-    let _ = wait_for_deposit(&provider, index_addr, poll_ms).await?;
+    info!("Waiting deposit event from Client side...");
+    let _ = wait_for_deposit_and_mint(
+        &provider,
+        deployed_index,
+        custody_addr,
+        poll_ms,
+        custody_id,
+        custody_state,
+        parity,
+        px,
+        sk32,
+        6,
+    )
+    .await?;
 
     Ok(())
 }
 
-// --------------------------- utilities ---------------------------
+// --------------------------- my helpers ---------------------------
+fn encode_with_selector(sig: &str, ts: U256, weights: &Bytes, price: U256) -> Bytes {
+    let sel = keccak256(sig.as_bytes());
+    let mut out = Vec::with_capacity(4 + 128);
+    out.extend_from_slice(&sel[..4]);
+
+    let enc = SolValue::abi_encode_params(&(ts, weights.clone(), price));
+    out.extend_from_slice(&enc);
+    out.into()
+}
+
+async fn chain_now_ts<P: Provider>(p: &P) -> anyhow::Result<U256> {
+    let now = p
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await?
+        .map(|b| U256::from(b.header().timestamp()))
+        .unwrap_or(U256::ZERO);
+    Ok(now)
+}
+
+fn u256(s: &str) -> anyhow::Result<U256> {
+    U256::from_str(s).map_err(|e| anyhow!(e))
+}
 
 async fn wait_for_rpc(rpc_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
@@ -464,15 +649,45 @@ fn env_addr(key: &str) -> Result<Address> {
     Address::from_str(s.trim()).with_context(|| format!("invalid {key}"))
 }
 
-/// Wait for the first Deposit and just log it (kept simple here).
-async fn wait_for_deposit<P: Provider>(
+fn pow10(d: u32) -> U256 {
+    let mut x = U256::from(1u8);
+    for _ in 0..d {
+        x = x * U256::from(10u8);
+    }
+    x
+}
+
+fn read_index_price() -> anyhow::Result<U256> {
+    let s = std::env::var("INDEX_PRICE").context("INDEX_PRICE env var not set")?;
+    U256::from_str(&s).map_err(|e| anyhow!(e))
+}
+
+async fn pending_nonce<P: Provider>(p: &P, from: Address) -> anyhow::Result<u64> {
+    let n: u64 = p
+        .get_transaction_count(from)
+        .block_id(BlockId::Number(BlockNumberOrTag::Pending))
+        .await?;
+    Ok(n)
+}
+
+/// Wait for the Deposit events and Mint immeidately for capturing on Client.
+async fn wait_for_deposit_and_mint<P: Provider>(
     provider: &P,
     index_addr: Address,
+    custody_addr: Address,
     poll_ms: u64,
+    custody_id: B256,
+    custody_state: u8,
+    parity: u8,
+    px: B256,
+    sk32: [u8; 32],
+    collateral_decimals: u8,
 ) -> Result<()> {
+    let index_price = read_index_price()?;
+    let one_e18 = pow10(18);
     let mut last_from = provider.get_block_number().await?;
     let base = Filter::new().address(index_addr);
-
+    let otc = OTCCustody::new(custody_addr, provider.clone());
     loop {
         let tip = provider.get_block_number().await?;
         if tip > last_from {
@@ -483,13 +698,74 @@ async fn wait_for_deposit<P: Provider>(
 
             let logs = provider.get_logs(&range).await?;
             for l in logs {
-                if let Ok(dl) = l.log_decode::<OTCIndexContract::Deposit>() {
+                if let Ok(dl) = l.log_decode::<Deposit>() {
                     let ev = dl.inner;
                     info!(
                         "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
                         ev.amount, ev.from, ev.seqNumNewOrderSingle, ev.affiliate1, ev.affiliate2
                     );
-                    return Ok(()); // stop after first one for demo
+
+                    // Mint after deposit
+                    let amount18 = if collateral_decimals < 18 {
+                        ev.amount * pow10((18 - collateral_decimals as u32) as u32)
+                    } else if collateral_decimals > 18 {
+                        ev.amount / pow10((collateral_decimals as u32 - 18) as u32)
+                    } else {
+                        ev.amount
+                    };
+
+                    let mint_amount = amount18.saturating_mul(one_e18) / index_price;
+
+                    let mint_call = encode_mint_call(ev.from, mint_amount, ev.seqNumNewOrderSingle);
+                    //  get cusody owner for Mint allow
+                    let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
+                    let ts: U256 = chain_now_ts(&provider).await?;
+                    let nonce = pending_nonce(&provider, custody_owner).await?;
+                    let msg = call_connector_message(
+                        ts,
+                        custody_id,
+                        "OTCIndexConnector",
+                        index_addr,
+                        &mint_call,
+                        &Bytes::default(),
+                    );
+
+                    // Sign per your contract’s Schnorr flow (27/28)
+                    let (e, s) = schnorr_sign_per_contract(sk32, parity, px, msg.as_ref())?;
+
+                    let v = VerificationData {
+                        id: custody_id,
+                        state: custody_state,
+                        timestamp: ts,
+                        pubKey: SchnorrCAKey { parity, x: px },
+                        sig: SchnorrSignature { e, s },
+                        merkleProof: vec![], // OK if connector is whitelisted
+                    };
+
+                    //   Send via custody → connector (use SAME client; set from)
+                    let rc = otc
+                        .callConnector(
+                            "OTCIndexConnector".to_string(),
+                            index_addr,
+                            mint_call,
+                            Bytes::default(),
+                            v,
+                        )
+                        .from(custody_owner)
+                        .nonce(nonce)
+                        .send()
+                        .await?
+                        .get_receipt()
+                        .await?;
+
+                    anyhow::ensure!(rc.status(), "mint via callConnector reverted: {:?}", rc);
+
+                    info!(
+                        "🎟️ Minted {} to {:#x} (seq {}) | tx {:?}",
+                        mint_amount, ev.from, ev.seqNumNewOrderSingle, rc.transaction_hash
+                    );
+
+                    continue;
                 }
             }
             last_from = tip;

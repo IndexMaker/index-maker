@@ -3,6 +3,12 @@ use alloy::sol;
 sol! {
     #[sol(rpc)]
     contract ERC20 {
+
+        function approve(address spender, uint256 amount) external returns (bool);
+        
+        function allowance(address owner, address spender) external view returns (uint256);
+        
+        function transferFrom(address from, address to, uint256 amount) external returns (bool);
         function balanceOf(address account) external view returns (uint256);
         function transfer(address to, uint256 amount) external returns (bool);
         function decimals() external view returns (uint8);
@@ -10,7 +16,16 @@ sol! {
 
     #[sol(rpc)]
     contract OTCIndex {
-        event Deposit(uint256 amount, address from, uint256 seqNumNewOrderSingle, address affiliate1, address affiliate2);
+        function debugDeployDigest(
+            uint256 ts,
+            bytes32 id,
+            string calldata connectorType,
+            address factory,
+            bytes calldata data
+        ) external view returns (bytes32) {
+            // Call the SAME internal routine your verifier uses.
+            // e.g., return VerificationUtils.deployConnectorDigest(...);
+        }
         function solverUpdate(uint256 _timestamp, bytes memory _weights, uint256 _price) external;
         function mint(address target, uint256 amount, uint256 seqNumExecutionReport) external;
         function burn(uint256 amount, address target, uint256 seqNumNewOrderSingle) external;
@@ -18,8 +33,27 @@ sol! {
     }
 
     #[sol(rpc)]
+    interface IOTCIndex {
+        event Deposit(
+            uint256 amount,
+            address from,
+            uint256 seqNumNewOrderSingle,
+            address affiliate1,
+            address affiliate2
+        );
+        event Mint(
+            uint256 amount,
+            address to,
+            uint256 seqNumExecutionReport
+        );
+        event Withdraw(uint256 amount, address to, bytes executionReport);
+        function getCollateralToken() external view returns (address);
+        function mint(address target, uint256 amount, uint256 seqNumExecutionReport) external;
+    }
+
+    #[sol(rpc)]
     contract IndexFactory {
-        event IndexDeployed(address indexAddress);
+        event IndexDeployed(address indexed indexAddress);
 
         function deployConnector(
             bytes32 custodyId,
@@ -65,16 +99,17 @@ sol! {
         function getCustodyBalances(bytes32 id, address token) external view returns (uint256);
         function getCustodyState(bytes32 id) external view returns (uint8);
         function getCA(bytes32 id) external view returns (bytes32);
+        function getCustodyOwner(bytes32 id) external view returns (address);
     }
 
-    struct SchnorrCAKey { 
-        uint8 parity; 
-        bytes32 x; 
+    struct SchnorrCAKey {
+        uint8 parity;
+        bytes32 x;
     }
 
-    struct SchnorrSignature { 
-        bytes32 e; 
-        bytes32 s; 
+    struct SchnorrSignature {
+        bytes32 e;
+        bytes32 s;
     }
 
     struct VerificationData {
