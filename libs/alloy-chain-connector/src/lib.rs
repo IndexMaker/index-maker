@@ -9,7 +9,6 @@ pub mod collateral {
 }
 pub mod chain_connector;
 pub mod command;
-pub mod contracts;
 pub mod rpc {
     pub mod basic_session;
     pub mod custody_session;

@@ -1,4 +1,3 @@
-use crate::utils::IntoEvmAmount;
 use alloy::{
     hex,
     primitives::{Address, B256},
@@ -9,9 +8,7 @@ use ethers::{
     types::{Address as EthAddress, Bytes as EBytes, U256},
 };
 use merkle_tree_rs::core::{get_proof, make_merkle_tree};
-use rust_decimal::dec;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum CAItemType {
@@ -60,7 +57,6 @@ pub struct CAHelper {
     ca_items: Vec<CAItem>,
     merkle_tree: Option<Vec<EBytes>>, // flat binary-heap tree
     leaf_indices: Vec<usize>,         // original -> tree index
-    args_to_types: HashMap<CAItemType, String>,
     custody_id: Option<[u8; 32]>,
     chain_id: u32,
     otc_custody_address: Address,
@@ -68,33 +64,10 @@ pub struct CAHelper {
 
 impl CAHelper {
     pub fn new(chain_id: u32, otc_custody_address: Address) -> Self {
-        let mut args_to_types = HashMap::new();
-        args_to_types.insert(
-            CAItemType::DeployConnector,
-            "string connectorType,address factoryAddress,bytes callData".to_string(),
-        );
-        args_to_types.insert(
-            CAItemType::CallConnector,
-            "string connectorType,address connectorAddress,bytes callData".to_string(),
-        );
-        args_to_types.insert(CAItemType::CustodyToAddress, "address receiver".to_string());
-        args_to_types.insert(
-            CAItemType::CustodyToConnector,
-            "address connectorAddress,address token".to_string(),
-        );
-        args_to_types.insert(CAItemType::ChangeCustodyState, "uint8 newState".to_string());
-        args_to_types.insert(
-            CAItemType::CustodyToCustody,
-            "bytes32 receiverId".to_string(),
-        );
-        args_to_types.insert(CAItemType::UpdateCA, "".to_string());
-        args_to_types.insert(CAItemType::UpdateCustodyState, "".to_string());
-
         Self {
             ca_items: Vec::new(),
             merkle_tree: None,
             leaf_indices: Vec::new(),
-            args_to_types,
             custody_id: None,
             chain_id,
             otc_custody_address,
@@ -185,28 +158,6 @@ impl CAHelper {
         };
 
         format!("0x{}", hex::encode(encoded))
-    }
-
-    fn encode_calldata(&self, func_type: &str, func_args: &[&[u8]]) -> String {
-        // Create function selector using keccak256
-        let selector = alloy::primitives::keccak256(func_type.as_bytes())[..4].to_vec();
-
-        // Extract parameter types from function type
-        let param_types = func_type
-            .split_once('(')
-            .and_then(|(_, rest)| rest.split_once(')'))
-            .map(|(params, _)| params)
-            .unwrap_or("");
-
-        // Encode the function arguments
-        let encoded_args = SolValue::abi_encode_params(func_args);
-
-        // Concatenate selector and encoded arguments
-        let mut result = selector;
-        result.extend(encoded_args);
-
-        // Return as hex string with 0x prefix
-        format!("0x{}", hex::encode(result))
     }
 
     fn add_item(
@@ -320,7 +271,7 @@ impl CAHelper {
     }
 
     /// Build (or fetch cached) Merkle tree matching OpenZeppelin StandardMerkleTree behavior
-    fn get_merkle_tree(&mut self) -> &Vec<EBytes> {
+    pub fn get_merkle_tree(&mut self) -> &Vec<EBytes> {
         if self.merkle_tree.is_none() {
             // 1. compute leaves with their original indices
             let mut leaves_with_indices: Vec<(usize, EBytes)> = self
@@ -397,7 +348,6 @@ impl CAHelper {
         }
 
         let sorted_position = *self.leaf_indices.get(index).expect("invalid idx");
-        let tree_size = self.merkle_tree.as_ref().unwrap().len();
 
         // Debug: let's see exactly what tree index we should be using
         // Based on tree structure, it seems like the mapping is inverted
@@ -420,90 +370,37 @@ impl CAHelper {
         self.leaf_indices.clear();
         self.custody_id = None;
     }
+}
 
-    /// Debug function to print leaf hashes for comparison with TypeScript
-    pub fn debug_leaves(&self) {
-        tracing::debug!("=== Debug: CA Items and Leaf Hashes ===");
-        for (i, item) in self.ca_items.iter().enumerate() {
-            let leaf_hash = Self::compute_leaf(item);
-            tracing::debug!("Item {}: {:?}", i, item);
-            tracing::debug!("Leaf {}: 0x{}", i, hex::encode(leaf_hash.as_ref()));
-            tracing::debug!("---");
-        }
+impl std::fmt::Debug for CAHelper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ca_items: Vec<_> = self
+            .ca_items
+            .iter()
+            .map(|item| {
+                let leaf_hash = Self::compute_leaf(item);
+                let leaf_hash_hex = hex::encode(leaf_hash.as_ref());
+
+                format!("{:?} ({})", item, leaf_hash_hex)
+            })
+            .collect();
+
+        f.debug_struct("CAHelper")
+            .field("ca_items", &ca_items)
+            .field("merkle_tree", &self.merkle_tree)
+            .field("leaf_indices", &self.leaf_indices)
+            .field("custody_id", &self.custody_id)
+            .field("chain_id", &self.chain_id)
+            .field("otc_custody_address", &self.otc_custody_address)
+            .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::EvmConnectorConfig;
     use alloy::primitives::{Address, B256};
 
-    #[test]
-    // fn test_ca_helper_operations() {
-    //     // Define a sample CA address and chain ID
-    //     let ca_address = Address::ZERO;
-    //     let chain_id = 1; // Ethereum mainnet
-
-    //     // Create a new CAHelper instance
-    //     let mut ca_helper = CAHelper::new(chain_id, ca_address);
-
-    //     // Define a party
-    //     let party = Party {
-    //         parity: 1,
-    //         x: B256::from_slice(&[0; 32]),
-    //     };
-
-    //     // 1. Deploy a Connector
-    //     let deploy_index = ca_helper.deploy_connector(
-    //         "Test Connector",
-    //         Address::ZERO,
-    //         &[0x12, 0x34],
-    //         0, // state
-    //         party.clone(),
-    //     );
-
-    //     // 2. Call the Connector
-    //     let call_index = ca_helper.call_connector(
-    //         "Test Connector",
-    //         Address::ZERO,
-    //         &[0x12, 0x34], // Simplified call data for test
-    //         1,             // state
-    //         party.clone(),
-    //     );
-
-    //     // 3. Custody to address
-    //     let custody_to_address_index = ca_helper.custody_to_address(
-    //         Address::ZERO,
-    //         2, // state
-    //         party.clone(),
-    //     );
-
-    //     // Get the custody ID (merkle root)
-    //     let custody_id = ca_helper.get_custody_id();
-
-    //     // Get all CA items and their proofs
-    //     let all_items = ca_helper.get_ca_items();
-    //     let root = ca_helper.get_ca_root();
-    //     let proofs: Vec<_> = (0..all_items.len())
-    //         .map(|i| ca_helper.get_merkle_proof(i))
-    //         .collect();
-
-    //     let all_actions_with_proofs: Vec<_> = (0..all_items.len())
-    //         .map(|i| (i, all_items[i].clone(), proofs[i].clone()))
-    //         .collect();
-
-    //     // Basic sanity: each proof should be non-empty (unless there is only one leaf)
-    //     for (index, _item, proof) in all_actions_with_proofs {
-    //         if all_items.len() > 1 {
-    //             assert!(
-    ///                // !proof.is_empty(),
-    //                 "Expected non-empty proof for action {}",
-    //                 index
-    //             );
-    //         }
-    //     }
-    // }
     #[test]
     fn test_ca_helper_clear() {
         let ca_address = Address::ZERO;
@@ -563,8 +460,8 @@ mod tests {
             "args": [
                 &Address::ZERO,
                 &Address::ZERO,
-                dec!(10.0).into_evm_amount_usdc().unwrap().to_string(),
-                dec!(9.0).into_evm_amount_usdc().unwrap().to_string(),
+                "10000000",
+                "9000000",
                 "42161",
                 "0x0000000000000000000000000000000000000000",
                 "0",
