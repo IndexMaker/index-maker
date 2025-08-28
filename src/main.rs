@@ -5,6 +5,7 @@
 
 use clap::Parser;
 use eyre::{OptionExt, Result};
+use chrono;
 
 use index_maker::{
     Cli, Commands,
@@ -336,9 +337,30 @@ impl ApplicationMode for SendOrderMode {
                 "Executing order through simple server"
             );
 
-            // For now, we simulate the order execution
-            // In a real implementation, this would interface with the order execution system
-            tracing::info!("Order execution completed successfully");
+            // Execute the order through the server response system
+            use crate::server::server::ServerResponse;
+            use symm_core::core::bits::ClientOrderId;
+
+            // For SendOrder mode, we simulate a successful order fill
+            let response = ServerResponse::IndexOrderFill {
+                chain_id: 1, // Default chain ID for simulation
+                address: symm_core::core::bits::Address::default(),
+                client_order_id: ClientOrderId::new(),
+                symbol: self.symbol.clone(),
+                side: self.side,
+                filled_quantity: self.quantity,
+                collateral_spent: self.quantity, // Using quantity as collateral for simulation
+                collateral_remaining: symm_core::core::bits::Amount::ZERO,
+                timestamp: chrono::Utc::now(),
+            };
+
+            server.respond_with(response);
+            tracing::info!(
+                side = ?self.side,
+                symbol = %self.symbol,
+                quantity = %self.quantity,
+                "Order execution completed successfully"
+            );
             Ok(())
         } else {
             Err(eyre::eyre!("Simple server not available for order execution"))

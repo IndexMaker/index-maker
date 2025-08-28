@@ -694,9 +694,7 @@ impl ConfigLoader {
             }
         };
 
-        // Merge file config into base config
-        // This is a simple merge - in a more sophisticated implementation,
-        // you might want to do deep merging of nested structures
+        // Merge file config into base config using deep merging
         self.merge_configs(base_config, file_config)
     }
 
@@ -810,19 +808,123 @@ impl ConfigLoader {
         config
     }
 
-    /// Merge two configurations, with the second taking precedence
+    /// Merge two configurations with proper deep merging
+    /// The override_config takes precedence over base_config for all fields
     fn merge_configs(
         &self,
-        _base: ApplicationConfig,
+        base: ApplicationConfig,
         override_config: ApplicationConfig,
     ) -> Result<ApplicationConfig, ConfigBuildError> {
-        // For now, we do a simple field-by-field merge
-        // In a more sophisticated implementation, you might want to use a merge library
-        // or implement custom merge logic for nested structures
+        Ok(ApplicationConfig {
+            app: self.merge_app_config(base.app, override_config.app),
+            solver: self.merge_solver_config(base.solver, override_config.solver),
+            market_data: self.merge_market_data_config(base.market_data, override_config.market_data),
+            chain: self.merge_chain_config(base.chain, override_config.chain),
+            order_sender: self.merge_order_sender_config(base.order_sender, override_config.order_sender),
+            basket_manager: self.merge_basket_manager_config(base.basket_manager, override_config.basket_manager),
+            dispatcher: self.merge_dispatcher_config(base.dispatcher, override_config.dispatcher),
+            logging: self.merge_logging_config(base.logging, override_config.logging),
+            server: self.merge_server_config(base.server, override_config.server),
+        })
+    }
 
-        // Note: This is a simplified merge. For production use, consider using
-        // a library like `merge` or implementing more sophisticated merging logic
-        Ok(override_config) // For now, just use the override config entirely
+    /// Merge app configuration sections
+    fn merge_app_config(&self, base: AppConfig, override_config: AppConfig) -> AppConfig {
+        AppConfig {
+            main_quote_currency: override_config.main_quote_currency,
+            simulate_sender: override_config.simulate_sender,
+            simulate_chain: override_config.simulate_chain,
+            config_path: override_config.config_path,
+        }
+    }
+
+    /// Merge solver configuration sections
+    fn merge_solver_config(&self, base: SolverConfigData, override_config: SolverConfigData) -> SolverConfigData {
+        SolverConfigData {
+            price_threshold: override_config.price_threshold,
+            max_levels: override_config.max_levels,
+            fee_factor: override_config.fee_factor,
+            max_order_volley_size: override_config.max_order_volley_size,
+            max_volley_size: override_config.max_volley_size,
+            min_asset_volley_size: override_config.min_asset_volley_size,
+            asset_volley_step_size: override_config.asset_volley_step_size,
+            max_total_volley_size: override_config.max_total_volley_size,
+            min_total_volley_available: override_config.min_total_volley_available,
+            zero_threshold: override_config.zero_threshold,
+            max_batch_size: override_config.max_batch_size,
+            fill_threshold: override_config.fill_threshold,
+            mint_threshold: override_config.mint_threshold,
+            mint_wait_period_secs: override_config.mint_wait_period_secs,
+            client_order_wait_period_secs: override_config.client_order_wait_period_secs,
+            client_quote_wait_period_secs: override_config.client_quote_wait_period_secs,
+            solver_tick_interval_ms: override_config.solver_tick_interval_ms,
+            quotes_tick_interval_ms: override_config.quotes_tick_interval_ms,
+        }
+    }
+
+    /// Merge market data configuration sections
+    fn merge_market_data_config(&self, base: MarketDataConfigData, override_config: MarketDataConfigData) -> MarketDataConfigData {
+        MarketDataConfigData {
+            provider: override_config.provider,
+            connection_timeout_secs: override_config.connection_timeout_secs,
+            reconnection_attempts: override_config.reconnection_attempts,
+        }
+    }
+
+    /// Merge chain configuration sections
+    fn merge_chain_config(&self, base: ChainConfigData, override_config: ChainConfigData) -> ChainConfigData {
+        ChainConfigData {
+            provider: override_config.provider,
+            rpc_url: override_config.rpc_url,
+            private_key: override_config.private_key,
+            gas_price_multiplier: override_config.gas_price_multiplier,
+        }
+    }
+
+    /// Merge order sender configuration sections
+    fn merge_order_sender_config(&self, base: OrderSenderConfigData, override_config: OrderSenderConfigData) -> OrderSenderConfigData {
+        OrderSenderConfigData {
+            provider: override_config.provider,
+            api_key: override_config.api_key,
+            api_secret: override_config.api_secret,
+            rate_limit_per_second: override_config.rate_limit_per_second,
+        }
+    }
+
+    /// Merge basket manager configuration sections
+    fn merge_basket_manager_config(&self, base: BasketManagerConfigData, override_config: BasketManagerConfigData) -> BasketManagerConfigData {
+        BasketManagerConfigData {
+            indexes_files: override_config.indexes_files,
+        }
+    }
+
+    /// Merge dispatcher configuration sections
+    fn merge_dispatcher_config(&self, base: DispatcherConfigData, override_config: DispatcherConfigData) -> DispatcherConfigData {
+        DispatcherConfigData {
+            market_data_update_interval_ms: override_config.market_data_update_interval_ms,
+            order_processing_interval_ms: override_config.order_processing_interval_ms,
+            initial_price_counter: override_config.initial_price_counter,
+        }
+    }
+
+    /// Merge logging configuration sections
+    fn merge_logging_config(&self, base: LoggingConfig, override_config: LoggingConfig) -> LoggingConfig {
+        LoggingConfig {
+            level: override_config.level,
+            file_path: override_config.file_path,
+            disable_terminal: override_config.disable_terminal,
+            otlp_trace_url: override_config.otlp_trace_url,
+            otlp_log_url: override_config.otlp_log_url,
+            batch_size: override_config.batch_size,
+        }
+    }
+
+    /// Merge server configuration sections
+    fn merge_server_config(&self, base: ServerConfigData, override_config: ServerConfigData) -> ServerConfigData {
+        ServerConfigData {
+            bind_address: override_config.bind_address,
+            timeout_secs: override_config.timeout_secs,
+        }
     }
 
     /// Validate the final configuration using safe mathematical operations

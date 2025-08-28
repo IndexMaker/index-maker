@@ -167,16 +167,22 @@ impl ConfigLoader {
         if let Ok(api_key) = env::var("BINANCE_API_KEY") {
             secrets_map.insert(String::from("binance_api_key"), api_key);
         }
-
         if let Ok(api_secret) = env::var("BINANCE_API_SECRET") {
             secrets_map.insert(String::from("binance_api_secret"), api_secret);
+        }
+
+        // Bitget credentials
+        if let Ok(api_key) = env::var("BITGET_API_KEY") {
+            secrets_map.insert(String::from("bitget_api_key"), api_key);
+        }
+        if let Ok(api_secret) = env::var("BITGET_API_SECRET") {
+            secrets_map.insert(String::from("bitget_api_secret"), api_secret);
         }
 
         // Chain credentials
         if let Ok(private_key) = env::var("CHAIN_PRIVATE_KEY") {
             secrets_map.insert(String::from("chain_private_key"), private_key);
         }
-
         if let Ok(rpc_url) = env::var("CHAIN_RPC_URL") {
             secrets_map.insert(String::from("chain_rpc_url"), rpc_url);
         }
