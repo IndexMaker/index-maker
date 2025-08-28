@@ -1715,9 +1715,13 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "ethers",
+ "eyre",
+ "k256 0.13.4",
  "merkle-tree-rs",
  "serde",
  "serde_json",
+ "struple",
+ "tokio",
  "tracing",
 ]
 
@@ -3800,6 +3804,7 @@ dependencies = [
  "sha2 0.10.9",
  "statrs",
  "string_cache",
+ "struple",
  "symm-core",
  "test-case",
  "thiserror 2.0.16",
@@ -6200,6 +6205,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
 dependencies = [
  "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "struple"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8574c4bc0d1a23fd92df103574812badd294dc3dea6e80b095f60a87a5fa5938"
+dependencies = [
+ "struple-impl",
+]
+
+[[package]]
+name = "struple-impl"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "934863dc48fa9e2b100706446b7f08e56612b0f867987372ef1e2dbc97c92e6e"
+dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
