@@ -1,0 +1,78 @@
+{
+  "app": {
+    "main_quote_currency": "USDC",
+    "simulate_sender": false,
+    "simulate_chain": false,
+    "config_path": "configs"
+  },
+  "solver": {
+    "price_threshold": "0.01",
+    "max_levels": 5,
+    "fee_factor": "1.002",
+    "max_order_volley_size": "20.0",
+    "max_volley_size": "100.0",
+    "min_asset_volley_size": "5.0",
+    "asset_volley_step_size": "0.1",
+    "max_total_volley_size": "1000.0",
+    "min_total_volley_available": "100.0",
+    "zero_threshold": "0.0001",
+    "max_batch_size": 10,
+    "fill_threshold": "0.9999",
+    "mint_threshold": "0.99",
+    "mint_wait_period_secs": 10,
+    "client_order_wait_period_secs": 30,
+    "client_quote_wait_period_secs": 5,
+    "solver_tick_interval_ms": 100,
+    "quotes_tick_interval_ms": 10
+  },
+  "market_data": {
+    "provider": "binance",
+    "connection_timeout_secs": 30,
+    "reconnection_attempts": 3
+  },
+  "chain": {
+    "provider": "ethereum",
+    "rpc_url": null,
+    "private_key": null,
+    "gas_price_multiplier": 1.1
+  },
+  "order_sender": {
+    "provider": "binance",
+    "api_key": null,
+    "api_secret": null,
+    "rate_limit_per_second": 10
+  },
+  "basket_manager": {
+    "indexes_files": [
+      {
+        "symbol": "SO2",
+        "file_path": "indexes/SO2_Latest_rebalance.json"
+      },
+      {
+        "symbol": "SO3",
+        "file_path": "indexes/SO3_Latest_rebalance.json"
+      },
+      {
+        "symbol": "SY100",
+        "file_path": "indexes/SY100_edited.json"
+      }
+    ]
+  },
+  "dispatcher": {
+    "market_data_update_interval_ms": 1000,
+    "order_processing_interval_ms": 500,
+    "initial_price_counter": 100.0
+  },
+  "logging": {
+    "level": "info",
+    "file_path": null,
+    "disable_terminal": false,
+    "otlp_trace_url": null,
+    "otlp_log_url": null,
+    "batch_size": 1000
+  },
+  "server": {
+    "bind_address": "127.0.0.1:3000",
+    "timeout_secs": 30
+  }
+}
