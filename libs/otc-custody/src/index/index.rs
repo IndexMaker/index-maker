@@ -338,7 +338,7 @@ impl CustodyClientMethods for IndexInstance {
         token_address: &Address,
         amount: U256,
     ) -> eyre::Result<TransactionReceipt> {
-        if self.index_deploy_data.collateral_token.eq(token_address) {
+        if !self.index_deploy_data.collateral_token.eq(token_address) {
             Err(eyre!(
                 "Failed to route collateral: Invalid collateral token {}",
                 token_address
