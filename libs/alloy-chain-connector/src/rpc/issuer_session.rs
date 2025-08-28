@@ -1,7 +1,7 @@
 use alloy::providers::{Provider, WalletProvider};
 use symm_core::core::{bits::Address, functional::PublishSingle};
 
-use ca_helper::contracts::{OTCIndex, ERC20};
+use otc_custody::contracts::{OTCIndex, ERC20};
 
 use crate::{
     command::IssuerCommand,

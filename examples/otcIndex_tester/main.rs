@@ -7,17 +7,19 @@ use alloy::{
 use alloy_chain_connector::util::amount_converter::AmountConverter;
 use alloy_consensus::BlockHeader;
 use alloy_network::BlockResponse;
-use anyhow::{anyhow, Context, Result};
-use ca_helper::contracts::{
-    IOTCIndex::Deposit, IndexFactory, OTCCustody, SchnorrCAKey, SchnorrSignature, VerificationData,
-    ERC20,
-};
-use ca_helper::custody_helper::{CAHelper, Party};
+use eyre::{eyre, Context, Result};
 use dotenvy::dotenv;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::{bigint::U256 as ECUint, ops::Reduce};
 use k256::ProjectivePoint;
 use k256::{elliptic_curve::PrimeField, FieldBytes, Scalar};
+use otc_custody::{
+    contracts::{
+        IOTCIndex::Deposit, IndexFactory, OTCCustody, SchnorrCAKey, SchnorrSignature,
+        VerificationData, ERC20,
+    },
+    custody_helper::{CAHelper, Party},
+};
 use rust_decimal::dec;
 use std::{
     env,
@@ -30,14 +32,14 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 // ---------- helpers: key → (parity, x) for Schnorr pubkey ----------
-fn pubkey_parity_27_28_x(sk_hex: &str) -> anyhow::Result<(u8, B256, [u8; 32])> {
+fn pubkey_parity_27_28_x(sk_hex: &str) -> eyre::Result<(u8, B256, [u8; 32])> {
     use k256::ecdsa::SigningKey;
 
     let sk_vec = hex::decode(sk_hex.trim_start_matches("0x"))?;
     let sk32: [u8; 32] = sk_vec
         .as_slice()
         .try_into()
-        .map_err(|_| anyhow!("bad sk length"))?;
+        .map_err(|_| eyre!("bad sk length"))?;
 
     let sk = SigningKey::from_slice(&sk32)?;
     let vk = sk.verifying_key();
@@ -54,10 +56,10 @@ fn schnorr_sign_per_contract(
     parity: u8, // 27/28
     px: B256,   // pubkey X
     message_data: &[u8],
-) -> anyhow::Result<(B256, B256)> {
+) -> eyre::Result<(B256, B256)> {
     let x = Scalar::from_repr(FieldBytes::from(sk32))
         .into_option()
-        .ok_or_else(|| anyhow::anyhow!("sk out of range"))?;
+        .ok_or_else(|| eyre::eyre!("sk out of range"))?;
 
     // message = keccak256(messageData)
     let message = B256::from(keccak256(message_data));
@@ -238,13 +240,13 @@ async fn main() -> Result<()> {
         whale,
         eth_converter
             .from_amount(dec!(10_000))
-            .map_err(|e| anyhow!(e))?,
+            .map_err(|e| eyre!(e))?,
     )
     .await?;
 
     let amount_units = usdc_converter
         .from_amount(dec!(10_000))
-        .map_err(|e| anyhow!(e))?;
+        .map_err(|e| eyre!(e))?;
 
     let recipients: [Address; 10] = [
         address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
@@ -269,7 +271,7 @@ async fn main() -> Result<()> {
         let receipt = pending.get_receipt().await?;
         if !receipt.status() {
             error!("USDC transfer to {to:#x} failed: {:?}", receipt);
-            anyhow::bail!("USDC transfer failed");
+            eyre::bail!("USDC transfer failed");
         }
         info!("10_000 USDC -> {to:#x} | tx {:?}", receipt.transaction_hash);
     }
@@ -389,7 +391,7 @@ async fn main() -> Result<()> {
         .await?
         .get_receipt()
         .await?;
-    anyhow::ensure!(rc.status(), "deployConnector reverted: {:?}", rc);
+    eyre::ensure!(rc.status(), "deployConnector reverted: {:?}", rc);
     info!("✅ deployConnector ok: {:?}", rc.transaction_hash);
 
     // 4) Read IndexDeployed to get deployed index
@@ -406,7 +408,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    anyhow::ensure!(
+    eyre::ensure!(
         deployed_index != Address::ZERO,
         "IndexDeployed not found in receipt — check factory address/ABI (logs dumped above)"
     );
@@ -420,7 +422,7 @@ async fn main() -> Result<()> {
     // ===== custodyToAddress (deposit then withdraw-to-address via Schnorr) =====
     let c2a_amount_units = usdc_converter
         .from_amount(dec!(100))
-        .map_err(|e| anyhow!(e))?;
+        .map_err(|e| eyre!(e))?;
 
     let usdc_ext = ERC20::new(usdc, &provider);
     // Approve USDC to Custody so it can transferFrom(operator)
@@ -431,7 +433,7 @@ async fn main() -> Result<()> {
         .await?
         .get_receipt()
         .await?;
-    anyhow::ensure!(rc_app.status(), "USDC approve failed: {:?}", rc_app);
+    eyre::ensure!(rc_app.status(), "USDC approve failed: {:?}", rc_app);
 
     // Deposit into custody under this custodyId
     let rc_dep = otc
@@ -441,7 +443,7 @@ async fn main() -> Result<()> {
         .await?
         .get_receipt()
         .await?;
-    anyhow::ensure!(rc_dep.status(), "addressToCustody failed: {:?}", rc_dep);
+    eyre::ensure!(rc_dep.status(), "addressToCustody failed: {:?}", rc_dep);
 
     // Build & sign custodyToAddress message with fresh timestamp
     let ts_c2a: U256 = chain_now_ts(&provider).await?;
@@ -467,7 +469,7 @@ async fn main() -> Result<()> {
         .await?
         .get_receipt()
         .await?;
-    anyhow::ensure!(rc_c2a.status(), "custodyToAddress reverted: {:?}", rc_c2a);
+    eyre::ensure!(rc_c2a.status(), "custodyToAddress reverted: {:?}", rc_c2a);
 
     info!("✅ custodyToAddress ok: {:?}", rc_c2a.transaction_hash);
 
@@ -521,7 +523,7 @@ async fn main() -> Result<()> {
         .get_receipt()
         .await?;
 
-    anyhow::ensure!(rc2.status(), "curatorUpdate reverted: {:?}", rc2);
+    eyre::ensure!(rc2.status(), "curatorUpdate reverted: {:?}", rc2);
     info!("✅ curatorUpdate ok: {:?}", rc2.transaction_hash);
 
     let ts2 = chain_now_ts(&provider).await?;
@@ -566,7 +568,7 @@ async fn main() -> Result<()> {
         .get_receipt()
         .await?;
 
-    anyhow::ensure!(rc3.status(), "solverUpdate reverted: {:?}", rc3);
+    eyre::ensure!(rc3.status(), "solverUpdate reverted: {:?}", rc3);
     info!("✅ solverUpdate ok: {:?}", rc3.transaction_hash);
 
     info!("Waiting deposit event from Client side...");
@@ -598,7 +600,7 @@ fn encode_with_selector(sig: &str, ts: U256, weights: &Bytes, price: U256) -> By
     out.into()
 }
 
-async fn chain_now_ts<P: Provider>(p: &P) -> anyhow::Result<U256> {
+async fn chain_now_ts<P: Provider>(p: &P) -> eyre::Result<U256> {
     let now = p
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await?
@@ -607,8 +609,8 @@ async fn chain_now_ts<P: Provider>(p: &P) -> anyhow::Result<U256> {
     Ok(now)
 }
 
-fn u256(s: &str) -> anyhow::Result<U256> {
-    U256::from_str(s).map_err(|e| anyhow!(e))
+fn u256(s: &str) -> eyre::Result<U256> {
+    U256::from_str(s).map_err(|e| eyre!(e))
 }
 
 async fn wait_for_rpc(rpc_url: &str) -> Result<()> {
@@ -624,7 +626,7 @@ async fn wait_for_rpc(rpc_url: &str) -> Result<()> {
         }
         sleep(Duration::from_millis(500)).await;
     }
-    Err(anyhow::anyhow!("Timed out waiting for Anvil at {rpc_url}"))
+    Err(eyre::eyre!("Timed out waiting for Anvil at {rpc_url}"))
 }
 
 async fn find_deploy_block<P: Provider>(p: &P, addr: Address, latest: u64) -> Result<u64> {
@@ -663,12 +665,12 @@ fn pow10(d: u32) -> U256 {
     x
 }
 
-fn read_index_price() -> anyhow::Result<U256> {
+fn read_index_price() -> eyre::Result<U256> {
     let s = std::env::var("INDEX_PRICE").context("INDEX_PRICE env var not set")?;
-    U256::from_str(&s).map_err(|e| anyhow!(e))
+    U256::from_str(&s).map_err(|e| eyre!(e))
 }
 
-async fn pending_nonce<P: Provider>(p: &P, from: Address) -> anyhow::Result<u64> {
+async fn pending_nonce<P: Provider>(p: &P, from: Address) -> eyre::Result<u64> {
     let n: u64 = p
         .get_transaction_count(from)
         .block_id(BlockId::Number(BlockNumberOrTag::Pending))
@@ -764,7 +766,7 @@ async fn wait_for_deposit_and_mint<P: Provider>(
                         .get_receipt()
                         .await?;
 
-                    anyhow::ensure!(rc.status(), "mint via callConnector reverted: {:?}", rc);
+                    eyre::ensure!(rc.status(), "mint via callConnector reverted: {:?}", rc);
 
                     info!(
                         "🎟️ Minted {} to {:#x} (seq {}) | tx {:?}",

@@ -14,7 +14,7 @@ use symm_core::core::{
 };
 
 use crate::util::amount_converter::AmountConverter;
-use ca_helper::contracts::ERC20;
+use otc_custody::contracts::ERC20;
 
 pub struct RpcIssuerStream<P>
 where

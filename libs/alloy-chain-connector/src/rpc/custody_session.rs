@@ -2,7 +2,7 @@ use alloy::providers::{Provider, WalletProvider};
 use alloy_primitives::Address;
 use symm_core::core::functional::PublishSingle;
 
-use ca_helper::contracts::{OTCCustody, ERC20};
+use otc_custody::contracts::{OTCCustody, ERC20};
 
 use crate::{
     command::CustodyCommand,

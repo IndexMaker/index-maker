@@ -1,5 +1,5 @@
 use alloy_primitives::{fixed_bytes, FixedBytes, U256};
-use ca_helper::contracts::{SchnorrCAKey, SchnorrSignature, VerificationData};
+use otc_custody::contracts::{SchnorrCAKey, SchnorrSignature, VerificationData};
 
 pub fn build_id(id: U256) -> FixedBytes<32> {
     let _ = id;

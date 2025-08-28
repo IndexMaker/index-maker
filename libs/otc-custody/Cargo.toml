@@ -1,5 +1,5 @@
 [package]
-name = "ca-helper"
+name = "otc-custody"
 version = "0.1.0"
 edition = "2021"
 publish = false
