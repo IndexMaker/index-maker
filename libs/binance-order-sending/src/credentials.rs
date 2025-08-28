@@ -34,6 +34,10 @@ impl Credentials {
         self.account_name.clone()
     }
 
+    pub fn account_name(&self) -> &str {
+        &self.account_name
+    }
+
     pub(crate) fn should_enable_trading(&self) -> bool {
         self.enable_trading
     }

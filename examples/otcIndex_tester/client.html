@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OTCIndex Client (No Affiliate/Quote)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{--bg:#0f1115;--card:#151922;--muted:#9aa4b2;--text:#e8eef7;--accent:#6e9bff;--accent2:#68e1b5;--danger:#ff6b6b;--radius:16px}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:radial-gradient(1200px 600px at 10% -10%, #182033 0%, var(--bg) 45%);color:var(--text);font:14px/1.6 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  h1{font-size:20px;margin:0 0 16px;letter-spacing:.5px}
+  .grid{display:grid;gap:16px;grid-template-columns:1fr 1fr;align-items:start}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0));border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:18px;box-shadow:0 20px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);backdrop-filter:blur(6px)}
+  .row{display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;margin-bottom:10px}
+  label{color:var(--muted);font-weight:600;letter-spacing:.3px}
+  input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:#0f1420;color:var(--text);outline:none}
+  input::placeholder{color:#6c7687}
+  .btn{appearance:none;border:0;padding:10px 14px;border-radius:12px;cursor:pointer;color:#0c121c;font-weight:700;letter-spacing:.3px;background:linear-gradient(135deg,var(--accent),#9ca9ff);box-shadow:0 10px 20px rgba(110,155,255,.25)}
+  .btn.secondary{background:linear-gradient(135deg,var(--accent2),#99f0d1)}
+  .btn.danger{background:linear-gradient(135deg,var(--danger),#ff9a9a);color:#fff}
+  .stack{display:flex;gap:10px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
+  .pill.ok{background:#1f2b46;color:#a7c3ff;border:1px solid rgba(110,155,255,.4)}
+  .muted{color:var(--muted)} .small{font-size:12px}
+  .mono{font-family:ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono"}
+  .log{font-family:ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono";background:#0b0f17;border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:10px;height:320px;overflow:auto}
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="card">
+      <h1>⚙️ Connection</h1>
+      <div class="row"><label>RPC URL</label><input id="rpc" value="http://127.0.0.1:8545" /></div>
+      <div class="row"><label>OTCIndex(SY100)</label><input id="indexAddr" placeholder="paste deployed OTCIndex address from backend logs..." /></div>
+      <div class="row"><label>Private Key</label><input id="pk" value="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" placeholder="0xabc..." /></div>
+      <div class="stack">
+        <button class="btn" id="btnConnect">Connect</button>
+        <span id="conn" class="pill muted">disconnected</span>
+      </div>
+      <div id="walletInfo" class="small muted" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h1>💸 Deposit</h1>
+      <div class="row"><label>Amount</label><input id="amount" value="100" placeholder="e.g. 25.0" /></div>
+      <div class="stack">
+        <button class="btn secondary" id="btnApprove">1) Approve</button>
+        <button class="btn" id="btnDeposit">2) Deposit</button>
+        <span id="approveState" class="pill muted">USDC not approved</span>
+      </div>
+      <div id="assetInfo" class="small muted" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="grid-column:1 / -1">
+      <h1>📡 Events</h1>
+      <div class="stack" style="margin-bottom:8px">
+        <button class="btn" id="btnListen">Start Listening</button>
+        <button class="btn danger" id="btnStop">Stop</button>
+        <span id="listenState" class="pill muted">not listening</span>
+      </div>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+<script type="module">
+  // noble + helpers
+  import { keccak_256 } from "https://esm.sh/@noble/hashes@1.3.3/sha3";
+  import * as secp from "https://esm.sh/@noble/secp256k1@1.7.1";
+  import { sha256 } from "https://esm.sh/@noble/hashes@1.3.3/sha256";
+  import { hmac } from "https://esm.sh/@noble/hashes@1.3.3/hmac";
+
+  // ---------- UI helpers ----------
+  const $ = id => document.getElementById(id);
+  const setBadge = (id, text, ok=false) => { const el=$(id); el.textContent=text; el.className="pill " + (ok?"ok":"muted"); };
+  const logBox = $("log");
+  const log = (msg) => { const t=new Date().toLocaleTimeString(); logBox.innerHTML = `[${t}] ${msg}<br>` + logBox.innerHTML; };
+
+  const HEX_RE = /^[0-9a-fA-F]+$/;
+
+  const ensure0x = (s) => (s.startsWith('0x') ? s : '0x' + s);
+
+  const strip0x = (s) => (s.startsWith('0x') ? s.slice(2) : s);
+
+  const normHex = (s, lenBytes) => {
+    const t = strip0x(String(s || '').trim());
+    if (!HEX_RE.test(t)) throw new Error('invalid hex characters');
+    if (lenBytes != null && t.length !== lenBytes * 2)
+      throw new Error(`invalid length: expected ${lenBytes * 2} hex chars`);
+    return '0x' + t.toLowerCase();
+  };
+
+  const normAddr = (s) => {
+    // 20 bytes = 40 hex chars
+    return normHex(s, 20);
+  };
+
+  const normPk32 = (s) => {
+    // 32 bytes = 64 hex chars
+    return normHex(s, 32);
+  };
+  // ---------- hex / bytes ----------
+  const hex = (b) => '0x' + Array.from(b, x => x.toString(16).padStart(2,'0')).join('');
+  const toBytes = (hexLike) => {
+    if (typeof hexLike === 'string') {
+      const s = strip0x(hexLike);
+      if (!HEX_RE.test(s) || s.length % 2) throw new Error('bad hex');
+      const out = new Uint8Array(s.length / 2);
+      for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
+      return out;
+    }
+    return new Uint8Array(hexLike);
+  };
+  const concat = (...arrs) => {
+    const len = arrs.reduce((a,b)=>a+b.length,0);
+    const out = new Uint8Array(len); let o=0;
+    for (const a of arrs) { out.set(a,o); o+=a.length; }
+    return out;
+  };
+
+  // ---------- JSON-RPC ----------
+  let RPC = "http://127.0.0.1:8545";
+  let rpcId = 1;
+  async function rpc(method, params=[]) {
+    const res = await fetch(RPC, { method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({jsonrpc:"2.0", id: rpcId++, method, params}) });
+    const j = await res.json();
+    if (j.error) throw new Error(j.error.message || 'rpc error');
+    return j.result;
+  }
+  const toHexQty = (n) => '0x' + BigInt(n).toString(16);
+
+  // ---------- ABI mini ----------
+  const keccak = (b) => Uint8Array.from(keccak_256.create().update(b).digest());
+  const selector = (sig) => keccak(new TextEncoder().encode(sig)).slice(0,4);
+  const pad32 = (b) => { const out = new Uint8Array(32); out.set(b, 32-b.length); return out; };
+  const encUint = (n) => {
+    let h = BigInt(n).toString(16);
+    if (h.length % 2) h = '0' + h;       
+    return pad32(toBytes('0x' + h));
+  };
+  const encAddr = (a) => pad32(toBytes(a.toLowerCase()));
+  const encBytesDyn = (b) => concat(encUint(b.length), b, new Uint8Array((32 - (b.length % 32)) % 32));
+
+  // approve(address,uint256)
+  function encodeApprove(spender, amount) {
+    const sig = selector("approve(address,uint256)");
+    return hex(concat(sig, encAddr(spender), encUint(amount)));
+  }
+  // deposit(uint256,address,bytes) — affiliate=ZERO, quote=0x
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const QUOTE_PLACEHOLDER = new Uint8Array([]); // 0x
+  function encodeDeposit(amount, seq) {
+    const sig = selector("deposit(uint256,uint256,address,address)");
+    const data = concat(
+      sig,
+      encUint(amount),
+      encUint(seq),
+      encAddr(ZERO),
+      encAddr(ZERO),
+    );
+    return hex(data);
+  }
+  // getCollateralToken()
+  const encGetCollateralToken = () => hex(selector("getCollateralToken()"));
+  const encDecimals = () => hex(selector("decimals()"));
+  const encSymbol = () => hex(selector("symbol()"));
+
+  // ---------- RLP (legacy tx, EIP-155) ----------
+  const rlpEncodeBytes = (b) => {
+    if (b.length === 1 && b[0] < 0x80) return b;
+    if (b.length <= 55) return concat(Uint8Array.from([0x80 + b.length]), b);
+    const len = toBytes('0x'+b.length.toString(16));
+    return concat(Uint8Array.from([0xb7 + len.length]), len, b);
+  };
+  const bnToBytesMinimal = (bn) => {
+    if (bn === 0n) return new Uint8Array([]);
+    let h = bn.toString(16); if (h.length%2) h = '0'+h; return toBytes('0x'+h);
+  };
+  const rlpEncodeScalar = (bn) => rlpEncodeBytes(bnToBytesMinimal(BigInt(bn)));
+  const rlpEncodeList = (items) => {
+    const payload = concat(...items);
+    if (payload.length <= 55) return concat(Uint8Array.from([0xc0 + payload.length]), payload);
+    const len = toBytes('0x'+payload.length.toString(16));
+    return concat(Uint8Array.from([0xf7 + len.length]), len, payload);
+  };
+
+  async function signAndSendLegacyTx({from, to, data="0x", value=0n, gas=0n, gasPrice=0n, chainId=1n, pkBytes}) {
+    const nonce = BigInt(await rpc('eth_getTransactionCount', [from, 'latest']));
+    const vChain = BigInt(chainId);
+
+    const txParts = [
+      rlpEncodeScalar(nonce),
+      rlpEncodeScalar(gasPrice),
+      rlpEncodeScalar(gas),
+      rlpEncodeBytes(to ? toBytes(to) : new Uint8Array([])),
+      rlpEncodeScalar(value),
+      rlpEncodeBytes(toBytes(data)),
+      rlpEncodeScalar(vChain), // EIP-155: chainId, 0, 0 in preimage
+      rlpEncodeScalar(0n),
+      rlpEncodeScalar(0n),
+    ];
+    const rlpUnsigned = rlpEncodeList(txParts);
+    const msgHash = keccak(rlpUnsigned);
+
+    // noble secp256k1 sign
+    const [sig, recid] = await secp.sign(msgHash, pkBytes, {recovered:true, der:false, hash:sha256, extraEntropy:true, customHmac:(k,...m)=>hmac.create(sha256,k).update(concat(...m)).digest()});
+    const r = sig.slice(0,32), s = sig.slice(32,64);
+    const v =  (vChain * 2n) + 35n + BigInt(recid);
+
+    const txSignedParts = [
+      rlpEncodeScalar(nonce),
+      rlpEncodeScalar(gasPrice),
+      rlpEncodeScalar(gas),
+      rlpEncodeBytes(to ? toBytes(to) : new Uint8Array([])),
+      rlpEncodeScalar(value),
+      rlpEncodeBytes(toBytes(data)),
+      rlpEncodeScalar(v),
+      rlpEncodeBytes(r),
+      rlpEncodeBytes(s),
+    ];
+    const raw = rlpEncodeList(txSignedParts);
+    return await rpc('eth_sendRawTransaction', [hex(raw)]);
+  }
+
+  // ---------- event topics & decoding ----------
+  const topicDeposit = hex(keccak(new TextEncoder().encode("Deposit(uint256,address,bytes,address,address)")));
+  const topicMint    = hex(keccak(new TextEncoder().encode("Mint(uint256,address,uint256)")));
+
+  const beToBigInt = (b) => { let v=0n; for (const x of b) v = (v<<8n) + BigInt(x); return v; };
+  const slot = (data, i) => data.slice(i*32, (i+1)*32);
+  const addrFromSlot = (b) => '0x'+Array.from(b.slice(12)).map(x=>x.toString(16).padStart(2,'0')).join('');
+  const bytesFromDyn = (data, offset) => {
+    const off = Number(beToBigInt(offset));
+    const len = Number(beToBigInt(data.slice(off, off+32)));
+    const raw = data.slice(off+32, off+32+len);
+    return hex(raw);
+  };
+  function decodeDepositDataOld(dataHex) {
+    const data = toBytes(dataHex);
+    const amount = beToBigInt(slot(data,0));
+    const from   = addrFromSlot(slot(data,1));
+    const seq    = beToBigInt(slot(data,2));
+    const aff1   = addrFromSlot(slot(data,3));
+    const aff2   = addrFromSlot(slot(data,4));
+    return { amount, from, seq, affiliate1: aff1, affiliate2: aff2 };
+  }
+
+  function decodeMintDataOld(dataHex) {
+    const data = toBytes(dataHex);
+    const amount = beToBigInt(slot(data,0));
+    const to     = addrFromSlot(slot(data,1));
+    const seq    = beToBigInt(slot(data,2));
+    return { amount, to, seq };
+  }
+
+  // ---------- high-level ----------
+  let INDEX="0x", USDC="0x", USDC_DEC=6, ACCOUNT="0x", CHAIN_ID=8453n;
+  let PK_HEX="", PK_BYTES=new Uint8Array([]);
+
+  const parseUnits = (human, decimals) => {
+    const s = (human||"").trim(); if(!s) return 0n;
+    if(s.includes("e")||s.includes("E")) throw new Error("no exponent");
+    const [ints, frac=""] = s.split(".");
+    if (!/^\d*$/.test(ints) || !/^\d*$/.test(frac)) throw new Error("bad number");
+    const fracPadded = (frac + "0".repeat(decimals)).slice(0,decimals);
+    return BigInt(ints||"0") * (10n**BigInt(decimals)) + BigInt(fracPadded||"0");
+  };
+  const formatUnits = (n, decimals) => {
+    const s = (n>=0n)? n.toString() : (-n).toString();
+    if (decimals===0) return s;
+    const pad = s.padStart(decimals+1, '0');
+    const int = pad.slice(0, -decimals);
+    const frac = pad.slice(-decimals).replace(/0+$/,"");
+    return frac ? `${int}.${frac}` : int;
+  };
+
+  let providerPoll = null, lastBlock = 0n;
+
+  async function connect() {
+    try {
+      RPC = $("rpc").value.trim();
+      INDEX = normAddr($("indexAddr").value);   // normalize & validate
+      PK_HEX = normPk32($("pk").value);         // normalize & validate
+
+      PK_BYTES = toBytes(PK_HEX);
+      const pub = secp.getPublicKey(PK_BYTES, false).slice(1);
+      const addr = keccak(pub).slice(-20);
+      ACCOUNT = hex(addr);
+
+      CHAIN_ID = BigInt(await rpc('eth_chainId', []));
+      setBadge("conn", `connected • chainId ${CHAIN_ID} • ${ACCOUNT.slice(0,6)}…${ACCOUNT.slice(-4)}`, true);
+      $("walletInfo").innerHTML = `Account: <span class="mono">${ACCOUNT}</span>`;
+
+      // resolve collateral
+      const res = await rpc('eth_call', [{ to: INDEX, data: encGetCollateralToken() }, 'latest']);
+      USDC = hex(toBytes(res).slice(-20)); // last 20 bytes
+      // (optional) decimals / symbol...
+      // ...
+      log(`Connected. Account ${ACCOUNT}, chainId ${CHAIN_ID}; USDC ${USDC}`);
+    } catch (e) {
+      console.error(e);
+      log(`❌ connect error: ${e.message || e}`);
+      setBadge("conn", "connection failed");
+    }
+  }
+
+
+  async function approve() {
+    try {
+      const amtHuman = $("amount").value;
+      const amt = parseUnits(amtHuman, USDC_DEC);
+      const data = encodeApprove(INDEX, amt);
+
+      const gasPrice = BigInt(await rpc('eth_gasPrice', []));
+      let gas; try { gas = BigInt(await rpc('eth_estimateGas', [{from: ACCOUNT, to: USDC, data}, 'latest'])); } catch { gas = 120000n; }
+
+      const txHash = await signAndSendLegacyTx({from: ACCOUNT, to: USDC, data, value:0n, gas, gasPrice, chainId: CHAIN_ID, pkBytes: PK_BYTES});
+      log(`📝 approve tx: <span class="mono">${txHash}</span>`);
+      setBadge("approveState", `approved ${amtHuman}`, true);
+    } catch (e) { console.error(e); log(`❌ approve error: ${e.message||e}`); }
+  }
+
+  async function deposit() {
+    try {
+      const amt = parseUnits(($("amount").value||"0").trim(), USDC_DEC);
+      const seq = BigInt(Math.floor(Date.now()/1000));
+      const data = encodeDeposit(amt, seq);
+
+      const gasPrice = BigInt(await rpc('eth_gasPrice', []));
+      let gas; try { gas = BigInt(await rpc('eth_estimateGas', [{from: ACCOUNT, to: INDEX, data}, 'latest'])); } catch { gas = 300000n; }
+
+      const txHash = await signAndSendLegacyTx({from: ACCOUNT, to: INDEX, data, value:0n, gas, gasPrice, chainId: CHAIN_ID, pkBytes: PK_BYTES});
+      log(`🚀 deposit tx: <span class="mono">${txHash}</span>`);
+    } catch (e) { console.error(e); log(`❌ deposit error: ${e.message||e}`); }
+  }
+
+  async function startListening() {
+    if (providerPoll) return;
+    setBadge("listenState", "listening", true);
+    lastBlock = BigInt(await rpc('eth_blockNumber', []));
+    providerPoll = setInterval(async () => {
+      try {
+        const tip = BigInt(await rpc('eth_blockNumber', []));
+        if (tip <= lastBlock) return;
+
+        const [dep, mint] = await Promise.all([
+          rpc('eth_getLogs', [{ address: INDEX, fromBlock: toHexQty(lastBlock + 1n), toBlock: toHexQty(tip), topics: [topicDeposit] }]),
+          rpc('eth_getLogs', [{ address: INDEX, fromBlock: toHexQty(lastBlock + 1n), toBlock: toHexQty(tip), topics: [topicMint] }]),
+        ]);
+
+        for (const l of dep) {
+          const d = decodeDepositDataOld(l.data);
+          log(`📥 Deposit: amount=${formatUnits(d.amount, USDC_DEC)} from=${d.from} seq=${d.seq} aff1=${d.affiliate1} aff2=${d.affiliate2} tx=${l.transactionHash}`);
+        }
+        for (const l of mint) {
+          const m = decodeMintDataOld(l.data);
+          log(`🌱 Mint: amount=${formatUnits(m.amount, USDC_DEC)} to=${m.to} seq=${m.seq} tx=${l.transactionHash}`);
+        }
+
+        lastBlock = tip;
+      } catch {}
+    }, 1000);
+  }
+  function stopListening(){ if(providerPoll){clearInterval(providerPoll); providerPoll=null;} setBadge("listenState","not listening"); }
+
+  // wire up
+  $("btnConnect").onclick = connect;
+  $("btnApprove").onclick = approve;
+  $("btnDeposit").onclick = deposit;
+  $("btnListen").onclick = startListening;
+  $("btnStop").onclick = stopListening;
+</script>
+</body>
+</html>

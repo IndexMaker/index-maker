@@ -5,11 +5,17 @@ use itertools::Either;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{async_loop::AsyncLoop, bits::Symbol, functional::SingleObserver},
-    order_sender::order_connector::OrderConnectorNotification,
+    order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
+use chrono::Utc;
 
-use crate::{credentials::Credentials, sessions::Sessions, subaccounts::SubAccounts};
+use crate::{
+    credentials::Credentials,
+    sessions::Sessions,
+    subaccounts::SubAccounts,
+    session_completion::SessionCompletionResult,
+};
 
 /// Arbiter manages open sessions
 ///
@@ -65,12 +71,72 @@ impl Arbiter {
                     }
                 }
             }
-            let sessions = sessions.write().drain_all_sessions();
-            if let Err(err) = Sessions::stop_all(sessions).await {
-                tracing::warn!("Error stopping sessions {:?}", err);
+            
+            // Enhanced shutdown with disconnection handling
+            let all_sessions = sessions.write().drain_all_sessions();
+            let completion_results = match Sessions::stop_all(all_sessions).await {
+                Ok(res) => res,
+                Err(err) => {
+                    tracing::warn!("Error stopping sessions {:?}", err);
+                    Vec::new()
+                }
+            };
+
+            for result in completion_results {
+                Self::process_session_completion(
+                    result,
+                    &sessions,
+                    &symbols,
+                    &observer,
+                ).await;
             }
+            
             tracing::info!("Loop exited");
             subaccount_rx
         });
+    }
+    
+    async fn process_session_completion(
+        completion_result: SessionCompletionResult,
+        sessions: &Arc<AtomicLock<Sessions>>,
+        symbols: &[Symbol],
+        observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
+    ) {
+        match completion_result {
+            SessionCompletionResult::Success(credentials) => {
+                tracing::info!("Session {} completed successfully", credentials.into_session_id());
+                // Session completed normally, no action needed
+            }
+            SessionCompletionResult::Error { error, credentials, session_id } => {
+                tracing::warn!("Session {} terminated with error: {}", session_id, error);
+
+                // Only attempt reconnection if error should trigger it and we have credentials
+                if error.should_reconnect() {
+                    if let Some(creds) = credentials {
+                        Self::attempt_reconnection(creds, sessions, symbols, observer, &session_id).await;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn attempt_reconnection(
+        credentials: Credentials,
+        sessions: &Arc<AtomicLock<Sessions>>,
+        symbols: &[Symbol],
+        observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
+        original_session_id: &SessionId,
+    ) {
+        tracing::info!("Attempting to recreate session {} after error", original_session_id);
+
+        match sessions.write().add_session(credentials, symbols.to_vec(), observer.clone()) {
+            Ok(_) => {
+                tracing::info!("Successfully recreated session {} after error", original_session_id);
+                // Note: Session will publish its own SessionLogon event, no need to publish here
+            }
+            Err(err) => {
+                tracing::error!("Failed to recreate session {}: {:?}", original_session_id, err);
+            }
+        }
     }
 }
