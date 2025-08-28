@@ -1,28 +1,24 @@
-use alloy::providers::{Provider, WalletProvider};
+use alloy::providers::{DynProvider, Provider, WalletProvider};
 use alloy_primitives::Address;
 use symm_core::core::functional::PublishSingle;
 
-use otc_custody::contracts::{OTCCustody, ERC20};
+use otc_custody::{contracts::OTCCustody, custody_client::CustodyClient};
 
 use crate::{
     command::CustodyCommand,
-    util::{
-        amount_converter::AmountConverter,
-        gas_util::compute_gas_used,
-        verification_data::{build_id, build_verification_data},
-    },
+    util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
 };
 
 pub struct RpcCustodySession<P>
 where
-    P: Provider + WalletProvider,
+    P: Provider + WalletProvider + Clone + 'static,
 {
     provider: P,
 }
 
 impl<P> RpcCustodySession<P>
 where
-    P: Provider + WalletProvider,
+    P: Provider + WalletProvider + Clone + 'static,
 {
     pub fn new(provider: P) -> Self {
         Self { provider }
@@ -30,47 +26,46 @@ where
 
     pub async fn send_custody_command(
         &self,
-        contract_address: Address,
+        custody_client: CustodyClient,
+        token_address: Address,
         command: CustodyCommand,
-        usdc_address: Address,
     ) -> eyre::Result<()> {
         let provider = &self.provider;
-        let custody = OTCCustody::new(contract_address, provider);
-        let usdc = ERC20::new(usdc_address, provider);
-        let decimals = usdc.decimals().call().await?;
+        let from_address = provider.default_signer_address();
+        let decimals = custody_client.get_collateral_token_precision();
         let converter = AmountConverter::new(decimals);
 
         match command {
-            CustodyCommand::AddressToCustody {
-                custody_id: id,
-                token,
-                amount,
-                observer,
-            } => {
-                let id = build_id(id);
-                let amount = converter.from_amount(amount)?;
-
-                let receipt = custody
-                    .addressToCustody(id, token, amount)
-                    .send()
-                    .await?
-                    .get_receipt()
-                    .await?;
-
-                let gas_amount = compute_gas_used(&converter, receipt)?;
-                observer.publish_single(gas_amount);
-            }
             CustodyCommand::CustodyToAddress {
-                token,
                 destination,
                 amount,
                 observer,
             } => {
                 let amount = converter.from_amount(amount)?;
-                let verification_data = build_verification_data();
+                let provider = DynProvider::new(provider.clone());
+
+                let receipt = custody_client
+                    .route_collateral_to_from(
+                        provider,
+                        &from_address,
+                        &destination,
+                        &token_address,
+                        amount,
+                    )
+                    .await?;
+
+                let gas_amount = compute_gas_used(&converter, receipt)?;
+                observer.publish_single(gas_amount);
+            }
+            CustodyCommand::AddressToCustody { amount, observer } => {
+                let amount = converter.from_amount(amount)?;
+                let custody_id = custody_client.get_custody_id();
+                let custody_address = custody_client.get_custody_address();
+                let custody = OTCCustody::new(*custody_address, provider);
 
                 let receipt = custody
-                    .custodyToAddress(token, destination, amount, verification_data)
+                    .addressToCustody(custody_id, token_address, amount)
+                    .from(from_address)
                     .send()
                     .await?
                     .get_receipt()
@@ -79,13 +74,17 @@ where
                 let gas_amount = compute_gas_used(&converter, receipt)?;
                 observer.publish_single(gas_amount);
             }
-            CustodyCommand::GetCustodyBalances {
-                custody_id: id,
-                token,
-                observer,
-            } => {
-                let id = build_id(id);
-                let balance = custody.getCustodyBalances(id, token).call().await?;
+            CustodyCommand::GetCustodyBalances { observer } => {
+                let custody_id = custody_client.get_custody_id();
+                let custody_address = custody_client.get_custody_address();
+                let custody = OTCCustody::new(*custody_address, provider);
+
+                let balance = custody
+                    .getCustodyBalances(custody_id, token_address)
+                    .from(from_address)
+                    .call()
+                    .await?;
+
                 let balance = converter.into_amount(balance)?;
                 observer.publish_single(balance);
             }

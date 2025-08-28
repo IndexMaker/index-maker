@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 alloy = { workspace = true }
+async-trait = { workspace = true }
 ethers = { workspace = true }
 eyre = { workspace = true }
 k256 = { workspace = true }

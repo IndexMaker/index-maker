@@ -21,7 +21,5 @@ pub mod subaccounts;
 pub mod util {
     pub mod amount_converter;
     pub mod gas_util;
-    pub mod verification_data;
     pub mod weights_util;
-    pub mod timestamp_util;
 }

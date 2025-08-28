@@ -1,6 +1,7 @@
 pub mod connector_util;
 pub mod contracts;
 pub mod custody_authority;
+pub mod custody_client;
 pub mod custody_helper;
 pub mod index {
     pub mod index;

@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
+use alloy_primitives::B256;
 use eyre::Report;
 use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Either;
+use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::
-    core::{async_loop::AsyncLoop, functional::SingleObserver}
-;
+use symm_core::core::{async_loop::AsyncLoop, bits::Symbol, functional::SingleObserver};
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
 use crate::{credentials::Credentials, sessions::Sessions, subaccounts::SubAccounts};
@@ -39,6 +39,8 @@ impl Arbiter {
         subaccounts: Arc<AtomicLock<SubAccounts>>,
         mut subaccount_rx: UnboundedReceiver<Credentials>,
         sessions: Arc<AtomicLock<Sessions>>,
+        custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
+        indexes: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) {
         self.arbiter_loop.start(async move |cancel_token| {
@@ -50,7 +52,7 @@ impl Arbiter {
                     },
                     Some(credentials) = subaccount_rx.recv() => {
                         let account_name = credentials.get_account_name();
-                        match sessions.write().add_session(credentials, observer.clone()) {
+                        match sessions.write().add_session(credentials, custody_clients.clone(), indexes.clone(), observer.clone()) {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
                                 if let Err(err) = suba.add_subaccount_taken(account_name) {

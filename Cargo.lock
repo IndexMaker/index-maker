@@ -4560,6 +4560,7 @@ name = "otc-custody"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-trait",
  "ethers",
  "eyre",
  "k256 0.13.4",
