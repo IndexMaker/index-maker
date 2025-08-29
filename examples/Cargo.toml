@@ -19,10 +19,10 @@ binance-sdk = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
-dotenvy = "0.15"
+dotenvy = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
-hex = "0.4"
+hex = { workspace = true }
 index-core = { workspace = true }
 index-maker = { workspace = true }
 itertools = { workspace = true }

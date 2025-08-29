@@ -102,6 +102,7 @@ pub struct CollateralManagement {
     pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
+    pub symbol: Symbol,
     pub side: Side,
     pub collateral_amount: Amount,
     pub asset_requirements: HashMap<Symbol, Amount>,
@@ -1703,6 +1704,7 @@ mod test {
             .unwrap()
             .add_chain_source(
                 chain_id,
+                get_mock_index_name_1(),
                 collateral_designation_1
                     .read()
                     .unwrap()
