@@ -957,9 +957,10 @@ name = "anvil_orchestrator"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "alloy-evm-connector",
- "anyhow",
+ "alloy-chain-connector",
+ "eyre",
  "hex",
+ "otc-custody",
  "reqwest 0.11.27",
  "rust_decimal",
  "serde",

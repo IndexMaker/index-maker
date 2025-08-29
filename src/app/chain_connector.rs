@@ -37,6 +37,9 @@ pub struct RealChainConnectorConfig {
     #[builder(setter(into, strip_option), default)]
     pub with_router: Option<CollateralRouterConfig>,
 
+    #[builder(setter(into, strip_option), default)]
+    pub index_symbols: Vec<Symbol>, // TODO: use Vec<otc_custody::index::IndexInstance> instead
+
     #[builder(setter(skip))]
     chain_connector: Option<Arc<ComponentLock<RealChainConnector>>>,
 }
@@ -191,7 +194,7 @@ impl RealChainConnectorConfigBuilder {
             //    let bridge_to_binance = Arc::new(std::sync::RwLock::new(
             //        OTCCustodyToWalletCollateralBridge::new(index_custody, binance_wallet),
             //    ));
-            
+
             //    router_write.add_bridge(bridge_to_binance)?;
             //    router_write.add_route(&[index_custody_name.clone(), binance_wallet_name.clone()])?;
 
@@ -246,8 +249,14 @@ impl RealChainConnectorConfigBuilder {
             // Configure possible routes
             router_write.add_route(&[src_custody_name.clone(), dst_custody_name.clone()])?;
 
-            // Map incoming chain to source custody
-            router_write.add_chain_source(chain_id, src_custody_name)?;
+            for symbol in &config.index_symbols {
+                // Map incoming chain to source custody
+                router_write.add_chain_source(
+                    chain_id,
+                    symbol.clone(),
+                    src_custody_name.clone(),
+                )?;
+            }
 
             // Tell final destination custody
             router_write.set_default_destination(dst_custody_name)?;

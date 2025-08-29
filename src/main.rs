@@ -226,6 +226,7 @@ impl ChainMode {
     fn new_with_router(
         simulate_chain: bool,
         main_quote_currency: Symbol,
+        index_symbols: Vec<Symbol>,
         router_config: &CollateralRouterConfig,
     ) -> Self {
         if simulate_chain {
@@ -237,6 +238,7 @@ impl ChainMode {
                 .chain_id(1u32)
                 .source(format!("SRC:BINANCE:{}", main_quote_currency))
                 .destination(format!("DST:BINANCE:{}", main_quote_currency))
+                .index_symbols(index_symbols)
                 .with_router(router_config.clone())
                 .build()
                 .expect("Failed to build collateral router");
@@ -247,6 +249,7 @@ impl ChainMode {
         } else {
             let evm_connector_config = RealChainConnectorConfig::builder()
                 .with_router(router_config.clone())
+                .index_symbols(index_symbols)
                 .build_arc()
                 .expect("Failed to build evm chain connector");
 
@@ -405,8 +408,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .expect("Failed to build collateral router");
 
-    let chain_mode =
-        ChainMode::new_with_router(cli.simulate_chain, main_quote_currency, &router_config);
+    // TODO: Please, unhardcode me!
+    let index_symbols = vec![
+        Symbol::from("SO2"),
+        Symbol::from("SO3"),
+        Symbol::from("SY100"),
+    ];
+
+    let chain_mode = ChainMode::new_with_router(
+        cli.simulate_chain,
+        main_quote_currency,
+        index_symbols,
+        &router_config,
+    );
 
     // ==== Real stuff
     // ----

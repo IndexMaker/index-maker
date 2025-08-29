@@ -163,3 +163,4 @@ tracing = "0.1"
 tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+dotenvy = "0.15"
