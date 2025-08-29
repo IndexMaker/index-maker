@@ -4,6 +4,8 @@ use alloy::primitives;
 use alloy_chain_connector::{
     chain_connector::RealChainConnector,
     collateral::{
+        otc_custody_designation::OTCCustodyCollateralDesignation,
+        otc_custody_to_wallet_bridge::OTCCustodyToWalletCollateralBridge,
         signer_to_wallet_bridge::SignerWalletToWalletCollateralBridge,
         signer_wallet_designation::SignerWalletCollateralDesignation,
         wallet_designation::WalletCollateralDesignation,
@@ -12,6 +14,7 @@ use alloy_chain_connector::{
 };
 use alloy_primitives::Address;
 use eyre::{eyre, OptionExt, Result};
+use parking_lot::lock_api::RwLock;
 use primitives::address;
 use symm_core::core::bits::Symbol;
 
@@ -75,8 +78,8 @@ impl RealChainConnectorConfig {
 
                 // Some custody that will receive deposits and we'll route from
                 // that to some other wallet designation.
-                let custody1 = Credentials::new(
-                    String::from("AnvilCustody1"),
+                let anvil_account = Credentials::new(
+                    String::from("AnvilFriend"),
                     chain_id,
                     usdc_address,
                     anvil_url,
@@ -92,7 +95,7 @@ impl RealChainConnectorConfig {
                 chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
-                    .logon([custody1])?;
+                    .logon([anvil_account])?;
 
                 // We need to map chain ID to specific OTCIndex contract, so
                 // that issuer commands will be routed to that contract.
@@ -101,11 +104,7 @@ impl RealChainConnectorConfig {
                 chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
-                    .set_issuer(
-                        chain_id,
-                        String::from("AnvilIssuer1"),
-                        Address::default(),
-                    )?;
+                    .set_issuer(chain_id, String::from("AnvilFriend"))?;
 
                 Ok(())
             }
@@ -162,12 +161,51 @@ impl RealChainConnectorConfigBuilder {
             let usdc_symbol = Symbol::from("USDC");
             let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
 
+            // Add deserialized Arc<IndexInstance> into RealChainConnector
+            // 1. First we deserialize data for IndexDeploymentBuilder and index_address
+            // 2. Then we call build()
+            // 3. Then we call into_index_at(index_address) and we get index
+            //for index in indexes {
+            //    chain_connector
+            //        .write()
+            //        .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
+            //        .add_custody_client(index);
+
+            //    chain_connector
+            //        .write()
+            //        .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
+            //        .add_index(index);
+
+            //    let index_custody = Arc::new(RwLock::new(OTCCustodyCollateralDesignation::new(
+            //        designation_type,
+            //        name,
+            //        collateral_symbol,
+            //        chain_connector,
+            //        account_name,
+            //        chain_id,
+            //        contract_address,
+            //        token_address,
+            //        custody_id,
+            //    )));
+
+            //    let bridge_to_binance = Arc::new(std::sync::RwLock::new(
+            //        OTCCustodyToWalletCollateralBridge::new(index_custody, binance_wallet),
+            //    ));
+            
+            //    router_write.add_bridge(bridge_to_binance)?;
+            //    router_write.add_route(&[index_custody_name.clone(), binance_wallet_name.clone()])?;
+
+            //    // Small issue: currently we've got single source per chain, and we
+            //    // need to make separate source for each index (TODO)
+            //    //--> router_write.add_index_source(chain_id, index.get_symbol(), index_custody_name)?;
+            //}
+
             let src_custody = Arc::new(std::sync::RwLock::new(
                 SignerWalletCollateralDesignation::new(
                     Symbol::from("Anvil"),
                     Symbol::from("Source"),
                     Arc::downgrade(&chain_connector),
-                    String::from("AnvilCustody1"),
+                    String::from("AnvilFriend"),
                     usdc_symbol.clone(),
                     chain_id,
                     address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),

@@ -6,9 +6,12 @@ publish = false
 
 [dependencies]
 alloy = { workspace = true }
-alloy-evm-connector = { workspace = true }
 alloy-chain-connector = { workspace = true }
-ca-helper = { workspace = true }
+alloy-consensus = { workspace = true }
+alloy-evm-connector = { workspace = true }
+alloy-merkle-tree = { workspace = true }
+alloy-network = { workspace = true }
+alloy-rpc-types-eth = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
@@ -16,12 +19,16 @@ binance-sdk = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 crossbeam = { workspace = true }
+dotenvy = "0.15"
 eyre = { workspace = true }
 futures-util = { workspace = true }
+hex = "0.4"
 index-core = { workspace = true }
 index-maker = { workspace = true }
 itertools = { workspace = true }
+k256 = { workspace = true }
 market-data = { workspace = true }
+otc-custody = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
@@ -33,14 +40,6 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-alloy-rpc-types-eth = { workspace = true }
-alloy-merkle-tree = { workspace = true }
-alloy-consensus = { workspace = true }
-alloy-network = { workspace = true }
-anyhow = "1"
-dotenvy = "0.15"
-hex = "0.4"
-k256 = { workspace = true }
 
 [[example]]
 name = "binance-market-data"
