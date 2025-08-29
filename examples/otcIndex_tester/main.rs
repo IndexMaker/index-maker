@@ -7,8 +7,8 @@ use alloy::{
 use alloy_chain_connector::util::amount_converter::AmountConverter;
 use alloy_consensus::BlockHeader;
 use alloy_network::BlockResponse;
-use eyre::{eyre, Context, Result};
 use dotenvy::dotenv;
+use eyre::{eyre, Context, Result};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::{bigint::U256 as ECUint, ops::Reduce};
 use k256::ProjectivePoint;
@@ -18,7 +18,10 @@ use otc_custody::{
         IOTCIndex::Deposit, IndexFactory, OTCCustody, SchnorrCAKey, SchnorrSignature,
         VerificationData, ERC20,
     },
+    custody_authority::CustodyAuthority,
+    custody_client::CustodyClientMethods,
     custody_helper::{CAHelper, Party},
+    index::{index_deployment::IndexDeployment, index_helper::IndexDeployData},
 };
 use rust_decimal::dec;
 use std::{
@@ -165,7 +168,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let fork_url = env::var("BASE_FORK_URL").context("Please set BASE_FORK_URL")?;
-    let custody_addr: Address = env_addr("OTC_CUSTODY_ADDR")?;
+    let custody_address: Address = env_addr("OTC_CUSTODY_ADDR")?;
     let anvil_http = env::var("ANVIL_HTTP").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
     let poll_ms: u64 = env::var("POLL_MS")
         .ok()
@@ -182,7 +185,7 @@ async fn main() -> Result<()> {
         let live = ProviderBuilder::new().connect(&fork_url).await?;
         let latest = live.get_block_number().await?;
         let idx_block = find_deploy_block(&live, index_addr, latest).await?;
-        let cty_block = find_deploy_block(&live, custody_addr, latest).await?;
+        let cty_block = find_deploy_block(&live, custody_address, latest).await?;
         let fork_block = idx_block.max(cty_block);
         info!(
             "Using fork from Base block #{fork_block} (OTCIndex at #{idx_block}, OTCCustody at #{cty_block})."
@@ -194,39 +197,56 @@ async fn main() -> Result<()> {
     // ---- 2) start Anvil fork ----
     info!("Spawning anvil fork at block #{fork_block} …");
 
-    let _ = Command::new("anvil")
-        .arg("--fork-url")
-        .arg(&fork_url)
-        .arg("--fork-block-number")
-        .arg(fork_block)
-        .arg("--chain-id")
-        .arg("8453")
-        .arg("--auto-impersonate")
-        .arg("--block-time")
-        .arg("1")
-        .arg("--port")
-        .arg(anvil_http.split(':').last().unwrap_or("8545"))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("failed to spawn anvil")?;
+    // let _ = Command::new("anvil")
+    //     .arg("--fork-url")
+    //     .arg(&fork_url)
+    //     .arg("--fork-block-number")
+    //     .arg(fork_block)
+    //     .arg("--chain-id")
+    //     .arg("8453")
+    //     .arg("--auto-impersonate")
+    //     .arg("--block-time")
+    //     .arg("1")
+    //     .arg("--port")
+    //     .arg(anvil_http.split(':').last().unwrap_or("8545"))
+    //     .stdout(Stdio::null())
+    //     .stderr(Stdio::null())
+    //     .spawn()
+    //     .context("failed to spawn anvil")?;
 
-    wait_for_rpc(&anvil_http).await?;
-    info!("Anvil fork online at {}", anvil_http);
+    // wait_for_rpc(&anvil_http).await?;
+    // info!("Anvil fork online at {}", anvil_http);
 
     // ---- 3) provider + impersonation ----
     let provider = ProviderBuilder::new()
         .connect("http://127.0.0.1:8545")
         .await?;
+
     provider.anvil_auto_impersonate_account(true).await?;
+
+    {
+        // gas for custodian on anvil
+        provider.anvil_impersonate_account(custody_address).await?;
+
+        let _ = provider
+            .anvil_set_balance(
+                custody_address,
+                u256("10000000000000000000000")?, // 10k ETH
+            )
+            .await;
+
+        provider
+            .anvil_stop_impersonating_account(custody_address)
+            .await?;
+    }
 
     let rpc_url = "http://127.0.0.1:8545";
     let bare = ProviderBuilder::new().connect(rpc_url).await?;
 
     // ---- 4) funding (keep your original pattern) ----
-    let usdc: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".parse()?; // Base USDC
-    let usdc_contract = ERC20::new(usdc, &bare);
-    let usdc_decimals = usdc_contract.decimals().call().await?;
+    let usdc_address: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".parse()?; // Base USDC
+    let usdc_bare = ERC20::new(usdc_address, &bare);
+    let usdc_decimals = usdc_bare.decimals().call().await?;
     let usdc_converter = AmountConverter::new(usdc_decimals);
     let eth_converter = AmountConverter::new(18);
 
@@ -248,21 +268,29 @@ async fn main() -> Result<()> {
         .from_amount(dec!(10_000))
         .map_err(|e| eyre!(e))?;
 
-    let recipients: [Address; 10] = [
-        address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-        address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-        address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
-        address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
-        address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
-        address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
-        address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
-        address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
-        address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
-        address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
+    let chain_id: u32 = 8453;
+    let index_factory_address: Address = env_addr("INDEX_FACTORY_ADDR")?;
+    let operator: Address = env_addr("OPERATOR_ADDR")?;
+    let trade_route: Address = env_addr("TRADE_ROUTE")?;
+    let withdraw_route: Address = env_addr("WITHDRAW_ROUTE")?;
+
+    let recipients = [
+        operator,
+        withdraw_route,
+        //address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+        //address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+        //address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+        // address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
+        // address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
+        // address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
+        // address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
+        // address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
+        // address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
+        // address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
     ];
 
     for &to in &recipients {
-        let pending = usdc_contract
+        let pending = usdc_bare
             .transfer(to, amount_units)
             .from(whale)
             .gas(120_000u64)
@@ -279,312 +307,153 @@ async fn main() -> Result<()> {
 
     // === Realistic ACL + Schnorr + deployConnector + callConnector     ===
 
-    let index_factory_addr: Address = env_addr("INDEX_FACTORY_ADDR")?;
-    let schnorr_sk_hex = env::var("SCHNORR_SK").unwrap_or_else(|_| {
-        "0x1111111111111111111111111111111111111111111111111111111111111111".into()
+    let index_operator = CustodyAuthority::new(|| {
+        env::var("SCHNORR_SK").unwrap_or_else(|_| {
+            String::from("0x1111111111111111111111111111111111111111111111111111111111111111")
+        })
     });
-    let chain_id: u64 = 8453;
 
-    let operator: Address = env_addr("OPERATOR_ADDR")?;
-    // 1) Build CA/ACL for deployConnector ("OTCIndex") and compute CustodyID
-    let (parity, px, sk32) = pubkey_parity_27_28_x(&schnorr_sk_hex)?;
-    let party = Party { parity, x: px };
-    let custody_state: u8 = 0;
-
-    // index params (mirror AB's ts script)
-    let index_params = (
-        "Factory Index".to_string(),
-        "FI".to_string(),
-        usdc,
-        U256::from(6u8),
-        U256::from(100u64),
-        U256::from(200u64),
-        u256("1000000000000000000000")?, // 1000 * 1e18
-        u256("1000000000000000000000")?,
-        U256::from(51u8),
-        U256::from(86400u64),
-        u256("1000000000000000000000")?, // 100 * 1e18
-    );
-    let deploy_data: Bytes = SolValue::abi_encode_params(&index_params).into();
-
-    let mut ca = CAHelper::new(chain_id as u32, custody_addr);
-    // (A) deployConnector action leaf
-    let leaf_idx_deploy = ca.deploy_connector(
-        "OTCIndex",
-        index_factory_addr,
-        deploy_data.as_ref(),
-        custody_state,
-        party.clone(),
-    );
-
-    // (B) custodyToAddress action leaf — send to your operator (or any address you want)
-    let receiver: Address = operator;
-    let leaf_idx_c2a = ca.custody_to_address(receiver, custody_state, party.clone());
-
-    let custody_id = B256::from_slice(&ca.get_custody_id());
-    info!(
-        "CustodyID (CA root): 0x{}",
-        hex::encode(custody_id.as_slice())
-    );
-
-    // 2) Build VerificationData for deployConnector
-    let latest_ts: U256 = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await?
-        .map(|b| U256::from(b.header().timestamp()))
-        .unwrap_or(U256::ZERO);
-
-    let msg = deploy_connector_message(
-        latest_ts,
-        custody_id,
-        "OTCIndex",
-        index_factory_addr,
-        &deploy_data,
-    );
-    let (e, s) = schnorr_sign_per_contract(sk32, parity, px, msg.as_ref())?;
-
-    let proof_deploy: Vec<B256> = ca
-        .get_merkle_proof(leaf_idx_deploy)
-        .into_iter()
-        .map(|arr| B256::from_slice(&arr))
-        .collect();
-
-    let proof_c2a: Vec<B256> = ca
-        .get_merkle_proof(leaf_idx_c2a)
-        .into_iter()
-        .map(|arr| B256::from_slice(&arr))
-        .collect();
-
-    let v_deploy = VerificationData {
-        id: custody_id,
-        state: custody_state,
-        timestamp: latest_ts,
-        pubKey: SchnorrCAKey { parity, x: px },
-        sig: SchnorrSignature { e, s },
-        merkleProof: proof_deploy.clone(),
+    let index_deploy_data = IndexDeployData {
+        name: String::from("Factory Index"),
+        symbol: String::from("FI"),
+        collateral_token: usdc_address,
+        collateral_token_precision: U256::from(6u8),
+        management_fee: U256::from(100u64),
+        performance_fee: U256::from(200u64),
+        max_mint_per_block: u256("1000000000000000000000")?, // 1000 * 1e18
+        max_redeem_per_block: u256("1000000000000000000000")?,
+        vote_threshold: U256::from(51u8),
+        vote_period: U256::from(86400u64),
+        initial_price: u256("1000000000000000000000")?, // 100 * 1e18
     };
 
-    // 3) Call deployConnector on OTCCustody
-    let otc = OTCCustody::new(custody_addr, provider.clone());
+    let index_builder = IndexDeployment::builder_for(
+        index_operator,
+        chain_id,
+        index_factory_address,
+        custody_address,
+        trade_route,
+        withdraw_route,
+    );
 
-    // gas for custodian on anvil
-    provider.anvil_impersonate_account(custody_addr).await?;
-    let _ = provider
-        .anvil_set_balance(
-            custody_addr,
-            u256("10000000000000000000000")?, // 10k ETH
-        )
-        .await;
-    provider
-        .anvil_stop_impersonating_account(custody_addr)
-        .await?;
+    let index_deployment = index_builder.build(index_deploy_data)?;
+    let index_instance = index_deployment.deploy_from(&provider, operator).await?;
 
-    let rc = otc
-        .deployConnector(
-            "OTCIndex".to_string(),
-            index_factory_addr,
-            deploy_data.clone(),
-            v_deploy,
-        )
-        .from(operator)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    eyre::ensure!(rc.status(), "deployConnector reverted: {:?}", rc);
-    info!("✅ deployConnector ok: {:?}", rc.transaction_hash);
+    info!("✅ deployConnector ok");
 
-    // 4) Read IndexDeployed to get deployed index
-    let mut deployed_index = Address::ZERO;
+    let index_address = index_instance.get_index_address();
+    let custody_id = index_instance.get_custody_id();
 
-    for lg in rc.logs() {
-        let log_addr = hex::encode(lg.address().as_slice()); // lowercase
-        let factory_addr = hex::encode(index_factory_addr.as_slice()); // lowercase
-        if log_addr == factory_addr {
-            if let Ok(parsed) = lg.log_decode::<IndexFactory::IndexDeployed>() {
-                deployed_index = parsed.inner.indexAddress;
-                break;
-            }
-        }
+    info!(
+        "🆕 OTCIndex deployed: contractAddress: {:#x}, custodyId: {:#x}",
+        index_address, custody_id
+    );
+
+    {
+        // auto-whitelist check
+        let otc = OTCCustody::new(custody_address, &provider);
+        let whitelisted = otc.isConnectorWhitelisted(*index_address).call().await?;
+        info!("Index auto-whitelisted: {}", whitelisted);
+
+        // ===== custodyToAddress (deposit then withdraw-to-address via Schnorr) =====
+        let collateral_amount_units = usdc_converter
+            .from_amount(dec!(100))
+            .map_err(|e| eyre!(e))?;
+
+        // withdraw path is towards the user's wallet, so this is user's wallet
+        let usdc_withdraw = ERC20::new(usdc_address, &provider);
+
+        // Approve USDC to Custody so it can transferFrom(operator)
+        let rc_app = usdc_withdraw
+            .approve(custody_address, collateral_amount_units)
+            .from(withdraw_route)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+
+        eyre::ensure!(rc_app.status(), "USDC approve failed: {:?}", rc_app);
+
+        // Deposit into custody under this custodyId
+        let rc_dep = otc
+            .addressToCustody(custody_id, usdc_address, collateral_amount_units)
+            .from(withdraw_route)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+
+        eyre::ensure!(rc_dep.status(), "addressToCustody failed: {:?}", rc_dep);
+
+        let res = index_instance
+            .route_collateral_for_trading_from(&provider, trade_route, collateral_amount_units)
+            .await?;
+
+        eyre::ensure!(res.status(), "custodyToAddress reverted: {:?}", res);
+        info!("✅ custodyToAddress ok: {:?}", res.transaction_hash);
+
+        let balance_withdraw = usdc_bare.balanceOf(withdraw_route).call().await?;
+        let balance_trade = usdc_bare.balanceOf(trade_route).call().await?;
+        info!(
+            "USDC balance: Wallet: {} ==> Binance: {}",
+            usdc_converter.into_amount(balance_withdraw)?,
+            usdc_converter.into_amount(balance_trade)?
+        );
+
+        info!("Trying mint...");
+        let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
+        let sequence_number = U256::from(123456);
+        let mint_amount = u256("1000000000000000000")?;
+        let res = index_instance
+            .mint_index_from(
+                &provider,
+                custody_owner,
+                withdraw_route,
+                mint_amount,
+                sequence_number,
+            )
+            .await?;
+
+        eyre::ensure!(res.status(), "mint reverted: {:?}", res);
+        info!("✅ mint ok: {:?}", res.transaction_hash);
     }
 
-    eyre::ensure!(
-        deployed_index != Address::ZERO,
-        "IndexDeployed not found in receipt — check factory address/ABI (logs dumped above)"
-    );
-
-    info!("🆕 OTCIndex deployed at: {deployed_index:#x}");
-
-    // auto-whitelist check
-    let whitelisted = otc.isConnectorWhitelisted(deployed_index).call().await?;
-    info!("Index auto-whitelisted: {}", whitelisted);
-
-    // ===== custodyToAddress (deposit then withdraw-to-address via Schnorr) =====
-    let c2a_amount_units = usdc_converter
-        .from_amount(dec!(100))
-        .map_err(|e| eyre!(e))?;
-
-    let usdc_ext = ERC20::new(usdc, &provider);
-    // Approve USDC to Custody so it can transferFrom(operator)
-    let rc_app = usdc_ext
-        .approve(custody_addr, c2a_amount_units)
-        .from(operator)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    eyre::ensure!(rc_app.status(), "USDC approve failed: {:?}", rc_app);
-
-    // Deposit into custody under this custodyId
-    let rc_dep = otc
-        .addressToCustody(custody_id, usdc, c2a_amount_units)
-        .from(operator)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    eyre::ensure!(rc_dep.status(), "addressToCustody failed: {:?}", rc_dep);
-
-    // Build & sign custodyToAddress message with fresh timestamp
-    let ts_c2a: U256 = chain_now_ts(&provider).await?;
-
-    let msg_c2a = custody_to_address_message(ts_c2a, custody_id, usdc, receiver, c2a_amount_units);
-
-    let (e_c2a, s_c2a) = schnorr_sign_per_contract(sk32, parity, px, msg_c2a.as_ref())?;
-
-    let v_c2a = VerificationData {
-        id: custody_id,
-        state: custody_state,
-        timestamp: ts_c2a,
-        pubKey: SchnorrCAKey { parity, x: px },
-        sig: SchnorrSignature { e: e_c2a, s: s_c2a },
-        merkleProof: proof_c2a.clone(), // for the custodyToAddress leaf
-    };
-
-    // Execute custodyToAddress (moves funds from custody to `receiver`)
-    let rc_c2a = otc
-        .custodyToAddress(usdc, receiver, c2a_amount_units, v_c2a)
-        .from(operator)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    eyre::ensure!(rc_c2a.status(), "custodyToAddress reverted: {:?}", rc_c2a);
-
-    info!("✅ custodyToAddress ok: {:?}", rc_c2a.transaction_hash);
-
-    let bal_after = usdc_contract.balanceOf(receiver).call().await?;
-    info!(
-        "USDC balance(receiver) after custodyToAddress: {}",
-        bal_after
-    );
-
     // 5) callConnector: curatorUpdate + solverUpdate (empty proof when whitelisted)
-    let ts1 = chain_now_ts(&provider).await?;
     let weights1 = Bytes::from(vec![0u8; 32]);
     let price1 = u256("120000000000000000000")?;
-    let curator_call = encode_with_selector(
-        "curatorUpdate(uint256,bytes,uint256)",
-        ts1,
-        &weights1,
-        price1,
-    );
 
-    let msg_curator = call_connector_message(
-        ts1,
-        custody_id,
-        "OTCIndexConnector",
-        deployed_index,
-        &curator_call,
-        &Bytes::default(),
-    );
-    let (e2, s2) = schnorr_sign_per_contract(sk32, parity, px, msg_curator.as_ref())?;
-
-    let v_call1 = VerificationData {
-        id: custody_id,
-        state: custody_state,
-        timestamp: ts1,
-        pubKey: SchnorrCAKey { parity, x: px },
-        sig: SchnorrSignature { e: e2, s: s2 },
-        merkleProof: vec![], // index is already in whitelisted so empty proof OK
-    };
-
-    let rc2 = otc
-        .callConnector(
-            "OTCIndexConnector".to_string(),
-            deployed_index,
-            curator_call.clone(),
-            Bytes::default(),
-            v_call1,
-        )
-        .from(operator)
-        .send()
-        .await?
-        .get_receipt()
+    let res = index_instance
+        .set_currator_weights_from(&provider, operator, &weights1, price1)
         .await?;
 
-    eyre::ensure!(rc2.status(), "curatorUpdate reverted: {:?}", rc2);
-    info!("✅ curatorUpdate ok: {:?}", rc2.transaction_hash);
+    eyre::ensure!(res.status(), "curatorUpdate reverted: {:?}", res);
+    info!("✅ curatorUpdate ok: {:?}", res.transaction_hash);
 
-    let ts2 = chain_now_ts(&provider).await?;
     let weights2 = Bytes::from(vec![1u8; 32]);
     let price2 = u256("130000000000000000000")?;
-    let solver_call = encode_with_selector(
-        "solverUpdate(uint256,bytes,uint256)",
-        ts2,
-        &weights2,
-        price2,
-    );
 
-    let msg_solver = call_connector_message(
-        ts2,
-        custody_id,
-        "OTCIndexConnector",
-        deployed_index,
-        &solver_call,
-        &Bytes::default(),
-    );
-    let (e3, s3) = schnorr_sign_per_contract(sk32, parity, px, msg_solver.as_ref())?;
-    let v_call2 = VerificationData {
-        id: custody_id,
-        state: custody_state,
-        timestamp: ts2,
-        pubKey: SchnorrCAKey { parity, x: px },
-        sig: SchnorrSignature { e: e3, s: s3 },
-        merkleProof: vec![],
-    };
-
-    let rc3 = otc
-        .callConnector(
-            "OTCIndexConnector".to_string(),
-            deployed_index,
-            solver_call.clone(),
-            Bytes::default(),
-            v_call2,
-        )
-        .from(operator)
-        .send()
-        .await?
-        .get_receipt()
+    let res = index_instance
+        .solver_weights_set_from(provider, operator, &weights2, price2)
         .await?;
 
-    eyre::ensure!(rc3.status(), "solverUpdate reverted: {:?}", rc3);
-    info!("✅ solverUpdate ok: {:?}", rc3.transaction_hash);
+    eyre::ensure!(res.status(), "solverUpdate reverted: {:?}", res);
+    info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
 
-    info!("Waiting deposit event from Client side...");
-    let _ = wait_for_deposit_and_mint(
-        &provider,
-        deployed_index,
-        custody_addr,
-        poll_ms,
-        custody_id,
-        custody_state,
-        parity,
-        px,
-        sk32,
-        6,
-    )
-    .await?;
+    info!("Finished for now.");
+    //info!("Waiting deposit event from Client side...");
+    //let _ = wait_for_deposit_and_mint(
+    //    &provider,
+    //    *deployed_index,
+    //    custody_addr,
+    //    poll_ms,
+    //    custody_id,
+    //    custody_state,
+    //    parity,
+    //    px,
+    //    sk32,
+    //    6,
+    //)
+    //.await?;
 
     Ok(())
 }

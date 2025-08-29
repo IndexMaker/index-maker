@@ -214,11 +214,11 @@ impl IndexDeploymentBuilder {
         // ===
         // TODO: it's actually OTCIndex that will withdraw, so what should we
         // put on ACL here? We need to enable OTCIndex to withdraw.
-        let withdraw_route_leaf_index = ca.custody_to_address(
-            self.withdraw_route,
-            OTC_WITHDRAW_ROUTE_CUSTODY_STATE,
-            party.clone(),
-        );
+        // let withdraw_route_leaf_index = ca.custody_to_address(
+        //     self.withdraw_route,
+        //     OTC_WITHDRAW_ROUTE_CUSTODY_STATE,
+        //     party.clone(),
+        // );
 
         let custody_id = B256::from_slice(&ca.get_custody_id());
         let ca_items = ca.get_ca_items();
@@ -235,11 +235,13 @@ impl IndexDeploymentBuilder {
             .map(|arr| B256::from_slice(&arr))
             .collect();
 
-        let withdraw_route_proof: Vec<B256> = ca
-            .get_merkle_proof(withdraw_route_leaf_index)
-            .into_iter()
-            .map(|arr| B256::from_slice(&arr))
-            .collect();
+        // FIXME: MerkleTree fails to build correctly!
+        let withdraw_route_proof = vec![];
+        // let withdraw_route_proof: Vec<B256> = ca
+        //     .get_merkle_proof(withdraw_route_leaf_index)
+        //     .into_iter()
+        //     .map(|arr| B256::from_slice(&arr))
+        //     .collect();
 
         Ok(IndexDeployment {
             index_deploy_data,

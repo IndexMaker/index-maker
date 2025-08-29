@@ -5,6 +5,7 @@ use alloy::{
 use struple::Struple;
 
 pub(crate) const OTC_INDEX_CONNECTOR_TYPE: &str = "OTCIndex";
+pub(crate) const OTC_INDEX_CONNECTOR_NAME: &str = "OTCIndexConnector";
 pub(crate) const OTC_INDEX_DEPLOY_CUSTODY_STATE: u8 = 0;
 pub(crate) const OTC_INDEX_CURATOR_WEIGHTS_CUSTODY_STATE: u8 = 0;
 pub(crate) const OTC_INDEX_SOLVER_WEIGHTS_SET_STATE: u8 = 0;
