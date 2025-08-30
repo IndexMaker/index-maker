@@ -57,6 +57,14 @@ impl IndexInstance {
         &self.index_deploy_data.symbol
     }
 
+    pub fn get_index_token_precision(&self) -> u8 {
+        18
+    }
+
+    pub fn get_initial_price(&self) -> U256 {
+        self.index_deploy_data.initial_price
+    }
+
     pub async fn set_currator_weights_from(
         &self,
         provider: impl Provider,

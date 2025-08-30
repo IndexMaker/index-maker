@@ -1,27 +1,18 @@
 use alloy::{
-    primitives::{address, keccak256, Address, Bytes, FixedBytes, B256, U256},
+    primitives::{address, Address, Bytes, U256},
     providers::{ext::AnvilApi, Provider, ProviderBuilder},
     rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption},
-    sol_types::SolValue,
 };
 use alloy_chain_connector::util::amount_converter::AmountConverter;
-use alloy_consensus::BlockHeader;
-use alloy_network::BlockResponse;
 use dotenvy::dotenv;
 use eyre::{eyre, Context, Result};
-use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::elliptic_curve::{bigint::U256 as ECUint, ops::Reduce};
-use k256::ProjectivePoint;
-use k256::{elliptic_curve::PrimeField, FieldBytes, Scalar};
 use otc_custody::{
-    contracts::{
-        IOTCIndex::Deposit, IndexFactory, OTCCustody, SchnorrCAKey, SchnorrSignature,
-        VerificationData, ERC20,
-    },
+    contracts::{IOTCIndex::Deposit, OTCCustody, ERC20},
     custody_authority::CustodyAuthority,
     custody_client::CustodyClientMethods,
-    custody_helper::{CAHelper, Party},
-    index::{index::IndexInstance, index_deployment::IndexDeployment, index_helper::IndexDeployData},
+    index::{
+        index::IndexInstance, index_deployment::IndexDeployment, index_helper::IndexDeployData,
+    },
 };
 use rust_decimal::dec;
 use std::{
@@ -33,131 +24,6 @@ use std::{
 use tokio::time::sleep;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-
-// ---------- helpers: key → (parity, x) for Schnorr pubkey ----------
-fn pubkey_parity_27_28_x(sk_hex: &str) -> eyre::Result<(u8, B256, [u8; 32])> {
-    use k256::ecdsa::SigningKey;
-
-    let sk_vec = hex::decode(sk_hex.trim_start_matches("0x"))?;
-    let sk32: [u8; 32] = sk_vec
-        .as_slice()
-        .try_into()
-        .map_err(|_| eyre!("bad sk length"))?;
-
-    let sk = SigningKey::from_slice(&sk32)?;
-    let vk = sk.verifying_key();
-
-    let ep = vk.to_encoded_point(true); // 33 bytes: 0x02/0x03 || X
-    let tag = ep.as_bytes()[0];
-    let parity = if tag == 0x02 { 27u8 } else { 28u8 }; // this is required from our Solidity contracts
-    let x_bytes = &ep.as_bytes()[1..33];
-    Ok((parity, B256::from_slice(x_bytes), sk32))
-}
-
-fn schnorr_sign_per_contract(
-    sk32: [u8; 32],
-    parity: u8, // 27/28
-    px: B256,   // pubkey X
-    message_data: &[u8],
-) -> eyre::Result<(B256, B256)> {
-    let x = Scalar::from_repr(FieldBytes::from(sk32))
-        .into_option()
-        .ok_or_else(|| eyre::eyre!("sk out of range"))?;
-
-    // message = keccak256(messageData)
-    let message = B256::from(keccak256(message_data));
-
-    // deterministic k = reduce(keccak256(sk || message))
-    let mut kin = Vec::with_capacity(64);
-    kin.extend_from_slice(&sk32);
-    kin.extend_from_slice(message.as_slice());
-    let k = Scalar::reduce(ECUint::from_be_slice(keccak256(&kin).as_slice()));
-
-    // R = k·G, ethereum address of R (keccak of uncompressed XY, take last 20 bytes)
-    let r_aff = (ProjectivePoint::GENERATOR * k).to_affine();
-    let r_uncompressed = r_aff.to_encoded_point(false); // 0x04 || X || Y (65 bytes)
-    let r_hash = keccak256(&r_uncompressed.as_bytes()[1..]); // hash 64-byte X||Y
-    let r_addr = Address::from_slice(&r_hash[12..]); // last 20 bytes
-
-    // e = keccak256(abi.encodePacked(R_address, parity, px, message))
-    let parity_b1: FixedBytes<1> = [parity].into();
-    let e_bytes: Bytes = SolValue::abi_encode_packed(&(r_addr, parity_b1, px, message)).into();
-    let e_b256 = B256::from(keccak256(e_bytes.as_ref()));
-    let e = Scalar::reduce(ECUint::from_be_slice(e_b256.as_slice()));
-
-    // s = k + e*x  (mod Q)
-    let s = k + e * x;
-
-    Ok((e_b256, B256::from_slice(s.to_bytes().as_slice())))
-}
-
-fn deploy_connector_message(
-    ts: U256,
-    id: B256,
-    connector_type: &str,
-    factory: Address,
-    data: &Bytes,
-) -> Bytes {
-    let data_hash = B256::from(keccak256(data));
-    SolValue::abi_encode_packed(&(
-        ts,
-        "deployConnector".to_string(),
-        id,
-        connector_type.to_string(),
-        factory,
-        data_hash,
-    ))
-    .into()
-}
-
-fn call_connector_message(
-    ts: U256,
-    id: B256,
-    connector_type: &str,
-    connector_addr: Address,
-    fixed: &Bytes,
-    tail: &Bytes,
-) -> Bytes {
-    let fixed_hash = B256::from(keccak256(fixed));
-    let tail_hash = B256::from(keccak256(tail));
-    SolValue::abi_encode_packed(&(
-        ts,
-        "callConnector".to_string(),
-        id,
-        connector_type.to_string(),
-        connector_addr,
-        fixed_hash,
-        tail_hash,
-    ))
-    .into()
-}
-
-fn custody_to_address_message(
-    ts: U256,
-    id: B256,
-    token: Address,
-    destination: Address,
-    amount: U256,
-) -> Bytes {
-    SolValue::abi_encode_packed(&(
-        ts,
-        "custodyToAddress".to_string(),
-        id,
-        token,
-        destination,
-        amount,
-    ))
-    .into()
-}
-
-fn encode_mint_call(to: Address, amount: U256, seq: U256) -> Bytes {
-    let sel = keccak256(b"mint(address,uint256,uint256)");
-    let mut out = Vec::with_capacity(4 + 32 * 3);
-    out.extend_from_slice(&sel[..4]);
-    let enc = SolValue::abi_encode_params(&(to, amount, seq));
-    out.extend_from_slice(&enc);
-    out.into()
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -275,18 +141,17 @@ async fn main() -> Result<()> {
     let withdraw_route: Address = env_addr("WITHDRAW_ROUTE")?;
 
     let recipients = [
-        //operator,
-        //withdraw_route,
-        address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-        address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-        address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
-        address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
-        address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
-        address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
-        address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
-        address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
-        address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
-        address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
+        withdraw_route,
+        // address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+        // address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+        // address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+        // address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
+        // address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
+        // address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
+        // address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
+        // address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
+        // address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
+        // address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
     ];
 
     for &to in &recipients {
@@ -423,41 +288,12 @@ async fn main() -> Result<()> {
     info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
 
     info!("Waiting deposit event from Client side...");
-    let _ = wait_for_deposit_and_mint(
-        index_operator,
-        index_instance,
-        &provider,
-        index_address,
-        custody_address,
-        poll_ms,
-        custody_id,
-        0,
-        6,
-    )
-    .await?;
+    let _ = wait_for_deposit_and_mint(index_instance, &provider, poll_ms).await?;
 
     Ok(())
 }
 
 // --------------------------- my helpers ---------------------------
-fn encode_with_selector(sig: &str, ts: U256, weights: &Bytes, price: U256) -> Bytes {
-    let sel = keccak256(sig.as_bytes());
-    let mut out = Vec::with_capacity(4 + 128);
-    out.extend_from_slice(&sel[..4]);
-
-    let enc = SolValue::abi_encode_params(&(ts, weights.clone(), price));
-    out.extend_from_slice(&enc);
-    out.into()
-}
-
-async fn chain_now_ts<P: Provider>(p: &P) -> eyre::Result<U256> {
-    let now = p
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await?
-        .map(|b| U256::from(b.header().timestamp()))
-        .unwrap_or(U256::ZERO);
-    Ok(now)
-}
 
 fn u256(s: &str) -> eyre::Result<U256> {
     U256::from_str(s).map_err(|e| eyre!(e))
@@ -507,82 +343,61 @@ fn env_addr(key: &str) -> Result<Address> {
     Address::from_str(s.trim()).with_context(|| format!("invalid {key}"))
 }
 
-fn pow10(d: u32) -> U256 {
-    let mut x = U256::from(1u8);
-    for _ in 0..d {
-        x = x * U256::from(10u8);
-    }
-    x
-}
-
-fn read_index_price() -> eyre::Result<U256> {
-    let s = std::env::var("INDEX_PRICE").context("INDEX_PRICE env var not set")?;
-    U256::from_str(&s).map_err(|e| eyre!(e))
-}
-
-async fn pending_nonce<P: Provider>(p: &P, from: Address) -> eyre::Result<u64> {
-    let n: u64 = p
-        .get_transaction_count(from)
-        .block_id(BlockId::Number(BlockNumberOrTag::Pending))
-        .await?;
-    Ok(n)
-}
-
 /// Wait for the Deposit events and Mint immeidately for capturing on Client.
-async fn wait_for_deposit_and_mint<P: Provider>(
-    index_operator: CustodyAuthority,
+async fn wait_for_deposit_and_mint(
     index_instance: IndexInstance,
-    provider: &P,
-    index_addr: Address,
-    custody_addr: Address,
-    poll_ms: u64,
-    custody_id: B256,
-    custody_state: u8,
-    collateral_decimals: u8,
+    provider: &impl Provider,
+    poll_millis: u64,
 ) -> Result<()> {
-    let index_price = read_index_price()?;
-    let one_e18 = pow10(18);
-    let mut last_from = provider.get_block_number().await?;
-    let base = Filter::new().address(index_addr);
-    let otc = OTCCustody::new(custody_addr, provider.clone());
+    let mut last_block_from = provider.get_block_number().await?;
+    let event_filter = Filter::new().address(*index_instance.get_index_address());
     loop {
-        let tip = provider.get_block_number().await?;
-        if tip > last_from {
-            let range = base.clone().select(FilterBlockOption::Range {
-                from_block: Some(BlockNumberOrTag::Number(last_from + 1)),
-                to_block: Some(BlockNumberOrTag::Number(tip)),
+        let most_recent_block = provider.get_block_number().await?;
+        if most_recent_block > last_block_from {
+            let range = event_filter.clone().select(FilterBlockOption::Range {
+                from_block: Some(BlockNumberOrTag::Number(last_block_from + 1)),
+                to_block: Some(BlockNumberOrTag::Number(most_recent_block)),
             });
 
             let logs = provider.get_logs(&range).await?;
-            for l in logs {
-                if let Ok(dl) = l.log_decode::<Deposit>() {
-                    let ev = dl.inner;
+            for log_event in logs {
+                if let Ok(deposit_event) = log_event.log_decode::<Deposit>() {
+                    let deposit_data = deposit_event.inner;
                     info!(
                         "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
-                        ev.amount, ev.from, ev.seqNumNewOrderSingle, ev.affiliate1, ev.affiliate2
+                        deposit_data.amount,
+                        deposit_data.from,
+                        deposit_data.seqNumNewOrderSingle,
+                        deposit_data.affiliate1,
+                        deposit_data.affiliate2
                     );
 
-                    // Mint after deposit
-                    let amount18 = if collateral_decimals < 18 {
-                        ev.amount * pow10((18 - collateral_decimals as u32) as u32)
-                    } else if collateral_decimals > 18 {
-                        ev.amount / pow10((collateral_decimals as u32 - 18) as u32)
-                    } else {
-                        ev.amount
-                    };
+                    let usdc_converter =
+                        AmountConverter::new(index_instance.get_collateral_token_precision());
+                    let index_converter =
+                        AmountConverter::new(index_instance.get_index_token_precision());
 
-                    let mint_amount = amount18.saturating_mul(one_e18) / index_price;
+                    // Mint after deposit
+                    let index_price = index_instance.get_initial_price();
+                    let mint_amount = index_converter
+                        .rescale_from(deposit_data.amount, &usdc_converter)
+                        / index_price;
 
                     //  get cusody owner for Mint allow
-                    let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
+                    let otc = OTCCustody::new(*index_instance.get_custody_address(), provider);
+
+                    let custody_owner: Address = otc
+                        .getCustodyOwner(index_instance.get_custody_id())
+                        .call()
+                        .await?;
 
                     let rc = index_instance
                         .mint_index_from(
                             &provider,
                             custody_owner,
-                            ev.from,
+                            deposit_data.from,
                             mint_amount,
-                            ev.seqNumNewOrderSingle,
+                            deposit_data.seqNumNewOrderSingle,
                         )
                         .await?;
 
@@ -590,14 +405,17 @@ async fn wait_for_deposit_and_mint<P: Provider>(
 
                     info!(
                         "🎟️ Minted {} to {:#x} (seq {}) | tx {:?}",
-                        mint_amount, ev.from, ev.seqNumNewOrderSingle, rc.transaction_hash
+                        mint_amount,
+                        deposit_data.from,
+                        deposit_data.seqNumNewOrderSingle,
+                        rc.transaction_hash
                     );
 
                     continue;
                 }
             }
-            last_from = tip;
+            last_block_from = most_recent_block;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(poll_ms)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(poll_millis)).await;
     }
 }
