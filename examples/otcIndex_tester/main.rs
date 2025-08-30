@@ -197,25 +197,25 @@ async fn main() -> Result<()> {
     // ---- 2) start Anvil fork ----
     info!("Spawning anvil fork at block #{fork_block} …");
 
-    // let _ = Command::new("anvil")
-    //     .arg("--fork-url")
-    //     .arg(&fork_url)
-    //     .arg("--fork-block-number")
-    //     .arg(fork_block)
-    //     .arg("--chain-id")
-    //     .arg("8453")
-    //     .arg("--auto-impersonate")
-    //     .arg("--block-time")
-    //     .arg("1")
-    //     .arg("--port")
-    //     .arg(anvil_http.split(':').last().unwrap_or("8545"))
-    //     .stdout(Stdio::null())
-    //     .stderr(Stdio::null())
-    //     .spawn()
-    //     .context("failed to spawn anvil")?;
+    let _ = Command::new("anvil")
+        .arg("--fork-url")
+        .arg(&fork_url)
+        .arg("--fork-block-number")
+        .arg(fork_block)
+        .arg("--chain-id")
+        .arg("8453")
+        .arg("--auto-impersonate")
+        .arg("--block-time")
+        .arg("1")
+        .arg("--port")
+        .arg(anvil_http.split(':').last().unwrap_or("8545"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to spawn anvil")?;
 
-    // wait_for_rpc(&anvil_http).await?;
-    // info!("Anvil fork online at {}", anvil_http);
+    wait_for_rpc(&anvil_http).await?;
+    info!("Anvil fork online at {}", anvil_http);
 
     // ---- 3) provider + impersonation ----
     let provider = ProviderBuilder::new()
@@ -275,18 +275,18 @@ async fn main() -> Result<()> {
     let withdraw_route: Address = env_addr("WITHDRAW_ROUTE")?;
 
     let recipients = [
-        operator,
-        withdraw_route,
-        //address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-        //address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-        //address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
-        // address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
-        // address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
-        // address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
-        // address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
-        // address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
-        // address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
-        // address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
+        //operator,
+        //withdraw_route,
+        address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+        address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+        address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+        address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
+        address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
+        address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
+        address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
+        address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
+        address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
+        address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
     ];
 
     for &to in &recipients {
@@ -328,7 +328,7 @@ async fn main() -> Result<()> {
     };
 
     let index_builder = IndexDeployment::builder_for(
-        index_operator,
+        index_operator.clone(),
         chain_id,
         index_factory_address,
         custody_address,
@@ -400,60 +400,58 @@ async fn main() -> Result<()> {
             usdc_converter.into_amount(balance_trade)?
         );
 
-        info!("Trying mint...");
-        let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
-        let sequence_number = U256::from(123456);
-        let mint_amount = u256("1000000000000000000")?;
-        let res = index_instance
-            .mint_index_from(
-                &provider,
-                custody_owner,
-                withdraw_route,
-                mint_amount,
-                sequence_number,
-            )
-            .await?;
+        // info!("Trying mint...");
+        // let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
+        // let sequence_number = U256::from(123456);
+        // let mint_amount = u256("1000000000000000000")?;
+        // let res = index_instance
+        //     .mint_index_from(
+        //         &provider,
+        //         custody_owner,
+        //         withdraw_route,
+        //         mint_amount,
+        //         sequence_number,
+        //     )
+        //     .await?;
 
-        eyre::ensure!(res.status(), "mint reverted: {:?}", res);
-        info!("✅ mint ok: {:?}", res.transaction_hash);
+        // eyre::ensure!(res.status(), "mint reverted: {:?}", res);
+        // info!("✅ mint ok: {:?}", res.transaction_hash);
     }
 
-    // 5) callConnector: curatorUpdate + solverUpdate (empty proof when whitelisted)
-    let weights1 = Bytes::from(vec![0u8; 32]);
-    let price1 = u256("120000000000000000000")?;
+    // // 5) callConnector: curatorUpdate + solverUpdate (empty proof when whitelisted)
+    // let weights1 = Bytes::from(vec![0u8; 32]);
+    // let price1 = u256("120000000000000000000")?;
 
-    let res = index_instance
-        .set_currator_weights_from(&provider, operator, &weights1, price1)
-        .await?;
+    // let res = index_instance
+    //     .set_currator_weights_from(&provider, operator, &weights1, price1)
+    //     .await?;
 
-    eyre::ensure!(res.status(), "curatorUpdate reverted: {:?}", res);
-    info!("✅ curatorUpdate ok: {:?}", res.transaction_hash);
+    // eyre::ensure!(res.status(), "curatorUpdate reverted: {:?}", res);
+    // info!("✅ curatorUpdate ok: {:?}", res.transaction_hash);
 
-    let weights2 = Bytes::from(vec![1u8; 32]);
-    let price2 = u256("130000000000000000000")?;
+    // let weights2 = Bytes::from(vec![1u8; 32]);
+    // let price2 = u256("130000000000000000000")?;
 
-    let res = index_instance
-        .solver_weights_set_from(provider, operator, &weights2, price2)
-        .await?;
+    // let res = index_instance
+    //     .solver_weights_set_from(provider, operator, &weights2, price2)
+    //     .await?;
 
-    eyre::ensure!(res.status(), "solverUpdate reverted: {:?}", res);
-    info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
+    // eyre::ensure!(res.status(), "solverUpdate reverted: {:?}", res);
+    // info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
 
-    info!("Finished for now.");
-    //info!("Waiting deposit event from Client side...");
-    //let _ = wait_for_deposit_and_mint(
-    //    &provider,
-    //    *deployed_index,
-    //    custody_addr,
-    //    poll_ms,
-    //    custody_id,
-    //    custody_state,
-    //    parity,
-    //    px,
-    //    sk32,
-    //    6,
-    //)
-    //.await?;
+    //info!("Finished for now.");
+    info!("Waiting deposit event from Client side...");
+    let _ = wait_for_deposit_and_mint(
+        index_operator,
+        &provider,
+        *index_address,
+        custody_address,
+        poll_ms,
+        custody_id,
+        0,
+        6,
+    )
+    .await?;
 
     Ok(())
 }
@@ -549,15 +547,13 @@ async fn pending_nonce<P: Provider>(p: &P, from: Address) -> eyre::Result<u64> {
 
 /// Wait for the Deposit events and Mint immeidately for capturing on Client.
 async fn wait_for_deposit_and_mint<P: Provider>(
+    index_operator: CustodyAuthority,
     provider: &P,
     index_addr: Address,
     custody_addr: Address,
     poll_ms: u64,
     custody_id: B256,
     custody_state: u8,
-    parity: u8,
-    px: B256,
-    sk32: [u8; 32],
     collateral_decimals: u8,
 ) -> Result<()> {
     let index_price = read_index_price()?;
@@ -607,17 +603,13 @@ async fn wait_for_deposit_and_mint<P: Provider>(
                         &Bytes::default(),
                     );
 
-                    // Sign per your contract’s Schnorr flow (27/28)
-                    let (e, s) = schnorr_sign_per_contract(sk32, parity, px, msg.as_ref())?;
-
-                    let v = VerificationData {
-                        id: custody_id,
-                        state: custody_state,
-                        timestamp: ts,
-                        pubKey: SchnorrCAKey { parity, x: px },
-                        sig: SchnorrSignature { e, s },
-                        merkleProof: vec![], // OK if connector is whitelisted
-                    };
+                    let v = index_operator.get_verification_data(
+                        custody_id,
+                        custody_state,
+                        ts,
+                        &vec![],
+                        &msg,
+                    )?;
 
                     //   Send via custody → connector (use SAME client; set from)
                     let rc = otc
