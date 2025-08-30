@@ -100,7 +100,7 @@ impl IndexInstance {
             .callConnector(
                 String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
-                message,
+                inner_message,
                 tail_call_data,
                 verification_data,
             )
@@ -160,7 +160,7 @@ impl IndexInstance {
             .callConnector(
                 String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
-                message,
+                inner_message,
                 tail_call_data,
                 verification_data,
             )
@@ -212,7 +212,7 @@ impl IndexInstance {
             .callConnector(
                 String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
-                message,
+                inner_message,
                 tail_call_data,
                 verification_data,
             )

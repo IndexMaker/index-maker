@@ -21,7 +21,7 @@ use otc_custody::{
     custody_authority::CustodyAuthority,
     custody_client::CustodyClientMethods,
     custody_helper::{CAHelper, Party},
-    index::{index_deployment::IndexDeployment, index_helper::IndexDeployData},
+    index::{index::IndexInstance, index_deployment::IndexDeployment, index_helper::IndexDeployData},
 };
 use rust_decimal::dec;
 use std::{
@@ -341,7 +341,7 @@ async fn main() -> Result<()> {
 
     info!("✅ deployConnector ok");
 
-    let index_address = index_instance.get_index_address();
+    let index_address = *index_instance.get_index_address();
     let custody_id = index_instance.get_custody_id();
 
     info!(
@@ -352,7 +352,7 @@ async fn main() -> Result<()> {
     {
         // auto-whitelist check
         let otc = OTCCustody::new(custody_address, &provider);
-        let whitelisted = otc.isConnectorWhitelisted(*index_address).call().await?;
+        let whitelisted = otc.isConnectorWhitelisted(index_address).call().await?;
         info!("Index auto-whitelisted: {}", whitelisted);
 
         // ===== custodyToAddress (deposit then withdraw-to-address via Schnorr) =====
@@ -399,52 +399,35 @@ async fn main() -> Result<()> {
             usdc_converter.into_amount(balance_withdraw)?,
             usdc_converter.into_amount(balance_trade)?
         );
-
-        // info!("Trying mint...");
-        // let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
-        // let sequence_number = U256::from(123456);
-        // let mint_amount = u256("1000000000000000000")?;
-        // let res = index_instance
-        //     .mint_index_from(
-        //         &provider,
-        //         custody_owner,
-        //         withdraw_route,
-        //         mint_amount,
-        //         sequence_number,
-        //     )
-        //     .await?;
-
-        // eyre::ensure!(res.status(), "mint reverted: {:?}", res);
-        // info!("✅ mint ok: {:?}", res.transaction_hash);
     }
 
     // // 5) callConnector: curatorUpdate + solverUpdate (empty proof when whitelisted)
-    // let weights1 = Bytes::from(vec![0u8; 32]);
-    // let price1 = u256("120000000000000000000")?;
+    let weights1 = Bytes::from(vec![0u8; 32]);
+    let price1 = u256("120000000000000000000")?;
 
-    // let res = index_instance
-    //     .set_currator_weights_from(&provider, operator, &weights1, price1)
-    //     .await?;
+    let res = index_instance
+        .set_currator_weights_from(&provider, operator, &weights1, price1)
+        .await?;
 
-    // eyre::ensure!(res.status(), "curatorUpdate reverted: {:?}", res);
-    // info!("✅ curatorUpdate ok: {:?}", res.transaction_hash);
+    eyre::ensure!(res.status(), "curatorUpdate reverted: {:?}", res);
+    info!("✅ curatorUpdate ok: {:?}", res.transaction_hash);
 
-    // let weights2 = Bytes::from(vec![1u8; 32]);
-    // let price2 = u256("130000000000000000000")?;
+    let weights2 = Bytes::from(vec![1u8; 32]);
+    let price2 = u256("130000000000000000000")?;
 
-    // let res = index_instance
-    //     .solver_weights_set_from(provider, operator, &weights2, price2)
-    //     .await?;
+    let res = index_instance
+        .solver_weights_set_from(&provider, operator, &weights2, price2)
+        .await?;
 
-    // eyre::ensure!(res.status(), "solverUpdate reverted: {:?}", res);
-    // info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
+    eyre::ensure!(res.status(), "solverUpdate reverted: {:?}", res);
+    info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
 
-    //info!("Finished for now.");
     info!("Waiting deposit event from Client side...");
     let _ = wait_for_deposit_and_mint(
         index_operator,
+        index_instance,
         &provider,
-        *index_address,
+        index_address,
         custody_address,
         poll_ms,
         custody_id,
@@ -548,6 +531,7 @@ async fn pending_nonce<P: Provider>(p: &P, from: Address) -> eyre::Result<u64> {
 /// Wait for the Deposit events and Mint immeidately for capturing on Client.
 async fn wait_for_deposit_and_mint<P: Provider>(
     index_operator: CustodyAuthority,
+    index_instance: IndexInstance,
     provider: &P,
     index_addr: Address,
     custody_addr: Address,
@@ -589,42 +573,17 @@ async fn wait_for_deposit_and_mint<P: Provider>(
 
                     let mint_amount = amount18.saturating_mul(one_e18) / index_price;
 
-                    let mint_call = encode_mint_call(ev.from, mint_amount, ev.seqNumNewOrderSingle);
                     //  get cusody owner for Mint allow
                     let custody_owner: Address = otc.getCustodyOwner(custody_id).call().await?;
-                    let ts: U256 = chain_now_ts(&provider).await?;
-                    let nonce = pending_nonce(&provider, custody_owner).await?;
-                    let msg = call_connector_message(
-                        ts,
-                        custody_id,
-                        "OTCIndexConnector",
-                        index_addr,
-                        &mint_call,
-                        &Bytes::default(),
-                    );
 
-                    let v = index_operator.get_verification_data(
-                        custody_id,
-                        custody_state,
-                        ts,
-                        &vec![],
-                        &msg,
-                    )?;
-
-                    //   Send via custody → connector (use SAME client; set from)
-                    let rc = otc
-                        .callConnector(
-                            "OTCIndexConnector".to_string(),
-                            index_addr,
-                            mint_call,
-                            Bytes::default(),
-                            v,
+                    let rc = index_instance
+                        .mint_index_from(
+                            &provider,
+                            custody_owner,
+                            ev.from,
+                            mint_amount,
+                            ev.seqNumNewOrderSingle,
                         )
-                        .from(custody_owner)
-                        .nonce(nonce)
-                        .send()
-                        .await?
-                        .get_receipt()
                         .await?;
 
                     eyre::ensure!(rc.status(), "mint via callConnector reverted: {:?}", rc);
