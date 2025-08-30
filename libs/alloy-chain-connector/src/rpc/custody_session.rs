@@ -46,7 +46,7 @@ where
 
                 let receipt = custody_client
                     .route_collateral_to_from(
-                        provider,
+                        &provider,
                         &from_address,
                         &destination,
                         &token_address,

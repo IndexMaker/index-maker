@@ -1,6 +1,6 @@
 use alloy::{
     primitives::{address, Address, Bytes, U256},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder},
+    providers::{ext::AnvilApi, DynProvider, Provider, ProviderBuilder},
     rpc::types::{BlockId, BlockNumberOrTag, Filter, FilterBlockOption},
 };
 use alloy_chain_connector::util::amount_converter::AmountConverter;
@@ -141,17 +141,16 @@ async fn main() -> Result<()> {
     let withdraw_route: Address = env_addr("WITHDRAW_ROUTE")?;
 
     let recipients = [
-        withdraw_route,
-        // address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-        // address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-        // address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
-        // address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
-        // address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
-        // address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
-        // address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
-        // address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
-        // address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
-        // address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
+        address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+        address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+        address!("0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+        address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
+        address!("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"),
+        address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"),
+        address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9"),
+        address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"),
+        address!("0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"),
+        address!("0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"),
     ];
 
     for &to in &recipients {
@@ -260,8 +259,10 @@ async fn main() -> Result<()> {
         let balance_withdraw = usdc_bare.balanceOf(withdraw_route).call().await?;
         let balance_trade = usdc_bare.balanceOf(trade_route).call().await?;
         info!(
-            "USDC balance: Wallet: {} ==> Binance: {}",
+            "USDC balance: Wallet {}: {} ==> Trading Account {}: {}",
+            withdraw_route,
             usdc_converter.into_amount(balance_withdraw)?,
+            trade_route,
             usdc_converter.into_amount(balance_trade)?
         );
     }
@@ -288,7 +289,7 @@ async fn main() -> Result<()> {
     info!("✅ solverUpdate ok: {:?}", res.transaction_hash);
 
     info!("Waiting deposit event from Client side...");
-    let _ = wait_for_deposit_and_mint(index_instance, &provider, poll_ms).await?;
+    let _ = wait_for_deposit_and_mint(index_instance, provider, poll_ms).await?;
 
     Ok(())
 }
@@ -346,11 +347,12 @@ fn env_addr(key: &str) -> Result<Address> {
 /// Wait for the Deposit events and Mint immeidately for capturing on Client.
 async fn wait_for_deposit_and_mint(
     index_instance: IndexInstance,
-    provider: &impl Provider,
+    provider: impl Provider + Clone + 'static,
     poll_millis: u64,
 ) -> Result<()> {
+    let index_address = *index_instance.get_index_address();
     let mut last_block_from = provider.get_block_number().await?;
-    let event_filter = Filter::new().address(*index_instance.get_index_address());
+    let event_filter = Filter::new().address(index_address);
     loop {
         let most_recent_block = provider.get_block_number().await?;
         if most_recent_block > last_block_from {
@@ -372,24 +374,48 @@ async fn wait_for_deposit_and_mint(
                         deposit_data.affiliate2
                     );
 
+                    let usdc_address = *index_instance.get_collateral_token_address();
                     let usdc_converter =
                         AmountConverter::new(index_instance.get_collateral_token_precision());
                     let index_converter =
                         AmountConverter::new(index_instance.get_index_token_precision());
+
+                    let trade_route = index_instance.get_trade_route();
+
+                    let provider = DynProvider::new(provider.clone());
+                    let custody_owner = index_instance.get_custody_owner(&provider).await?;
+
+                    let res = index_instance
+                        .route_collateral_to_from(
+                            &provider,
+                            &custody_owner,
+                            trade_route,
+                            &usdc_address,
+                            deposit_data.amount,
+                        )
+                        .await?;
+
+                    eyre::ensure!(res.status(), "Collateral routing for trading: {:?}", res);
+
+                    let usdc_contract = ERC20::new(usdc_address, &provider);
+
+                    let balance_withdraw =
+                        usdc_contract.balanceOf(deposit_data.from).call().await?;
+                    let balance_trade = usdc_contract.balanceOf(*trade_route).call().await?;
+                    info!(
+                        "✅ Collateral routed: USDC balance: Wallet [{}] ${} ==> Trading Account [{}] ${} (tx: {:?})",
+                        deposit_data.from,
+                        usdc_converter.into_amount(balance_withdraw)?,
+                        trade_route,
+                        usdc_converter.into_amount(balance_trade)?,
+                 res.transaction_hash
+                    );
 
                     // Mint after deposit
                     let index_price = index_instance.get_initial_price();
                     let mint_amount = index_converter
                         .rescale_from(deposit_data.amount, &usdc_converter)
                         / index_price;
-
-                    //  get cusody owner for Mint allow
-                    let otc = OTCCustody::new(*index_instance.get_custody_address(), provider);
-
-                    let custody_owner: Address = otc
-                        .getCustodyOwner(index_instance.get_custody_id())
-                        .call()
-                        .await?;
 
                     let rc = index_instance
                         .mint_index_from(

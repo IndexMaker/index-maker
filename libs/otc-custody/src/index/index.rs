@@ -65,6 +65,14 @@ impl IndexInstance {
         self.index_deploy_data.initial_price
     }
 
+    pub fn get_trade_route(&self) -> &Address {
+        &self.trade_route
+    }
+
+    pub fn get_withdraw_route(&self) -> &Address {
+        &self.withdraw_route
+    }
+
     pub async fn set_currator_weights_from(
         &self,
         provider: impl Provider,
@@ -251,6 +259,8 @@ impl IndexInstance {
             .await
             .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
 
+        let nonce: u64 = pending_nonce(&provider, from_address).await?;
+
         let message = custody_to_address_message(
             timestamp,
             self.custody_id,
@@ -271,6 +281,7 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
+            .nonce(nonce)
             .send()
             .await?
             .get_receipt()
@@ -338,9 +349,16 @@ impl CustodyClientMethods for IndexInstance {
         self.index_deploy_data.collateral_token_precision.to::<u8>()
     }
 
+    async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address> {
+        let otc = OTCCustody::new(self.custody_address, provider);
+        let custody_owner: Address = otc.getCustodyOwner(self.custody_id).call().await?;
+
+        Ok(custody_owner)
+    }
+
     async fn route_collateral_to_from(
         &self,
-        provider: DynProvider,
+        provider: &DynProvider,
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,
