@@ -1,5 +1,9 @@
 use alloy::{
-    consensus::BlockHeader, network::BlockResponse, primitives::U256, providers::Provider,
+    consensus::BlockHeader,
+    eips::BlockId,
+    network::BlockResponse,
+    primitives::{Address, U256},
+    providers::Provider,
     rpc::types::BlockNumberOrTag,
 };
 use eyre::OptionExt;
@@ -12,4 +16,12 @@ pub async fn get_last_block_timestamp(provider: &impl Provider) -> eyre::Result<
         .ok_or_eyre("Block not found")?;
 
     Ok(timestamp)
+}
+
+pub async fn pending_nonce<P: Provider>(p: &P, from: Address) -> eyre::Result<u64> {
+    let n: u64 = p
+        .get_transaction_count(from)
+        .block_id(BlockId::Number(BlockNumberOrTag::Pending))
+        .await?;
+    Ok(n)
 }

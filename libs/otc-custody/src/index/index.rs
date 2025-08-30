@@ -12,12 +12,12 @@ use crate::{
     custody_authority::CustodyAuthority,
     custody_client::{CustodyClient, CustodyClientMethods},
     index::index_helper::{
-        encode_mint_call, IndexDeployData, OTC_INDEX_CONNECTOR_TYPE,
+        encode_mint_call, IndexDeployData, OTC_INDEX_CONNECTOR_NAME,
         OTC_INDEX_CURATOR_WEIGHTS_CUSTODY_STATE, OTC_INDEX_MINT_CURATOR_STATE,
         OTC_INDEX_SOLVER_WEIGHTS_SET_STATE, OTC_TRADE_ROUTE_CUSTODY_STATE,
         OTC_WITHDRAW_ROUTE_CUSTODY_STATE,
     },
-    util::get_last_block_timestamp,
+    util::{get_last_block_timestamp, pending_nonce},
 };
 
 pub struct IndexInstance {
@@ -57,6 +57,22 @@ impl IndexInstance {
         &self.index_deploy_data.symbol
     }
 
+    pub fn get_index_token_precision(&self) -> u8 {
+        18
+    }
+
+    pub fn get_initial_price(&self) -> U256 {
+        self.index_deploy_data.initial_price
+    }
+
+    pub fn get_trade_route(&self) -> &Address {
+        &self.trade_route
+    }
+
+    pub fn get_withdraw_route(&self) -> &Address {
+        &self.withdraw_route
+    }
+
     pub async fn set_currator_weights_from(
         &self,
         provider: impl Provider,
@@ -80,7 +96,7 @@ impl IndexInstance {
         let message = call_connector_message(
             timestamp,
             self.custody_id,
-            OTC_INDEX_CONNECTOR_TYPE,
+            OTC_INDEX_CONNECTOR_NAME,
             self.index_address,
             &inner_message,
             &tail_call_data,
@@ -98,9 +114,9 @@ impl IndexInstance {
         let otc = OTCCustody::new(self.custody_address, provider);
         let receipt = otc
             .callConnector(
-                String::from(OTC_INDEX_CONNECTOR_TYPE),
+                String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
-                message,
+                inner_message,
                 tail_call_data,
                 verification_data,
             )
@@ -140,7 +156,7 @@ impl IndexInstance {
         let message = call_connector_message(
             timestamp,
             self.custody_id,
-            OTC_INDEX_CONNECTOR_TYPE,
+            OTC_INDEX_CONNECTOR_NAME,
             self.index_address,
             &inner_message,
             &tail_call_data,
@@ -158,9 +174,9 @@ impl IndexInstance {
         let otc = OTCCustody::new(self.custody_address, provider);
         let receipt = otc
             .callConnector(
-                String::from(OTC_INDEX_CONNECTOR_TYPE),
+                String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
-                message,
+                inner_message,
                 tail_call_data,
                 verification_data,
             )
@@ -191,12 +207,12 @@ impl IndexInstance {
 
         let inner_message = encode_mint_call(mint_to, amount, sequence_number);
         let tail_call_data = Bytes::default();
-        let nonce: u64 = 0;
+        let nonce: u64 = pending_nonce(&provider, from_address).await?;
 
         let message = call_connector_message(
             timestamp,
             self.custody_id,
-            OTC_INDEX_CONNECTOR_TYPE,
+            OTC_INDEX_CONNECTOR_NAME,
             self.index_address,
             &inner_message,
             &tail_call_data,
@@ -210,9 +226,9 @@ impl IndexInstance {
         let otc = OTCCustody::new(self.custody_address, provider);
         let receipt = otc
             .callConnector(
-                String::from(OTC_INDEX_CONNECTOR_TYPE),
+                String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
-                message,
+                inner_message,
                 tail_call_data,
                 verification_data,
             )
@@ -243,6 +259,8 @@ impl IndexInstance {
             .await
             .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
 
+        let nonce: u64 = pending_nonce(&provider, from_address).await?;
+
         let message = custody_to_address_message(
             timestamp,
             self.custody_id,
@@ -263,6 +281,7 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
+            .nonce(nonce)
             .send()
             .await?
             .get_receipt()
@@ -330,9 +349,16 @@ impl CustodyClientMethods for IndexInstance {
         self.index_deploy_data.collateral_token_precision.to::<u8>()
     }
 
+    async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address> {
+        let otc = OTCCustody::new(self.custody_address, provider);
+        let custody_owner: Address = otc.getCustodyOwner(self.custody_id).call().await?;
+
+        Ok(custody_owner)
+    }
+
     async fn route_collateral_to_from(
         &self,
-        provider: DynProvider,
+        provider: &DynProvider,
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,

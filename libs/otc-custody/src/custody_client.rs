@@ -14,9 +14,11 @@ pub trait CustodyClientMethods {
     fn get_collateral_token_address(&self) -> &Address;
     fn get_collateral_token_precision(&self) -> u8;
 
+    async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address>;
+
     async fn route_collateral_to_from(
         &self,
-        provider: DynProvider,
+        provider: &DynProvider,
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,
@@ -39,14 +41,18 @@ impl CustodyClient {
     pub fn get_collateral_token_address(&self) -> &Address {
         self.0.get_collateral_token_address()
     }
-    
+
     pub fn get_collateral_token_precision(&self) -> u8 {
         self.0.get_collateral_token_precision()
     }
 
+    pub async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address> {
+        self.0.get_custody_owner(provider).await
+    }
+
     pub async fn route_collateral_to_from(
         &self,
-        provider: DynProvider,
+        provider: &DynProvider,
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,
