@@ -15,6 +15,7 @@ members = [
     "proc-macros/safe-math",
     "apps/anvil_orchestrator",
     "apps/anvil_provisioner",
+    "apps/index_deployer",
     "apps/tracker",
     "_deprecated/liquidity_tracker",
     "_deprecated/alloy-evm-connector",

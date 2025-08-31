@@ -6,6 +6,7 @@ pub mod custody_helper;
 pub mod index {
     pub mod index;
     pub mod index_deployment;
+    pub mod index_deployment_serde;
     pub mod index_helper;
 }
 pub mod schnorr;

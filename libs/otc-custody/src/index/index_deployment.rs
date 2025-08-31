@@ -13,9 +13,10 @@ use crate::{
     custody_helper::{CAHelper, CAItem, Party},
     index::{
         index::IndexInstance,
+        index_deployment_serde::IndexDeploymentData,
         index_helper::{
             IndexDeployData, OTC_INDEX_CONNECTOR_TYPE, OTC_INDEX_DEPLOY_CUSTODY_STATE,
-            OTC_TRADE_ROUTE_CUSTODY_STATE, OTC_WITHDRAW_ROUTE_CUSTODY_STATE,
+            OTC_TRADE_ROUTE_CUSTODY_STATE,
         },
     },
     util::get_last_block_timestamp,
@@ -76,6 +77,40 @@ impl IndexDeployment {
 
     pub fn get_deploy_data(&self) -> &IndexDeployData {
         &self.index_deploy_data
+    }
+
+    pub fn get_deploy_data_serde(&self) -> IndexDeploymentData {
+        IndexDeploymentData {
+            index_deploy_data: self.index_deploy_data.clone(),
+            index_factory_address: self.index_factory_address,
+            custody_address: self.custody_address,
+            trade_route: self.trade_route,
+            withdraw_route: self.withdraw_route,
+            custody_id: self.custody_id,
+            ca_items: self.ca_items.clone(),
+            index_deploy_proof: self.index_deploy_proof.clone(),
+            trade_route_proof: self.trade_route_proof.clone(),
+            withdraw_route_proof: self.withdraw_route_proof.clone(),
+        }
+    }
+
+    pub fn new_from_deploy_data_serde(
+        index_operator: CustodyAuthority,
+        data: IndexDeploymentData,
+    ) -> Self {
+        Self {
+            index_deploy_data: data.index_deploy_data,
+            index_operator,
+            index_factory_address: data.index_factory_address,
+            custody_address: data.custody_address,
+            trade_route: data.trade_route,
+            withdraw_route: data.withdraw_route,
+            custody_id: data.custody_id,
+            ca_items: data.ca_items,
+            index_deploy_proof: data.index_deploy_proof,
+            trade_route_proof: data.trade_route_proof,
+            withdraw_route_proof: data.withdraw_route_proof,
+        }
     }
 
     /// Obtain existing index instance

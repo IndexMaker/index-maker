@@ -3824,6 +3824,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_deployer"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-chain-connector",
+ "clap",
+ "eyre",
+ "hex",
+ "otc-custody",
+ "reqwest 0.11.27",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "symm-core",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

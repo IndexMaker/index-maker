@@ -24,6 +24,8 @@ fn get_address_from_env(key: &str) -> Result<Address> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_log!();
+    
+    tracing::info!("--==| Anvil Provisioner |==--");
 
     let fork_url =
         env::var("BASE_FORK_URL").unwrap_or_else(|_| String::from("https://mainnet.base.org"));
@@ -129,7 +131,14 @@ async fn main() -> Result<()> {
 
     info!("✅ Anvil ready ok");
     
-    child.wait_with_output();
+    let output = child.wait_with_output()?;
+
+    print!("{}", String::from_utf8(output.stdout).unwrap());
+    eprintln!("Stderr: {}", String::from_utf8(output.stderr).unwrap());
+
+    if !output.status.success() {
+        eprintln!("Command failed with status: {}", output.status);
+    }
 
     Ok(())
 }

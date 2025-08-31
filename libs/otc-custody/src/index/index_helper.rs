@@ -1,8 +1,11 @@
 use alloy::{
-    primitives::{keccak256, Address, Bytes, U256},
+    primitives::{keccak256, Address, Bytes, B256, U256},
     sol_types::SolValue,
 };
+use serde::{Deserialize, Serialize};
 use struple::Struple;
+
+use crate::custody_helper::CAItem;
 
 pub(crate) const OTC_INDEX_CONNECTOR_TYPE: &str = "OTCIndex";
 pub(crate) const OTC_INDEX_CONNECTOR_NAME: &str = "OTCIndexConnector";
@@ -13,7 +16,7 @@ pub(crate) const OTC_INDEX_MINT_CURATOR_STATE: u8 = 0;
 pub(crate) const OTC_TRADE_ROUTE_CUSTODY_STATE: u8 = 0;
 pub(crate) const OTC_WITHDRAW_ROUTE_CUSTODY_STATE: u8 = 0;
 
-#[derive(Struple, Debug, PartialEq, Clone)]
+#[derive(Struple, Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct IndexDeployData {
     pub name: String,
     pub symbol: String,
