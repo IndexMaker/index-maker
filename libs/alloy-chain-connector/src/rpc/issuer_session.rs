@@ -60,6 +60,8 @@ where
                 seq_num_execution_report,
                 observer,
             } => {
+                tracing::info!("Minting {} of Index for {}", amount, receipient);
+
                 let amount = converter.from_amount(amount)?;
 
                 let receipt = index
@@ -73,6 +75,9 @@ where
                     .await?;
 
                 let gas_amount = compute_gas_used(&converter, receipt)?;
+
+                tracing::info!("💳 Minted Index for {} gas used {}", receipient, gas_amount);
+                
                 observer.publish_single(gas_amount);
             }
             IssuerCommand::BurnIndex { .. } => {

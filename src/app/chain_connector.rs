@@ -13,10 +13,16 @@ use alloy_chain_connector::{
     credentials::Credentials,
 };
 use alloy_primitives::Address;
-use eyre::{eyre, OptionExt, Result};
+use binance_order_sending::credentials;
+use eyre::{eyre, Context, OptionExt, Result};
+use otc_custody::{
+    custody_authority::CustodyAuthority,
+    custody_client::{CustodyClient, CustodyClientMethods},
+    index::{index_deployment::IndexDeployment, index_deployment_serde::IndexMakerData},
+};
 use parking_lot::lock_api::RwLock;
 use primitives::address;
-use symm_core::core::bits::Symbol;
+use symm_core::core::{bits::Symbol, json_file_async::read_from_json_file_async};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
@@ -28,7 +34,7 @@ use index_core::{
 
 use crate::app::{collateral_router::CollateralRouterConfig, solver::ChainConnectorConfig};
 
-#[derive(Clone, Builder)]
+#[derive(Builder, Clone)]
 #[builder(
     pattern = "owned",
     build_fn(name = "try_build", error = "ConfigBuildError")
@@ -37,8 +43,14 @@ pub struct RealChainConnectorConfig {
     #[builder(setter(into, strip_option), default)]
     pub with_router: Option<CollateralRouterConfig>,
 
-    #[builder(setter(into, strip_option), default)]
-    pub index_symbols: Vec<Symbol>, // TODO: use Vec<otc_custody::index::IndexInstance> instead
+    #[builder(setter(into))]
+    with_credentials: Option<Credentials>,
+
+    #[builder(setter(into))]
+    with_custody_authority: Option<CustodyAuthority>,
+
+    #[builder(setter(into))]
+    with_config_file: String,
 
     #[builder(setter(skip))]
     chain_connector: Option<Arc<ComponentLock<RealChainConnector>>>,
@@ -66,52 +78,24 @@ impl RealChainConnectorConfig {
     pub async fn start(&self) -> eyre::Result<()> {
         match &self.chain_connector {
             Some(chain_connector) => {
+                let credentials = self
+                    .with_credentials
+                    .clone()
+                    .ok_or_eyre("Credentials missing")?;
+
                 chain_connector
                     .write()
-                    .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
+                    .map_err(|e| eyre!("Failed to access chain connector: {:?}", e))?
                     .start()?;
 
-                // TODO: Configure this
-                // ---
-                // Let's use hard-coded Anvil values for a moment...
-
-                let chain_id = 42161;
-                let anvil_url = String::from("http://127.0.0.1:8545");
-                let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
-
-                // Some custody that will receive deposits and we'll route from
-                // that to some other wallet designation.
-                let anvil_account = Credentials::new(
-                    String::from("AnvilFriend"),
-                    chain_id,
-                    usdc_address,
-                    anvil_url,
-                    Arc::new(|| {
-                        String::from(
-                            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-                        )
-                    }),
-                );
-
-                // We need to logon as the owner of the custody. This will
-                // create RPC session containing private key signer.
                 chain_connector
                     .write()
-                    .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
-                    .logon([anvil_account])?;
-
-                // We need to map chain ID to specific OTCIndex contract, so
-                // that issuer commands will be routed to that contract.
-                // ---
-                // Temporarily put here no-address, as we need to have OTCIndex deployed.
-                chain_connector
-                    .write()
-                    .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
-                    .set_issuer(chain_id, String::from("AnvilFriend"))?;
+                    .map_err(|e| eyre!("Failed to access chain connector: {:?}", e))?
+                    .logon([credentials])?;
 
                 Ok(())
             }
-            None => Err(eyre!("EVM connector not configures")),
+            None => Err(eyre!("Chain connector not configured")),
         }
     }
 
@@ -120,13 +104,13 @@ impl RealChainConnectorConfig {
             Some(evm_connector) => {
                 evm_connector
                     .write()
-                    .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
+                    .map_err(|e| eyre!("Failed to access chain connector: {:?}", e))?
                     .stop()
                     .await?;
 
                 Ok(())
             }
-            None => Err(eyre!("EVM connector not configures")),
+            None => Err(eyre!("Chain connector not configures")),
         }
     }
 }
@@ -147,119 +131,149 @@ impl ChainConnectorConfig for RealChainConnectorConfig {
 }
 
 impl RealChainConnectorConfigBuilder {
-    pub fn build_arc(self) -> Result<Arc<RealChainConnectorConfig>, ConfigBuildError> {
+    pub async fn build_arc(self) -> Result<Arc<RealChainConnectorConfig>, ConfigBuildError> {
+        tracing::info!("Configuring chain connector...");
+
         let mut config = self.try_build()?;
+
+        let credentials = config
+            .with_credentials
+            .as_ref()
+            .ok_or_else(|| ConfigBuildError::UninitializedField("with_credentials"))?;
+
+        let index_operator = config
+            .with_custody_authority
+            .take()
+            .ok_or_else(|| ConfigBuildError::UninitializedField("with_custody_authority"))?;
 
         let chain_connector = Arc::new(ComponentLock::new(RealChainConnector::new()));
         config.chain_connector.replace(chain_connector.clone());
 
+        // Configure mapping { chain_id => Credentials }
+        // This will set default RPC session for each chain.
+        for credentials in config.with_credentials.iter() {
+            let chain_id = credentials.get_chain_id();
+            let account_name = credentials.get_account_name();
+            chain_connector
+                .write()
+                .map_err(|e| eyre!("Failed to access chain connector: {:?}", e))?
+                .set_issuer(chain_id, account_name.clone())?;
+        }
+
+        tracing::info!("✅ Operator credentials loaded successfully");
+
         if let Some(ref router_config) = config.with_router {
             let router = router_config.try_get_collateral_router_cloned()?;
 
-            // TODO: Perhaps use JSON config with routes defined in it
-            // ---
-            // Let's use hard-coded Anvil values for a moment...
+            let index_maker_data =
+                read_from_json_file_async::<IndexMakerData>(&config.with_config_file).await?;
 
-            let chain_id = 42161;
+            tracing::info!("✅ Index Deployment configuration successfully loaded");
+
+            let chain_id = index_maker_data.deployment_builder_data.chain_id;
+            let custody_address = index_maker_data.deployment_builder_data.custody_address;
+            let trade_route = index_maker_data.deployment_builder_data.trade_route;
             let usdc_symbol = Symbol::from("USDC");
-            let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
+            let usdc_address = credentials.get_usdc_address();
+            let account_name = credentials.get_account_name();
 
-            // Add deserialized Arc<IndexInstance> into RealChainConnector
-            // 1. First we deserialize data for IndexDeploymentBuilder and index_address
-            // 2. Then we call build()
-            // 3. Then we call into_index_at(index_address) and we get index
-            //for index in indexes {
-            //    chain_connector
-            //        .write()
-            //        .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
-            //        .add_custody_client(index);
-
-            //    chain_connector
-            //        .write()
-            //        .map_err(|e| eyre!("Failed to access EVM connector: {:?}", e))?
-            //        .add_index(index);
-
-            //    let index_custody = Arc::new(RwLock::new(OTCCustodyCollateralDesignation::new(
-            //        designation_type,
-            //        name,
-            //        collateral_symbol,
-            //        chain_connector,
-            //        account_name,
-            //        chain_id,
-            //        contract_address,
-            //        token_address,
-            //        custody_id,
-            //    )));
-
-            //    let bridge_to_binance = Arc::new(std::sync::RwLock::new(
-            //        OTCCustodyToWalletCollateralBridge::new(index_custody, binance_wallet),
-            //    ));
-
-            //    router_write.add_bridge(bridge_to_binance)?;
-            //    router_write.add_route(&[index_custody_name.clone(), binance_wallet_name.clone()])?;
-
-            //    // Small issue: currently we've got single source per chain, and we
-            //    // need to make separate source for each index (TODO)
-            //    //--> router_write.add_index_source(chain_id, index.get_symbol(), index_custody_name)?;
-            //}
-
-            let src_custody = Arc::new(std::sync::RwLock::new(
-                SignerWalletCollateralDesignation::new(
-                    Symbol::from("Anvil"),
-                    Symbol::from("Source"),
-                    Arc::downgrade(&chain_connector),
-                    String::from("AnvilFriend"),
-                    usdc_symbol.clone(),
-                    chain_id,
-                    address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-                    usdc_address,
-                ),
-            ));
-
-            let dst_custody = Arc::new(ComponentLock::new(WalletCollateralDesignation::new(
-                Symbol::from("Anvil"),
-                Symbol::from("Destination"),
-                usdc_symbol,
+            let trading_custody = Arc::new(ComponentLock::new(WalletCollateralDesignation::new(
+                Symbol::from("TradeRoute"),
+                Symbol::from(trade_route.to_string()),
+                usdc_symbol.clone(),
                 chain_id,
-                address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+                trade_route,
                 usdc_address,
             )));
 
-            let src_custody_name = src_custody
-                .read()
-                .map_err(|e| eyre!("Failed to access designation: {:?}", e))?
-                .get_full_name();
+            let trading_custody_name = trading_custody.read().unwrap().get_full_name();
 
-            let dst_custody_name = dst_custody
-                .read()
-                .map_err(|e| eyre!("Failed to access designation: {:?}", e))?
-                .get_full_name();
-
-            let bridge = Arc::new(ComponentLock::new(
-                SignerWalletToWalletCollateralBridge::new(src_custody, dst_custody),
-            ));
-
-            let mut router_write = router
+            router
                 .write()
-                .map_err(|e| eyre!("Failed to access router: {:?}", e))?;
+                .unwrap()
+                .set_default_destination(trading_custody_name.clone())?;
 
-            // Add bridges
-            router_write.add_bridge(bridge)?;
+            tracing::info!("✅ Set default trading custody");
 
-            // Configure possible routes
-            router_write.add_route(&[src_custody_name.clone(), dst_custody_name.clone()])?;
+            for data in index_maker_data.indexes {
+                let index_deployment = IndexDeployment::new_from_deploy_data_serde(
+                    index_operator.clone(),
+                    data.deployment_data,
+                );
 
-            for symbol in &config.index_symbols {
-                // Map incoming chain to source custody
+                let index = index_deployment.into_index_at(data.index_address);
+
+                let index_symbol = Symbol::from(index.get_symbol());
+                let index_address = *index.get_index_address();
+                let custody_id = index.get_custody_id();
+
+                tracing::info!(
+                    "✅ Index deployment configuration loaded ok: {} deployed at {} for custody {} at {}",
+                    index_symbol,
+                    index_address,
+                    custody_id,
+                    custody_address
+                );
+
+                if index.get_collateral_token_address().ne(&usdc_address) {
+                    Err(eyre!("Collateral token address mismatch"))?;
+                }
+
+                if index.get_custody_address().ne(&custody_address) {
+                    Err(eyre!("Custody address mismatch"))?;
+                }
+
+                let index = Arc::new(index);
+                let custody_client = CustodyClient::new(index.clone());
+
+                chain_connector
+                    .write()
+                    .unwrap()
+                    .add_custody_client(custody_client)
+                    .context("Failed to add custody client")?;
+
+                chain_connector.write().unwrap().add_index(index)?;
+
+                tracing::info!("✅ Added Index to RPC handlers");
+
+                let index_custody =
+                    Arc::new(ComponentLock::new(OTCCustodyCollateralDesignation::new(
+                        Symbol::from("OTCCustody"),
+                        Symbol::from(index_address.to_string()),
+                        usdc_symbol.clone(),
+                        chain_connector.clone(),
+                        account_name.clone(),
+                        chain_id,
+                        custody_address,
+                        usdc_address,
+                        custody_id,
+                    )));
+
+                let bridge_to_trading =
+                    Arc::new(ComponentLock::new(OTCCustodyToWalletCollateralBridge::new(
+                        index_custody.clone(),
+                        trading_custody.clone(),
+                    )));
+
+                let mut router_write = router.write().unwrap();
+
+                let index_custody_name = index_custody.read().unwrap().get_full_name();
+
+                router_write.add_bridge(bridge_to_trading)?;
+
+                router_write
+                    .add_route(&[index_custody_name.clone(), trading_custody_name.clone()])?;
+
                 router_write.add_chain_source(
                     chain_id,
-                    symbol.clone(),
-                    src_custody_name.clone(),
+                    Symbol::from(index_symbol),
+                    index_custody_name,
                 )?;
-            }
 
-            // Tell final destination custody
-            router_write.set_default_destination(dst_custody_name)?;
+                tracing::info!("✅ Added collateral route from Index custody to trading custody");
+            }
+        } else {
+            tracing::warn!("❗️ No router configuration")
         }
 
         Ok(Arc::new(config))

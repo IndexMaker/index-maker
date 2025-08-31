@@ -41,6 +41,8 @@ where
                 amount,
                 observer,
             } => {
+                tracing::info!("Routing {} collateral from custody to {}", amount, destination);
+
                 let amount = converter.from_amount(amount)?;
                 let provider = DynProvider::new(provider.clone());
 
@@ -55,6 +57,9 @@ where
                     .await?;
 
                 let gas_amount = compute_gas_used(&converter, receipt)?;
+                
+                tracing::info!("🏦 Collateral routed to {} gas used {}", destination, gas_amount);
+
                 observer.publish_single(gas_amount);
             }
             CustodyCommand::AddressToCustody { amount, observer } => {

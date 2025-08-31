@@ -1,5 +1,6 @@
 use alloy::primitives::address;
-use binance_order_sending::credentials::Credentials;
+use alloy_chain_connector::credentials::Credentials as AlloyCredentials;
+use binance_order_sending::credentials::Credentials as BinanceCredentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
 use index_core::blockchain::chain_connector::ChainNotification;
@@ -28,6 +29,7 @@ use index_maker::{
     server::server::ServerEvent,
 };
 use itertools::Itertools;
+use otc_custody::custody_authority::CustodyAuthority;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use std::{env, sync::Arc};
@@ -55,6 +57,9 @@ struct Cli {
     #[arg(long, short)]
     main_quote_currency: Option<Symbol>,
 
+    #[arg(long)]
+    dry_run: bool,
+
     #[arg(long, short)]
     simulate_sender: bool,
 
@@ -63,6 +68,9 @@ struct Cli {
 
     #[arg(long, short)]
     bind_address: Option<String>,
+
+    #[arg(long)]
+    rpc_url: Option<String>,
 
     #[arg(long, short)]
     log_path: Option<String>,
@@ -223,10 +231,12 @@ enum ChainMode {
 }
 
 impl ChainMode {
-    fn new_with_router(
+    async fn new_with_router(
         simulate_chain: bool,
+        rpc_url: Option<String>,
         main_quote_currency: Symbol,
         index_symbols: Vec<Symbol>,
+        config_file: String,
         router_config: &CollateralRouterConfig,
     ) -> Self {
         if simulate_chain {
@@ -247,10 +257,33 @@ impl ChainMode {
                 chain_config: simple_chain_connector_config,
             }
         } else {
+            let chain_id = 8453;
+            let usdc_address = address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
+            let rpc_url = rpc_url.unwrap_or_else(|| String::from("http://127.0.0.1:8545"));
+
+            let index_operator_credentials = AlloyCredentials::new(
+                String::from("Chain-1"),
+                chain_id,
+                usdc_address,
+                rpc_url,
+                Arc::new(|| {
+                    env::var("INDEX_MAKER_PRIVATE_KEY")
+                        .expect("INDEX_MAKER_PRIVATE_KEY environment variable must be defined")
+                }),
+            );
+
+            let index_operator_custody_auth = CustodyAuthority::new(|| {
+                env::var("CUSTODY_AUTHORITY_PRIVATE_KEY")
+                    .expect("CUSTODY_AUTHORITY_PRIVATE_KEY environment variable must be defined")
+            });
+
             let evm_connector_config = RealChainConnectorConfig::builder()
                 .with_router(router_config.clone())
-                .index_symbols(index_symbols)
+                .with_credentials(index_operator_credentials)
+                .with_custody_authority(index_operator_custody_auth)
+                .with_config_file(config_file)
                 .build_arc()
+                .await
                 .expect("Failed to build evm chain connector");
 
             Self::Real {
@@ -385,7 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             "Using Binance order sender. Please, set BINANCE_TRADING_ENABLED=1 to enable trading"
         );
-        OrderSenderCredentials::Binance(vec![Credentials::new(
+        OrderSenderCredentials::Binance(vec![BinanceCredentials::new(
             String::from("BinanceAccount-1"),
             trading_enabled,
             move || env::var("BINANCE_API_KEY").ok(),
@@ -404,10 +437,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let timestamp_order_ids = order_id_config.expect_timestamp_order_ids_cloned();
 
-    let router_config = CollateralRouterConfig::builder()
-        .build()
-        .expect("Failed to build collateral router");
-
     // TODO: Please, unhardcode me!
     let index_symbols = vec![
         Symbol::from("SO2"),
@@ -415,17 +444,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Symbol::from("SY100"),
     ];
 
-    let chain_mode = ChainMode::new_with_router(
-        cli.simulate_chain,
-        main_quote_currency,
-        index_symbols,
-        &router_config,
-    );
-
     // ==== Real stuff
     // ----
 
-    tracing::info!("Configuring solver...");
+    tracing::info!("Loding configuration...");
+
+    let router_config = CollateralRouterConfig::builder()
+        .build()
+        .expect("Failed to build collateral router");
+
+    let chain_mode = ChainMode::new_with_router(
+        cli.simulate_chain,
+        cli.rpc_url,
+        main_quote_currency,
+        index_symbols,
+        format!("{}/index_maker.json", config_path),
+        &router_config,
+    )
+    .await;
+
     let basket_manager_config = BasketManagerConfig::builder()
         .with_config_file(format!("{}/BasketManagerConfig.json", config_path))
         .build()
@@ -515,6 +552,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .expect("Failed to build solver");
 
+    if cli.dry_run {
+        tracing::info!("✅ Dry run complete");
+        return Ok(());
+    }
+
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {
             solver_config
@@ -566,9 +608,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             simple_server,
             ..
         } => {
-            tracing::info!("Sending deposit...");
-
             if let ChainMode::Simulated { chain_config } = &chain_mode {
+                tracing::info!("Sending deposit...");
+
                 let simple_chain = chain_config.expect_chain_connector_cloned();
 
                 simple_chain
@@ -603,9 +645,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fix_server_config,
             ..
         } => {
-            tracing::info!("Sending deposit...");
-
             if let ChainMode::Simulated { chain_config } = &chain_mode {
+                tracing::info!("Sending deposit...");
+
                 let simple_chain = chain_config.expect_chain_connector_cloned();
 
                 for (chain_id, address) in chain_addresses_to_fund {

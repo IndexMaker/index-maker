@@ -30,6 +30,10 @@ pub trait CustodyClientMethods {
 pub struct CustodyClient(Arc<dyn CustodyClientMethods + Send + Sync + 'static>);
 
 impl CustodyClient {
+    pub fn new(inner: Arc<dyn CustodyClientMethods + Send + Sync + 'static>) -> Self {
+        Self(inner)
+    }
+
     pub fn get_custody_id(&self) -> B256 {
         self.0.get_custody_id()
     }
