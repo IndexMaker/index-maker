@@ -1417,7 +1417,7 @@ dependencies = [
  "serde_json",
  "symm-core",
  "test-case",
- "thiserror 2.0.12",
+ "thiserror 2.0.16",
  "tokio",
  "tokio-util",
  "tracing",
