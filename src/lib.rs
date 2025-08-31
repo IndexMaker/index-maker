@@ -1,14 +1,18 @@
 pub mod app {
+    pub mod application;
     pub mod basket_manager;
     pub mod batch_manager;
+    pub mod chain_connector;
     pub mod collateral_manager;
     pub mod collateral_router;
     pub mod config;
-    pub mod chain_connector;
+    pub mod config_loader;
     pub mod fix_server;
     pub mod index_order_manager;
     pub mod market_data;
+    pub mod secret_provider;
     pub mod order_sender;
+
     pub mod quote_request_manager;
     pub mod simple_chain;
     pub mod simple_router;
@@ -28,11 +32,11 @@ pub mod server {
     pub mod server;
     pub mod fix {
         pub mod messages;
+        pub mod rate_limit_config;
         pub mod requests;
         pub mod responses;
         pub mod server;
         pub mod server_plugin;
-        pub mod rate_limit_config;
     }
 }
 
@@ -50,3 +54,5 @@ pub mod solver {
         pub mod simple_solver;
     }
 }
+
+pub mod cli;

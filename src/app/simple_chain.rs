@@ -72,7 +72,19 @@ impl ChainConnector for SimpleChainConnector {
         quantity: Amount,
         receipient: symm_core::core::bits::Address,
     ) {
-        todo!()
+        tracing::info!(
+            chain_id = chain_id,
+            symbol = %symbol,
+            quantity = %quantity,
+            receipient = %receipient,
+            "BurnIndex: simulated burn operation"
+        );
+
+        // Emit chain connected notification for burn simulation
+        self.publish_event(ChainNotification::ChainConnected {
+            chain_id,
+            timestamp: Utc::now(),
+        });
     }
 
     fn withdraw(
@@ -83,7 +95,22 @@ impl ChainConnector for SimpleChainConnector {
         execution_price: Amount,
         execution_time: chrono::DateTime<chrono::Utc>,
     ) {
-        todo!()
+        tracing::info!(
+            chain_id = chain_id,
+            receipient = %receipient,
+            amount = %amount,
+            execution_price = %execution_price,
+            execution_time = %execution_time,
+            "Withdraw: simulated withdrawal operation"
+        );
+
+        // Emit withdrawal request notification for withdrawal simulation
+        self.publish_event(ChainNotification::WithdrawalRequest {
+            chain_id,
+            address: receipient,
+            amount,
+            timestamp: execution_time,
+        });
     }
 }
 
@@ -95,6 +122,14 @@ impl ChainConnector for SimpleChainConnector {
 pub struct SimpleChainConnectorConfig {
     #[builder(setter(skip))]
     simple_chain_connector: Option<Arc<ComponentLock<SimpleChainConnector>>>,
+}
+
+impl Default for SimpleChainConnectorConfig {
+    fn default() -> Self {
+        Self {
+            simple_chain_connector: None,
+        }
+    }
 }
 
 impl SimpleChainConnectorConfig {

@@ -16,7 +16,7 @@ impl Credentials {
     pub fn new(
         account_name: String,
         chain_id: u32,
-    usdc_address: Address,
+        usdc_address: Address,
         rpc_url: String,
         get_private_key_fn: std::sync::Arc<dyn Fn() -> String + Send + Sync>,
     ) -> Self {

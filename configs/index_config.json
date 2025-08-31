@@ -1,0 +1,16 @@
+{
+  "indexes": [
+    {
+      "symbol": "SO2",
+      "file_path": "./indexes/SO2_Latest_rebalance.json"
+    },
+    {
+      "symbol": "SO3",
+      "file_path": "./indexes/SO3_Latest_rebalance.json"
+    },
+    {
+      "symbol": "SY100",
+      "file_path": "./indexes/SY100_edited.json"
+    }
+  ]
+}
