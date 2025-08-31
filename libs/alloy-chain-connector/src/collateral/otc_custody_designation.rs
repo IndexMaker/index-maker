@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, Weak};
 
-use alloy_primitives::U256;
+use alloy_primitives::B256;
 use crossbeam::channel::bounded;
 use eyre::{eyre, OptionExt};
 use index_core::collateral::collateral_router::CollateralDesignation;
@@ -24,7 +24,7 @@ pub struct OTCCustodyCollateralDesignation {
     chain_id: u32,
     contract_address: Address,
     token_address: Address,
-    custody_id: U256,
+    custody_id: B256,
 }
 
 impl OTCCustodyCollateralDesignation {
@@ -37,7 +37,7 @@ impl OTCCustodyCollateralDesignation {
         chain_id: u32,
         contract_address: Address,
         token_address: Address,
-        custody_id: U256,
+        custody_id: B256,
     ) -> Self {
         let full_name = Symbol::from(format!(
             "{}:{}:{}",
@@ -86,13 +86,15 @@ impl OTCCustodyCollateralDesignation {
             .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
         let command = Command {
-            contract_address: self.contract_address,
-            command: CommandVariant::Custody(CustodyCommand::CustodyToAddress {
+            command: CommandVariant::Custody {
+                custody_id: self.custody_id,
                 token: self.token_address,
-                destination,
-                amount,
-                observer,
-            }),
+                command: CustodyCommand::CustodyToAddress {
+                    destination,
+                    amount,
+                    observer,
+                },
+            },
             error_observer,
         };
 
@@ -120,13 +122,11 @@ impl OTCCustodyCollateralDesignation {
             .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
         let command = Command {
-            contract_address: self.contract_address,
-            command: CommandVariant::Custody(CustodyCommand::AddressToCustody {
+            command: CommandVariant::Custody {
                 custody_id: self.custody_id,
                 token: self.token_address,
-                amount,
-                observer,
-            }),
+                command: CustodyCommand::AddressToCustody { amount, observer },
+            },
             error_observer,
         };
 
@@ -176,12 +176,13 @@ impl CollateralDesignation for OTCCustodyCollateralDesignation {
         let (err_tx, err_rx) = bounded(1);
 
         let command = Command {
-            contract_address: self.contract_address,
-            command: CommandVariant::Custody(CustodyCommand::GetCustodyBalances {
-                custody_id: U256::ZERO,
+            command: CommandVariant::Custody {
+                custody_id: self.custody_id,
                 token: self.token_address,
-                observer: SingleObserver::new_from(balance_tx),
-            }),
+                command: CustodyCommand::GetCustodyBalances {
+                    observer: SingleObserver::new_from(balance_tx),
+                },
+            },
             error_observer: SingleObserver::new_from(err_tx),
         };
 

@@ -1,12 +1,15 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
+use alloy_primitives::B256;
 use chrono::Utc;
 use eyre::{eyre, Report, Result};
 use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Either;
+use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
+    bits::Symbol,
     functional::{PublishSingle, SingleObserver},
 };
 use tokio::task::JoinError;
@@ -52,6 +55,8 @@ impl Session {
         mut command_rx: UnboundedReceiver<Command>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
         credentials: Credentials,
+        custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
+        indexes: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id();
         let usdc_address = credentials.get_usdc_address();
@@ -116,17 +121,25 @@ impl Session {
                     },
                     Some(command) = command_rx.recv() => {
                         if let Err(err) = match command.command {
-                            CommandVariant::Basic(basic_command) => {
-                                rpc_basic_session.send_basic_command(
-                                    command.contract_address, basic_command).await
+                            CommandVariant::Basic{ contract_address, command }=> {
+                                rpc_basic_session.send_basic_command(contract_address, command).await
                             }
-                            CommandVariant::Issuer(issuer_command) => {
-                                rpc_issuer_session.send_issuer_command(
-                                    command.contract_address, issuer_command, usdc_address).await
+                            CommandVariant::Issuer{symbol, command} => {
+                                let maybe_index = indexes.read().get(&symbol).cloned();
+                                if let Some(index) = maybe_index {
+                                    rpc_issuer_session.send_issuer_command(index, command).await
+                                } else {
+                                    Err(eyre!("Index not found: {}", symbol))
+                                }
                             }
-                            CommandVariant::Custody(custody_command) => {
-                                rpc_custody_session.send_custody_command(
-                                    command.contract_address, custody_command, usdc_address).await
+                            CommandVariant::Custody{custody_id, token, command} => {
+                                let maybe_custody_client = custody_clients.read().get(&custody_id).cloned();
+                                if let Some(custody_client) = maybe_custody_client {
+                                    rpc_custody_session.send_custody_command(
+                                        custody_client, token, command).await
+                                } else {
+                                    Err(eyre!("Custody not found: {}", custody_id))
+                                }
                             }
                         } {
                             tracing::warn!("Command failed: {:?}", err);

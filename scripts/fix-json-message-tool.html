@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>FIX Client + Signature Generator</title>
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: sans-serif;
+      font-size: small;
+      background-color: #f4f4f4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      box-sizing: border-box;
+      padding: 0.5rem;
+    }
+
+    h1 {
+      font-size: medium;
+      padding: 0;
+      margin: 0;
+    }
+
+    .title {
+      width: 100%;
+      max-width: 80rem;
+      background-color: #22272e;
+      color: white;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      margin: 0.25rem;
+    }
+
+    .input-container {
+      width: 100%;
+      max-width: 80rem;
+      background-color: #c2cbd7;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      margin: 0.25rem;
+    }
+
+    .textSpace {
+      width: 100%;
+      max-width: 80rem;
+      background-color: #c2cbd7;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: row;
+      gap: 0.75rem;
+      flex-grow: 1;
+      min-height: 0;
+      margin: 0.25rem;
+    }
+
+    .textBody {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    label {
+      display: block;
+      color: #1e2527;
+      font-size: 0.875rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .input-textarea {
+      width: 39.5rem;
+      padding: 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      background-color: #ffffff;
+      color: black;
+      resize: none;
+      min-height: 150px;
+      font-family: monospace;
+      font-size: small;
+      transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+      box-sizing: border-box;
+      flex-grow: 1;
+    }
+
+    .orders-container {
+      width: 39.5rem;
+      padding: 1.0rem;
+      margin-bottom: 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      background-color: #ffffff;
+      color: black;
+      min-height: 150px;
+      font-family: sans-serif;
+      font-size: small;
+      box-sizing: border-box;
+      flex-grow: 0.8;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .log-container {
+      width: 39.5rem;
+      padding: 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      background-color: #ffffff;
+      color: black;
+      min-height: 150px;
+      font-family: monospace;
+      font-size: small;
+      box-sizing: border-box;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #log {
+      height: 100%;
+      overflow-y: auto;
+      word-wrap: break-word;
+      border: none;
+      padding: 0;
+      background-color: transparent;
+      flex-grow: 1;
+    }
+
+    #log div {
+      font-size: smaller;
+      padding: 5px 10px;
+      border-bottom: 1px dashed #ddd;
+      white-space: pre-wrap;
+    }
+
+    #log div:last-child {
+      border-bottom: none;
+    }
+
+    #log div[style*="color: red"] {
+      font-weight: bold;
+    }
+
+    #orders-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .header-row th {
+      font-weight: 600;
+      color: #1f2937;
+      padding: 0.25rem;
+      border-bottom: 1px solid #d1d5db;
+      text-align: center;
+    }
+
+    .order-row td {
+      font-size: smaller;
+      padding: 0.25rem;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: middle;
+    }
+
+    .order-row:last-child td {
+      border-bottom: none;
+    }
+
+    .clickable-id {
+      color: #3b82f6;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .clickable-id:hover {
+      text-decoration: none;
+      opacity: 0.8;
+      /* Slightly dims the color for a hover effect */
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      background-color: #e5e7eb;
+      border-radius: 9999px;
+      height: 0.5rem;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background-color: #34d399;
+      transition: width 0.3s ease-in-out;
+    }
+
+    button {
+      margin-top: 0.25em;
+      padding: 0.5em;
+      background-color: #46566a;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.2s ease;
+    }
+
+    button:hover {
+      background-color: #88d4ff;
+    }
+
+    input,
+    select {
+      margin: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="title">
+    <h1>Index Maker: FIX Test Client</h1>
+  </div>
+
+  <div class="input-container">
+    <label for"mode">Mode:</label>
+    <select id="mode">
+      <option value="empty">(Select one...)</option>
+      <option value="quote">Quote Request (no signature)</option>
+      <option value="index">Index Order (requires signature)</option>
+    </select>
+  </div>
+
+  <div id="privateKeySection" class="input-container">
+    <label for"privateKey">Private Key:</label>
+    <input type="text" id="privateKey" value="" size="80" />
+    <br />
+  </div>
+
+  <div class="input-container">
+    <label for="wsUrl">WebSocket URL:</label>
+    <input type="text" id="wsUrl" value="ws://127.0.0.1:3000/ws" size="50" />
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+  </div>
+
+  <div class="textSpace">
+    <div class="textBody">
+      <label for="fixMessageJson">FIX Message JSON (Signature or non-signature)</label>
+      <textarea id="fixMessageJson" class="input-textarea">
+      </textarea>
+      <br />
+      <button id="signBtn">Send Message</button>
+    </div>
+
+    <div class="textBody">
+      <label for="orders">Orders</label>
+      <div class="orders-container">
+        <table id="orders-table">
+          <thead>
+            <tr class="header-row">
+              <th style="width: 30%; text-align: left;">Order ID</th>
+              <th style="width: 20%">Amount</th>
+              <th style="width: 25%">Progress</th>
+              <th style="width: 5%; text-align: right;">%</th>
+              <th style="width: 30%; text-align: right;">Created At</th>
+            </tr>
+          </thead>
+          <tbody id="orders">
+          </tbody>
+        </table>
+      </div>
+      <label for="log">Log</label>
+      <div class="log-container">
+        <div id="log">
+          <div>Not connected</div>
+          <div>Please connect first</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { toUtf8Bytes } from "https://esm.sh/ethers@6.13.0";
+    import * as secp from "https://esm.sh/@noble/secp256k1@1.7.1";
+    import { sha256 } from "https://esm.sh/@noble/hashes@1.3.3/sha256";
+    import { hmac } from "https://esm.sh/@noble/hashes@1.3.3/hmac";
+
+    // Polyfill for secp to ensure compatibility
+    secp.utils.hmacSha256Sync = (key, msg) => hmac(sha256, key, msg);
+
+    // ---
+    // ## Constants
+    // ---
+
+    const MSG_TYPES = {
+      NEW_INDEX_ORDER: "NewIndexOrder",
+      CANCEL_INDEX_ORDER: "CancelIndexOrder",
+      INDEX_ORDER_FILL: "IndexOrderFill",
+      MINT_INVOICE: "MintInvoice",
+      NEW_QUOTE_REQUEST: "NewQuoteRequest",
+      CANCEL_QUOTE_REQUEST: "CancelQuoteRequest",
+      ACK: "ACK",
+      NAK: "NAK",
+    };
+    const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    // ---
+    // ## DOM Helpers and Logging
+    // ---
+
+    let ws = null;
+    const $ = (id) => document.getElementById(id);
+
+    const log = (msg, err = false) => {
+      const div = document.createElement("div");
+      // Check if the message is the MintInvoice special case
+      if (typeof msg === 'object' && msg.msgType === 'MintInvoice') {
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = msg.text;
+        link.onclick = (event) => {
+          event.preventDefault();
+          createInvoicePage(msg.data);
+        };
+        div.appendChild(document.createTextNode(`[${new Date().toISOString()}] `));
+        div.appendChild(link);
+      } else {
+        div.textContent = `[${new Date().toISOString()}] ${msg}`;
+        if (err) div.style.color = "red";
+      }
+      $("log").appendChild(div);
+      $("log").scrollTop = $("log").scrollHeight;
+    };
+
+    // ---
+    // ## New Function to Create Invoice Page
+    // ---
+
+
+    // Custom alert function to replace window.alert
+    const customAlert = (message) => {
+      const modal = document.getElementById('custom-alert-modal');
+      const msgElement = document.getElementById('custom-alert-message');
+      const closeBtn = document.getElementById('custom-alert-close');
+
+      if (msgElement && modal && closeBtn) {
+        msgElement.textContent = message;
+        modal.style.display = 'flex';
+        closeBtn.onclick = () => {
+          modal.style.display = 'none';
+        };
+      } else {
+        console.error("Alert modal elements not found.");
+      }
+    };
+
+    // Function to format a date string into YYYY-mm-dd HH:MM:ss.fff format (local time)
+    const formatDateTime = (isoString) => {
+      const date = new Date(isoString);
+      const pad = (num) => String(num).padStart(2, '0');
+      const padMs = (num) => String(num).padStart(3, '0');
+
+      const year = date.getFullYear();
+      const month = pad(date.getMonth() + 1);
+      const day = pad(date.getDate());
+      const hours = pad(date.getHours());
+      const minutes = pad(date.getMinutes());
+      const seconds = pad(date.getSeconds());
+      const milliseconds = padMs(date.getMilliseconds());
+
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds}`;
+    };
+
+
+    const createInvoicePage = (invoiceData) => {
+      const newWindow = window.open('about:blank', '_blank');
+      if (!newWindow) {
+        customAlert("Please allow popups to view the invoice.");
+        return;
+      }
+
+      // Calculate the summary for each asset symbol
+      const assetSummary = invoiceData.lots.reduce((acc, lot) => {
+        const { symbol, price, assigned_quantity, assigned_fee } = lot;
+        if (!acc[symbol]) {
+          acc[symbol] = {
+            totalAssignedQty: 0,
+            totalAssignedFee: 0,
+            totalPriceQty: 0,
+            averagePrice: 0,
+          };
+        }
+        // Convert string values to numbers for correct calculations
+        const numericPrice = parseFloat(price);
+        const numericAssignedQty = parseFloat(assigned_quantity);
+        const numericAssignedFee = parseFloat(assigned_fee);
+
+        acc[symbol].totalAssignedQty += numericAssignedQty;
+        acc[symbol].totalAssignedFee += numericAssignedFee;
+        acc[symbol].totalPriceQty += numericPrice * numericAssignedQty;
+        return acc;
+      }, {});
+
+      // Finalize calculations for average price
+      Object.keys(assetSummary).forEach((symbol) => {
+        const summary = assetSummary[symbol];
+        summary.averagePrice =
+          summary.totalAssignedQty > 0
+            ? summary.totalPriceQty / summary.totalAssignedQty
+            : 0;
+      });
+
+      // Sort the lots array by symbol and then by created_timestamp for the detailed table
+      const sortedLots = [...invoiceData.lots].sort((a, b) => {
+        if (a.symbol < b.symbol) return -1;
+        if (a.symbol > b.symbol) return 1;
+        // If symbols are the same, sort by timestamp
+        return new Date(a.created_timestamp) - new Date(b.created_timestamp);
+      });
+
+      let lotsTableContent = '';
+      const uniqueSymbols = [...new Set(sortedLots.map(lot => lot.symbol))];
+
+      uniqueSymbols.forEach(symbol => {
+        const summary = assetSummary[symbol];
+        const lotsForSymbol = sortedLots.filter(lot => lot.symbol === symbol);
+
+        // Build the summary row
+        lotsTableContent += `
+      <tr class="summary-row" data-symbol="${symbol}">
+        <td class="table-cell icon-cell"><span id="toggle-icon-${symbol}">+</span></td>
+        <td class="table-cell">${symbol}</td>
+        <td class="table-cell right">~${summary.averagePrice.toFixed(7)}</td>
+        <td class="table-cell right">${summary.totalAssignedQty.toFixed(7)}</td>
+        <td class="table-cell right">${summary.totalAssignedFee.toFixed(7)}</td>
+        <td class="table-cell" colspan="5"></td>
+      </tr>
+    `;
+
+        // Build the detailed rows, hidden by default
+        lotsForSymbol.forEach(lot => {
+          lotsTableContent += `
+        <tr class="table-row detailed-row-${symbol}" style="display: none;">
+          <td class="table-cell"></td>
+          <td class="table-cell">${lot.symbol}</td>
+          <td class="table-cell right">${parseFloat(lot.price).toFixed(7)}</td>
+          <td class="table-cell right">${parseFloat(lot.assigned_quantity).toFixed(7)}</td>
+          <td class="table-cell right">${parseFloat(lot.assigned_fee).toFixed(7)}</td>
+          <td class="table-cell right">${formatDateTime(lot.assigned_timestamp)}</td>
+          <td class="table-cell border-left">${lot.lot_id}</td>
+          <td class="table-cell right">${parseFloat(lot.original_quantity).toFixed(7)}</td>
+          <td class="table-cell right">${parseFloat(lot.original_fee).toFixed(7)}</td>
+          <td class="table-cell right">${formatDateTime(lot.created_timestamp)}</td>
+        </tr>
+      `;
+        });
+      });
+
+      const headerHtml = `
+    <div class="title">
+      <h1>Invoice Details</h1>
+    </div>
+    <div class="content-container">
+      <p><strong>Chain ID:</strong> ${invoiceData.chain_id}</p>
+      <p><strong>Address:</strong> ${invoiceData.address}</p>
+      <p><strong>Client Order ID:</strong> ${invoiceData.client_order_id}</p>
+      <p><strong>Payment ID:</strong> ${invoiceData.payment_id}</p>
+      <p><strong>Symbol:</strong> ${invoiceData.symbol}</p>
+    </div>
+  `;
+
+      const accountingSheetHtml = `
+    <div class="content-container">
+      <h2>Accounting Summary</h2>
+      <table class="data-table accounting-container">
+        <thead>
+          <tr>
+            <th class="table-header left">Description</th>
+            <th class="table-header right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="table-row">
+            <td class="table-cell left">Fill Rate</td>
+            <td class="table-cell right">${parseFloat(invoiceData.fill_rate).toFixed(7)}</td>
+          </tr>
+          <tr class="table-row">
+            <td class="table-cell left">Assets Value</td>
+            <td class="table-cell right">${parseFloat(invoiceData.assets_value).toFixed(7)}</td>
+          </tr>
+          <tr class="table-row">
+            <td class="table-cell left">Exchange Fee</td>
+            <td class="table-cell right">${parseFloat(invoiceData.exchange_fee).toFixed(7)}</td>
+          </tr>
+          <tr class="table-row">
+            <td class="table-cell left">Management Fee</td>
+            <td class="table-cell right">${parseFloat(invoiceData.management_fee).toFixed(7)}</td>
+          </tr>
+          <tr class="table-row">
+            <td class="table-cell left">Total Amount</td>
+            <td class="table-cell right">${parseFloat(invoiceData.total_amount).toFixed(7)}</td>
+          </tr>
+          <tr class="table-row">
+            <td class="table-cell left">Amount Paid</td>
+            <td class="table-cell right">${parseFloat(invoiceData.amount_paid).toFixed(7)}</td>
+          </tr>
+          <tr class="table-row">
+            <td class="table-cell left">Amount Remaining</td>
+            <td class="table-cell right">${parseFloat(invoiceData.amount_remaining).toFixed(7)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+      const lotsTableHtml = `
+    <div class="content-container">
+      <h2>Asset Lots Details</h2>
+      <table class="data-table" id="lots-table">
+        <colgroup>
+          <col style="width: 20px;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 15%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+          <col style="width: 10%;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="table-header left" style="width: 20px;"></th>
+            <th class="table-header left">Symbol</th>
+            <th class="table-header right">Price</th>
+            <th class="table-header right">Assigned Qty</th>
+            <th class="table-header right">Assigned Fee</th>
+            <th class="table-header right">Assigned At</th>
+            <th class="table-header left border-left">Lot ID</th>
+            <th class="table-header right">Original Qty</th>
+            <th class="table-header right">Original Fee</th>
+            <th class="table-header right">Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lotsTableContent}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+      const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <title>Mint Invoice</title>
+      <style>
+        body { 
+          font-family: sans-serif; 
+          font-size: small;
+          background-color: #f4f4f4; 
+          color: #1e2527;
+          padding: 0.5rem;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        h1, h2 {
+          font-size: medium;
+          font-weight: bold;
+          color: #22272e;
+          padding: 0;
+          margin: 0;
+        }
+        .title {
+          width: 100%;
+          max-width: 80rem;
+          background-color: #22272e;
+          color: white;
+          padding: 0.5rem;
+          border-radius: 0.5rem;
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+          margin-bottom: 0.5rem;
+        }
+        .title h1 {
+            color: white;
+        }
+        .content-container {
+          width: 100%;
+          max-width: 80rem;
+          background-color: #ffffff;
+          padding: 0.5rem;
+          border-radius: 0.5rem;
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+          margin-bottom: 0.5rem;
+        }
+        .data-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 1rem;
+          table-layout: fixed; /* This is the key change */
+        }
+        .accounting-container {
+          max-width: 50rem;
+          margin-left: 0.5rem;
+          margin-right: auto;
+        }
+        .data-table thead {
+          background-color: #e5e7eb;
+          border-bottom: 1px solid #c2cbd7;
+        }
+        .table-header {
+          padding: 10px;
+          font-weight: bold;
+          color: #22272e;
+        }
+        .table-header.left { text-align: left; }
+        .table-header.right { text-align: right; }
+        .table-cell {
+          padding: 8px 10px;
+          border-bottom: 1px solid #d1d5db;
+          overflow-wrap: break-word; /* Prevents long text from overflowing */
+        }
+        .table-cell.left { text-align: left; }
+        .table-cell.right { text-align: right; }
+        .table-row:hover {
+          background-color: #f0f0f0;
+        }
+        .summary-row {
+          background-color: #e5e7eb;
+          font-weight: bold;
+          border-top: 2px solid #a1a1a1;
+          border-bottom: 2px solid #a1a1a1;
+          color: #22272e;
+          cursor: pointer;
+        }
+        .summary-row .table-cell {
+            padding: 10px;
+        }
+        .border-left {
+          border-left: 1px solid #c2cbd7;
+        }
+        .content-container p {
+            margin: 0.5rem 0;
+            padding: 0;
+        }
+        .icon-cell {
+          width: 20px;
+          text-align: center;
+        }
+        .detailed-row {
+            padding-left: 20px;
+            background-color: #f9fafb;
+        }
+        .detailed-row:last-of-type .table-cell {
+          border-bottom: 1px solid #d1d5db;
+        }
+        .detailed-row:last-of-type + .summary-row {
+            border-top: 2px solid #a1a1a1;
+        }
+      </style>
+    </head>
+    <body>
+      ${headerHtml}
+      ${accountingSheetHtml}
+      ${lotsTableHtml}
+      
+      <script>
+        const toggleDetails = (symbol) => {
+          const detailedRows = document.querySelectorAll(\`.detailed-row-\${symbol}\`);
+          const toggleIcon = document.getElementById(\`toggle-icon-\${symbol}\`);
+          if (detailedRows.length > 0 && toggleIcon) {
+            const isHidden = detailedRows[0].style.display === 'none' || detailedRows[0].style.display === '';
+            detailedRows.forEach(row => {
+              row.style.display = isHidden ? 'table-row' : 'none';
+            });
+            toggleIcon.textContent = isHidden ? '−' : '+';
+          }
+        };
+
+        const lotsTable = document.getElementById('lots-table');
+        if (lotsTable) {
+          lotsTable.addEventListener('click', (event) => {
+            let target = event.target;
+            while (target && !target.classList.contains('summary-row')) {
+              target = target.parentElement;
+            }
+            if (target && target.classList.contains('summary-row')) {
+              const symbol = target.dataset.symbol;
+              toggleDetails(symbol);
+            }
+          });
+        }
+      </` + `script>
+    </body>
+    </html>
+  `;
+
+      newWindow.document.write(htmlContent);
+      newWindow.document.close();
+    };
+
+
+    // ---
+    // ## Helper Function
+    // ---
+
+    const generateClientId = (timestamp, address, chainId, seqNum) => {
+      // Combine unique message data to create a deterministic hash
+      const combinedData = `${timestamp}${address}${chainId}${seqNum}`;
+      const hash = sha256(toUtf8Bytes(combinedData));
+
+      const hashHex = secp.utils.bytesToHex(hash);
+
+      // Derive the three-part alphabetic prefix
+      const code1 = `${ALPHABET[parseInt(hashHex.slice(0, 2), 16) % 26]}${ALPHABET[parseInt(hashHex.slice(2, 4), 16) % 26]}${ALPHABET[parseInt(hashHex.slice(4, 6), 16) % 26]}`;
+      const code2 = `${ALPHABET[parseInt(hashHex.slice(6, 8), 16) % 26]}${ALPHABET[parseInt(hashHex.slice(8, 10), 16) % 26]}${ALPHABET[parseInt(hashHex.slice(10, 12), 16) % 26]}`;
+      const code3 = `${ALPHABET[parseInt(hashHex.slice(12, 14), 16) % 26]}${ALPHABET[parseInt(hashHex.slice(14, 16), 16) % 26]}${ALPHABET[parseInt(hashHex.slice(16, 18), 16) % 26]}`;
+
+      // Derive a four-digit numeric suffix
+      const numSuffix = (parseInt(hashHex.slice(18, 22), 16) % 9000) + 1001;
+
+      return `${code1}-${code2}-${code3}-${numSuffix}`;
+    };
+
+    const getMinimalSignPayload = (msg) => {
+      const { msg_type } = msg.standard_header;
+      const idKey = msg_type.includes("Quote") ? "client_quote_id" : "client_order_id";
+
+      if (
+        [
+          MSG_TYPES.NEW_INDEX_ORDER,
+          MSG_TYPES.CANCEL_INDEX_ORDER,
+          MSG_TYPES.NEW_QUOTE_REQUEST,
+          MSG_TYPES.CANCEL_QUOTE_REQUEST,
+          MSG_TYPES.INDEX_ORDER_FILL,
+          MSG_TYPES.MINT_INVOICE,
+        ].includes(msg_type)
+      ) {
+        return {
+          msg_type,
+          id: msg[idKey],
+        };
+      }
+      return null;
+    };
+
+    // ---
+    // ## Order Management
+    // ---
+
+    const pendingOrders = {};
+
+    const addOrder = (msg) => {
+      pendingOrders[msg.client_order_id] = msg;
+    }
+
+    const updateOrder = (msg) => {
+      const ordersBody = document.getElementById('orders');
+
+      if (msg.standard_header.msg_type === 'NewIndexOrder' && msg.status === 'new') {
+        // 1. If it's a new order message, add a new table row.
+        const clientOrderId = msg.client_order_id;
+        const originalOrder = pendingOrders[clientOrderId];
+        const amount = originalOrder ? originalOrder.amount : 'N/A';
+
+        const newRow = ordersBody.insertRow(-1); // Insert at the end of the body
+        newRow.id = `order-${clientOrderId}`;
+        newRow.className = 'order-row';
+
+        newRow.innerHTML = `
+        <td class="client-order-id" style="text-align: left">${clientOrderId}</td>
+        <td style="text-align: right">${amount}</td>
+        <td>
+          <div class="progress-bar-container">
+            <div class="progress-bar" style="width: 0%;"></div>
+          </div>
+        </td>
+        <td class="progress-pct" style="text-align: right">0</td>
+        <td style="text-align: right">${formatDateTime(msg.standard_header.timestamp)}</td>
+      `;
+
+      } else if (msg.standard_header.msg_type === 'IndexOrderFill') {
+        // 2. If it's a fill message, update the progress of an existing row.
+        const clientOrderId = msg.client_order_id;
+        const fillRate = Math.min(parseFloat(msg.fill_rate) * 100, 100.0);
+        const orderRow = document.getElementById(`order-${clientOrderId}`);
+
+        if (orderRow) {
+          const progressBar = orderRow.querySelector('.progress-bar');
+          if (progressBar) {
+            progressBar.style.width = `${fillRate}%`;
+          }
+          const progressPct = orderRow.querySelector('.progress-pct');
+          if (progressPct) {
+            progressPct.innerHTML = `${fillRate.toFixed(1)}`;
+          }
+        }
+      } else if (msg.standard_header.msg_type === 'MintInvoice') {
+        // 3. If it's a MintInvoice message, make the Client Order ID clickable.
+        const clientOrderId = msg.client_order_id;
+        const orderRow = document.getElementById(`order-${clientOrderId}`);
+
+        if (orderRow) {
+          const clientIdCell = orderRow.querySelector('.client-order-id');
+          if (clientIdCell) {
+            // Add a class and a click event listener to the table cell
+            clientIdCell.classList.add('clickable-id');
+            clientIdCell.addEventListener('click', () => {
+              // NOTE: The createInvoicePage function must be defined elsewhere in your code.
+              createInvoicePage(msg);
+            });
+          }
+        }
+      }
+    };
+
+    // ---
+    // ## Event Handlers
+    // ---
+
+    $("mode").onchange = () => {
+      const mode = $("mode").value;
+      $("privateKeySection").style.display = mode === "index" ? "block" : "none";
+
+      const baseMessage = {
+        standard_header: {
+          sender_comp_id: "CLIENT",
+          target_comp_id: "SERVER",
+          seq_num: 1,
+          timestamp: new Date().toISOString(),
+        },
+        chain_id: 1,
+        address: "0x1234567890abcdef1234567890abcdef12345678",
+        symbol: "SY100",
+        side: "1",
+        amount: "1",
+      };
+
+      const client_order_id = generateClientId(
+        baseMessage.standard_header.timestamp,
+        baseMessage.address,
+        baseMessage.chain_id,
+        baseMessage.standard_header.seq_num
+      );
+
+      const message =
+        mode === "index"
+          ? {
+            ...baseMessage,
+            standard_header: { ...baseMessage.standard_header, msg_type: MSG_TYPES.NEW_INDEX_ORDER },
+            client_order_id: client_order_id,
+          }
+          : {
+            ...baseMessage,
+            standard_header: { ...baseMessage.standard_header, msg_type: MSG_TYPES.NEW_QUOTE_REQUEST },
+            client_quote_id: "Q-" + new Date().getTime(),
+          };
+
+      $("fixMessageJson").value = JSON.stringify(message, null, 2);
+    };
+
+    $("connectBtn").onclick = () => {
+      const url = $("wsUrl").value;
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        log("WebSocket connected");
+        $("connectBtn").disabled = true;
+        $("disconnectBtn").disabled = false;
+      };
+      ws.onclose = () => {
+        log("WebSocket disconnected");
+        $("connectBtn").disabled = false;
+        $("disconnectBtn").disabled = true;
+      };
+      ws.onerror = () => log("WebSocket error", true);
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+
+          const { msg_type } = msg.standard_header || {};
+
+          if (msg_type === MSG_TYPES.MINT_INVOICE) {
+            log({ msgType: 'MintInvoice', text: `Received MintInvoice for payment_id: ${msg.payment_id}`, data: msg });
+            updateOrder(msg);
+            return;
+          }
+
+          log("Received:\n" + JSON.stringify(msg, null, 2));
+
+          if (msg_type === MSG_TYPES.ACK) {
+            log("ℹ️ Received ACK — updating seq_num, client_order_id, and timestamp.");
+            const currentMessage = JSON.parse($("fixMessageJson").value);
+
+            if (currentMessage.standard_header) {
+              // Increment seq_num
+              if (currentMessage.standard_header.seq_num) {
+                currentMessage.standard_header.seq_num += 1;
+              }
+
+              // Update timestamp
+              const now = new Date();
+              now.setSeconds(now.getSeconds() + 30);
+              now.setMilliseconds(0);
+              currentMessage.standard_header.timestamp = now.toISOString();
+
+              // Generate a new, hash-based client_order_id
+              if (currentMessage.client_order_id) {
+                currentMessage.client_order_id = generateClientId(
+                  currentMessage.standard_header.timestamp,
+                  currentMessage.address,
+                  currentMessage.chain_id,
+                  currentMessage.standard_header.seq_num
+                );
+              }
+            }
+
+            $("fixMessageJson").value = JSON.stringify(currentMessage, null, 2);
+          }
+
+          if (msg_type?.includes("Quote") || msg_type === MSG_TYPES.ACK || msg_type === MSG_TYPES.NAK) {
+            log("ℹ️ Skipping signature verification for message type: " + msg_type);
+            return;
+          }
+
+          const { standard_trailer } = msg;
+          if (standard_trailer?.signature && standard_trailer?.public_key) {
+            const { signature, public_key } = standard_trailer;
+            const signPayload = getMinimalSignPayload(msg);
+
+            if (!signPayload) {
+              log("Unsupported msg_type for signature verification", true);
+              return;
+            }
+
+            const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
+            const sigBytes = secp.utils.hexToBytes(signature[0].slice(2));
+            const pubKeyBytes = secp.utils.hexToBytes(public_key[0].slice(2));
+
+            const verified = secp.verify(sigBytes, hash, pubKeyBytes);
+            log(verified ? "✅ Signature verified!" : "❌ Signature verification failed!", !verified);
+
+            updateOrder(msg);
+          }
+        } catch {
+          log("Received (raw): " + e.data);
+        }
+      };
+    };
+
+    $("disconnectBtn").onclick = () => {
+      if (ws) ws.close();
+    };
+
+    $("signBtn").onclick = async () => {
+      try {
+        const rawText = $("fixMessageJson").value.trim();
+        const msgObj = JSON.parse(rawText);
+        const mode = $("mode").value;
+
+        if (mode === "index") {
+          const privateKeyHex = $("privateKey").value.trim().slice(2);
+          if (!privateKeyHex) {
+            return log("Private key is required", true);
+          }
+
+          addOrder(msgObj);
+
+          const privateKey = secp.utils.hexToBytes(privateKeyHex);
+          const signPayload = getMinimalSignPayload(msgObj);
+          if (!signPayload) {
+            throw new Error("Unsupported msg_type for signing");
+          }
+
+          const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
+          const sig = secp.signSync(hash, privateKey, { canonical: true, der: false });
+          const signatureHex = "0x" + secp.utils.bytesToHex(sig.slice(0, 64));
+          const pubKey = secp.getPublicKey(privateKey, false);
+          const pubKeyHex = "0x" + secp.utils.bytesToHex(pubKey);
+
+          msgObj.standard_trailer = {
+            public_key: [pubKeyHex],
+            signature: [signatureHex],
+          };
+        } else {
+          delete msgObj.standard_trailer;
+        }
+
+        log("Sending:\n" + JSON.stringify(msgObj, null, 2));
+
+        if (ws) {
+          ws.send(JSON.stringify(msgObj));
+        } else {
+          log("WebSocket is not connected. Please connect first.", true);
+        }
+      } catch (e) {
+        log("Error: " + e.message, true);
+      }
+    };
+  </script>
+</body>
+
+</html>

@@ -39,6 +39,19 @@ impl SimpleDesignation {
             full_name: Symbol::from(full_name),
         }
     }
+
+    fn new_with_symbol(full_name: &str, symbol: &str) -> Self {
+        let (type_, tail) = full_name.split_once(":").unwrap();
+        let (name, collateral_symbol) = tail.split_once(":").unwrap();
+        let name = format!("{}_{}", name, symbol);
+        let full_name = format!("{}:{}:{}", type_, name, collateral_symbol);
+        Self {
+            type_: Symbol::from(type_),
+            name: Symbol::from(name),
+            collateral_symbol: Symbol::from(collateral_symbol),
+            full_name: Symbol::from(full_name),
+        }
+    }
 }
 
 impl CollateralDesignation for SimpleDesignation {
@@ -70,10 +83,12 @@ struct SimpleBridge {
 }
 
 impl SimpleBridge {
-    fn new(source: &str, destination: &str) -> Self {
+    fn new(source: &str, symbol: &str, destination: &str) -> Self {
         Self {
             observer: SingleObserver::new(),
-            source: Arc::new(ComponentLock::new(SimpleDesignation::new(source))),
+            source: Arc::new(ComponentLock::new(SimpleDesignation::new_with_symbol(
+                source, symbol,
+            ))),
             destination: Arc::new(ComponentLock::new(SimpleDesignation::new(destination))),
         }
     }
@@ -135,6 +150,9 @@ pub struct SimpleCollateralRouterConfig {
     chain_id: u32,
 
     #[builder(setter(into, strip_option), default)]
+    pub index_symbols: Vec<Symbol>,
+
+    #[builder(setter(into, strip_option), default)]
     source: String,
 
     #[builder(setter(into, strip_option), default)]
@@ -162,15 +180,33 @@ impl SimpleCollateralRouterConfigBuilder {
 
         if let Ok(mut router) = collateral_router.write() {
             let chain_id = simple_config.chain_id;
-            let source = simple_config.source.as_str();
-            let destination = simple_config.destination.as_str();
+            let destination = simple_config.destination;
 
-            router.add_bridge(Arc::new(ComponentLock::new(SimpleBridge::new(
-                source,
-                destination,
-            ))))?;
-            router.add_route(&[Symbol::from(source), Symbol::from(destination)])?;
-            router.add_chain_source(chain_id, Symbol::from(source))?;
+            for symbol in simple_config.index_symbols {
+                let bridge = Arc::new(ComponentLock::new(SimpleBridge::new(
+                    simple_config.source.as_str(),
+                    &symbol,
+                    &destination,
+                )));
+
+                // should never panic.
+                let source = bridge
+                    .read()
+                    .unwrap()
+                    .get_source()
+                    .read()
+                    .unwrap()
+                    .get_full_name()
+                    .to_string();
+
+                router.add_bridge(bridge)?;
+                router.add_chain_source(chain_id, symbol, Symbol::from(source.as_str()))?;
+                router.add_route(&[
+                    Symbol::from(source.as_str()),
+                    Symbol::from(destination.as_str()),
+                ])?;
+            }
+
             router.set_default_destination(Symbol::from(destination))?;
         } else {
             Err(ConfigBuildError::Other(String::from(

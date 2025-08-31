@@ -1407,6 +1407,7 @@ impl SolverStrategy for SimpleSolver {
             chain_id: order.chain_id,
             address: order.address,
             client_order_id: order.client_order_id.clone(),
+            symbol: order.symbol.clone(),
             side: order.side,
             collateral_amount,
             asset_requirements: HashMap::new(),

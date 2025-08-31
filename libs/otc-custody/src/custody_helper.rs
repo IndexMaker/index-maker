@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use alloy::{
     hex,
     primitives::{Address, B256},
@@ -7,6 +9,7 @@ use ethers::{
     abi::{self, Token},
     types::{Address as EthAddress, Bytes as EBytes, U256},
 };
+use eyre::OptionExt;
 use merkle_tree_rs::core::{get_proof, make_merkle_tree};
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +75,31 @@ impl CAHelper {
             chain_id,
             otc_custody_address,
         }
+    }
+
+    pub fn try_new_with_items(ca_items: Vec<CAItem>) -> eyre::Result<Self> {
+        let (chain_id, otc_custody_address) = ca_items
+            .first()
+            .map(|x| (x.chain_id as u32, x.otc_custody))
+            .ok_or_eyre("Failed to create CAHelper: Empty set of items")?;
+
+        ca_items
+            .iter()
+            .map(|x| (x.chain_id as u32, x.otc_custody))
+            .all(|(a, b)| a == chain_id && b == otc_custody_address)
+            .then_some(())
+            .ok_or_eyre(
+                "Failed to create CAHelper: Not all items have same chain_id and otc_custody",
+            )?;
+
+        Ok(Self {
+            ca_items,
+            merkle_tree: None,
+            leaf_indices: Vec::new(),
+            custody_id: None,
+            chain_id,
+            otc_custody_address,
+        })
     }
 
     fn encode_args(&self, item_type: &CAItemType, args: &[(&str, &[u8])]) -> String {

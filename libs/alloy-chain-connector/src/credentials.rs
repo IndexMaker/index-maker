@@ -1,6 +1,5 @@
 use alloy::{
-    providers::{Provider, ProviderBuilder, WalletProvider},
-    signers::local::PrivateKeySigner,
+    providers::{Provider, ProviderBuilder, WalletProvider}, signers::local::PrivateKeySigner
 };
 use eyre::eyre;
 use symm_core::core::bits::Address;

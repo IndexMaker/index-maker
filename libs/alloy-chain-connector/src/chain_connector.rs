@@ -1,12 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use alloy_primitives::{bytes, U256};
+use alloy_primitives::{bytes, B256, U256};
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     index::basket::Basket,
 };
+use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
@@ -30,8 +31,10 @@ pub struct RealChainConnector {
     subaccounts: Arc<AtomicLock<SubAccounts>>,
     subaccount_rx: Option<UnboundedReceiver<Credentials>>,
     sessions: Arc<AtomicLock<Sessions>>,
+    custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
+    indexes: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
     arbiter: Arbiter,
-    issuers: HashMap<u32, (String, Address)>,
+    issuers: HashMap<u32, String>,
 }
 
 impl RealChainConnector {
@@ -42,6 +45,8 @@ impl RealChainConnector {
             subaccounts: Arc::new(AtomicLock::new(SubAccounts::new(subaccount_tx))),
             subaccount_rx: Some(subaccount_rx),
             sessions: Arc::new(AtomicLock::new(Sessions::new())),
+            custody_clients: Arc::new(AtomicLock::new(HashMap::new())),
+            indexes: Arc::new(AtomicLock::new(HashMap::new())),
             arbiter: Arbiter::new(),
             issuers: HashMap::new(),
         }
@@ -57,6 +62,8 @@ impl RealChainConnector {
             self.subaccounts.clone(),
             subaccount_rx,
             self.sessions.clone(),
+            self.custody_clients.clone(),
+            self.indexes.clone(),
             self.observer.clone(),
         );
 
@@ -83,6 +90,34 @@ impl RealChainConnector {
         self.subaccounts.write().logon(subaccounts)
     }
 
+    pub fn add_custody_client(&self, custody_client: CustodyClient) -> Result<()> {
+        let custody_id = custody_client.get_custody_id();
+        self.custody_clients
+            .write()
+            .insert(custody_id, custody_client)
+            .is_none()
+            .then_some(())
+            .ok_or_eyre("Duplicate custody client")
+    }
+
+    pub fn add_index(&self, index: Arc<IndexInstance>) -> Result<()> {
+        let symbol = Symbol::from(index.get_symbol());
+        self.indexes
+            .write()
+            .insert(symbol, index)
+            .is_none()
+            .then_some(())
+            .ok_or_eyre("Duplicate index")
+    }
+
+    pub fn set_issuer(&mut self, chain_id: u32, account_name: String) -> Result<()> {
+        self.issuers
+            .insert(chain_id, account_name)
+            .is_none()
+            .then_some(())
+            .ok_or_eyre("Duplicate issuer entry")
+    }
+
     pub(crate) fn send_command_to_session(
         &self,
         account_name: &str,
@@ -96,32 +131,18 @@ impl RealChainConnector {
         issuer.send_command(command)
     }
 
-    pub fn set_issuer(
-        &mut self,
-        chain_id: u32,
-        account_name: String,
-        contract_address: Address,
-    ) -> Result<()> {
-        self.issuers
-            .insert(chain_id, (account_name, contract_address))
-            .is_none()
-            .then_some(())
-            .ok_or_eyre("Duplicate issuer entry")
-    }
-
     pub(crate) fn send_command_to_issuer(
         &self,
         chain_id: u32,
+        symbol: Symbol,
         command: IssuerCommand,
     ) -> Result<()> {
-        let (account_name, contract_address) =
-            self.issuers.get(&chain_id).ok_or_eyre("Issuer not found")?;
+        let account_name = self.issuers.get(&chain_id).ok_or_eyre("Issuer not found")?;
 
         self.send_command_to_session(
             account_name,
             Command {
-                command: CommandVariant::Issuer(command),
-                contract_address: *contract_address,
+                command: CommandVariant::Issuer { symbol, command },
                 error_observer: SingleObserver::new(),
             },
         )
@@ -131,16 +152,14 @@ impl RealChainConnector {
 impl ChainConnector for RealChainConnector {
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
         let chain_id = 0;
-        let _ = symbol;
 
         let command = IssuerCommand::SetSolverWeights {
-            timestamp: Utc::now(),
             basket,
             price: Amount::ZERO,
             observer: SingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, command) {
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }
@@ -154,36 +173,32 @@ impl ChainConnector for RealChainConnector {
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {
-        let _ = symbol;
-        let _ = quantity;
         let _ = execution_price;
         let _ = execution_time;
 
         let command = IssuerCommand::MintIndex {
-            target: receipient,
+            receipient,
             amount: quantity,
             seq_num_execution_report: U256::ZERO,
             observer: SingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, command) {
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }
 
-    fn burn_index(&self, chain_id: u32, symbol: Symbol, quantity: Amount, receipient: Address) {
-        let _ = chain_id;
+    fn burn_index(&self, chain_id: u32, symbol: Symbol, quantity: Amount, sender: Address) {
         let _ = symbol;
-        let _ = quantity;
 
         let command = IssuerCommand::BurnIndex {
             amount: quantity,
-            target: receipient,
+            sender,
             seq_num_new_order_single: U256::ZERO,
             observer: SingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, command) {
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }
@@ -196,10 +211,9 @@ impl ChainConnector for RealChainConnector {
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {
-        let _ = chain_id;
-        let _ = amount;
         let _ = execution_price;
         let _ = execution_time;
+        let symbol = Symbol::from("");
 
         let command = IssuerCommand::Withdraw {
             amount,
@@ -208,7 +222,7 @@ impl ChainConnector for RealChainConnector {
             observer: SingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, command) {
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }

@@ -572,6 +572,90 @@ impl AppMode {
 }
 
 /// Main application entry point with comprehensive configuration management
+enum ChainMode {
+    Simulated {
+        chain_config: Arc<SimpleChainConnectorConfig>,
+    },
+    Real {
+        chain_config: Arc<RealChainConnectorConfig>,
+    },
+}
+
+impl ChainMode {
+    fn new_with_router(
+        simulate_chain: bool,
+        main_quote_currency: Symbol,
+        index_symbols: Vec<Symbol>,
+        router_config: &CollateralRouterConfig,
+    ) -> Self {
+        if simulate_chain {
+            let simple_chain_connector_config = SimpleChainConnectorConfig::builder()
+                .build_arc()
+                .expect("Failed to build chain connector");
+
+            SimpleCollateralRouterConfig::builder()
+                .chain_id(1u32)
+                .source(format!("SRC:BINANCE:{}", main_quote_currency))
+                .destination(format!("DST:BINANCE:{}", main_quote_currency))
+                .index_symbols(index_symbols)
+                .with_router(router_config.clone())
+                .build()
+                .expect("Failed to build collateral router");
+
+            Self::Simulated {
+                chain_config: simple_chain_connector_config,
+            }
+        } else {
+            let evm_connector_config = RealChainConnectorConfig::builder()
+                .with_router(router_config.clone())
+                .index_symbols(index_symbols)
+                .build_arc()
+                .expect("Failed to build evm chain connector");
+
+            Self::Real {
+                chain_config: evm_connector_config,
+            }
+        }
+    }
+
+    fn get_chain_connector_config(&self) -> Arc<dyn ChainConnectorConfig + Send + Sync> {
+        match self {
+            ChainMode::Simulated { chain_config } => {
+                chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>
+            }
+            ChainMode::Real { chain_config } => {
+                chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>
+            }
+        }
+    }
+
+    async fn run(&self) -> eyre::Result<()> {
+        match self {
+            ChainMode::Simulated { .. } => Ok(()),
+            ChainMode::Real { chain_config } => chain_config.start().await,
+        }
+    }
+
+    async fn stop(&self) -> eyre::Result<()> {
+        match self {
+            ChainMode::Simulated { .. } => Ok(()),
+            ChainMode::Real { chain_config } => chain_config.stop().await,
+        }
+    }
+}
+
+fn get_otlp_url(value: Option<String>) -> Option<Option<String>> {
+    if let Some(value) = value {
+        if value.as_str().eq("default") {
+            Some(None)
+        } else {
+            Some(Some(value))
+        }
+    } else {
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // 1. Secrets initialization at the top (as per Sonia's requirements)
