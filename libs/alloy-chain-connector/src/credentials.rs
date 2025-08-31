@@ -4,6 +4,7 @@ use alloy::{
 use eyre::eyre;
 use symm_core::core::bits::Address;
 
+#[derive(Clone)]
 pub struct Credentials {
     account_name: String,
     chain_id: u32,
@@ -16,7 +17,7 @@ impl Credentials {
     pub fn new(
         account_name: String,
         chain_id: u32,
-    usdc_address: Address,
+        usdc_address: Address,
         rpc_url: String,
         get_private_key_fn: std::sync::Arc<dyn Fn() -> String + Send + Sync>,
     ) -> Self {
@@ -29,7 +30,7 @@ impl Credentials {
         }
     }
 
-    pub(crate) fn get_account_name(&self) -> String {
+    pub fn get_account_name(&self) -> String {
         self.account_name.clone()
     }
 
