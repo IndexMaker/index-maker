@@ -19,7 +19,7 @@ The resulting PoC should be able to demonstrate following activity:
 - User receives confirmations of each individual Index Order fill
 - User receives newly minted Index Token
 
-### Phase 2. (In-Progress) Integration
+### Phase 2. (Complete) Integration
 
 The goal is to have working demoable MVP where we can send Index Orders over FIX, and we want to
 see Solver acquiring assets from Binance, and reporting mint.
@@ -68,6 +68,12 @@ The goal is to have fully functional collateral routing implemented, so that col
 from Arbitrum to Binance via Base. The routing between Arbitrum and Base is to be done via Across bridge, while
 the routing from Base to Binance should happend between two EVM wallets. The wallet address for Binance account
 need to be obtained via Binance API call.
+
+### Phase 3. (In-Progress) Going Live
+
+The goal is to go live. We need to ensure that we have persistence of state of Index Maker components, and that
+we have data and service to serve Mint Invoices. We need to test performance of the system, improve configuration,
+add missing calculations such as routing fees, remove hardcoded constants, etc.
 
 ### Phase X. Future Development
 
