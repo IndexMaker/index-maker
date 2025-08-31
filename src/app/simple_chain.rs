@@ -80,12 +80,9 @@ impl ChainConnector for SimpleChainConnector {
             "BurnIndex: simulated burn operation"
         );
 
-        // Emit burn notification
-        self.publish_event(ChainNotification::IndexBurned {
+        // Emit chain connected notification for burn simulation
+        self.publish_event(ChainNotification::ChainConnected {
             chain_id,
-            symbol,
-            quantity,
-            receipient,
             timestamp: Utc::now(),
         });
     }
@@ -107,13 +104,12 @@ impl ChainConnector for SimpleChainConnector {
             "Withdraw: simulated withdrawal operation"
         );
 
-        // Emit withdrawal notification
-        self.publish_event(ChainNotification::WithdrawalProcessed {
+        // Emit withdrawal request notification for withdrawal simulation
+        self.publish_event(ChainNotification::WithdrawalRequest {
             chain_id,
-            receipient,
+            address: receipient,
             amount,
-            execution_price,
-            execution_time,
+            timestamp: execution_time,
         });
     }
 }

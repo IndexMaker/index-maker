@@ -8,7 +8,7 @@ use eyre::{OptionExt, Result};
 use chrono;
 
 use index_maker::{
-    Cli, Commands,
+    cli::{Cli, Commands},
     app::{
         application::ApplicationBuilder,
         config_loader::ConfigLoader,
@@ -199,10 +199,10 @@ impl SecretsProvider {
     }
     
     /// Get chain RPC URL with proper error handling
-    pub fn get_chain_rpc_url(&self) -> Result<&str> {
+    pub fn get_chain_rpc_url(&self) -> Result<String> {
         self.chain_rpc_url
             .as_ref()
-            .map(|s| s.as_str())
+            .map(|s| String::from(s.clone()))
             .ok_or_eyre("Chain RPC URL not configured")
     }
     

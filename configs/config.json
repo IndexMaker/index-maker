@@ -3,7 +3,7 @@
     "main_quote_currency": "USDC",
     "simulate_sender": false,
     "simulate_chain": false,
-    "config_path": "configs"
+    "index_config": "./index_config.json"
   },
   "solver": {
     "price_threshold": "0.01",
@@ -25,54 +25,24 @@
     "solver_tick_interval_ms": 100,
     "quotes_tick_interval_ms": 10
   },
-  "market_data": {
-    "provider": "binance",
-    "connection_timeout_secs": 30,
-    "reconnection_attempts": 3
-  },
-  "chain": {
-    "provider": "ethereum",
-    "rpc_url": null,
-    "private_key": null,
-    "gas_price_multiplier": 1.1
-  },
-  "order_sender": {
-    "provider": "binance",
-    "api_key": null,
-    "api_secret": null,
-    "rate_limit_per_second": 10
-  },
-  "basket_manager": {
-    "indexes_files": [
-      {
-        "symbol": "SO2",
-        "file_path": "indexes/SO2_Latest_rebalance.json"
-      },
-      {
-        "symbol": "SO3",
-        "file_path": "indexes/SO3_Latest_rebalance.json"
-      },
-      {
-        "symbol": "SY100",
-        "file_path": "indexes/SY100_edited.json"
-      }
-    ]
-  },
-  "dispatcher": {
-    "market_data_update_interval_ms": 1000,
-    "order_processing_interval_ms": 500,
-    "initial_price_counter": 100.0
+  "connections": {
+    "market_data_provider": "binance",
+    "market_data_timeout_secs": 30,
+    "market_data_reconnection_attempts": 3,
+    "chain_provider": "ethereum",
+    "chain_rpc_url": null,
+    "chain_gas_price_multiplier": 1.1,
+    "order_sender_provider": "binance",
+    "order_sender_rate_limit_per_second": 10,
+    "server_bind_address": "127.0.0.1:8080",
+    "server_timeout_secs": 30
   },
   "logging": {
     "level": "info",
-    "file_path": null,
+    "file_path": "./logs/index-maker.log",
     "disable_terminal": false,
     "otlp_trace_url": null,
     "otlp_log_url": null,
     "batch_size": 1000
-  },
-  "server": {
-    "bind_address": "127.0.0.1:3000",
-    "timeout_secs": 30
   }
 }

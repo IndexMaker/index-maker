@@ -2,7 +2,7 @@ use eyre::Result;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use symm_core::core::bits::Symbol;
 
 use crate::app::config::{ApplicationConfig, CliOverrides, ConfigBuildError};
@@ -104,7 +104,7 @@ impl ConfigLoader {
             simulate_sender: if cli.simulate_sender { Some(true) } else { None },
             simulate_chain: if cli.simulate_chain { Some(true) } else { None },
             bind_address: cli.bind_address.clone(),
-            log_path: cli.log_path.as_ref().map(|p| p.into()),
+            log_path: cli.log_path.map(|p| PathBuf::from(String::from(p))),
             term_log_off: if cli.term_log_off { Some(true) } else { None },
             otlp_trace_url: cli.otlp_trace_url.clone(),
             otlp_log_url: cli.otlp_log_url.clone(),
@@ -130,10 +130,8 @@ impl ConfigLoader {
         }
 
         if let Some(ref bind_address) = self.cli_overrides.bind_address {
-            if let Some(ref mut server_config) = config.server {
-                server_config.bind_address = bind_address.clone();
-                tracing::debug!(bind_address = %bind_address, "Applied CLI override for bind address");
-            }
+            config.server.bind_address = bind_address.clone();
+            tracing::debug!(bind_address = %bind_address, "Applied CLI override for bind address");
         }
 
         Ok(())
@@ -198,18 +196,18 @@ impl ConfigLoader {
     /// Validate the loaded configuration
     fn validate_config(&self, config: &ApplicationConfig) -> Result<()> {
         // Validate basket manager configuration
-        if config.basket_manager.indexes_files.is_empty() {
+        if config.basket_manager.index_files.is_empty() {
             return Err(eyre::eyre!(
-                "Failed to validate configuration: basket_manager.indexes_files cannot be empty"
+                "Failed to validate configuration: basket_manager.index_files cannot be empty"
             ));
         }
 
         config
             .basket_manager
-            .indexes_files
+            .index_files
             .iter()
             .try_for_each(|mapping| {
-                if String::from(&mapping.symbol).is_empty() {
+                if String::from(mapping.symbol.clone()).is_empty() {
                     return Err(eyre::eyre!(
                         "Failed to validate configuration: index symbol cannot be empty"
                     ));

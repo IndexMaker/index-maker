@@ -7,7 +7,6 @@ use crate::app::{
     chain_connector::RealChainConnectorConfig,
     collateral_router::CollateralRouterConfig,
     config::{ApplicationConfig, ConfigBuildError},
-    dispatcher::DispatcherManager,
     simple_chain::SimpleChainConnectorConfig,
     solver::{ChainConnectorConfig, SolverConfig},
 };
@@ -25,20 +24,15 @@ pub struct Application {
     secrets: Option<crate::SecretsProvider>,
     solver_config: Option<SolverConfig>,
     chain_mode: Option<ChainMode>,
-    dispatcher_manager: Option<DispatcherManager>,
 }
 
 /// Chain mode enum for different chain connector configurations
 pub enum ChainMode {
     Simulated {
         simple_chain_config: Arc<SimpleChainConnectorConfig>,
-        dispatcher_manager: Option<DispatcherManager>,
-
     },
     Real {
         real_chain_config: Arc<RealChainConnectorConfig>,
-        dispatcher_manager: Option<DispatcherManager>,
-
     },
 }
 
@@ -135,7 +129,6 @@ impl ApplicationBuilder {
             secrets: self.secrets,
             solver_config: None,
             chain_mode: None,
-            dispatcher_manager: None,
         };
 
         // Build all components
@@ -172,7 +165,6 @@ impl Application {
 
         // Use functional pipeline for component building
         let component_results = vec![
-            ("dispatcher_manager", self.build_dispatcher_manager()),
             ("basket_manager", self.build_basket_manager()),
             ("secrets_integration", self.integrate_secrets()),
         ];
@@ -207,14 +199,7 @@ impl Application {
         Ok(())
     }
 
-    /// Build dispatcher manager component
-    fn build_dispatcher_manager(&mut self) -> Result<(), ConfigBuildError> {
-        let dispatcher_manager = DispatcherManager::with_default_dispatchers();
-        self.dispatcher_manager = Some(dispatcher_manager);
 
-        tracing::debug!("Dispatcher manager built successfully");
-        Ok(())
-    }
 
     /// Build basket manager component
     fn build_basket_manager(&mut self) -> Result<(), ConfigBuildError> {
@@ -309,19 +294,6 @@ impl Application {
     async fn start_components(&mut self) -> Result<()> {
         tracing::info!("Starting application components...");
 
-        // Start dispatcher manager if available
-        if let Some(ref mut dispatcher_manager) = self.dispatcher_manager {
-            dispatcher_manager.start_all().await
-                .map_err(|e| eyre::eyre!("Failed to start dispatcher manager: {:?}", e))?;
-
-            tracing::info!(
-                dispatcher_count = dispatcher_manager.dispatcher_count(),
-                "Dispatcher manager started successfully"
-            );
-        }
-
-
-
         // Start chain mode if available
         if let Some(ref chain_mode) = self.chain_mode {
             chain_mode.run().await
@@ -340,13 +312,7 @@ impl Application {
 
 
 
-        // Stop dispatcher manager
-        if let Some(ref mut dispatcher_manager) = self.dispatcher_manager {
-            dispatcher_manager.stop_all().await
-                .map_err(|e| eyre::eyre!("Failed to stop dispatcher manager: {:?}", e))?;
 
-            tracing::info!("Dispatcher manager stopped successfully");
-        }
 
         // Chain mode cleanup is handled automatically when dropped
 
@@ -373,13 +339,11 @@ impl ChainMode {
             // Build simulated chain connector with default configuration
             ChainMode::Simulated {
                 simple_chain_config: Arc::new(SimpleChainConnectorConfig::default()),
-                dispatcher_manager: None,
             }
         } else {
             // Build real chain connector with default configuration
             ChainMode::Real {
                 real_chain_config: Arc::new(RealChainConnectorConfig::default()),
-                dispatcher_manager: None,
             }
         }
     }
@@ -387,14 +351,10 @@ impl ChainMode {
     /// Get chain connector configuration
     pub fn get_chain_connector_config(&self) -> Arc<dyn ChainConnectorConfig + Send + Sync> {
         match self {
-            ChainMode::Simulated {
-                simple_chain_config,
-                dispatcher_manager: _,
-            } => simple_chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>,
-            ChainMode::Real {
-                real_chain_config,
-                dispatcher_manager: _,
-            } => {
+            ChainMode::Simulated { simple_chain_config } => {
+                simple_chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>
+            }
+            ChainMode::Real { real_chain_config } => {
                 real_chain_config.clone() as Arc<dyn ChainConnectorConfig + Send + Sync>
             }
         }
@@ -403,21 +363,15 @@ impl ChainMode {
     /// Run the chain mode
     pub async fn run(&self) -> Result<()> {
         match self {
-            ChainMode::Simulated { simple_chain_config, .. } => {
+            ChainMode::Simulated { .. } => {
                 tracing::info!("Running simulated chain connector");
                 // Simulated chain connector runs in-memory without external connections
-                tracing::debug!(
-                    config = ?simple_chain_config,
-                    "Simulated chain connector initialized"
-                );
+                tracing::debug!("Simulated chain connector initialized");
             }
-            ChainMode::Real { real_chain_config, .. } => {
+            ChainMode::Real { .. } => {
                 tracing::info!("Running real chain connector");
                 // Real chain connector would establish blockchain connections
-                tracing::debug!(
-                    config = ?real_chain_config,
-                    "Real chain connector initialized"
-                );
+                tracing::debug!("Real chain connector initialized");
             }
         }
         Ok(())

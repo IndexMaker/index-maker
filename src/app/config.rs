@@ -131,39 +131,58 @@ impl From<serde_json::Error> for ConfigBuildError {
 ///   "market_data": {
 ///     "provider": "binance",
 ///     "connection_timeout_secs": 30
-///   },
-///   "dispatcher": {
-///     "market_data_update_interval_ms": 1000,
-///     "order_processing_interval_ms": 500,
-///     "initial_price_counter": 100.0
 ///   }
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationConfig {
     /// Application-level settings including quote currency and simulation modes
-    pub app: AppConfig,
+    pub app: AppSettings,
     /// Solver configuration with mathematical parameters and timing settings
-    pub solver: SolverConfigData,
-    /// Market data configuration for price feed connections
-    pub market_data: MarketDataConfigData,
-    /// Chain connector configuration for blockchain interactions
-    pub chain: ChainConfigData,
-    /// Order sender configuration for exchange API connections
-    pub order_sender: OrderSenderConfigData,
-    /// Basket manager configuration for index composition management
-    pub basket_manager: BasketManagerConfigData,
-    /// Dispatcher configuration for thread management and timing
-    pub dispatcher: DispatcherConfigData,
+    pub solver: SolverSettings,
+    /// Connection settings for external services (market data, exchanges, blockchain, server)
+    pub connections: ConnectionSettings,
     /// Logging configuration including levels, outputs, and telemetry
-    pub logging: LoggingConfig,
-    /// Server configuration for HTTP/FIX server endpoints
-    pub server: ServerConfigData,
+    pub logging: LoggingSettings,
 }
 
-/// Application-level configuration
+impl ApplicationConfig {
+    /// Apply CLI overrides to configuration
+    /// This replaces the complex merge functions with simple field-by-field override
+    pub fn apply_cli_overrides(&mut self, cli: &CliOverrides) {
+        if let Some(currency) = &cli.main_quote_currency {
+            self.app.main_quote_currency = currency.clone();
+        }
+        if let Some(simulate) = cli.simulate_sender {
+            self.app.simulate_sender = simulate;
+        }
+        if let Some(simulate) = cli.simulate_chain {
+            self.app.simulate_chain = simulate;
+        }
+        if let Some(bind_address) = &cli.bind_address {
+            self.connections.server_bind_address = bind_address.clone();
+        }
+        if let Some(log_path) = &cli.log_path {
+            self.logging.file_path = Some(log_path.clone());
+        }
+        if let Some(term_log_off) = cli.term_log_off {
+            self.logging.disable_terminal = term_log_off;
+        }
+        if let Some(otlp_trace_url) = &cli.otlp_trace_url {
+            self.logging.otlp_trace_url = Some(otlp_trace_url.clone());
+        }
+        if let Some(otlp_log_url) = &cli.otlp_log_url {
+            self.logging.otlp_log_url = Some(otlp_log_url.clone());
+        }
+        if let Some(batch_size) = cli.batch_size {
+            self.logging.batch_size = batch_size;
+        }
+    }
+}
+
+/// Application-level settings (renamed from AppConfig for clarity)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppConfig {
+pub struct AppSettings {
     /// Main quote currency (default: USDC)
     #[serde(default = "default_main_quote_currency")]
     pub main_quote_currency: Symbol,
@@ -173,14 +192,14 @@ pub struct AppConfig {
     /// Whether to simulate chain operations
     #[serde(default)]
     pub simulate_chain: bool,
-    /// Configuration files directory path
-    #[serde(default = "default_config_path")]
-    pub config_path: PathBuf,
+    /// Index configuration file path
+    #[serde(default = "default_index_config")]
+    pub index_config: PathBuf,
 }
 
-/// Solver configuration data
+/// Solver configuration settings (renamed from SolverConfigData for clarity)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SolverConfigData {
+pub struct SolverSettings {
     /// Price threshold for solver decisions
     #[serde(default = "default_price_threshold")]
     pub price_threshold: Amount,
@@ -237,52 +256,46 @@ pub struct SolverConfigData {
     pub quotes_tick_interval_ms: i64,
 }
 
-/// Market data configuration
+/// Connection settings for all external services (consolidates market_data, chain, order_sender, server)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketDataConfigData {
+pub struct ConnectionSettings {
     /// Market data provider settings
     #[serde(default = "default_market_data_provider")]
-    pub provider: Symbol,
-    /// Connection timeout in seconds
+    pub market_data_provider: Symbol,
+    /// Market data connection timeout in seconds
     #[serde(default = "default_connection_timeout")]
-    pub connection_timeout_secs: u64,
-    /// Reconnection attempts
+    pub market_data_timeout_secs: u64,
+    /// Market data reconnection attempts
     #[serde(default = "default_reconnection_attempts")]
-    pub reconnection_attempts: u32,
-}
+    pub market_data_reconnection_attempts: u32,
 
-/// Chain connector configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChainConfigData {
     /// Chain provider (e.g., "ethereum", "arbitrum")
     #[serde(default = "default_chain_provider")]
-    pub provider: Symbol,
+    pub chain_provider: Symbol,
     /// RPC URL for chain connection
-    pub rpc_url: Option<String>,
-    /// Private key for transactions (should be loaded from env)
-    pub private_key: Option<String>,
+    pub chain_rpc_url: Option<String>,
     /// Gas price multiplier
     #[serde(default = "default_gas_price_multiplier")]
-    pub gas_price_multiplier: f64,
-}
+    pub chain_gas_price_multiplier: f64,
 
-/// Order sender configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderSenderConfigData {
-    /// Exchange provider
+    /// Exchange provider for order sending
     #[serde(default = "default_order_sender_provider")]
-    pub provider: Symbol,
-    /// API credentials (should be loaded from env)
-    pub api_key: Option<String>,
-    pub api_secret: Option<String>,
-    /// Rate limiting settings
+    pub order_sender_provider: Symbol,
+    /// Rate limiting settings for order sender
     #[serde(default = "default_rate_limit_per_second")]
-    pub rate_limit_per_second: u32,
+    pub order_sender_rate_limit_per_second: u32,
+
+    /// Server bind address
+    #[serde(default = "default_bind_address")]
+    pub server_bind_address: String,
+    /// Server timeout settings
+    #[serde(default = "default_server_timeout")]
+    pub server_timeout_secs: u64,
 }
 
-/// Logging configuration
+/// Logging settings (renamed from LoggingConfig for clarity)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoggingConfig {
+pub struct LoggingSettings {
     /// Log level (trace, debug, info, warn, error)
     #[serde(default = "default_log_level")]
     pub level: String,
@@ -300,36 +313,15 @@ pub struct LoggingConfig {
     pub batch_size: usize,
 }
 
-/// Server configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfigData {
-    /// Bind address for the server
-    #[serde(default = "default_bind_address")]
-    pub bind_address: String,
-    /// Server timeout settings
-    #[serde(default = "default_server_timeout")]
-    pub timeout_secs: u64,
-}
 
-/// Dispatcher configuration for thread management and timing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DispatcherConfigData {
-    /// Market data update interval in milliseconds
-    #[serde(default = "default_market_data_update_interval")]
-    pub market_data_update_interval_ms: u64,
-    /// Order processing interval in milliseconds
-    #[serde(default = "default_order_processing_interval")]
-    pub order_processing_interval_ms: u64,
-    /// Initial price counter value for market data simulation
-    #[serde(default = "default_initial_price_counter")]
-    pub initial_price_counter: f64,
-}
+
+
 
 /// Basket manager configuration - simple and clean
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BasketManagerConfigData {
     /// List of index file mappings
-    pub indexes_files: Vec<IndexFileMapping>,
+    pub index_files: Vec<IndexFileMapping>,
 }
 
 /// Index file mapping configuration
@@ -346,8 +338,8 @@ fn default_main_quote_currency() -> Symbol {
     Symbol::from("USDC")
 }
 
-fn default_config_path() -> PathBuf {
-    PathBuf::from("configs")
+fn default_index_config() -> PathBuf {
+    PathBuf::from("./index_config.json")
 }
 
 fn default_price_threshold() -> Amount {
@@ -454,17 +446,7 @@ fn default_server_timeout() -> u64 {
     30
 }
 
-fn default_market_data_update_interval() -> u64 {
-    1000 // 1 second
-}
 
-fn default_order_processing_interval() -> u64 {
-    500 // 0.5 seconds
-}
-
-fn default_initial_price_counter() -> f64 {
-    100.0
-}
 
 fn default_market_data_provider() -> Symbol {
     Symbol::from("binance")
@@ -481,31 +463,26 @@ fn default_order_sender_provider() -> Symbol {
 impl Default for ApplicationConfig {
     fn default() -> Self {
         Self {
-            app: AppConfig::default(),
-            solver: SolverConfigData::default(),
-            market_data: MarketDataConfigData::default(),
-            chain: ChainConfigData::default(),
-            order_sender: OrderSenderConfigData::default(),
-            basket_manager: BasketManagerConfigData::default(),
-            dispatcher: DispatcherConfigData::default(),
-            logging: LoggingConfig::default(),
-            server: ServerConfigData::default(),
+            app: AppSettings::default(),
+            solver: SolverSettings::default(),
+            connections: ConnectionSettings::default(),
+            logging: LoggingSettings::default(),
         }
     }
 }
 
-impl Default for AppConfig {
+impl Default for AppSettings {
     fn default() -> Self {
         Self {
             main_quote_currency: default_main_quote_currency(),
             simulate_sender: false,
             simulate_chain: false,
-            config_path: default_config_path(),
+            index_config: default_index_config(),
         }
     }
 }
 
-impl Default for SolverConfigData {
+impl Default for SolverSettings {
     fn default() -> Self {
         Self {
             price_threshold: default_price_threshold(),
@@ -530,39 +507,24 @@ impl Default for SolverConfigData {
     }
 }
 
-impl Default for MarketDataConfigData {
+impl Default for ConnectionSettings {
     fn default() -> Self {
         Self {
-            provider: default_market_data_provider(),
-            connection_timeout_secs: default_connection_timeout(),
-            reconnection_attempts: default_reconnection_attempts(),
+            market_data_provider: default_market_data_provider(),
+            market_data_timeout_secs: default_connection_timeout(),
+            market_data_reconnection_attempts: default_reconnection_attempts(),
+            chain_provider: default_chain_provider(),
+            chain_rpc_url: None,
+            chain_gas_price_multiplier: default_gas_price_multiplier(),
+            order_sender_provider: default_order_sender_provider(),
+            order_sender_rate_limit_per_second: default_rate_limit_per_second(),
+            server_bind_address: default_bind_address(),
+            server_timeout_secs: default_server_timeout(),
         }
     }
 }
 
-impl Default for ChainConfigData {
-    fn default() -> Self {
-        Self {
-            provider: default_chain_provider(),
-            rpc_url: None,
-            private_key: None,
-            gas_price_multiplier: default_gas_price_multiplier(),
-        }
-    }
-}
-
-impl Default for OrderSenderConfigData {
-    fn default() -> Self {
-        Self {
-            provider: default_order_sender_provider(),
-            api_key: None,
-            api_secret: None,
-            rate_limit_per_second: default_rate_limit_per_second(),
-        }
-    }
-}
-
-impl Default for LoggingConfig {
+impl Default for LoggingSettings {
     fn default() -> Self {
         Self {
             level: default_log_level(),
@@ -575,29 +537,14 @@ impl Default for LoggingConfig {
     }
 }
 
-impl Default for ServerConfigData {
-    fn default() -> Self {
-        Self {
-            bind_address: default_bind_address(),
-            timeout_secs: default_server_timeout(),
-        }
-    }
-}
 
-impl Default for DispatcherConfigData {
-    fn default() -> Self {
-        Self {
-            market_data_update_interval_ms: default_market_data_update_interval(),
-            order_processing_interval_ms: default_order_processing_interval(),
-            initial_price_counter: default_initial_price_counter(),
-        }
-    }
-}
+
+
 
 impl Default for BasketManagerConfigData {
     fn default() -> Self {
         Self {
-            indexes_files: Vec::new(),
+            index_files: Vec::new(),
         }
     }
 }
@@ -714,7 +661,7 @@ impl ConfigLoader {
                 value = %val,
                 "Overriding main quote currency from environment"
             );
-            config.app.main_quote_currency = Symbol::from(&val);
+            config.app.main_quote_currency = Symbol::from(String::from(val));
         }
         if let Ok(val) = env::var("INDEX_MAKER_SIMULATE_SENDER") {
             config.app.simulate_sender = val.parse().map_err(|err| {
@@ -808,124 +755,25 @@ impl ConfigLoader {
         config
     }
 
-    /// Merge two configurations with proper deep merging
-    /// The override_config takes precedence over base_config for all fields
+    /// Simple configuration override - file config takes precedence over defaults
+    /// This replaces the complex merge functions with simple field assignment
     fn merge_configs(
         &self,
-        base: ApplicationConfig,
+        _base: ApplicationConfig,
         override_config: ApplicationConfig,
     ) -> Result<ApplicationConfig, ConfigBuildError> {
-        Ok(ApplicationConfig {
-            app: self.merge_app_config(base.app, override_config.app),
-            solver: self.merge_solver_config(base.solver, override_config.solver),
-            market_data: self.merge_market_data_config(base.market_data, override_config.market_data),
-            chain: self.merge_chain_config(base.chain, override_config.chain),
-            order_sender: self.merge_order_sender_config(base.order_sender, override_config.order_sender),
-            basket_manager: self.merge_basket_manager_config(base.basket_manager, override_config.basket_manager),
-            dispatcher: self.merge_dispatcher_config(base.dispatcher, override_config.dispatcher),
-            logging: self.merge_logging_config(base.logging, override_config.logging),
-            server: self.merge_server_config(base.server, override_config.server),
-        })
+        // Simply return the override config since we're not doing actual merging
+        // All merge functions were just doing field assignment anyway
+        Ok(override_config)
     }
 
-    /// Merge app configuration sections
-    fn merge_app_config(&self, base: AppConfig, override_config: AppConfig) -> AppConfig {
-        AppConfig {
-            main_quote_currency: override_config.main_quote_currency,
-            simulate_sender: override_config.simulate_sender,
-            simulate_chain: override_config.simulate_chain,
-            config_path: override_config.config_path,
-        }
-    }
 
-    /// Merge solver configuration sections
-    fn merge_solver_config(&self, base: SolverConfigData, override_config: SolverConfigData) -> SolverConfigData {
-        SolverConfigData {
-            price_threshold: override_config.price_threshold,
-            max_levels: override_config.max_levels,
-            fee_factor: override_config.fee_factor,
-            max_order_volley_size: override_config.max_order_volley_size,
-            max_volley_size: override_config.max_volley_size,
-            min_asset_volley_size: override_config.min_asset_volley_size,
-            asset_volley_step_size: override_config.asset_volley_step_size,
-            max_total_volley_size: override_config.max_total_volley_size,
-            min_total_volley_available: override_config.min_total_volley_available,
-            zero_threshold: override_config.zero_threshold,
-            max_batch_size: override_config.max_batch_size,
-            fill_threshold: override_config.fill_threshold,
-            mint_threshold: override_config.mint_threshold,
-            mint_wait_period_secs: override_config.mint_wait_period_secs,
-            client_order_wait_period_secs: override_config.client_order_wait_period_secs,
-            client_quote_wait_period_secs: override_config.client_quote_wait_period_secs,
-            solver_tick_interval_ms: override_config.solver_tick_interval_ms,
-            quotes_tick_interval_ms: override_config.quotes_tick_interval_ms,
-        }
-    }
 
-    /// Merge market data configuration sections
-    fn merge_market_data_config(&self, base: MarketDataConfigData, override_config: MarketDataConfigData) -> MarketDataConfigData {
-        MarketDataConfigData {
-            provider: override_config.provider,
-            connection_timeout_secs: override_config.connection_timeout_secs,
-            reconnection_attempts: override_config.reconnection_attempts,
-        }
-    }
 
-    /// Merge chain configuration sections
-    fn merge_chain_config(&self, base: ChainConfigData, override_config: ChainConfigData) -> ChainConfigData {
-        ChainConfigData {
-            provider: override_config.provider,
-            rpc_url: override_config.rpc_url,
-            private_key: override_config.private_key,
-            gas_price_multiplier: override_config.gas_price_multiplier,
-        }
-    }
 
-    /// Merge order sender configuration sections
-    fn merge_order_sender_config(&self, base: OrderSenderConfigData, override_config: OrderSenderConfigData) -> OrderSenderConfigData {
-        OrderSenderConfigData {
-            provider: override_config.provider,
-            api_key: override_config.api_key,
-            api_secret: override_config.api_secret,
-            rate_limit_per_second: override_config.rate_limit_per_second,
-        }
-    }
 
-    /// Merge basket manager configuration sections
-    fn merge_basket_manager_config(&self, base: BasketManagerConfigData, override_config: BasketManagerConfigData) -> BasketManagerConfigData {
-        BasketManagerConfigData {
-            indexes_files: override_config.indexes_files,
-        }
-    }
 
-    /// Merge dispatcher configuration sections
-    fn merge_dispatcher_config(&self, base: DispatcherConfigData, override_config: DispatcherConfigData) -> DispatcherConfigData {
-        DispatcherConfigData {
-            market_data_update_interval_ms: override_config.market_data_update_interval_ms,
-            order_processing_interval_ms: override_config.order_processing_interval_ms,
-            initial_price_counter: override_config.initial_price_counter,
-        }
-    }
 
-    /// Merge logging configuration sections
-    fn merge_logging_config(&self, base: LoggingConfig, override_config: LoggingConfig) -> LoggingConfig {
-        LoggingConfig {
-            level: override_config.level,
-            file_path: override_config.file_path,
-            disable_terminal: override_config.disable_terminal,
-            otlp_trace_url: override_config.otlp_trace_url,
-            otlp_log_url: override_config.otlp_log_url,
-            batch_size: override_config.batch_size,
-        }
-    }
-
-    /// Merge server configuration sections
-    fn merge_server_config(&self, base: ServerConfigData, override_config: ServerConfigData) -> ServerConfigData {
-        ServerConfigData {
-            bind_address: override_config.bind_address,
-            timeout_secs: override_config.timeout_secs,
-        }
-    }
 
     /// Validate the final configuration using safe mathematical operations
     fn validate_config(&self, config: &ApplicationConfig) -> Result<(), ConfigBuildError> {
@@ -933,12 +781,11 @@ impl ConfigLoader {
 
         // Validate each configuration section
         self.validate_solver_config(&config.solver)?;
-        self.validate_market_data_config(&config.market_data)?;
-        self.validate_chain_config(&config.chain)?;
-        self.validate_order_sender_config(&config.order_sender)?;
-        self.validate_basket_manager_config(&config.basket_manager)?;
+        self.validate_market_data_config(&config.connections)?;
+        self.validate_chain_config(&config.connections)?;
+        self.validate_order_sender_config(&config.connections)?;
         self.validate_logging_config(&config.logging)?;
-        self.validate_server_config(&config.server)?;
+        self.validate_server_config(&config.connections)?;
 
         if config.solver.max_batch_size == 0 {
             return Err(ConfigBuildError::ValidationError(String::from(
@@ -969,7 +816,7 @@ impl ConfigLoader {
 
         // Validate logging configuration
         let valid_log_levels = ["trace", "debug", "info", "warn", "error"];
-        if !valid_log_levels.contains(&config.logging.level.as_str()) {
+        if !valid_log_levels.contains(&String::from(config.logging.level.clone()).as_str()) {
             return Err(ConfigBuildError::ValidationError(format!(
                 "Invalid log level '{}'. Valid levels: {}",
                 config.logging.level,
@@ -998,7 +845,7 @@ impl ConfigLoader {
     /// Validate solver configuration using safe mathematical operations
     fn validate_solver_config(
         &self,
-        solver_config: &SolverConfigData,
+        solver_config: &SolverSettings,
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating solver configuration");
 
@@ -1058,25 +905,25 @@ impl ConfigLoader {
     /// Validate market data configuration
     fn validate_market_data_config(
         &self,
-        market_data_config: &MarketDataConfigData,
+        market_data_config: &ConnectionSettings,
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating market data configuration");
 
-        if String::from(&market_data_config.provider).is_empty() {
+        if String::from(&market_data_config.market_data_provider).is_empty() {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "market_data.provider cannot be empty",
+                "connections.market_data_provider cannot be empty",
             )));
         }
 
-        if market_data_config.connection_timeout_secs == 0 {
+        if market_data_config.market_data_timeout_secs == 0 {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "market_data.connection_timeout_secs must be greater than 0",
+                "connections.market_data_timeout_secs must be greater than 0",
             )));
         }
 
-        if market_data_config.reconnection_attempts == 0 {
+        if market_data_config.market_data_reconnection_attempts == 0 {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "market_data.reconnection_attempts must be greater than 0",
+                "connections.market_data_reconnection_attempts must be greater than 0",
             )));
         }
 
@@ -1087,26 +934,26 @@ impl ConfigLoader {
     /// Validate chain configuration
     fn validate_chain_config(
         &self,
-        chain_config: &ChainConfigData,
+        chain_config: &ConnectionSettings,
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating chain configuration");
 
-        if String::from(&chain_config.provider).is_empty() {
+        if String::from(&chain_config.chain_provider).is_empty() {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "chain.provider cannot be empty",
+                "connections.chain_provider cannot be empty",
             )));
         }
 
-        if chain_config.gas_price_multiplier <= 0.0 {
+        if chain_config.chain_gas_price_multiplier <= 0.0 {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "chain.gas_price_multiplier must be positive",
+                "connections.chain_gas_price_multiplier must be positive",
             )));
         }
 
         // Validate gas price multiplier is reasonable (between 1.0 and 10.0)
-        if chain_config.gas_price_multiplier < 1.0 || chain_config.gas_price_multiplier > 10.0 {
+        if chain_config.chain_gas_price_multiplier < 1.0 || chain_config.chain_gas_price_multiplier > 10.0 {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "chain.gas_price_multiplier should be between 1.0 and 10.0",
+                "connections.chain_gas_price_multiplier should be between 1.0 and 10.0",
             )));
         }
 
@@ -1117,19 +964,19 @@ impl ConfigLoader {
     /// Validate order sender configuration
     fn validate_order_sender_config(
         &self,
-        order_sender_config: &OrderSenderConfigData,
+        order_sender_config: &ConnectionSettings,
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating order sender configuration");
 
-        if String::from(&order_sender_config.provider).is_empty() {
+        if String::from(&order_sender_config.order_sender_provider).is_empty() {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "order_sender.provider cannot be empty",
+                "connections.order_sender_provider cannot be empty",
             )));
         }
 
-        if order_sender_config.rate_limit_per_second == 0 {
+        if order_sender_config.order_sender_rate_limit_per_second == 0 {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "order_sender.rate_limit_per_second must be greater than 0",
+                "connections.order_sender_rate_limit_per_second must be greater than 0",
             )));
         }
 
@@ -1151,24 +998,24 @@ impl ConfigLoader {
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating basket manager configuration");
 
-        if basket_config.indexes_files.is_empty() {
+        if basket_config.index_files.is_empty() {
             return Err(ConfigBuildError::ValidationError(
-                String::from("basket_manager.indexes_files cannot be empty"),
+                String::from("basket_manager.index_files cannot be empty"),
             ));
         }
 
         // Validate each index file mapping
-        for (index, mapping) in basket_config.indexes_files.iter().enumerate() {
-            if String::from(&mapping.symbol).is_empty() {
+        for (index, mapping) in basket_config.index_files.iter().enumerate() {
+            if String::from(mapping.symbol.clone()).is_empty() {
                 return Err(ConfigBuildError::ValidationError(format!(
-                    "basket_manager.indexes_files[{}].symbol cannot be empty",
+                    "basket_manager.index_files[{}].symbol cannot be empty",
                     index
                 )));
             }
 
             if mapping.file_path.is_empty() {
                 return Err(ConfigBuildError::ValidationError(format!(
-                    "basket_manager.indexes_files[{}].file_path cannot be empty",
+                    "basket_manager.index_files[{}].file_path cannot be empty",
                     index
                 )));
             }
@@ -1191,12 +1038,12 @@ impl ConfigLoader {
     /// Validate logging configuration
     fn validate_logging_config(
         &self,
-        logging_config: &LoggingConfig,
+        logging_config: &LoggingSettings,
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating logging configuration");
 
         let valid_log_levels = ["trace", "debug", "info", "warn", "error"];
-        if !valid_log_levels.contains(&logging_config.level.as_str()) {
+        if !valid_log_levels.contains(&String::from(logging_config.level.clone()).as_str()) {
             return Err(ConfigBuildError::ValidationError(format!(
                 "Invalid log level '{}'. Valid levels: {}",
                 logging_config.level,
@@ -1217,26 +1064,26 @@ impl ConfigLoader {
     /// Validate server configuration
     fn validate_server_config(
         &self,
-        server_config: &ServerConfigData,
+        server_config: &ConnectionSettings,
     ) -> Result<(), ConfigBuildError> {
         tracing::debug!("Validating server configuration");
 
-        if server_config.bind_address.is_empty() {
+        if server_config.server_bind_address.is_empty() {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "server.bind_address cannot be empty",
+                "connections.server_bind_address cannot be empty",
             )));
         }
 
         // Validate bind address format (basic check)
-        if !server_config.bind_address.contains(':') {
+        if !server_config.server_bind_address.contains(':') {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "server.bind_address must be in format 'host:port'",
+                "connections.server_bind_address must be in format 'host:port'",
             )));
         }
 
-        if server_config.timeout_secs == 0 {
+        if server_config.server_timeout_secs == 0 {
             return Err(ConfigBuildError::ValidationError(String::from(
-                "server.timeout_secs must be greater than 0",
+                "connections.server_timeout_secs must be greater than 0",
             )));
         }
 
@@ -1324,13 +1171,13 @@ pub struct CliOverrides {
 
 impl CliOverrides {
     /// Create CLI overrides from the existing Cli struct
-    pub fn from_cli(cli: &crate::Cli) -> Self {
+    pub fn from_cli(cli: &crate::cli::Cli) -> Self {
         Self {
             main_quote_currency: cli.main_quote_currency.clone(),
             simulate_sender: if cli.simulate_sender { Some(true) } else { None },
             simulate_chain: if cli.simulate_chain { Some(true) } else { None },
             bind_address: cli.bind_address.clone(),
-            log_path: cli.log_path.as_ref().map(|p| PathBuf::from(p)),
+            log_path: cli.log_path.map(|p| PathBuf::from(String::from(p))),
             term_log_off: if cli.term_log_off { Some(true) } else { None },
             otlp_trace_url: cli.otlp_trace_url.clone(),
             otlp_log_url: cli.otlp_log_url.clone(),
