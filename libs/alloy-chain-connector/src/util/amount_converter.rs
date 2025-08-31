@@ -50,6 +50,24 @@ impl AmountConverter {
         Ok(parsed_units.into())
     }
 
+    /// Convert U256 value into Amount
+    /// 
+    /// Function panics when conversion is not possible.
+    /// 
+    pub fn into_amount_safe(&self, value: U256) -> Amount {
+        self.into_amount(value)
+            .expect("Programming error: Amount conversion was not expected to fail")
+    }
+
+    /// Convert Amount into U256
+    /// 
+    /// Function panics when conversion is not possible.
+    /// 
+    pub fn from_amount_safe(&self, amount: Amount) -> U256 {
+        self.from_amount(amount)
+            .expect("Programming error: Amount conversion was not expected to fail")
+    }
+
     pub fn rescale_from_decimals(&self, value: U256, decimals: u8) -> U256 {
         let base10 = U256::from(10);
 
@@ -61,7 +79,7 @@ impl AmountConverter {
             value
         }
     }
-    
+
     pub fn rescale_from(&self, value: U256, other: &AmountConverter) -> U256 {
         self.rescale_from_decimals(value, other.decimals)
     }

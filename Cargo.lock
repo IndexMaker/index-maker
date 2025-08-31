@@ -971,6 +971,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "anvil_provisioner"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-chain-connector",
+ "eyre",
+ "hex",
+ "otc-custody",
+ "reqwest 0.11.27",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "symm-core",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3801,6 +3820,26 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-opentelemetry",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "index_deployer"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-chain-connector",
+ "clap",
+ "eyre",
+ "hex",
+ "otc-custody",
+ "reqwest 0.11.27",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "symm-core",
+ "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 
