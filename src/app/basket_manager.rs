@@ -2,10 +2,10 @@ use std::{collections::HashSet, fs, path::Path, sync::Arc};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
-use eyre::{OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use symm_core::core::bits::Symbol;
+use symm_core::core::{bits::Symbol, json_file_async::read_from_json_file_async};
 
 use index_core::index::{basket::Basket, basket_manager::BasketManager};
 
@@ -22,8 +22,10 @@ pub struct BasketManagerConfig {
     with_config_file: Option<String>,
 
     #[builder(setter(skip))]
-    symbols: Vec<Symbol>,
-    //asset_manager:
+    index_symbols: Vec<Symbol>,
+
+    #[builder(setter(skip))]
+    underlying_asset_symbols: Vec<Symbol>,
 }
 
 impl BasketManagerConfig {
@@ -45,49 +47,55 @@ impl BasketManagerConfig {
             .ok_or_eyre("Failed to get basket manager")
     }
 
-    pub fn get_symbols(&self) -> Vec<Symbol> {
-        self.symbols.clone()
+    pub fn get_index_symbols(&self) -> Vec<Symbol> {
+        self.index_symbols.clone()
     }
 
-    pub fn load_config_file(&self) -> Result<Vec<(Symbol, String)>> {
-        let Some(path_str) = &self.with_config_file else {
-            return Err(eyre::eyre!("No config file path provided"));
-        };
-        let config_path = Path::new(path_str.as_str());
+    pub fn get_underlying_asset_symbols(&self) -> Vec<Symbol> {
+        self.underlying_asset_symbols.clone()
+    }
 
-        let mut indexes_configs: Vec<(Symbol, String)> = Vec::new();
-        if config_path.exists() {
-            let content =
-                fs::read_to_string(config_path).expect("Failed to read BasketManagerConfig.json");
-            let json_data: serde_json::Value =
-                serde_json::from_str(&content).expect("Failed to parse BasketManagerConfig.json");
-            let indexes_files = json_data
-                .get("indexes_files")
-                .and_then(|v| v.as_array())
-                .ok_or_eyre("No 'indexes_files' array found in config file.")?;
+    pub async fn load_config_file(&self) -> Result<Vec<(Symbol, String)>> {
+        let config_path = self
+            .with_config_file
+            .as_ref()
+            .ok_or_eyre("Config file must be specified")?;
 
-            for index_obj in indexes_files {
-                if let Some(obj) = index_obj.as_object() {
-                    for (index_name, file_path) in obj {
-                        if let Some(path_str) = file_path.as_str() {
-                            let index_symbol = Symbol::from(index_name.as_str());
-                            indexes_configs.push((index_symbol, path_str.to_string()));
-                        }
-                    }
-                }
-            }
-        } else {
-            return Err(eyre::eyre!(
-                "BasketManagerConfig.json config file not found at: {}",
-                path_str
-            ));
+        let json_data = read_from_json_file_async::<serde_json::Value>(config_path)
+            .await
+            .context("Failed to load basket configuration")?;
+
+        let index_files = json_data
+            .get("index_files")
+            .and_then(|v| v.as_array())
+            .ok_or_eyre("Configuration must contain index_files")?;
+
+        
+        let (index_configs, bad): (Vec<_>, Vec<_>) = index_files
+            .into_iter()
+            .map(|x| x.as_object().ok_or_eyre("Entry must be an object"))
+            .map_ok(|x| {
+                x.iter().map(|(k, v)| -> eyre::Result<(Symbol, String)> {
+                    Ok((
+                        Symbol::from(k.as_str()),
+                        String::from(v.as_str().ok_or_eyre("Value must be path string")?),
+                    ))
+                })
+            })
+            .flatten_ok()
+            .flatten_ok()
+            .partition_result();
+
+        if !bad.is_empty() {
+            Err(eyre!("Failed to read index configs: {:?}", bad))?;
         }
-        Ok(indexes_configs)
+
+        Ok(index_configs)
     }
 }
 
 impl BasketManagerConfigBuilder {
-    pub fn build(self) -> Result<BasketManagerConfig, ConfigBuildError> {
+    pub async fn build(self) -> Result<BasketManagerConfig, ConfigBuildError> {
         let mut config = self.try_build()?;
 
         config
@@ -97,6 +105,7 @@ impl BasketManagerConfigBuilder {
         if config.with_config_file.is_some() {
             let indexes: Vec<(Symbol, Basket)> = config
                 .load_config_file()
+                .await
                 .map_err(|e| ConfigBuildError::Other(format!("Config load error: {}", e)))?
                 .into_iter()
                 .map(|(index_symbol, index_path_str)| {
@@ -114,7 +123,9 @@ impl BasketManagerConfigBuilder {
                 std::process::exit(1);
             }
 
+            let mut index_symbols = Vec::new();
             let mut unique_symbols: HashSet<Symbol> = HashSet::new();
+
             for (index_symbol, basket) in indexes {
                 let symbols = basket
                     .basket_assets
@@ -129,8 +140,12 @@ impl BasketManagerConfigBuilder {
                     .unwrap()
                     .write()
                     .set_basket(&index_symbol, &Arc::new(basket));
+
+                index_symbols.push(index_symbol);
             }
-            config.symbols = unique_symbols.into_iter().collect::<Vec<_>>();
+
+            config.index_symbols = index_symbols;
+            config.underlying_asset_symbols = unique_symbols.into_iter().collect::<Vec<_>>();
         }
 
         Ok(config)

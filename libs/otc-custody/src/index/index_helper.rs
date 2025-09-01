@@ -1,11 +1,12 @@
 use alloy::{
-    primitives::{keccak256, Address, Bytes, B256, U256},
+    primitives::{keccak256, Address, Bytes, U256},
     sol_types::SolValue,
 };
 use serde::{Deserialize, Serialize};
 use struple::Struple;
 
-use crate::custody_helper::CAItem;
+/// Please, use get_index_token_precision() on specific IndexInstance
+pub(crate) const OTC_INDEX_TOKEN_PRECISION: u8 = 18;
 
 pub(crate) const OTC_INDEX_CONNECTOR_TYPE: &str = "OTCIndex";
 pub(crate) const OTC_INDEX_CONNECTOR_NAME: &str = "OTCIndexConnector";

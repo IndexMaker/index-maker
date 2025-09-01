@@ -71,7 +71,7 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&converter, receipt)?;
+                let gas_amount = compute_gas_used(receipt)?;
                 
                 tracing::info!("💰 Collateral transferred to wallet {} gas used {}", receipient, gas_amount);
 

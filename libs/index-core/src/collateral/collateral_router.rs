@@ -209,8 +209,8 @@ impl CollateralRouter {
 
         let transfer_from = self
             .chain_sources
-            .get(&(chain_id, symbol))
-            .ok_or_eyre("Failed to find source")?;
+            .get(&(chain_id, symbol.clone()))
+            .ok_or_else(|| eyre!("Failed to find source: {} {}", chain_id, symbol))?;
 
         let transfer_to = self
             .default_destination
