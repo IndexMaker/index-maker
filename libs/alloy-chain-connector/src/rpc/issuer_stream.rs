@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use alloy::providers::Provider;
 use alloy_primitives::{keccak256, U256};
@@ -14,7 +17,11 @@ use symm_core::core::{
 };
 
 use crate::util::amount_converter::AmountConverter;
-use otc_custody::contracts::{IOTCIndex::Deposit, ERC20};
+use otc_custody::{
+    contracts::{IOTCIndex::Deposit, ERC20},
+    custody_client::CustodyClientMethods,
+    index::index::IndexInstance,
+};
 
 pub struct RpcIssuerStream<P>
 where
@@ -49,15 +56,11 @@ where
     pub async fn subscribe(
         &mut self,
         chain_id: u32,
-        usdc_address: Address,
+        indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> eyre::Result<()> {
         let provider = self.provider.take().ok_or_eyre("Already subscribed")?;
         let provider_clone = provider.clone();
-
-        let usdc = ERC20::new(usdc_address, provider.clone());
-        let decimals = usdc.decimals().call().await?;
-        let converter = AmountConverter::new(decimals);
 
         let event_filter = Filter::new();
         let poll_interval = std::time::Duration::from_secs(3);
@@ -75,6 +78,7 @@ where
                     from_block: Some(BlockNumberOrTag::Number(last_block_from + 1)),
                     to_block: Some(BlockNumberOrTag::Number(most_recent_block)),
                 });
+                last_block_from = most_recent_block;
 
                 let logs = provider.get_logs(&range).await?;
                 for log_event in logs {
@@ -89,6 +93,13 @@ where
                             deposit_data.affiliate2
                         );
 
+                        let decimals = indexes_by_address
+                            .read()
+                            .get(&deposit_data.address)
+                            .ok_or_else(|| eyre!("Failed to find index by address: {}", deposit_data.address))?
+                            .get_collateral_token_precision();
+
+                        let converter = AmountConverter::new(decimals);
                         let amount = converter.into_amount(deposit_data.amount)?;
 
                         observer.read().publish_single(ChainNotification::Deposit {
@@ -99,7 +110,6 @@ where
                         });
                     }
                 }
-                last_block_from = most_recent_block;
             }
             Ok(())
         };

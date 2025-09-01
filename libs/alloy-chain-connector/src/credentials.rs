@@ -8,7 +8,6 @@ use symm_core::core::bits::Address;
 pub struct Credentials {
     account_name: String,
     chain_id: u32,
-    usdc_address: Address,
     rpc_url: String,
     get_private_key_fn: std::sync::Arc<dyn Fn() -> String + Send + Sync>,
 }
@@ -17,14 +16,12 @@ impl Credentials {
     pub fn new(
         account_name: String,
         chain_id: u32,
-        usdc_address: Address,
         rpc_url: String,
         get_private_key_fn: std::sync::Arc<dyn Fn() -> String + Send + Sync>,
     ) -> Self {
         Self {
             account_name,
             chain_id,
-            usdc_address,
             rpc_url,
             get_private_key_fn,
         }
@@ -36,10 +33,6 @@ impl Credentials {
 
     pub fn get_chain_id(&self) -> u32 {
         self.chain_id
-    }
-
-    pub fn get_usdc_address(&self) -> Address {
-        self.usdc_address
     }
 
     pub fn get_rpc_url(&self) -> &str {

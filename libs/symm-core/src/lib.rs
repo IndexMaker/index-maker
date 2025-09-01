@@ -20,6 +20,7 @@ pub mod core {
 }
 
 pub mod market_data {
+    pub mod exchange_rates;
     pub mod market_data_connector;
     pub mod price_tracker;
 

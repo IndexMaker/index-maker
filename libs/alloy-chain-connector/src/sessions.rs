@@ -10,10 +10,10 @@ use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Itertools;
 use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::core::{bits::Symbol, functional::SingleObserver};
+use symm_core::core::{bits::{Address, Symbol}, functional::SingleObserver};
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{credentials::Credentials, session::Session};
+use crate::{credentials::Credentials, session::{Session, SessionBaggage}};
 
 pub struct Sessions {
     sessions: HashMap<String, Session>,
@@ -29,15 +29,19 @@ impl Sessions {
     pub fn add_session(
         &mut self,
         credentials: Credentials,
-        custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
-        indexes: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
+        baggage: SessionBaggage,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> Result<()> {
         match self.sessions.entry(credentials.get_account_name()) {
             Entry::Vacant(entry) => {
                 let (tx, rx) = unbounded_channel();
                 let session = entry.insert(Session::new(tx));
-                session.start(rx, observer, credentials, custody_clients, indexes)
+                session.start(
+                    rx,
+                    observer,
+                    credentials,
+                    baggage,
+                )
             }
             Entry::Occupied(_) => Err(eyre!("Session already started")),
         }

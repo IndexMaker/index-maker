@@ -4,10 +4,7 @@ use symm_core::core::functional::PublishSingle;
 
 use otc_custody::{contracts::OTCCustody, custody_client::CustodyClient};
 
-use crate::{
-    command::CustodyCommand,
-    util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
-};
+use crate::{command::CustodyCommand, util::{amount_converter::AmountConverter, gas_util::compute_gas_used}};
 
 pub struct RpcCustodySession<P>
 where
@@ -41,7 +38,11 @@ where
                 amount,
                 observer,
             } => {
-                tracing::info!("Routing {} collateral from custody to {}", amount, destination);
+                tracing::info!(
+                    "Routing {} collateral from custody to {}",
+                    amount,
+                    destination
+                );
 
                 let amount = converter.from_amount(amount)?;
                 let provider = DynProvider::new(provider.clone());
@@ -56,9 +57,13 @@ where
                     )
                     .await?;
 
-                let gas_amount = compute_gas_used(&converter, receipt)?;
-                
-                tracing::info!("🏦 Collateral routed to {} gas used {}", destination, gas_amount);
+                let gas_amount = compute_gas_used(receipt)?;
+
+                tracing::info!(
+                    "🏦 Collateral routed to {} gas used {}",
+                    destination,
+                    gas_amount
+                );
 
                 observer.publish_single(gas_amount);
             }
@@ -76,7 +81,7 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&converter, receipt)?;
+                let gas_amount = compute_gas_used(receipt)?;
                 observer.publish_single(gas_amount);
             }
             CustodyCommand::GetCustodyBalances { observer } => {

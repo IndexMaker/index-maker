@@ -455,6 +455,8 @@ impl TradingUserData {
                     .and_then(|v| Some(Amount::from_str_exact(&v)))
                     .ok_or_eyre("Missing commission amount")?
                     .or_else(|e| Err(eyre!("Failed to parse commission amount: {:?}", e)))?;
+                
+                let commission_asset = execution_report.n_uppercase;
 
                 let order_status = execution_report
                     .x_uppercase
@@ -477,7 +479,7 @@ impl TradingUserData {
                             side,
                             price: executed_price,
                             quantity: executed_quantity,
-                            fee: commission_amount,
+                            fee: Amount::ZERO,
                             timestamp: Utc::now(),
                         }),
                     "PARTIALLY_FILLED" => {
@@ -490,7 +492,7 @@ impl TradingUserData {
                                 side,
                                 price: executed_price,
                                 quantity: executed_quantity,
-                                fee: commission_amount,
+                                fee: Amount::ZERO,
                                 timestamp: Utc::now(),
                             })
                     }

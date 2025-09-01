@@ -10,21 +10,16 @@ use market_data::market_data::RealMarketData;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::{
-        bits::Amount,
-        functional::{
-            IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
-            IntoObservableSingleFun,
-        },
-        telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
-    },
+    core::
+        bits::Amount
+    ,
     market_data::{
-        market_data_connector::{MarketDataConnector, Subscription, MarketDataEvent},
+        exchange_rates::PriceTrackerExchangeRates,
+        market_data_connector::{MarketDataConnector, Subscription},
         order_book::order_book_manager::PricePointBookManager,
         price_tracker::PriceTracker,
     },
 };
-use tokio::sync::oneshot;
 
 #[derive(Clone, Builder)]
 #[builder(
@@ -59,6 +54,9 @@ pub struct MarketDataConfig {
     #[builder(setter(into, strip_option), default)]
     pub with_book_manager: Option<bool>,
 
+    #[builder(setter(into, strip_option), default)]
+    pub with_exchange_rates: Option<bool>,
+
     #[builder(setter(skip))]
     market_data: Option<Arc<RwLock<RealMarketData>>>,
 
@@ -67,6 +65,9 @@ pub struct MarketDataConfig {
 
     #[builder(setter(skip))]
     book_manager: Option<Arc<RwLock<PricePointBookManager>>>,
+
+    #[builder(setter(skip))]
+    exchange_rates: Option<Arc<PriceTrackerExchangeRates>>,
 }
 
 impl MarketDataConfig {
@@ -95,10 +96,27 @@ impl MarketDataConfig {
             .expect("Failed to get price tracker")
     }
 
+    pub fn expect_price_tracker_exchange_rates_cloned(
+        &self,
+    ) -> Arc<PriceTrackerExchangeRates> {
+        self.exchange_rates
+            .clone()
+            .ok_or(())
+            .expect("Failed to get exchange rates")
+    }
+
     pub fn try_get_price_tracker_cloned(&self) -> Result<Arc<RwLock<PriceTracker>>> {
         self.price_tracker
             .clone()
             .ok_or_eyre("Failed to get price tracker")
+    }
+
+    pub fn try_get_price_tracker_exchange_rates_cloned(
+        &self,
+    ) -> Result<Arc<PriceTrackerExchangeRates>> {
+        self.exchange_rates
+            .clone()
+            .ok_or_eyre("Failed to get exchange rates")
     }
 
     pub fn expect_book_manager_cloned(&self) -> Arc<RwLock<PricePointBookManager>> {
@@ -163,9 +181,17 @@ impl MarketDataConfigBuilder {
             ))));
 
         if config.with_price_tracker.unwrap_or(true) {
-            config
-                .price_tracker
-                .replace(Arc::new(RwLock::new(PriceTracker::new())));
+            let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
+            if config.with_exchange_rates.unwrap_or(true) {
+                config.exchange_rates.replace(Arc::new(
+                    PriceTrackerExchangeRates::new(price_tracker.clone()),
+                ));
+            }
+            config.price_tracker.replace(price_tracker);
+        } else if config.with_exchange_rates.unwrap_or(false) {
+            Err(ConfigBuildError::Other(String::from(
+                "Cannot initialize exchange rates without price tracker",
+            )))?;
         }
 
         if config.with_book_manager.unwrap_or(true) {

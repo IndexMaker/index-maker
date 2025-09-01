@@ -35,8 +35,6 @@ where
     ) -> eyre::Result<()> {
         let provider = &self.provider;
         let from_address = provider.default_signer_address();
-        let decimals = index.get_collateral_token_precision();
-        let converter = AmountConverter::new(decimals);
 
         match command {
             IssuerCommand::SetSolverWeights {
@@ -44,14 +42,17 @@ where
                 price,
                 observer,
             } => {
-                let price = converter.from_amount(price)?;
+                let collateral_token_converter =
+                    AmountConverter::new(index.get_collateral_token_precision());
+
+                let price = collateral_token_converter.from_amount(price)?;
                 let weights = bytes_from_weights(basket);
 
                 let receipt = index
                     .solver_weights_set_from(provider, from_address, &weights, price)
                     .await?;
 
-                let gas_amount = compute_gas_used(&converter, receipt)?;
+                let gas_amount = compute_gas_used(receipt)?;
                 observer.publish_single(gas_amount);
             }
             IssuerCommand::MintIndex {
@@ -62,7 +63,8 @@ where
             } => {
                 tracing::info!("Minting {} of Index for {}", amount, receipient);
 
-                let amount = converter.from_amount(amount)?;
+                let index_token_converter = AmountConverter::new(index.get_index_token_precision());
+                let amount = index_token_converter.from_amount(amount)?;
 
                 let receipt = index
                     .mint_index_from(
@@ -74,10 +76,10 @@ where
                     )
                     .await?;
 
-                let gas_amount = compute_gas_used(&converter, receipt)?;
+                let gas_amount = compute_gas_used(receipt)?;
 
                 tracing::info!("💳 Minted Index for {} gas used {}", receipient, gas_amount);
-                
+
                 observer.publish_single(gas_amount);
             }
             IssuerCommand::BurnIndex { .. } => {

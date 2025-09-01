@@ -7,10 +7,13 @@ use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Either;
 use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::core::{
-    async_loop::AsyncLoop,
-    bits::Symbol,
-    functional::{PublishSingle, SingleObserver},
+use symm_core::{
+    core::{
+        async_loop::AsyncLoop,
+        bits::{Address, Symbol},
+        functional::{PublishSingle, SingleObserver},
+    },
+    market_data::exchange_rates::ExchangeRates,
 };
 use tokio::task::JoinError;
 use tokio::{
@@ -26,6 +29,14 @@ use crate::{
         issuer_session::RpcIssuerSession, issuer_stream::RpcIssuerStream,
     },
 };
+
+#[derive(Clone)]
+pub struct SessionBaggage {
+    pub custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
+    pub indexes_by_symbol: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
+    pub indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
+}
+
 
 pub struct Session {
     command_tx: UnboundedSender<Command>,
@@ -55,11 +66,9 @@ impl Session {
         mut command_rx: UnboundedReceiver<Command>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
         credentials: Credentials,
-        custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
-        indexes: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
+        baggage: SessionBaggage,
     ) -> Result<()> {
         let chain_id = credentials.get_chain_id();
-        let usdc_address = credentials.get_usdc_address();
         let signer_address = credentials.get_signer_address()?;
 
         self.session_loop.start(async move |cancel_token| {
@@ -107,7 +116,7 @@ impl Session {
                 });
 
             if let Err(err) = rpc_issuer_stream
-                .subscribe(chain_id, usdc_address, observer.clone())
+                .subscribe(chain_id, baggage.indexes_by_address, observer.clone())
                 .await
             {
                 on_error(format!("Failed to subscribe to RPC events: {:?}", err));
@@ -125,7 +134,7 @@ impl Session {
                                 rpc_basic_session.send_basic_command(contract_address, command).await
                             }
                             CommandVariant::Issuer{symbol, command} => {
-                                let maybe_index = indexes.read().get(&symbol).cloned();
+                                let maybe_index = baggage.indexes_by_symbol.read().get(&symbol).cloned();
                                 if let Some(index) = maybe_index {
                                     rpc_issuer_session.send_issuer_command(index, command).await
                                 } else {
@@ -133,7 +142,7 @@ impl Session {
                                 }
                             }
                             CommandVariant::Custody{custody_id, token, command} => {
-                                let maybe_custody_client = custody_clients.read().get(&custody_id).cloned();
+                                let maybe_custody_client = baggage.custody_clients.read().get(&custody_id).cloned();
                                 if let Some(custody_client) = maybe_custody_client {
                                     rpc_custody_session.send_custody_command(
                                         custody_client, token, command).await

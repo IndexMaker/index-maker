@@ -16,7 +16,33 @@
             "max_redeem_per_block": "1000000000000000000000",
             "vote_threshold": "51",
             "vote_period": "86400",
-            "initial_price": "1000000000000000000000"
+            "initial_price": "200000000000000000000000"
+        },
+        {
+            "name": "So 2",
+            "symbol": "SO2",
+            "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "collateral_token_precision": "6",
+            "management_fee": "100",
+            "performance_fee": "200",
+            "max_mint_per_block": "1000000000000000000000",
+            "max_redeem_per_block": "1000000000000000000000",
+            "vote_threshold": "51",
+            "vote_period": "86400",
+            "initial_price": "5500000000000000000000"
+        },
+        {
+            "name": "So 3",
+            "symbol": "SO3",
+            "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "collateral_token_precision": "6",
+            "management_fee": "100",
+            "performance_fee": "200",
+            "max_mint_per_block": "1000000000000000000000",
+            "max_redeem_per_block": "1000000000000000000000",
+            "vote_threshold": "51",
+            "vote_period": "86400",
+            "initial_price": "1150000000000000000"
         }
     ]
 }

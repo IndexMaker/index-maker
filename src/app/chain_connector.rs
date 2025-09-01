@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock as ComponentLock};
 
 use alloy::primitives;
 use alloy_chain_connector::{
-    chain_connector::RealChainConnector,
+    chain_connector::{GasFeeCalculator, RealChainConnector},
     collateral::{
         otc_custody_designation::OTCCustodyCollateralDesignation,
         otc_custody_to_wallet_bridge::OTCCustodyToWalletCollateralBridge,
@@ -22,7 +22,10 @@ use otc_custody::{
 };
 use parking_lot::lock_api::RwLock;
 use primitives::address;
-use symm_core::core::{bits::Symbol, json_file_async::read_from_json_file_async};
+use symm_core::{
+    core::{bits::Symbol, json_file_async::read_from_json_file_async},
+    market_data::exchange_rates::ExchangeRates,
+};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
@@ -32,7 +35,10 @@ use index_core::{
     collateral::collateral_router::CollateralDesignation,
 };
 
-use crate::app::{collateral_router::CollateralRouterConfig, solver::ChainConnectorConfig};
+use crate::app::{
+    collateral_router::CollateralRouterConfig, market_data::MarketDataConfig,
+    solver::ChainConnectorConfig,
+};
 
 #[derive(Builder, Clone)]
 #[builder(
@@ -44,13 +50,16 @@ pub struct RealChainConnectorConfig {
     pub with_router: Option<CollateralRouterConfig>,
 
     #[builder(setter(into))]
-    with_credentials: Option<Credentials>,
+    pub with_credentials: Option<Credentials>,
 
     #[builder(setter(into))]
-    with_custody_authority: Option<CustodyAuthority>,
+    pub with_custody_authority: Option<CustodyAuthority>,
 
     #[builder(setter(into))]
-    with_config_file: String,
+    pub with_config_file: String,
+
+    #[builder(setter(into))]
+    pub with_gas_fee_calculator: Option<GasFeeCalculator>,
 
     #[builder(setter(skip))]
     chain_connector: Option<Arc<ComponentLock<RealChainConnector>>>,
@@ -146,7 +155,14 @@ impl RealChainConnectorConfigBuilder {
             .take()
             .ok_or_else(|| ConfigBuildError::UninitializedField("with_custody_authority"))?;
 
-        let chain_connector = Arc::new(ComponentLock::new(RealChainConnector::new()));
+        let gas_fee_calculator = config
+            .with_gas_fee_calculator
+            .clone()
+            .ok_or_else(|| ConfigBuildError::UninitializedField("with_gas_fee_calculator"))?;
+
+        let chain_connector = Arc::new(ComponentLock::new(RealChainConnector::new(
+            gas_fee_calculator.clone(),
+        )));
         config.chain_connector.replace(chain_connector.clone());
 
         // Configure mapping { chain_id => Credentials }
@@ -174,8 +190,13 @@ impl RealChainConnectorConfigBuilder {
             let custody_address = index_maker_data.deployment_builder_data.custody_address;
             let trade_route = index_maker_data.deployment_builder_data.trade_route;
             let usdc_symbol = Symbol::from("USDC");
-            let usdc_address = credentials.get_usdc_address();
             let account_name = credentials.get_account_name();
+
+            let collateral_token = index_maker_data
+                .indexes
+                .first()
+                .map(|x| x.deployment_data.index_deploy_data.collateral_token)
+                .ok_or_eyre("Configuration contains no indexes")?;
 
             let trading_custody = Arc::new(ComponentLock::new(WalletCollateralDesignation::new(
                 Symbol::from("TradeRoute"),
@@ -183,7 +204,7 @@ impl RealChainConnectorConfigBuilder {
                 usdc_symbol.clone(),
                 chain_id,
                 trade_route,
-                usdc_address,
+                collateral_token,
             )));
 
             let trading_custody_name = trading_custody.read().unwrap().get_full_name();
@@ -215,12 +236,12 @@ impl RealChainConnectorConfigBuilder {
                     custody_address
                 );
 
-                if index.get_collateral_token_address().ne(&usdc_address) {
-                    Err(eyre!("Collateral token address mismatch"))?;
+                if index.get_collateral_token_address().ne(&collateral_token) {
+                    Err(eyre!("All indexes must use same collateral token"))?;
                 }
 
                 if index.get_custody_address().ne(&custody_address) {
-                    Err(eyre!("Custody address mismatch"))?;
+                    Err(eyre!("All indexes must use same custody"))?;
                 }
 
                 let index = Arc::new(index);
@@ -245,7 +266,7 @@ impl RealChainConnectorConfigBuilder {
                         account_name.clone(),
                         chain_id,
                         custody_address,
-                        usdc_address,
+                        collateral_token,
                         custody_id,
                     )));
 
@@ -253,6 +274,7 @@ impl RealChainConnectorConfigBuilder {
                     Arc::new(ComponentLock::new(OTCCustodyToWalletCollateralBridge::new(
                         index_custody.clone(),
                         trading_custody.clone(),
+                        gas_fee_calculator.clone(),
                     )));
 
                 let mut router_write = router.write().unwrap();

@@ -9,12 +9,17 @@ use index_core::{
 };
 use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::core::{
-    bits::{Address, Amount, Symbol},
-    functional::{
-        IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
-        SingleObserver,
+use safe_math::safe;
+use symm_core::{
+    core::{
+        bits::{Address, Amount, Symbol},
+        decimal_ext::DecimalExt,
+        functional::{
+            IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
+            SingleObserver,
+        },
     },
+    market_data::exchange_rates::ExchangeRates,
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
@@ -22,31 +27,67 @@ use crate::{
     arbiter::Arbiter,
     command::{Command, CommandVariant, IssuerCommand},
     credentials::Credentials,
+    session::SessionBaggage,
     sessions::Sessions,
     subaccounts::SubAccounts,
 };
+
+#[derive(Clone)]
+pub struct GasFeeCalculator {
+    exchange_rates: Arc<dyn ExchangeRates + Send + Sync + 'static>,
+    base: Symbol,
+    quote: Symbol,
+}
+
+impl GasFeeCalculator {
+    pub fn new(
+        exchange_rates: Arc<dyn ExchangeRates + Send + Sync + 'static>,
+        quote: Symbol,
+    ) -> Self {
+        Self {
+            exchange_rates,
+            base: Symbol::from("ETH"),
+            quote,
+        }
+    }
+
+    pub fn compute_amount(&self, base_amount: Amount) -> eyre::Result<Amount> {
+        let rate = self
+            .exchange_rates
+            .get_exchange_rate(self.base.clone(), self.quote.clone())?;
+
+        let quote_amount =
+            safe!(rate * base_amount).ok_or_eyre("Failed to compute quote amount")?;
+
+        Ok(quote_amount)
+    }
+}
 
 pub struct RealChainConnector {
     observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     subaccounts: Arc<AtomicLock<SubAccounts>>,
     subaccount_rx: Option<UnboundedReceiver<Credentials>>,
     sessions: Arc<AtomicLock<Sessions>>,
-    custody_clients: Arc<AtomicLock<HashMap<B256, CustodyClient>>>,
-    indexes: Arc<AtomicLock<HashMap<Symbol, Arc<IndexInstance>>>>,
+    baggage: SessionBaggage,
+    gas_fee_calculator: GasFeeCalculator,
     arbiter: Arbiter,
     issuers: HashMap<u32, String>,
 }
 
 impl RealChainConnector {
-    pub fn new() -> Self {
+    pub fn new(gas_fee_calculator: GasFeeCalculator) -> Self {
         let (subaccount_tx, subaccount_rx) = unbounded_channel();
         Self {
             observer: Arc::new(AtomicLock::new(SingleObserver::new())),
             subaccounts: Arc::new(AtomicLock::new(SubAccounts::new(subaccount_tx))),
             subaccount_rx: Some(subaccount_rx),
             sessions: Arc::new(AtomicLock::new(Sessions::new())),
-            custody_clients: Arc::new(AtomicLock::new(HashMap::new())),
-            indexes: Arc::new(AtomicLock::new(HashMap::new())),
+            baggage: SessionBaggage {
+                custody_clients: Arc::new(AtomicLock::new(HashMap::new())),
+                indexes_by_symbol: Arc::new(AtomicLock::new(HashMap::new())),
+                indexes_by_address: Arc::new(AtomicLock::new(HashMap::new())),
+            },
+            gas_fee_calculator,
             arbiter: Arbiter::new(),
             issuers: HashMap::new(),
         }
@@ -62,8 +103,7 @@ impl RealChainConnector {
             self.subaccounts.clone(),
             subaccount_rx,
             self.sessions.clone(),
-            self.custody_clients.clone(),
-            self.indexes.clone(),
+            self.baggage.clone(),
             self.observer.clone(),
         );
 
@@ -92,7 +132,8 @@ impl RealChainConnector {
 
     pub fn add_custody_client(&self, custody_client: CustodyClient) -> Result<()> {
         let custody_id = custody_client.get_custody_id();
-        self.custody_clients
+        self.baggage
+            .custody_clients
             .write()
             .insert(custody_id, custody_client)
             .is_none()
@@ -102,9 +143,20 @@ impl RealChainConnector {
 
     pub fn add_index(&self, index: Arc<IndexInstance>) -> Result<()> {
         let symbol = Symbol::from(index.get_symbol());
-        self.indexes
+        let address = index.get_index_address();
+
+        self.baggage
+            .indexes_by_symbol
             .write()
-            .insert(symbol, index)
+            .insert(symbol, index.clone())
+            .is_none()
+            .then_some(())
+            .ok_or_eyre("Duplicate index")?;
+
+        self.baggage
+            .indexes_by_address
+            .write()
+            .insert(*address, index)
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate index")
@@ -176,11 +228,31 @@ impl ChainConnector for RealChainConnector {
         let _ = execution_price;
         let _ = execution_time;
 
+        let symbol_clone = symbol.clone();
+        let gas_fee_calculator = self.gas_fee_calculator.clone();
+
         let command = IssuerCommand::MintIndex {
             receipient,
             amount: quantity,
             seq_num_execution_report: U256::ZERO,
-            observer: SingleObserver::new(),
+            observer: SingleObserver::new_with_fn(move |gas_used| {
+                let gas_amount_usdc = match gas_fee_calculator.compute_amount(gas_used) {
+                    Ok(x) => x,
+                    Err(err) => {
+                        tracing::warn!("❗️ Failed to compute gas fee: {:?}", err);
+                        Amount::ZERO
+                    }
+                };
+                tracing::info!(
+                    "💳 Index Minted: {} {} to: {} fee: {} ",
+                    quantity,
+                    symbol_clone,
+                    receipient,
+                    gas_amount_usdc
+                );
+                // TODO: Propagate to Solver
+                //self.observer.read().publish_single(ChainNotification::IndexMinted);
+            }),
         };
 
         if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
