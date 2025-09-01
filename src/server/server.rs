@@ -144,43 +144,78 @@ pub enum ServerResponseReason<T> {
 }
 
 #[derive(Error, Debug)]
+pub enum NewQuoteRequestNakReason {
+    #[error("Duplicate client quote ID: {detail:?}")]
+    DuplicateClientQuoteId { detail: String },
+
+    #[error("Invalid symbol: {detail:?}")]
+    InvalidSymbol { detail: String },
+
+    #[error("Other reason: {detail:?}")]
+    OtherReason { detail: String },
+}
+
+#[derive(Error, Debug, WithBaggage)]
 pub enum ServerResponse {
+    // ──────── Orders ────────
     #[error("NewIndexOrder: ACK [{chain_id}:{address}] {client_order_id} {timestamp}")]
     NewIndexOrderAck {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
+
     #[error("NewIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}")]
     NewIndexOrderNak {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_order_id: ClientOrderId,
         reason: ServerResponseReason<NewIndexOrderNakReason>,
         timestamp: DateTime<Utc>,
     },
+
     #[error("CancelIndexOrder: ACK [{chain_id}:{address}] {client_order_id} {timestamp}")]
     CancelIndexOrderAck {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_order_id: ClientOrderId,
         timestamp: DateTime<Utc>,
     },
+
     #[error(
         "CancelIndexOrder: NAK [{chain_id}:{address}] {client_order_id} {timestamp}: {reason:?}"
     )]
     CancelIndexOrderNak {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_order_id: ClientOrderId,
         reason: ServerResponseReason<CancelIndexOrderNakReason>,
         timestamp: DateTime<Utc>,
     },
-    #[error("IndexOrderFill: [{chain_id}:{address}] {client_order_id} {timestamp}: {filled_quantity} {collateral_spent} {collateral_remaining}")]
+
+    /// Order filled (partial or full)
+    #[error(
+        "IndexOrderFill: [{chain_id}:{address}] {client_order_id} {timestamp} status={status}"
+    )]
     IndexOrderFill {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_order_id: ClientOrderId,
         filled_quantity: Amount,
         collateral_spent: Amount,
@@ -189,54 +224,217 @@ pub enum ServerResponse {
         status: String,
         timestamp: DateTime<Utc>,
     },
-    #[error("MintInvoice: [{chain_id}:{address}]")]
+
+    /// Mint invoice issued for an order
+    #[error("MintInvoice: [{chain_id}:{address}] {client_order_id} {timestamp}")]
     MintInvoice {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
+        client_order_id: ClientOrderId,
         mint_invoice: MintInvoice,
+        timestamp: DateTime<Utc>,
     },
+
+    // ──────── Quotes ────────
     #[error("NewIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
     NewIndexQuoteAck {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_quote_id: ClientQuoteId,
         timestamp: DateTime<Utc>,
     },
+
     #[error("NewIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}")]
     NewIndexQuoteNak {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_quote_id: ClientQuoteId,
         reason: ServerResponseReason<NewIndexQuoteNakReason>,
         timestamp: DateTime<Utc>,
     },
-    #[error("IndexOrderResponse: [{chain_id}:{address}] {client_quote_id} {timestamp}: {quantity_possible}")]
-    IndexQuoteResponse {
+
+    #[error("NewQuoteRequest: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
+    NewQuoteRequestAck {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_quote_id: ClientQuoteId,
-        quantity_possible: Amount,
         timestamp: DateTime<Utc>,
     },
+
+    #[error(
+        "NewQuoteRequest: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}"
+    )]
+    NewQuoteRequestNak {
+        #[baggage]
+        chain_id: u32,
+        #[baggage]
+        address: Address,
+        #[baggage]
+        client_quote_id: ClientQuoteId,
+        reason: ServerResponseReason<NewQuoteRequestNakReason>,
+        timestamp: DateTime<Utc>,
+    },
+
     #[error("CancelIndexQuote: ACK [{chain_id}:{address}] {client_quote_id} {timestamp}")]
     CancelIndexQuoteAck {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_quote_id: ClientQuoteId,
         timestamp: DateTime<Utc>,
     },
+
     #[error(
         "CancelIndexQuote: NAK [{chain_id}:{address}] {client_quote_id} {timestamp}: {reason:?}"
     )]
     CancelIndexQuoteNak {
+        #[baggage]
         chain_id: u32,
+        #[baggage]
         address: Address,
+        #[baggage]
         client_quote_id: ClientQuoteId,
         reason: ServerResponseReason<CancelIndexQuoteNakReason>,
         timestamp: DateTime<Utc>,
     },
+
+    /// Quote response (with max executable size)
+    #[error("IndexQuoteResponse: [{chain_id}:{address}] {client_quote_id} {timestamp}")]
+    IndexQuoteResponse {
+        #[baggage]
+        chain_id: u32,
+        #[baggage]
+        address: Address,
+        #[baggage]
+        client_quote_id: ClientQuoteId,
+        quantity_possible: Amount,
+        timestamp: DateTime<Utc>,
+    },
 }
 
+impl ServerResponse {
+    /// Returns (chain_id, address, client_order_id, client_quote_id).
+    /// Clone non-Copy IDs to avoid moving out of &self.
+    pub fn telemetry_ids(
+        &self,
+    ) -> (Option<u32>, Option<Address>, Option<ClientOrderId>, Option<ClientQuoteId>) {
+        match self {
+            // ── Order-side variants (carry client_order_id)
+            ServerResponse::NewIndexOrderAck {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            }
+            | ServerResponse::NewIndexOrderNak {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            }
+            | ServerResponse::CancelIndexOrderAck {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            }
+            | ServerResponse::CancelIndexOrderNak {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            }
+            | ServerResponse::IndexOrderFill {
+                chain_id,
+                address,
+                client_order_id,
+                ..
+            } => (
+                Some(*chain_id),
+                Some(address.clone()),
+                Some(client_order_id.clone()),
+                None,
+            ),
+
+            // MintInvoice carries the order id inside the payload
+            ServerResponse::MintInvoice {
+                chain_id,
+                address,
+                mint_invoice,
+                ..
+            } => (
+                Some(*chain_id),
+                Some(address.clone()),
+                Some(mint_invoice.client_order_id.clone()),
+                None,
+            ),
+
+            // ── Quote-side variants (carry client_quote_id)
+            // Support both naming schemes: NewIndexQuote* and NewQuoteRequest*
+            ServerResponse::NewIndexQuoteAck {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            }
+            | ServerResponse::NewIndexQuoteNak {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            }
+            | ServerResponse::NewQuoteRequestAck {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            }
+            | ServerResponse::NewQuoteRequestNak {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            }
+            | ServerResponse::CancelIndexQuoteAck {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            }
+            | ServerResponse::CancelIndexQuoteNak {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            }
+            | ServerResponse::IndexQuoteResponse {
+                chain_id,
+                address,
+                client_quote_id,
+                ..
+            } => (
+                Some(*chain_id),
+                Some(address.clone()),
+                None,
+                Some(client_quote_id.clone()),
+            ),
+        }
+    }
+}
 pub trait Server: IntoObservableManyVTable<Arc<ServerEvent>> + Send + Sync {
     /// Provide methods for sending FIX responses
     fn respond_with(&mut self, response: ServerResponse);

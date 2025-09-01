@@ -65,7 +65,10 @@ impl ServerPlugin {
         self.session_comp_ids
             .write()
             .map_err(|e| eyre!("Failed to access session comp IDs: {:?}", e))?
-            .insert(session_id.clone(), (String::from(sender), String::from(target)));
+            .insert(
+                session_id.clone(),
+                (String::from(sender), String::from(target)),
+            );
         Ok(())
     }
 
@@ -111,7 +114,11 @@ impl ServerPlugin {
         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
 
         if let Err(e) = self.apply_swapped_comp_ids(&mut nak.standard_header, session_id) {
-            return self.process_error(user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+            return self.process_error(
+                user_id,
+                format!("Failed to access session comp IDs: {:?}", e),
+                session_id,
+            );
         }
 
         self.serde_plugin.process_outgoing(nak)
@@ -141,7 +148,11 @@ impl ServerPlugin {
         ack.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
 
         if let Err(e) = self.apply_swapped_comp_ids(&mut ack.standard_header, session_id) {
-            return self.process_error(user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+            return self.process_error(
+                user_id,
+                format!("Failed to access session comp IDs: {:?}", e),
+                session_id,
+            );
         }
 
         self.serde_plugin.process_outgoing(ack)
@@ -442,7 +453,9 @@ impl ServerPlugin {
             ServerResponse::MintInvoice {
                 chain_id,
                 address,
+                client_order_id: _,
                 mint_invoice,
+                timestamp: _,
             } => {
                 let chain_id = *chain_id;
                 let address = address.clone();
@@ -682,8 +695,16 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
                 let user_id = WithRateLimitPlugin::get_user_id(&result);
-                if let Err(e) = self.remember_comp_ids(session_id, &result.standard_header.sender_comp_id, &result.standard_header.target_comp_id) {
-                    return self.process_error(&user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+                if let Err(e) = self.remember_comp_ids(
+                    session_id,
+                    &result.standard_header.sender_comp_id,
+                    &result.standard_header.target_comp_id,
+                ) {
+                    return self.process_error(
+                        &user_id,
+                        format!("Failed to access session comp IDs: {:?}", e),
+                        session_id,
+                    );
                 }
                 // verify signature before proceed anything
                 match result.verify_signature() {
@@ -697,8 +718,14 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                             err_msg,
                         );
                         nak.set_seq_num(self.seq_num_plugin.next_seq_num(session_id));
-                        if let Err(e) = self.apply_swapped_comp_ids(&mut nak.standard_header, session_id) {
-                            return self.process_error(&user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+                        if let Err(e) =
+                            self.apply_swapped_comp_ids(&mut nak.standard_header, session_id)
+                        {
+                            return self.process_error(
+                                &user_id,
+                                format!("Failed to access session comp IDs: {:?}", e),
+                                session_id,
+                            );
                         }
                         return self.serde_plugin.process_outgoing(nak);
                     }
@@ -707,8 +734,16 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
 
                 self.user_plugin.add_add_user_session(&user_id, session_id);
 
-                if let Err(e) = self.remember_comp_ids(session_id, &result.standard_header.sender_comp_id, &result.standard_header.target_comp_id) {
-                    return self.process_error(&user_id, format!("Failed to access session comp IDs: {:?}", e), session_id);
+                if let Err(e) = self.remember_comp_ids(
+                    session_id,
+                    &result.standard_header.sender_comp_id,
+                    &result.standard_header.target_comp_id,
+                ) {
+                    return self.process_error(
+                        &user_id,
+                        format!("Failed to access session comp IDs: {:?}", e),
+                        session_id,
+                    );
                 }
 
                 // message-specific rate limiting
