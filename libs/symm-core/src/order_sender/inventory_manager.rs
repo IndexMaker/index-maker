@@ -20,7 +20,7 @@ use crate::{
 use super::position::{LotId, Position};
 
 pub struct GetPositionsResponse {
-    pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
+    pub positions: HashMap<Symbol, Box<Position>>,
     pub missing_symbols: Vec<Symbol>,
 }
 
@@ -97,7 +97,7 @@ pub enum InventoryEvent {
 pub struct InventoryManager {
     observer: SingleObserver<InventoryEvent>,
     order_tracker: Arc<RwLock<OrderTracker>>,
-    positions: HashMap<Symbol, Arc<RwLock<Position>>>,
+    positions: HashMap<Symbol, Box<Position>>,
     tolerance: Amount,
 }
 
@@ -131,10 +131,9 @@ impl InventoryManager {
         let position = self
             .positions
             .entry(symbol.clone())
-            .or_insert_with(|| Arc::new(RwLock::new(Position::new(symbol.clone(), side))))
-            .clone();
+            .or_insert_with(|| Box::new(Position::new(symbol.clone(), side)));
 
-        position.write().create_lot(
+        position.create_lot(
             order_id.clone(),
             batch_order_id.clone(),
             lot_id.clone(),
@@ -179,12 +178,11 @@ impl InventoryManager {
         fill_timestamp: DateTime<Utc>,
     ) -> Result<Option<Amount>> {
         // Find position for symbol
-        match self.positions.get(&symbol) {
+        match self.positions.get_mut(&symbol) {
             // Position not found
             None => Ok(Some(quantity_filled)),
             Some(position) => {
                 // Match lots
-                let mut position = position.write();
                 let remaining = position.match_lots(
                     order_id.clone(),
                     batch_order_id.clone(),
@@ -198,7 +196,6 @@ impl InventoryManager {
                 )?;
 
                 position.drain_closed_lots_and_callback_on_updated(|lot| {
-                    let lot = lot.read();
                     self.observer.publish_single(InventoryEvent::CloseLot {
                         original_order_id: lot.original_order_id.clone(),
                         original_batch_order_id: lot.original_batch_order_id.clone(),
@@ -727,8 +724,7 @@ mod test {
             let position = all_positions
                 .positions
                 .get(&get_mock_asset_name_1())
-                .unwrap()
-                .read();
+                .unwrap();
 
             assert_eq!(position.balance, dec!(30.0));
 
@@ -737,13 +733,13 @@ mod test {
 
             closed_lot = lots.get(0).cloned();
 
-            let lot = lots.get(0).unwrap().read();
+            let lot = lots.get(0).unwrap();
             assert_eq!(lot.lot_id, buy_lot1_id);
             assert_eq!(lot.lot_transactions.len(), 0);
 
             // We will close that lot in next part II.
 
-            let lot = lots.get(1).unwrap().read();
+            let lot = lots.get(1).unwrap();
             assert_eq!(lot.lot_id, buy_lot2_id);
             assert_eq!(lot.lot_transactions.len(), 0);
         }
@@ -1013,15 +1009,14 @@ mod test {
             let position = all_positions
                 .positions
                 .get(&get_mock_asset_name_1())
-                .unwrap()
-                .read();
+                .unwrap();
 
             assert_eq!(position.balance, dec!(15.0));
 
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 1);
 
-            let lot = lots.front().unwrap().read();
+            let lot = lots.front().unwrap();
             assert_eq!(lot.lot_id, buy_lot2_id);
 
             assert_eq!(lot.lot_transactions.len(), 1);
@@ -1029,7 +1024,6 @@ mod test {
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
 
             let lot = closed_lot.unwrap();
-            let lot = lot.read();
 
             assert_eq!(lot.lot_id, buy_lot1_id);
             assert_eq!(lot.lot_transactions.len(), 1);
