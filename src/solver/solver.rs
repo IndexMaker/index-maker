@@ -3,12 +3,10 @@ use std::{
     sync::{Arc, RwLock as ComponentLock},
 };
 
-use axum_fix_server::plugins::observer_plugin;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
-use safe_math::safe;
 
 use serde_json::json;
 use symm_core::{
@@ -17,7 +15,6 @@ use symm_core::{
             Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
             PricePointEntry, PriceType, Side, Symbol,
         },
-        decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     market_data::{
@@ -710,7 +707,12 @@ impl Solver {
                 reason,
                 timestamp,
             } => {
-                tracing::info!("(solver) Chain {} disconnected at {}: {}", chain_id, reason, timestamp);
+                tracing::info!(
+                    "(solver) Chain {} disconnected at {}: {}",
+                    chain_id,
+                    reason,
+                    timestamp
+                );
                 Ok(())
             }
         }

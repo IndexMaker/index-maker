@@ -96,7 +96,9 @@ where
                         let decimals = indexes_by_address
                             .read()
                             .get(&deposit_data.address)
-                            .ok_or_else(|| eyre!("Failed to find index by address: {}", deposit_data.address))?
+                            .ok_or_else(|| {
+                                eyre!("Failed to find index by address: {}", deposit_data.address)
+                            })?
                             .get_collateral_token_precision();
 
                         let converter = AmountConverter::new(decimals);

@@ -5,7 +5,7 @@ use alloy_chain_connector::{
 use binance_order_sending::credentials::Credentials as BinanceCredentials;
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
-use index_core::{blockchain::chain_connector::ChainNotification, index::basket_manager};
+use index_core::blockchain::chain_connector::ChainNotification;
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -42,7 +42,7 @@ use symm_core::{
         logging::log_init,
         test_util::get_mock_address_1,
     },
-    market_data::{exchange_rates::ExchangeRates, market_data_connector::Subscription},
+    market_data::market_data_connector::Subscription,
     order_sender::order_connector::SessionId,
 };
 use tokio::{

@@ -735,7 +735,7 @@ mod test {
             let lot = lots.get(0).unwrap();
             assert_eq!(lot.lot_id, buy_lot1_id);
             assert_eq!(lot.lot_transactions.len(), 0);
-            
+
             closed_lot_id = Some(lot.lot_id.clone());
 
             // We will close that lot in next part II.

@@ -20,10 +20,7 @@ use crate::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
-    solver::{
-        index_order::{self, IndexOrder},
-        mint_invoice::MintInvoice,
-    },
+    solver::{index_order::IndexOrder, mint_invoice::MintInvoice},
 };
 use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
@@ -736,14 +733,12 @@ impl IndexOrderManager {
                     mint_invoice,
                 }
             });
-        
+
             Ok(())
         };
-        
+
         match maybe_removed_index_order {
-            Some(mut index_order) => {
-                process(&mut index_order)
-            }
+            Some(mut index_order) => process(&mut index_order),
             None => {
                 let index_order = self
                     .find_index_order_mut(chain_id, address, symbol)

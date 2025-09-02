@@ -1,9 +1,8 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
-use parking_lot::RwLock;
 use safe_math::safe;
 
 use symm_core::core::{

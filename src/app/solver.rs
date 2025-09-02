@@ -4,7 +4,6 @@ use std::{
     thread,
 };
 
-use async_trait::async_trait;
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::collateral_router::{CollateralRouterEvent, CollateralTransferEvent},

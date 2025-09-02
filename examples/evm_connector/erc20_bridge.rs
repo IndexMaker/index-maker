@@ -21,7 +21,7 @@ async fn main() {
     tracing::info!("=== ERC20 Transfer Test ===");
 
     ////////
-    // 
+    //
     // IMPORTANT NOTE
     // ==============
     // To run this example successfully you need to create .env file

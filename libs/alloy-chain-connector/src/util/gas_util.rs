@@ -11,7 +11,12 @@ pub fn compute_gas_used(receipt: TransactionReceipt) -> eyre::Result<Amount> {
     let converter = AmountConverter::new(Unit::ETHER.get());
     let gas_amount = converter.into_amount(gas_price * gas_used)?;
 
-    tracing::info!("⚙️ Converting gas amount: {}(wei) x {}(units) => {}(eth)", gas_price, gas_used, gas_amount);
+    tracing::info!(
+        "⚙️ Converting gas amount: {}(wei) x {}(units) => {}(eth)",
+        gas_price,
+        gas_used,
+        gas_amount
+    );
 
     Ok(gas_amount)
 }

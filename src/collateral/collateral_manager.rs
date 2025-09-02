@@ -319,7 +319,7 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let (status, position) = (|funds_write: &mut CollateralPosition| 
+        let (status, position) = (|funds_write: &mut CollateralPosition|
             -> Result<(ConfirmStatus, CollateralPosition)>{
             Ok((funds_write
                 .confirm_payment(
@@ -469,7 +469,9 @@ mod test {
             functional::IntoObservableSingle,
             telemetry::TracingData,
             test_util::{
-                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel, get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
+                get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
+                get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool,
             },
         },
     };

@@ -14,9 +14,7 @@ use symm_core::{
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    credentials::Credentials,
-    session::Session,
-    session_completion::SessionCompletionResult
+    credentials::Credentials, session::Session, session_completion::SessionCompletionResult,
 };
 
 pub struct Sessions {
@@ -73,7 +71,7 @@ impl Sessions {
 
         Ok(completion_results)
     }
-    
+
     pub async fn stop_session(
         &mut self,
         session_id: &SessionId,

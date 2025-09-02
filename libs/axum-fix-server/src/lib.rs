@@ -6,9 +6,9 @@ pub mod session;
 pub mod session_state;
 pub mod plugins {
     pub mod observer_plugin;
+    pub mod rate_limit_plugin;
     pub mod seq_num_plugin;
     pub mod serde_plugin;
     pub mod user_plugin;
-    pub mod rate_limit_plugin;
     //pub mod sign_plugin;
 }

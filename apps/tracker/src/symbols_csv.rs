@@ -1,7 +1,7 @@
 use csv::ReaderBuilder;
+use eyre::eyre;
 use itertools::Itertools;
 use symm_core::core::bits::Symbol;
-use eyre::eyre;
 
 #[derive(Debug, Clone)]
 pub struct Asset {

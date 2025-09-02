@@ -12,7 +12,10 @@ use crate::{
     custody_authority::CustodyAuthority,
     custody_client::{CustodyClient, CustodyClientMethods},
     index::index_helper::{
-        encode_mint_call, IndexDeployData, OTC_INDEX_CONNECTOR_NAME, OTC_INDEX_CURATOR_WEIGHTS_CUSTODY_STATE, OTC_INDEX_MINT_CURATOR_STATE, OTC_INDEX_SOLVER_WEIGHTS_SET_STATE, OTC_INDEX_TOKEN_PRECISION, OTC_TRADE_ROUTE_CUSTODY_STATE, OTC_WITHDRAW_ROUTE_CUSTODY_STATE
+        encode_mint_call, IndexDeployData, OTC_INDEX_CONNECTOR_NAME,
+        OTC_INDEX_CURATOR_WEIGHTS_CUSTODY_STATE, OTC_INDEX_MINT_CURATOR_STATE,
+        OTC_INDEX_SOLVER_WEIGHTS_SET_STATE, OTC_INDEX_TOKEN_PRECISION,
+        OTC_TRADE_ROUTE_CUSTODY_STATE, OTC_WITHDRAW_ROUTE_CUSTODY_STATE,
     },
     util::{get_last_block_timestamp, pending_nonce},
 };

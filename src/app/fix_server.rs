@@ -6,8 +6,8 @@ use eyre::{OptionExt, Result};
 use parking_lot::RwLock;
 
 use crate::app::solver::ServerConfig;
-use crate::server::fix::server::Server as FixServer;
 use crate::server::fix::rate_limit_config::FixRateLimitConfig;
+use crate::server::fix::server::Server as FixServer;
 use crate::server::server::Server;
 
 #[derive(Clone, Builder)]
@@ -22,7 +22,7 @@ pub struct FixServerConfig {
 
     #[builder(setter(into), default = "FixRateLimitConfig::default()")]
     pub rate_limit_config: FixRateLimitConfig,
-    
+
     #[builder(setter(skip))]
     pub fix_server: Option<Arc<RwLock<FixServer>>>,
 }
@@ -83,12 +83,10 @@ impl ServerConfig for FixServerConfig {
 impl FixServerConfigBuilder {
     pub fn build_arc(self) -> Result<Arc<FixServerConfig>, ConfigBuildError> {
         let mut config = self.try_build()?;
-        
+
         let fix_server = FixServer::new_with_rate_limiting(config.rate_limit_config.clone());
 
-        config
-            .fix_server
-            .replace(Arc::new(RwLock::new(fix_server)));
+        config.fix_server.replace(Arc::new(RwLock::new(fix_server)));
 
         Ok(Arc::new(config))
     }

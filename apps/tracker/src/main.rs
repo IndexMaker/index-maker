@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Duration, Timelike, Utc};
 use clap::{arg, command, Parser};
@@ -10,7 +7,10 @@ use itertools::Itertools;
 use rust_decimal::dec;
 use symm_core::{
     core::{
-        async_loop::AsyncLoop, bits::{Amount, Symbol}, functional::IntoObservableManyArc, logging::log_init,
+        async_loop::AsyncLoop,
+        bits::{Amount, Symbol},
+        functional::IntoObservableManyArc,
+        logging::log_init,
     },
     init_log,
     market_data::market_data_connector::{MarketDataEvent, Subscription},

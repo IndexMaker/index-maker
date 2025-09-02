@@ -10,9 +10,7 @@ use market_data::market_data::RealMarketData;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::
-        bits::Amount
-    ,
+    core::bits::Amount,
     market_data::{
         exchange_rates::PriceTrackerExchangeRates,
         market_data_connector::{MarketDataConnector, Subscription},
@@ -96,9 +94,7 @@ impl MarketDataConfig {
             .expect("Failed to get price tracker")
     }
 
-    pub fn expect_price_tracker_exchange_rates_cloned(
-        &self,
-    ) -> Arc<PriceTrackerExchangeRates> {
+    pub fn expect_price_tracker_exchange_rates_cloned(&self) -> Arc<PriceTrackerExchangeRates> {
         self.exchange_rates
             .clone()
             .ok_or(())
@@ -183,9 +179,11 @@ impl MarketDataConfigBuilder {
         if config.with_price_tracker.unwrap_or(true) {
             let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
             if config.with_exchange_rates.unwrap_or(true) {
-                config.exchange_rates.replace(Arc::new(
-                    PriceTrackerExchangeRates::new(price_tracker.clone()),
-                ));
+                config
+                    .exchange_rates
+                    .replace(Arc::new(PriceTrackerExchangeRates::new(
+                        price_tracker.clone(),
+                    )));
             }
             config.price_tracker.replace(price_tracker);
         } else if config.with_exchange_rates.unwrap_or(false) {
