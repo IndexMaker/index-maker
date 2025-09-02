@@ -29,9 +29,8 @@ impl IndexOrderUpdateReport {
         }
     }
 
-    pub fn report_closed_update(&self, update: Arc<RwLock<IndexOrderUpdate>>) {
+    pub fn report_closed_update(&self, update_read: &IndexOrderUpdate) {
         tracing::info_span!("closed-update").in_scope(|| {
-            let update_read = update.read();
             tracing::debug!(
                 "Closing Index Order [{}:{}] {}",
                 self.chain_id,

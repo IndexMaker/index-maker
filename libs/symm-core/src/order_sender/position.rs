@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{ensure, eyre, OptionExt, Result};
 use safe_math::safe;
 use serde::{Deserialize, Serialize};
 
@@ -191,10 +191,12 @@ impl Position {
             return Ok(Some(quantity_filled));
         }
         self.last_update_timestamp.replace(fill_timestamp);
-        let mut open_lots = VecDeque::new();
+        let mut balance = self.balance;
+        let mut front_lot_update = None;
+        let mut open_lots_drain_count = 0;
         let mut closed_lots = VecDeque::new();
 
-        while let Some(lot) = self.open_lots.pop_front() {
+        for lot in self.open_lots.iter() {
             let lot_quantity_remaining = lot.remaining_quantity;
 
             let remaining_quantity =
@@ -241,36 +243,29 @@ impl Position {
                     (matched_lot_quantity, remaining_quantity, true, false)
                 };
 
-            // Update lot
-            // We do it regardless whether it is still open or closed, as we
-            // have an Arc reference to it.
-            {
-                let mut lot_mut = lot.clone();
+            balance = safe!(balance - matched_lot_quantity).ok_or(eyre!("Math overflow"))?;
 
-                lot_mut.lot_transactions.push(Arc::new(LotTransaction {
-                    order_id: order_id.clone(),
-                    batch_order_id: batch_order_id.clone(),
-                    matched_lot_id: lot_id.clone(),
-                    closing_fee: fee_paid,
-                    closing_price: price_filled,
-                    closing_timestamp: fill_timestamp,
-                    quantity_closed: matched_lot_quantity,
-                }));
+            let mut lot_mut = lot.clone();
 
-                lot_mut.last_update_timestamp = fill_timestamp;
-                lot_mut.remaining_quantity = lot_quantity_remaining;
+            lot_mut.lot_transactions.push(Arc::new(LotTransaction {
+                order_id: order_id.clone(),
+                batch_order_id: batch_order_id.clone(),
+                matched_lot_id: lot_id.clone(),
+                closing_fee: fee_paid,
+                closing_price: price_filled,
+                closing_timestamp: fill_timestamp,
+                quantity_closed: matched_lot_quantity,
+            }));
 
-                if was_closed {
-                    closed_lots.push_back(lot_mut);
-                } else {
-                    open_lots.push_back(lot_mut);
-                }
+            lot_mut.last_update_timestamp = fill_timestamp;
+            lot_mut.remaining_quantity = lot_quantity_remaining;
 
-                self.balance = match side {
-                    Side::Buy => safe!(self.balance - matched_lot_quantity),
-                    Side::Sell => safe!(self.balance - matched_lot_quantity),
-                }
-                .ok_or(eyre!("Math overflow"))?;
+            if was_closed {
+                closed_lots.push_back(lot_mut);
+                open_lots_drain_count += 1;
+            } else {
+                ensure!(finished);
+                front_lot_update = Some(lot_mut)
             }
 
             if finished {
@@ -280,8 +275,13 @@ impl Position {
 
         // --==| Commit Transaction |==--
         // NOTE: If we failed somewhere in the way, we would keep consistend old state
-        self.open_lots = open_lots;
+        let _ = self.open_lots.drain(open_lots_drain_count..).count();
+        if let Some(lot) = front_lot_update {
+            self.open_lots.pop_front();
+            self.open_lots.push_front(lot);
+        }
         self.closed_lots = closed_lots;
+        self.balance = balance;
 
         if tolerance < quantity_filled {
             // We didn't fully match this fill against open lots, which means we're going Short, and
@@ -295,14 +295,14 @@ impl Position {
     }
 
     /// Drain and call back on closed lots, and call back on updated lot if any
-    pub fn drain_closed_lots_and_callback_on_updated(&mut self, mut cb: impl FnMut(&Box<Lot>)) {
+    pub fn drain_closed_lots_and_callback_on_updated(&mut self, mut cb: impl FnMut(&Lot)) {
         let ref_cb = &mut cb;
         self.closed_lots.drain(..).for_each(|lot| ref_cb(&lot));
         self.open_lots.front().iter().for_each(|lot| {
             if lot.remaining_quantity != lot.original_quantity
                 && Some(lot.last_update_timestamp) == self.last_update_timestamp
             {
-                ref_cb((&lot).clone());
+                ref_cb(&lot);
             }
         });
     }

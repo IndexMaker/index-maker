@@ -394,6 +394,7 @@ mod test {
     };
 
     use chrono::Utc;
+    use itertools::Itertools;
     use parking_lot::RwLock;
     use rust_decimal::dec;
 
@@ -496,8 +497,8 @@ mod test {
         let sell_fill1_quantity = dec!(15.0);
         let sell_fee1 = dec!(0.0125);
 
-        let mut closed_lot = None;
-        assert!(matches!(closed_lot, None));
+        let mut closed_lot_id = None;
+        assert!(matches!(closed_lot_id, None));
 
         let logout_timestamp = Utc::now();
 
@@ -731,11 +732,11 @@ mod test {
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 2);
 
-            closed_lot = lots.get(0).cloned();
-
             let lot = lots.get(0).unwrap();
             assert_eq!(lot.lot_id, buy_lot1_id);
             assert_eq!(lot.lot_transactions.len(), 0);
+            
+            closed_lot_id = Some(lot.lot_id.clone());
 
             // We will close that lot in next part II.
 
@@ -1023,12 +1024,24 @@ mod test {
             let lot_tx = lot.lot_transactions.first().unwrap();
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
 
-            let lot = closed_lot.unwrap();
+            assert!(matches!(closed_lot_id, Some(_)));
+            let closed_lot_id = closed_lot_id.unwrap();
 
-            assert_eq!(lot.lot_id, buy_lot1_id);
-            assert_eq!(lot.lot_transactions.len(), 1);
-            let lot_tx = lot.lot_transactions.first().unwrap();
-            assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
+            assert!(matches!(
+                position
+                    .open_lots
+                    .iter()
+                    .find(|x| x.lot_id.eq(&closed_lot_id)),
+                None
+            ));
+
+            assert!(matches!(
+                position
+                    .closed_lots
+                    .iter()
+                    .find(|x| x.lot_id.eq(&closed_lot_id)),
+                None
+            ));
         }
 
         order_connector.write().notify_logout(
