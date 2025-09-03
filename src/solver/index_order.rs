@@ -4,13 +4,14 @@ use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
     decimal_ext::DecimalExt,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexOrderUpdate {
     /// ID of the update assigned by the user (<- FIX)
     pub client_order_id: ClientOrderId,
@@ -41,7 +42,7 @@ pub struct IndexOrderUpdate {
 }
 
 /// An order to buy index
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexOrder {
     /// Chain ID
     pub chain_id: u32,

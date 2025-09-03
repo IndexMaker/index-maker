@@ -465,13 +465,38 @@ impl CollateralManager {
 
 impl Persist for CollateralManager {
     fn load(&mut self) -> Result<()> {
-        let _value = self.persistence.load_value()?;
-        //self.client_funds =
+        if let Some(value) = self.persistence.load_value()? {
+            if let Some(client_funds_value) = value.get("client_funds") {
+                let loaded_positions: HashMap<(u32, Address), CollateralPosition> =
+                    serde_json::from_value(client_funds_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize client_funds: {:?}", err))?;
+
+                // Convert loaded positions back to ArcSwap
+                self.client_funds = loaded_positions
+                    .into_iter()
+                    .map(|(key, position)| (key, ArcSwap::new(Arc::new(position))))
+                    .collect();
+
+                tracing::info!("Loaded {} client fund positions from persistence", self.client_funds.len());
+            }
+        }
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
-        self.persistence.store_value(json!({"collateral_manager_data": ""}))
+        // Extract values from ArcSwap for serialization
+        let client_funds_for_serialization: HashMap<(u32, Address), CollateralPosition> =
+            self.client_funds
+                .iter()
+                .map(|(key, arc_swap)| (*key, (**arc_swap.load()).clone()))
+                .collect();
+
+        let data = json!({
+            "client_funds": client_funds_for_serialization
+        });
+
+        self.persistence.store_value(data)
+            .map_err(|err| eyre!("Failed to store CollateralManager state: {:?}", err))
     }
 }
 
