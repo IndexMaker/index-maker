@@ -15,6 +15,7 @@ use symm_core::{
             Address, Amount, BatchOrder, BatchOrderId, ClientOrderId, OrderId, PaymentId,
             PricePointEntry, PriceType, Side, Symbol,
         },
+        persistence::{Persist, Persistence},
         telemetry::{TracingData, WithTracingContext, WithTracingData},
     },
     market_data::{
@@ -184,6 +185,8 @@ pub struct Solver {
     index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
     quote_request_manager: Arc<ComponentLock<QuoteRequestManager>>,
     inventory_manager: Arc<RwLock<InventoryManager>>,
+    // persistence
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     // quotes
     client_quotes: RwLock<SolverClientQuotes>,
     // orders
@@ -209,6 +212,7 @@ impl Solver {
         index_order_manager: Arc<ComponentLock<IndexOrderManager>>,
         quote_request_manager: Arc<ComponentLock<QuoteRequestManager>>,
         inventory_manager: Arc<RwLock<InventoryManager>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         max_batch_size: usize,
         zero_threshold: Amount,
         client_order_wait_period: TimeDelta,
@@ -227,6 +231,7 @@ impl Solver {
             index_order_manager,
             quote_request_manager,
             inventory_manager,
+            persistence,
             // quotes
             client_quotes: RwLock::new(SolverClientQuotes::new(client_quote_wait_period)),
             // orders
@@ -1481,6 +1486,47 @@ impl CollateralManagerHost for Solver {
     }
 }
 
+impl Persist for Solver {
+    fn load(&mut self) -> Result<()> {
+        self.index_order_manager
+            .write()
+            .map_err(|err| eyre!("{:?}", err))?
+            .load()?;
+
+        self.collateral_manager
+            .write()
+            .map_err(|err| eyre!("{:?}", err))?
+            .load()?;
+
+        self.batch_manager
+            .write()
+            .map_err(|err| eyre!("{:?}", err))?
+            .load()?;
+
+        self.inventory_manager
+            .write()
+            .load()?;
+
+        let _value = self.persistence.load_value()?;
+
+        //TODO: load these
+        //self.client_orders;
+        //self.ready_orders;
+        //self.ready_mints;
+
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        //TODO: store these
+        //self.client_orders;
+        //self.ready_orders;
+        //self.ready_mints;
+
+        self.persistence.store_value(json!({"some_solver_data": ""}))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -1501,6 +1547,7 @@ mod test {
             bits::{PricePointEntry, SingleOrder},
             functional::{IntoObservableMany, IntoObservableSingle},
             logging::log_init,
+            persistence::util::InMemoryPersistence,
             test_util::{
                 get_mock_address_1, get_mock_asset_1_arc, get_mock_asset_2_arc,
                 get_mock_asset_name_1, get_mock_asset_name_2, get_mock_index_name_1,
@@ -1641,8 +1688,10 @@ mod test {
             order_connector.clone(),
             tolerance,
         )));
+        let inventory_persistence = Arc::new(InMemoryPersistence::new());
         let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
             order_tracker.clone(),
+            inventory_persistence,
             tolerance,
         )));
 
@@ -1749,13 +1798,17 @@ mod test {
             ])
             .expect("Failed to add route");
 
+        let collateral_manager_persistence = Arc::new(InMemoryPersistence::new());
         let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
             collateral_router.clone(),
+            collateral_manager_persistence,
             tolerance,
         )));
 
+        let index_order_manager_persistence = Arc::new(InMemoryPersistence::new());
         let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
             fix_server.clone(),
+            index_order_manager_persistence,
             tolerance,
         )));
         let quote_request_manager = Arc::new(ComponentLock::new(QuoteRequestManager::new(
@@ -1786,13 +1839,17 @@ mod test {
             dec!(1.0),
         ));
 
+        let batch_manager_persistence = Arc::new(InMemoryPersistence::new());
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
+            batch_manager_persistence,
             max_batch_size,
             tolerance,
             dec!(0.9999),
             dec!(0.99),
             mint_wait_period,
         )));
+
+        let solver_persistence = Arc::new(InMemoryPersistence::new());
 
         let solver = Arc::new(Solver::new(
             solver_strategy.clone(),
@@ -1806,6 +1863,7 @@ mod test {
             index_order_manager.clone(),
             quote_request_manager.clone(),
             inventory_manager.clone(),
+            solver_persistence.clone(),
             max_batch_size,
             tolerance,
             client_order_wait_period,

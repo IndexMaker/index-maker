@@ -10,7 +10,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::bits::{Amount, Symbol},
+    core::{bits::{Amount, Symbol}, persistence::util::JsonFilePersistence},
     order_sender::{
         inventory_manager::InventoryManager,
         order_connector::{OrderConnector, SessionId},
@@ -195,11 +195,17 @@ impl OrderSenderConfigBuilder {
 
             config.order_tracker.replace(order_tracker.clone());
 
+            // TODO: Configure me!
+            let persistence = Arc::new(JsonFilePersistence::new(String::from(
+                "./persistence/InventoryManager.json",
+            )));
+
             if config.with_inventory_manager.unwrap_or(true) {
                 config
                     .inventory_manager
                     .replace(Arc::new(RwLock::new(InventoryManager::new(
                         order_tracker,
+                        persistence,
                         config.zero_threshold.unwrap_or(dec!(0.00001)),
                     ))));
             }

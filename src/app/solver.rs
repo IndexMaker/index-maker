@@ -43,6 +43,7 @@ use symm_core::{
             IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
             IntoObservableSingleFun,
         },
+        persistence::{util::JsonFilePersistence, Persist},
         telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
     },
     market_data::{
@@ -845,6 +846,10 @@ impl SolverConfig {
         self.stop_quotes_backend().await?;
         self.stop_solver().await?;
         self.stop_market_data().await?;
+        self.solver
+            .as_deref()
+            .expect("Unexpected: solver must have existed")
+            .store()?;
         Ok(())
     }
 
@@ -939,7 +944,12 @@ impl SolverConfigBuilder {
                 ConfigBuildError::UninitializedField("with_chain_connector.chain_connector")
             })?;
 
-        config.solver.replace(Arc::new(Solver::new(
+        // TODO: Configure me!
+        let persistence = Arc::new(JsonFilePersistence::new(String::from(
+            "./persistence/Solver.json",
+        )));
+
+        let mut solver = Arc::new(Solver::new(
             strategy,
             order_id_provider,
             basket_manager,
@@ -951,11 +961,30 @@ impl SolverConfigBuilder {
             index_order_manager,
             quote_request_manager,
             inventory_manager,
+            persistence,
             config.max_batch_size,
             config.zero_threshold,
             config.client_order_wait_period,
             config.client_quote_wait_period,
-        )));
+        ));
+
+        // There is a good reason for Persist::load(&mut self) to work on &mut Self and not &Self.
+        // Persist::load() should restore consistent state, and for that the whole object needs
+        // to be locked or otherwise some fields would be deserialized out-of-sync. In case of
+        // Solver there is multiple members that are protected by locks, and when we deserialize
+        // them one after another, they may get out of sync if system is currently running.
+        // We don't keep Solver under lock, so the only way to load its state is in the beginning
+        // when we create it and nothing else has reference to it yet (which is here).
+        // Note that other components can reload their state on-the-go, e.g. to rollback failed
+        // operation, and they can store their stat on-the-go, e.g. to commit stable state.
+        Arc::get_mut(&mut solver)
+            .expect("Unexpected: Solver must not have any other references")
+            .load()
+            .map_err(|err| {
+                ConfigBuildError::Other(format!("Failed to load solver state: {:?}", err))
+            })?;
+
+        config.solver.replace(solver);
 
         Ok(config)
     }

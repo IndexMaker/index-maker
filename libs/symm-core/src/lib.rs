@@ -16,6 +16,7 @@ pub mod core {
     pub mod json_file_async;
     pub mod limit;
     pub mod logging;
+    pub mod persistence;
     pub mod telemetry;
     pub mod test_util;
 }

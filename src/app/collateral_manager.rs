@@ -9,7 +9,7 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use rust_decimal::dec;
-use symm_core::core::bits::Amount;
+use symm_core::core::{bits::Amount, persistence::util::JsonFilePersistence};
 
 #[derive(Clone, Builder)]
 #[builder(
@@ -55,8 +55,14 @@ impl CollateralManagerConfigBuilder {
 
         let collateral_router = config.with_router.expect_router_cloned();
 
+        // TODO: Configure me!
+        let persistence = Arc::new(JsonFilePersistence::new(String::from(
+            "./persistence/CollateralManager.json",
+        )));
+
         let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
             collateral_router,
+            persistence,
             config.zero_threshold.unwrap_or(dec!(0.00001)),
         )));
 

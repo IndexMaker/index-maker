@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
@@ -12,7 +12,10 @@ use safe_math::safe;
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
 use serde_json::json;
-use symm_core::core::telemetry::{TracingData, WithBaggage};
+use symm_core::core::{
+    persistence::{Persist, Persistence},
+    telemetry::{TracingData, WithBaggage},
+};
 
 use crate::{
     collateral::collateral_position::CollateralPosition,
@@ -174,6 +177,7 @@ pub enum IndexOrderEvent {
 pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>>,
     index_symbols: HashSet<Symbol>,
     tolerance: Amount,
@@ -181,10 +185,15 @@ pub struct IndexOrderManager {
 
 /// manage index orders, receive orders and route into solver
 impl IndexOrderManager {
-    pub fn new(server: Arc<RwLock<dyn Server>>, tolerance: Amount) -> Self {
+    pub fn new(
+        server: Arc<RwLock<dyn Server>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+        tolerance: Amount,
+    ) -> Self {
         Self {
             observer: SingleObserver::new(),
             server,
+            persistence,
             index_orders: HashMap::new(),
             index_symbols: HashSet::new(),
             tolerance,
@@ -1000,6 +1009,18 @@ impl IndexOrderManager {
             });
 
         Ok(())
+    }
+}
+
+impl Persist for IndexOrderManager {
+    fn load(&mut self) -> Result<()> {
+        let _value = self.persistence.load_value()?;
+        //self.index_orders = ...
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        self.persistence.store_value(json!({"index_order_manager_data": ""}))
     }
 }
 

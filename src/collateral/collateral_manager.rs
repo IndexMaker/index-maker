@@ -7,11 +7,15 @@ use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use itertools::{Either, Itertools};
 
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
-use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
+use serde_json::json;
+use symm_core::core::{
+    persistence::{Persist, Persistence},
+    telemetry::{TracingData, WithBaggage, WithTracingContext},
+};
 
 use symm_core::core::{
     arcswaputil::SafeUpdate,
@@ -83,16 +87,22 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
     router: Arc<ComponentLock<CollateralRouter>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     client_funds: HashMap<(u32, Address), ArcSwap<CollateralPosition>>,
     collateral_management_requests: VecDeque<CollateralManagement>,
     zero_threshold: Amount,
 }
 
 impl CollateralManager {
-    pub fn new(router: Arc<ComponentLock<CollateralRouter>>, zero_threshold: Amount) -> Self {
+    pub fn new(
+        router: Arc<ComponentLock<CollateralRouter>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+        zero_threshold: Amount,
+    ) -> Self {
         Self {
             observer: SingleObserver::new(),
             router,
+            persistence,
             client_funds: HashMap::new(),
             collateral_management_requests: VecDeque::new(),
             zero_threshold,
@@ -453,6 +463,18 @@ impl CollateralManager {
     }
 }
 
+impl Persist for CollateralManager {
+    fn load(&mut self) -> Result<()> {
+        let _value = self.persistence.load_value()?;
+        //self.client_funds =
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        self.persistence.store_value(json!({"collateral_manager_data": ""}))
+    }
+}
+
 impl IntoObservableSingle<CollateralEvent> for CollateralManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralEvent> {
         &mut self.observer
@@ -475,14 +497,11 @@ mod test {
     use symm_core::{
         assert_decimal_approx_eq,
         core::{
-            bits::{PaymentId, Side},
-            functional::IntoObservableSingle,
-            telemetry::TracingData,
-            test_util::{
+            bits::{PaymentId, Side}, functional::IntoObservableSingle, persistence::util::InMemoryPersistence, telemetry::TracingData, test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
                 get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
                 get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool,
-            },
+            }
         },
     };
 
@@ -565,8 +584,10 @@ mod test {
             },
         );
 
+        let persistence = Arc::new(InMemoryPersistence::new());
         let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
             router.clone(),
+            persistence,
             zero_threshold,
         )));
 

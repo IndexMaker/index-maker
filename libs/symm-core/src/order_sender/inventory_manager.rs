@@ -1,11 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, Context, Result};
 use itertools::partition;
 use parking_lot::RwLock;
+use serde_json::json;
 
-use crate::core::telemetry::{TracingData, WithBaggage};
+use crate::core::{
+    persistence::{Persist, Persistence},
+    telemetry::{TracingData, WithBaggage},
+};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
 
@@ -97,14 +101,20 @@ pub enum InventoryEvent {
 pub struct InventoryManager {
     observer: SingleObserver<InventoryEvent>,
     order_tracker: Arc<RwLock<OrderTracker>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     positions: HashMap<Symbol, Box<Position>>,
     tolerance: Amount,
 }
 
 impl InventoryManager {
-    pub fn new(order_tracker: Arc<RwLock<OrderTracker>>, tolerance: Amount) -> Self {
+    pub fn new(
+        order_tracker: Arc<RwLock<OrderTracker>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+        tolerance: Amount,
+    ) -> Self {
         Self {
             observer: SingleObserver::new(),
+            persistence,
             order_tracker,
             positions: HashMap::new(),
             tolerance,
@@ -380,6 +390,18 @@ impl InventoryManager {
     }
 }
 
+impl Persist for InventoryManager {
+    fn load(&mut self) -> Result<()> {
+        let _value = self.persistence.load_value()?;
+        // self.positions = ...
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        self.persistence.store_value(json!({"inventory_manager_data": ""}))
+    }
+}
+
 impl IntoObservableSingle<InventoryEvent> for InventoryManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<InventoryEvent> {
         &mut self.observer
@@ -401,9 +423,7 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
-            functional::IntoObservableSingle,
-            test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
+            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder}, functional::IntoObservableSingle, persistence::util::InMemoryPersistence, test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred}
         },
         order_sender::{
             order_connector::{
@@ -464,8 +484,10 @@ mod test {
             order_connector.clone(),
             tolerance,
         )));
+        let persistence = Arc::new(InMemoryPersistence::new());
         let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
             order_tracker.clone(),
+            persistence,
             tolerance,
         )));
 

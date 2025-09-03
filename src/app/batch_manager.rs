@@ -7,7 +7,10 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use rust_decimal::dec;
-use symm_core::core::bits::Amount;
+use symm_core::core::{
+    bits::Amount,
+    persistence::{self, util::JsonFilePersistence},
+};
 
 #[derive(Clone, Builder)]
 #[builder(
@@ -58,7 +61,13 @@ impl BatchManagerConfigBuilder {
     pub fn build(self) -> Result<BatchManagerConfig, ConfigBuildError> {
         let mut config = self.try_build()?;
 
+        // TODO: Configure me!
+        let persistence = Arc::new(JsonFilePersistence::new(String::from(
+            "./persistence/BatchManager.json",
+        )));
+
         let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
+            persistence,
             config.max_batch_size.unwrap_or(4),
             config.zero_threshold.unwrap_or(dec!(0.00001)),
             config.fill_threshold.unwrap_or(dec!(0.9999)),

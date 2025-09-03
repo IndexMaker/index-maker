@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
@@ -20,6 +20,7 @@ use symm_core::{
         },
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        persistence::{Persist, Persistence},
         telemetry::WithTracingContext,
     },
     order_sender::position::LotId,
@@ -501,6 +502,7 @@ pub trait BatchManagerHost: SetSolverOrderStatus {
 
 pub struct BatchManager {
     observer: SingleObserver<BatchEvent>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     batches: HashMap<BatchOrderId, Arc<RwLock<BatchOrderStatus>>>,
     engagements: HashMap<BatchOrderId, Arc<RwLock<EngagedSolverOrders>>>,
     ready_batches: VecDeque<BatchOrderId>,
@@ -516,6 +518,7 @@ pub struct BatchManager {
 
 impl BatchManager {
     pub fn new(
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         max_batch_size: usize,
         zero_threshold: Amount,
         fill_threshold: Amount,
@@ -524,6 +527,7 @@ impl BatchManager {
     ) -> Self {
         Self {
             observer: SingleObserver::new(),
+            persistence,
             batches: HashMap::new(),
             engagements: HashMap::new(),
             ready_batches: VecDeque::new(),
@@ -1386,6 +1390,18 @@ impl BatchManager {
     }
 }
 
+impl Persist for BatchManager {
+    fn load(&mut self) -> Result<()> {
+        let _value = self.persistence.load_value()?;
+        //self.carry_overs;
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        self.persistence.store_value(json!({"batch_manager_data": ""}))
+    }
+}
+
 impl IntoObservableSingle<BatchEvent> for BatchManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<BatchEvent> {
         &mut self.observer
@@ -1412,14 +1428,10 @@ mod test {
             bits::{
                 Address, Amount, AssetOrder, BatchOrder, ClientOrderId, OrderId, PaymentId, Side,
                 Symbol,
-            },
-            functional::IntoObservableSingle,
-            logging::log_init,
-            telemetry::TracingData,
-            test_util::{
+            }, functional::IntoObservableSingle, logging::log_init, persistence::util::InMemoryPersistence, telemetry::TracingData, test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
-            },
+            }
         },
         init_log,
     };
@@ -1776,7 +1788,9 @@ mod test {
 
         let host = MockHost;
 
+        let persistence = Arc::new(InMemoryPersistence::new());
         let mut batch_manager = BatchManager::new(
+            persistence,
             max_batch_size,
             zero_threshold,
             fill_threshold,
