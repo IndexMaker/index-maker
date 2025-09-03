@@ -11,6 +11,7 @@ pub mod app {
     pub mod mint_invoice_manager;
     pub mod order_sender;
     pub mod quote_request_manager;
+    pub mod query_service;
     pub mod simple_chain;
     pub mod simple_router;
     pub mod simple_sender;
@@ -23,6 +24,11 @@ pub mod app {
 pub mod collateral {
     pub mod collateral_manager;
     pub mod collateral_position;
+}
+
+pub mod query {
+    pub mod query_service;
+    pub mod query_service_state;
 }
 
 pub mod server {

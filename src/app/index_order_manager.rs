@@ -11,7 +11,7 @@ use eyre::{OptionExt, Result};
 use rust_decimal::dec;
 use symm_core::core::{bits::Amount, persistence::util::JsonFilePersistence};
 
-#[derive(Builder)]
+#[derive(Builder, Clone)]
 #[builder(
     pattern = "owned",
     build_fn(name = "try_build", error = "ConfigBuildError")

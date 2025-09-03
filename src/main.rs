@@ -8,12 +8,30 @@ use clap::{Parser, Subcommand};
 use index_core::blockchain::chain_connector::ChainNotification;
 use index_maker::{
     app::{
-        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig, chain_connector::RealChainConnectorConfig, collateral_manager::CollateralManagerConfig, collateral_router::CollateralRouterConfig, fix_server::FixServerConfig, index_order_manager::IndexOrderManagerConfig, market_data::MarketDataConfig, mint_invoice_manager::MintInvoiceManagerConfig, order_sender::{OrderSenderConfig, OrderSenderCredentials}, quote_request_manager::QuoteRequestManagerConfig, simple_chain::SimpleChainConnectorConfig, simple_router::SimpleCollateralRouterConfig, simple_server::{SimpleServer, SimpleServerConfig}, simple_solver::SimpleSolverConfig, solver::{
+        basket_manager::BasketManagerConfig,
+        batch_manager::BatchManagerConfig,
+        chain_connector::RealChainConnectorConfig,
+        collateral_manager::CollateralManagerConfig,
+        collateral_router::CollateralRouterConfig,
+        fix_server::FixServerConfig,
+        index_order_manager::IndexOrderManagerConfig,
+        market_data::MarketDataConfig,
+        mint_invoice_manager::MintInvoiceManagerConfig,
+        order_sender::{OrderSenderConfig, OrderSenderCredentials},
+        query_service::{self, QueryServiceConfig, QueryServiceConfigBuilder},
+        quote_request_manager::QuoteRequestManagerConfig,
+        simple_chain::SimpleChainConnectorConfig,
+        simple_router::SimpleCollateralRouterConfig,
+        simple_server::{SimpleServer, SimpleServerConfig},
+        simple_solver::SimpleSolverConfig,
+        solver::{
             ChainConnectorConfig, OrderIdProviderConfig, ServerConfig, SolverConfig,
             SolverStrategyConfig,
-        }, timestamp_ids::TimestampOrderIdsConfig
+        },
+        timestamp_ids::TimestampOrderIdsConfig,
     },
-    server::server::ServerEvent, solver::mint_invoice_manager,
+    server::server::ServerEvent,
+    solver::mint_invoice_manager,
 };
 use itertools::Itertools;
 use otc_custody::custody_authority::CustodyAuthority;
@@ -55,6 +73,9 @@ struct Cli {
 
     #[arg(long, short)]
     bind_address: Option<String>,
+
+    #[arg(long, short)]
+    query_bind_address: Option<String>,
 
     #[arg(long)]
     rpc_url: Option<String>,
@@ -462,11 +483,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mint_invoice_manager_config = MintInvoiceManagerConfig::builder()
         .build()
         .expect("Failed to build mint invoice manager config");
-    
+
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
         .with_server(app_mode.get_server_config())
-        .with_invoice_manager(mint_invoice_manager_config)
+        .with_invoice_manager(mint_invoice_manager_config.clone())
         .build()
         .expect("Failed to build index order manager");
 
@@ -489,6 +510,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_router(router_config)
         .build()
         .expect("Failed to build collateral manager");
+
+    let query_service_config = cli.query_bind_address.map(|query_bind_address| {
+        QueryServiceConfig::builder()
+            .with_collateral_manager(collateral_manager_config.expect_collateral_manager_cloned())
+            .with_index_order_manager(
+                index_order_manager_config.expect_index_order_manager_cloned(),
+            )
+            .with_inventory_manager(order_sender_config.expect_inventory_manager_cloned())
+            .with_invoice_manager(mint_invoice_manager_config.expect_invoice_manager_cloned())
+            .address(query_bind_address)
+            .build()
+            .expect("Failed to build query service")
+    });
 
     let strategy_config = SimpleSolverConfig::builder()
         .price_threshold(price_threshold)
@@ -656,6 +690,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fix_server_config.address);
         }
     };
+
+    if let Some(query_service_config) = query_service_config {
+        query_service_config.start().await?;
+    }
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;

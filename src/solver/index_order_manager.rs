@@ -1027,10 +1027,12 @@ impl Persist for IndexOrderManager {
     fn load(&mut self) -> Result<()> {
         let _value = self.persistence.load_value()?;
         //self.index_orders = ...
+        self.invoice_manager.write().load()?;
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
+        self.invoice_manager.read().store()?;
         self.persistence
             .store_value(json!({"index_order_manager_data": ""}))
     }
