@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use axum::{
     extract::{Path, State},
@@ -11,10 +11,9 @@ use std::net::SocketAddr;
 use symm_core::core::bits::{Address, ClientOrderId};
 
 use crate::{
+    collateral::collateral_position::CollateralPosition,
     query::query_service_state::QueryServiceState,
-    solver::
-        mint_invoice_manager::{GetInvoiceData, GetInvoicesData}
-    ,
+    solver::mint_invoice_manager::{GetInvoiceData, GetInvoicesData},
 };
 
 pub struct QueryService {
@@ -42,15 +41,22 @@ impl QueryService {
             ));
             tracing::info!("Listening on {}", addr);
 
-            let api_v1 = Router::new()
+            let collateral_position_api =
+                Router::new().route("/position/:chain_id/:address", get(get_collateral_position));
+
+            let mint_invoice_api = Router::new()
                 .route(
-                    "/mint_invoice/:chain_id/:address/:client_order_id",
+                    "/invoice/:chain_id/:address/:client_order_id",
                     get(get_mint_invoice),
                 )
                 .route(
-                    "/mint_invoices_in_date_range/:from_date/:to_date",
+                    "/from/:from_date/to/:to_date",
                     get(get_mint_invoices_in_date_range),
                 );
+
+            let api_v1 = Router::new()
+                .nest("/collateral", collateral_position_api)
+                .nest("/mint_invoices", mint_invoice_api);
 
             let app = Router::new()
                 .nest("/api/v1", api_v1)
@@ -66,7 +72,26 @@ impl QueryService {
 }
 
 /// Example URL:
-/// `/api/v1/mint_invoice/1/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266/VVY-QNF-EPF-1160`
+/// `/api/v1/collateral/position/1/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`
+async fn get_collateral_position(
+    State(state): State<Arc<QueryServiceState>>,
+    Path((chain_id, address)): Path<(u32, Address)>,
+) -> Result<Json<CollateralPosition>, StatusCode> {
+    let manager = state
+        .get_collateral_manager()
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if let Some(position) = manager.get_position(chain_id, &address) {
+        let position = position.load().deref().deref().clone();
+        Ok(Json(position))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+/// Example URL:
+/// `/api/v1/mint_invoices/invoice/1/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266/VVY-QNF-EPF-1160`
 async fn get_mint_invoice(
     State(state): State<Arc<QueryServiceState>>,
     Path((chain_id, address, client_order_id)): Path<(u32, Address, ClientOrderId)>,
@@ -84,7 +109,7 @@ async fn get_mint_invoice(
 }
 
 /// Example URL:
-/// `/api/v1/mint_invoices_in_date_range/2025-03-05T00:00:00.000Z/2025-03-05T23:00:00.000Z`
+/// `/api/v1/mint_invoices/from/2025-09-03T00:00:00.000Z/to/2025-09-4T00:00:00.000Z`
 async fn get_mint_invoices_in_date_range(
     State(state): State<Arc<QueryServiceState>>,
     Path((from_date, to_date)): Path<(DateTime<Utc>, DateTime<Utc>)>,
