@@ -65,6 +65,8 @@ impl QueryService {
     }
 }
 
+/// Example URL:
+/// `/api/v1/mint_invoice/1/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266/VVY-QNF-EPF-1160`
 async fn get_mint_invoice(
     State(state): State<Arc<QueryServiceState>>,
     Path((chain_id, address, client_order_id)): Path<(u32, Address, ClientOrderId)>,
@@ -81,6 +83,8 @@ async fn get_mint_invoice(
     }
 }
 
+/// Example URL:
+/// `/api/v1/mint_invoices_in_date_range/2025-03-05T00:00:00.000Z/2025-03-05T23:00:00.000Z`
 async fn get_mint_invoices_in_date_range(
     State(state): State<Arc<QueryServiceState>>,
     Path((from_date, to_date)): Path<(DateTime<Utc>, DateTime<Utc>)>,
