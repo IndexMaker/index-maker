@@ -1518,6 +1518,25 @@ impl Persist for Solver {
     }
 
     fn store(&self) -> Result<()> {
+        self.index_order_manager
+            .write()
+            .map_err(|err| eyre!("{:?}", err))?
+            .store()?;
+
+        self.collateral_manager
+            .write()
+            .map_err(|err| eyre!("{:?}", err))?
+            .store()?;
+
+        self.batch_manager
+            .write()
+            .map_err(|err| eyre!("{:?}", err))?
+            .store()?;
+
+        self.inventory_manager
+            .write()
+            .store()?;
+
         //TODO: store these
         //self.client_orders;
         //self.ready_orders;
