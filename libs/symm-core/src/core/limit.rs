@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use serde::{Deserialize, Serialize};
 
 use chrono::{DateTime, Duration, Utc};
 use itertools::{
@@ -85,6 +86,8 @@ impl LimitWeights {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LimiterConfig {
     pub limit: usize,
     pub period: Duration,

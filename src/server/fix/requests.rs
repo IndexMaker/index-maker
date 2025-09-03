@@ -3,7 +3,11 @@ use std::fmt;
 use crate::server::fix::messages::*;
 use axum_fix_server::{
     messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
-    plugins::{seq_num_plugin::WithSeqNumPlugin, user_plugin::WithUserPlugin},
+    plugins::{
+        rate_limit_plugin::{MessageType, RateLimitKey, WithRateLimitPlugin},
+        seq_num_plugin::WithSeqNumPlugin,
+        user_plugin::WithUserPlugin,
+    },
 };
 use eyre::{eyre, Result};
 use k256::ecdsa::{Signature, VerifyingKey};
@@ -39,6 +43,35 @@ impl WithSeqNumPlugin for FixRequest {
 }
 
 impl WithUserPlugin for FixRequest {
+    fn get_user_id(&self) -> (u32, Address) {
+        (self.chain_id, self.address)
+    }
+}
+
+impl WithRateLimitPlugin for FixRequest {
+    fn get_rate_limit_key(&self) -> RateLimitKey {
+        RateLimitKey::User(self.chain_id, self.address)
+    }
+
+    fn get_message_weight(&self) -> usize {
+        match self.standard_header.msg_type.as_str() {
+            "NewIndexOrder" => 10,
+            "CancelIndexOrder" => 5,
+            "NewQuoteRequest" => 5,
+            "CancelQuoteRequest" => 3,
+            "AccountToCustody" | "CustodyToAccount" => 1,
+            _ => 1,
+        }
+    }
+
+    fn get_message_type(&self) -> MessageType {
+        match self.standard_header.msg_type.as_str() {
+            "NewIndexOrder" | "CancelIndexOrder" => MessageType::Order,
+            "NewQuoteRequest" | "CancelQuoteRequest" => MessageType::Quote,
+            _ => MessageType::Administrative,
+        }
+    }
+
     fn get_user_id(&self) -> (u32, Address) {
         (self.chain_id, self.address)
     }
@@ -285,9 +318,10 @@ impl FixRequest {
         if pub_key_bytes.len() != 65 || pub_key_bytes[0] != 0x04 {
             return Err(eyre!("Invalid uncompressed SEC1 public key format"));
         }
-
         let expected_address = Address::from_raw_public_key(&pub_key_bytes[1..]);
-        if expected_address != self.address {
+        let self_address = self.address.to_string();
+        println!("{self_address}, {expected_address}");
+        if expected_address.to_string().to_lowercase() != self.address.to_string().to_lowercase() {
             return Err(eyre!("Invalid address"));
         }
 
@@ -348,20 +382,20 @@ mod tests {
 
     #[test]
     fn test_signature_verification_with_static_data() {
-        let pubkey_hex = "0x04bac1a969ad21dbb9928a4cc0824ac8b6631d44056b3ce7cb18a406d2e9c538bea50a11f7a3c51a913c5875da00f650b4739796742b15622fcbaed51b15a9da4c";
-        let signature_hex = "0xbf169e19c6cc1762ddeb0c8fbcd46d9e7b3131b8e277bc1e55aa841c6d81ab106768ca23071d0f9ae15fe50b72cd07e8ba4ffdd6320fbcd9839c5820fe27236a";
+        let pubkey_hex = "0x048318535b54105d4a7aae60c08fc45f9687181b4fdfc625bd1a753fa7397fed753547f11ca8696646f2f3acb08e31016afac23e630c5d11f59f61fef57b0d2aa5";
+        let signature_hex = "0xbf169e19c6cc1762ddeb0c8fbcd46d9e7b3131b8e277bc1e55aa841c6d81ab10540c2b77b7818c300a9aca691e5e1918d958d7b3fcf80bd7724a9cbb4705cb11";
 
         let payload = json!({
           "standard_header": {
             "msg_type": "NewIndexOrder",
-            "sender_comp_id": "CLIENT",
-            "target_comp_id": "SERVER",
-            "seq_num": 1,
-            "timestamp": "2025-07-30T11:58:59.323Z"
+            "sender_comp_id": "C",
+            "target_comp_id": "S",
+            "seq_num": 2,
+            "timestamp": "2025-08-22T15:55:01.593Z"
           },
           "chain_id": 1,
-          "address": "0xc7dd6ddef2b3038286616b8b3a01c6bdc3b4726a",
-          "client_order_id": "Q-1753953950462",
+          "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "client_order_id": "Q-1755874673593",
           "symbol": "SY100",
           "side": "1",
           "amount": "1000"
@@ -415,5 +449,139 @@ mod tests {
             fix.verify_signature().is_ok(),
             "Quote request without signature should pass verification"
         );
+    }
+
+    #[test]
+    fn test_with_rate_limit_plugin_implementation() {
+        use axum_fix_server::plugins::rate_limit_plugin::{
+            MessageType, RateLimitKey, WithRateLimitPlugin,
+        };
+        use symm_core::core::test_util::{get_mock_address_1, get_mock_address_2};
+
+        let user_id = (1, get_mock_address_1());
+        let session_id = SessionId::from("test_session");
+
+        // Test different message types and their weights/classifications
+        let test_cases = vec![
+            ("NewIndexOrder", 10, MessageType::Order),
+            ("CancelIndexOrder", 5, MessageType::Order),
+            ("NewQuoteRequest", 5, MessageType::Quote),
+            ("CancelQuoteRequest", 3, MessageType::Quote),
+            ("AccountToCustody", 1, MessageType::Administrative),
+            ("CustodyToAccount", 1, MessageType::Administrative),
+            ("Heartbeat", 1, MessageType::Administrative),
+            ("UnknownMessage", 1, MessageType::Administrative), // Default case
+        ];
+
+        for (msg_type, expected_weight, expected_type) in test_cases {
+            let request = FixRequest {
+                session_id: session_id.clone(),
+                standard_header: FixHeader {
+                    msg_type: msg_type.to_string(),
+                    sender_comp_id: "CLIENT".to_string(),
+                    target_comp_id: "SERVER".to_string(),
+                    seq_num: 1,
+                    timestamp: chrono::Utc::now(),
+                },
+                chain_id: user_id.0,
+                address: user_id.1,
+                body: RequestBody::NewIndexOrderBody {
+                    client_order_id: "O123".to_string(),
+                    symbol: "BTC".to_string(),
+                    side: "1".to_string(),
+                    amount: "100".to_string(),
+                },
+                standard_trailer: Some(FixTrailer::new()),
+            };
+
+            // Test trait implementation
+            assert_eq!(
+                axum_fix_server::plugins::rate_limit_plugin::WithRateLimitPlugin::get_user_id(
+                    &request
+                ),
+                user_id
+            );
+            assert_eq!(
+                request.get_rate_limit_key(),
+                RateLimitKey::User(user_id.0, user_id.1)
+            );
+            assert_eq!(
+                request.get_message_weight(),
+                expected_weight,
+                "Message type {} should have weight {}",
+                msg_type,
+                expected_weight
+            );
+            assert_eq!(
+                request.get_message_type(),
+                expected_type,
+                "Message type {} should be classified as {:?}",
+                msg_type,
+                expected_type
+            );
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_key_consistency() {
+        use axum_fix_server::plugins::rate_limit_plugin::{RateLimitKey, WithRateLimitPlugin};
+        use symm_core::core::test_util::{get_mock_address_1, get_mock_address_2};
+
+        let user_id_1 = (1, get_mock_address_1());
+        let user_id_2 = (2, get_mock_address_2());
+        let session_id = SessionId::from("key_test_session");
+
+        let request_1a = create_test_request(&user_id_1, &session_id, "NewIndexOrder");
+        let request_1b = create_test_request(&user_id_1, &session_id, "CancelIndexOrder");
+        let request_2 = create_test_request(&user_id_2, &session_id, "NewIndexOrder");
+
+        // Same user should have same rate limit key regardless of message type
+        assert_eq!(
+            request_1a.get_rate_limit_key(),
+            request_1b.get_rate_limit_key()
+        );
+
+        // Different users should have different rate limit keys
+        assert_ne!(
+            request_1a.get_rate_limit_key(),
+            request_2.get_rate_limit_key()
+        );
+
+        // Verify key structure
+        assert_eq!(
+            request_1a.get_rate_limit_key(),
+            RateLimitKey::User(1, get_mock_address_1())
+        );
+        assert_eq!(
+            request_2.get_rate_limit_key(),
+            RateLimitKey::User(2, get_mock_address_2())
+        );
+    }
+
+    // Helper function for creating test requests
+    fn create_test_request(
+        user_id: &(u32, Address),
+        session_id: &SessionId,
+        msg_type: &str,
+    ) -> FixRequest {
+        FixRequest {
+            session_id: session_id.clone(),
+            standard_header: FixHeader {
+                msg_type: msg_type.to_string(),
+                sender_comp_id: "CLIENT".to_string(),
+                target_comp_id: "SERVER".to_string(),
+                seq_num: 1,
+                timestamp: chrono::Utc::now(),
+            },
+            chain_id: user_id.0,
+            address: user_id.1,
+            body: RequestBody::NewIndexOrderBody {
+                client_order_id: "O123".to_string(),
+                symbol: "BTC".to_string(),
+                side: "1".to_string(),
+                amount: "100".to_string(),
+            },
+            standard_trailer: Some(FixTrailer::new()),
+        }
     }
 }

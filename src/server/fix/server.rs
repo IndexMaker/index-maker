@@ -6,6 +6,7 @@ use symm_core::core::functional::{IntoObservableManyVTable, NotificationHandler}
 
 use crate::server::{
     fix::server_plugin::ServerPlugin,
+    fix::rate_limit_config::FixRateLimitConfig,
     server::{Server as ServerInterface, ServerEvent, ServerResponse},
 };
 
@@ -15,8 +16,12 @@ pub struct Server {
 
 impl Server {
     pub fn new() -> Self {
+        Self::new_with_rate_limiting(FixRateLimitConfig::default())
+    }
+    
+    pub fn new_with_rate_limiting(rate_limit_config: FixRateLimitConfig) -> Self {
         Self {
-            inner: AxumFixServer::new(ServerPlugin::new()),
+            inner: AxumFixServer::new(ServerPlugin::new(rate_limit_config)),
         }
     }
 

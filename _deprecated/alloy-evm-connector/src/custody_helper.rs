@@ -355,7 +355,7 @@ impl CAHelper {
     }
 
     /// Compute leaf hash identical to Solidity implementation.
-    fn compute_leaf(item: &CAItem) -> EBytes {
+    pub fn compute_leaf(item: &CAItem) -> EBytes {
         let tokens: Vec<Token> = vec![
             Token::String(item.item_type.to_string()),
             Token::Uint(U256::from(item.chain_id)),

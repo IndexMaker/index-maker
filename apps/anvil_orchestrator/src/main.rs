@@ -1,8 +1,8 @@
-use anyhow::{anyhow, Context, Result};
-use rust_decimal::Decimal;
+use alloy_chain_connector::util::amount_converter::AmountConverter;
+use eyre::{eyre, Context, Result};
+use otc_custody::contracts::ERC20;
 use serde_json::json;
 use std::{
-    path::PathBuf,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -14,40 +14,26 @@ use alloy::{
     network::{EthereumWallet, TransactionBuilder},
     primitives::{address, Address, Bytes, U256},
     providers::{Provider, ProviderBuilder},
-    rpc::types::{TransactionInput, TransactionRequest},
+    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
-    sol,
     sol_types::SolCall,
 };
-sol! {
-    interface IERC20 {
-        function transfer(address to, uint256 amount) external returns (bool);
-    }
-}
-sol! {
-    interface IERC20View {
-        function balanceOf(address account) external view returns (uint256);
-        function decimals() external view returns (uint8);
-        function symbol() external view returns (string);
-    }
-}
 
-pub async fn erc20_balance_of<P: Provider>(
-    provider: &P,
-    token: Address,
-    account: Address,
-) -> anyhow::Result<U256> {
-    let data: Bytes = IERC20View::balanceOfCall { account }.abi_encode().into();
-    let call_tx = TransactionRequest::default()
-        .with_to(token)
-        .with_input(data);
-    let out = provider.call(call_tx).await?; // raw Bytes
-    let b = &out[out.len().saturating_sub(32)..]; // last 32 bytes
-    Ok(U256::from_be_slice(b))
+async fn temp_foo() -> Result<()> {
+    let provider = ProviderBuilder::new()
+        .connect("http://127.0.0.1:8545")
+        .await
+        .unwrap();
+
+    let usdc_address = address!("0xaf88d065e77c8cC2239327C5EDb3A432268e5831");
+    let usdc_contract = ERC20::new(usdc_address, provider);
+
+    let decimals = usdc_contract.decimals().call().await.unwrap();
+
+    println!("USDC DECIMALS: {}", decimals);
+
+    Ok(())
 }
-const DEFAULT_FOUNDRY_ROOT: &str = "apps/anvil_orchestrator";
-const SRC_DIR_NAME: &str = "contract"; // <— singular, per your layout
-const CONTRACT_FILE: &str = "DepositEmitter.sol";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -70,11 +56,11 @@ async fn main() -> Result<()> {
 
     // used USDC.e token instead of Native USDC - "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
     let usdc_address = std::env::var("USDC_ADDRESS")
-        .unwrap_or_else(|_| "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8".to_string());
+        .unwrap_or_else(|_| "0xAf88d065E77c8cC2239327C5EDb3A432268e5831".to_string());
     let usdc: Address = usdc_address.parse().expect("Invalid USDC address");
 
     let whale_address = std::env::var("WHALE")
-        .unwrap_or_else(|_| "0xB38e8c17e38363aF6EbdCb3dAE12e0243582891D".to_string());
+        .unwrap_or_else(|_| "0x9dfb9014e88087fba78cc9309c64031d02be9a33".to_string());
     let whale: Address = whale_address.parse().expect("Invalid whale address");
 
     // will fund 10 USDC as a test
@@ -109,6 +95,9 @@ async fn main() -> Result<()> {
 
     // Wait for RPC to be up
     wait_for_rpc(&rpc_url).await?;
+    
+    temp_foo().await.unwrap();
+
 
     // ----------------- 2) Build contract with forge -------------
     info!("Building DepositEmitter with forge …");
@@ -128,14 +117,32 @@ async fn main() -> Result<()> {
     info!("✅ Setup complete. Anvil is running at {rpc_url}.");
 
     let provider = ProviderBuilder::new().connect(&rpc_url).await?;
-    let bal = erc20_balance_of(&provider, usdc, recipients[0]).await?;
+    let usdc_contract = ERC20::new(usdc, &provider);
+    let bal = usdc_contract.balanceOf(recipients[0]).call().await?;
     println!("acct0 USDC: {} (raw)", bal);
-    println!("acct0 USDC: {} (6d)", bal / U256::from(1_000_000u64));
+    println!("acct0 USDC: {} (USDC)", bal / U256::from(1_000_000u64));
 
     info!("Press Ctrl+C to stop.");
 
     tokio::signal::ctrl_c().await.ok();
     let _ = anvil.kill();
+    Ok(())
+}
+
+async fn top_up_eth(rpc_url: &str, addr: Address, eth: u64) -> eyre::Result<()> {
+    // 1 ETH = 10^18 wei
+    let wei_per_eth: U256 = U256::from(1_000_000_000_000_000_000u128);
+    let wei: U256 = U256::from(eth) * wei_per_eth;
+
+    reqwest::Client::new()
+        .post(rpc_url)
+        .json(&json!({
+            "jsonrpc":"2.0","id":1,"method":"anvil_setBalance",
+            "params":[format!("{:#x}", addr), format!("0x{:x}", wei)]
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }
 
@@ -153,7 +160,7 @@ async fn wait_for_rpc(rpc: &str) -> Result<()> {
         }
         sleep(Duration::from_millis(500)).await;
     }
-    Err(anyhow!("Timed out waiting for Anvil JSON-RPC at {rpc}"))
+    Err(eyre!("Timed out waiting for Anvil JSON-RPC at {rpc}"))
 }
 
 fn run_cmd(bin: &str, args: &[&str]) -> Result<()> {
@@ -162,7 +169,7 @@ fn run_cmd(bin: &str, args: &[&str]) -> Result<()> {
         .status()
         .with_context(|| format!("Failed to run {bin}"))?;
     if !status.success() {
-        return Err(anyhow!("{bin} {:?} exited with {status}", args));
+        return Err(eyre!("{bin} {:?} exited with {status}", args));
     }
     Ok(())
 }
@@ -172,7 +179,7 @@ fn read_bytecode(artifact_path: &str) -> Result<Vec<u8>> {
     let v: serde_json::Value = serde_json::from_str(&text)?;
     let obj = v["bytecode"]["object"]
         .as_str()
-        .ok_or_else(|| anyhow!("bytecode.object missing in artifact"))?;
+        .ok_or_else(|| eyre!("bytecode.object missing in artifact"))?;
     let obj_clean = obj.trim_start_matches("0x");
     Ok(hex::decode(obj_clean)?)
 }
@@ -200,7 +207,7 @@ async fn deploy_contract(
     let receipt = pending.get_receipt().await?;
     let deployed = receipt
         .contract_address
-        .ok_or_else(|| anyhow!("No contract address in receipt"))?;
+        .ok_or_else(|| eyre!("No contract address in receipt"))?;
     Ok(deployed)
 }
 
@@ -213,6 +220,7 @@ async fn fund_usdc_to_accounts(
 ) -> Result<()> {
     // 1) impersonate
     let client = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let _ = client
         .post(rpc_url)
         .json(&json!({
@@ -224,12 +232,37 @@ async fn fund_usdc_to_accounts(
         .send()
         .await?;
 
+    // 1b) top up whale with ETH for gas
+    top_up_eth(rpc_url, whale, 10).await?;
+
     // 2) provider WITHOUT wallet (node accepts txs from impersonated addr)
     let provider = ProviderBuilder::new().connect(rpc_url).await?;
 
+    println!("RPC URL: {}", rpc_url);
+    println!("Whale address: {}", whale);
+    println!("USDC contract address: {}", usdc);
+    let usdc_contract_whale = ERC20::new(usdc, &provider);
+    let usdc_converter = AmountConverter::new(usdc_contract_whale.decimals().call().await?);
+
+    let whale_balance = usdc_contract_whale.balanceOf(whale).call().await?;
+    let whale_balance_usdc = usdc_converter.into_amount(whale_balance)?;
+    let amount_usdc = usdc_converter.into_amount(amount)?;
+
+    tracing::info!(
+        "Whale USDC balance: {} USDC, Amount to transfer: {} USDC, Whale address: {}, USDC address: {}",
+        whale_balance_usdc,
+        amount_usdc,
+        whale,
+        usdc,
+    );
+
+    if whale_balance < amount {
+        panic!("Whale does not have enough balance!");
+    }
+
     // 3) transfer USDC for each recipient
     for &to in recipients {
-        let call = IERC20::transferCall { to, amount }.abi_encode();
+        let call = ERC20::transferCall { to, amount }.abi_encode();
         let input: Bytes = Bytes::from(call);
 
         let tx = TransactionRequest::default()
@@ -242,7 +275,7 @@ async fn fund_usdc_to_accounts(
         let receipt = pending.get_receipt().await?;
         if !receipt.status() {
             error!("USDC transfer to {to:#x} failed: {:?}", receipt);
-            return Err(anyhow!("USDC transfer failed"));
+            return Err(eyre!("USDC transfer failed"));
         }
         info!(
             "{amount} USDC -> {to:#x} | tx {:?}",
@@ -268,25 +301,25 @@ async fn fund_usdc_to_accounts(
 fn parse_units(amount: &str, decimals: u32) -> Result<U256> {
     let s = amount.trim();
     if s.is_empty() {
-        return Err(anyhow!("empty amount"));
+        return Err(eyre!("empty amount"));
     }
     if s.starts_with('-') {
-        return Err(anyhow!("amount must be positive"));
+        return Err(eyre!("amount must be positive"));
     }
     let mut parts = s.split('.');
     let int_part = parts.next().unwrap_or("0");
     let frac_part = parts.next().unwrap_or("");
     if parts.next().is_some() {
-        return Err(anyhow!("invalid number (multiple '.')"));
+        return Err(eyre!("invalid number (multiple '.')"));
     }
     if !int_part.chars().all(|c| c.is_ascii_digit()) {
-        return Err(anyhow!("invalid integer part"));
+        return Err(eyre!("invalid integer part"));
     }
     if !frac_part.chars().all(|c| c.is_ascii_digit()) {
-        return Err(anyhow!("invalid fractional part"));
+        return Err(eyre!("invalid fractional part"));
     }
     if frac_part.len() > decimals as usize {
-        return Err(anyhow!("too many decimal places (max {decimals})"));
+        return Err(eyre!("too many decimal places (max {decimals})"));
     }
 
     // strip leading zeros in integer part
@@ -308,6 +341,6 @@ fn parse_units(amount: &str, decimals: u32) -> Result<U256> {
         combined
     };
 
-    let value: U256 = combined.parse().map_err(|e| anyhow!("parse U256: {e:?}"))?;
+    let value: U256 = combined.parse().map_err(|e| eyre!("parse U256: {e:?}"))?;
     Ok(value)
 }

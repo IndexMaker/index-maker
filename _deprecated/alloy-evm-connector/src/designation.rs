@@ -34,29 +34,25 @@ impl EvmCollateralDesignation {
     }
 
     pub fn arbitrum_usdc(address: Address) -> Self {
-        let config = EvmConnectorConfig::default();
-        let chain_id = config.get_chain_id("arbitrum").unwrap();
-        let usdc_address = config.get_usdc_address("arbitrum").unwrap();
-        Self::new(
-            "ARBITRUM".into(),
-            "USDC".into(),
-            chain_id,
-            usdc_address,
-            address,
-        )
+        Self::arbitrum_usdc_with_name(address, Symbol::from("ARBITRUM"))
     }
 
     pub fn base_usdc(address: Address) -> Self {
+        Self::base_usdc_with_name(address, Symbol::from("BASE"))
+    }
+
+    pub fn arbitrum_usdc_with_name(address: Address, name: impl Into<Symbol>) -> Self {
+        let config = EvmConnectorConfig::default();
+        let chain_id = config.get_chain_id("arbitrum").unwrap();
+        let usdc_address = config.get_usdc_address("arbitrum").unwrap();
+        Self::new(name.into(), "USDC".into(), chain_id, usdc_address, address)
+    }
+
+    pub fn base_usdc_with_name(address: Address, name: impl Into<Symbol>) -> Self {
         let config = EvmConnectorConfig::default();
         let chain_id = config.get_chain_id("base").unwrap();
         let usdc_address = config.get_usdc_address("base").unwrap();
-        Self::new(
-            "BASE".into(),
-            "USDC".into(),
-            chain_id,
-            usdc_address,
-            address,
-        )
+        Self::new(name.into(), "USDC".into(), chain_id, usdc_address, address)
     }
 
     pub fn get_wallet_address(&self) -> Address {

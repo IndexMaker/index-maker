@@ -117,7 +117,7 @@ impl CollateralManager {
                         Side::Sell => position_read.side_dr.unconfirmed_balance,
                     };
                     if unconfirmed_balance < request.collateral_amount {
-                        tracing::debug!(
+                        tracing::trace!(
                             chain_id = %request.chain_id,
                             address = %request.address,
                             client_order_id = %request.client_order_id,
@@ -127,7 +127,7 @@ impl CollateralManager {
                         );
                         Either::Right(request)
                     } else {
-                        tracing::info!(
+                        tracing::debug!(
                             chain_id = %request.chain_id,
                             address = %request.address,
                             client_order_id = %request.client_order_id,
@@ -138,7 +138,7 @@ impl CollateralManager {
                         Either::Left(request)
                     }
                 } else {
-                    tracing::debug!(
+                    tracing::trace!(
                         chain_id = %request.chain_id,
                         address = %request.address,
                         client_order_id = %request.client_order_id,
@@ -164,6 +164,7 @@ impl CollateralManager {
                             request.chain_id,
                             request.address,
                             request.client_order_id.clone(),
+                            request.symbol.clone(),
                             request.side,
                             request.collateral_amount,
                         )
@@ -468,9 +469,7 @@ mod test {
             functional::IntoObservableSingle,
             telemetry::TracingData,
             test_util::{
-                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
-                get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
-                run_mock_deferred, test_mock_atomic_bool,
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel, get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool
             },
         },
     };
@@ -627,6 +626,7 @@ mod test {
             chain_id: 1,
             address: get_mock_address_1(),
             client_order_id: "C-1".into(),
+            symbol: get_mock_index_name_1(),
             side: Side::Buy,
             collateral_amount: dec!(1000.0),
             asset_requirements: HashMap::from([

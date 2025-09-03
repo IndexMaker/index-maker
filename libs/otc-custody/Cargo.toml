@@ -1,0 +1,18 @@
+[package]
+name = "otc-custody"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+alloy = { workspace = true }
+async-trait = { workspace = true }
+ethers = { workspace = true }
+eyre = { workspace = true }
+k256 = { workspace = true }
+merkle-tree-rs = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+struple = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

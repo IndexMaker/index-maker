@@ -11,6 +11,8 @@ pub mod core {
     pub mod functional;
     pub mod hashmap_macros;
     pub mod id_macros;
+    pub mod json_file;
+    pub mod json_file_async;
     pub mod limit;
     pub mod logging;
     pub mod telemetry;
@@ -18,6 +20,7 @@ pub mod core {
 }
 
 pub mod market_data {
+    pub mod exchange_rates;
     pub mod market_data_connector;
     pub mod price_tracker;
 

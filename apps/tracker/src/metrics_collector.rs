@@ -157,7 +157,11 @@ where
                         })
                         // Sanitize removing non-positive values
                         .map(|liquidity_value| {
-                            liquidity_value.and_then(|x| (LIQUIDITY_TOLERANCE < x).then_some(x))
+                            liquidity_value.and_then(|x| {
+                                (LIQUIDITY_TOLERANCE < x)
+                                    .then_some(x)
+                                    .or(Some(Amount::ZERO))
+                            })
                         })
                         .collect_vec();
                     (symbol, bands)
@@ -179,7 +183,7 @@ where
     }
 
     fn get_price_limits(
-        &self,
+        book_manager: &BookManager,
         prices: &HashMap<Symbol, Amount>,
         threshold: Amount,
     ) -> eyre::Result<(
@@ -215,12 +219,10 @@ where
             .map(|(symbol, (_, max_ask))| (symbol.clone(), *max_ask))
             .collect();
 
-        let (bid_liquidity, ask_liquidity) = (|book_manager: &BookManager| {
-            (
-                book_manager.get_liquidity(Side::Buy, &bid_limits),
-                book_manager.get_liquidity(Side::Sell, &ask_limits),
-            )
-        })(&self.book_manager.read());
+        let (bid_liquidity, ask_liquidity) = (
+            book_manager.get_liquidity(Side::Buy, &bid_limits),
+            book_manager.get_liquidity(Side::Sell, &ask_limits),
+        );
 
         Ok((bid_limits, bid_liquidity?, ask_limits, ask_liquidity?))
     }
@@ -270,11 +272,13 @@ where
         };
 
         // Map list of thresholds into liquidity bands, for each band we will have map Symbol => Liquidity
-        let (liquidity_bands, errors): (Vec<_>, Vec<_>) = self
-            .thresholds
-            .iter()
-            .map(|threshold| self.get_price_limits(&prices, *threshold))
-            .partition_result();
+        let (liquidity_bands, errors): (Vec<_>, Vec<_>) = {
+            let book_manager_read = self.book_manager.read();
+            self.thresholds
+                .iter()
+                .map(|threshold| Self::get_price_limits(&book_manager_read, &prices, *threshold))
+                .partition_result()
+        };
 
         if !errors.is_empty() {
             Err(eyre!(
