@@ -274,7 +274,7 @@ pub fn print_mint_invoice(
     })
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MintInvoice {
     pub client_order_id: ClientOrderId,
     pub payment_id: PaymentId,

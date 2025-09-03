@@ -8,6 +8,7 @@ pub mod app {
     pub mod fix_server;
     pub mod index_order_manager;
     pub mod market_data;
+    pub mod mint_invoice_manager;
     pub mod order_sender;
     pub mod quote_request_manager;
     pub mod simple_chain;
@@ -43,6 +44,7 @@ pub mod solver {
     pub mod index_quote;
     pub mod index_quote_manager;
     pub mod mint_invoice;
+    pub mod mint_invoice_manager;
     pub mod solver;
     pub mod solver_order;
     pub mod solver_quote;

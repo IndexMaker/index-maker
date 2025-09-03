@@ -8,27 +8,12 @@ use clap::{Parser, Subcommand};
 use index_core::blockchain::chain_connector::ChainNotification;
 use index_maker::{
     app::{
-        basket_manager::BasketManagerConfig,
-        batch_manager::BatchManagerConfig,
-        chain_connector::RealChainConnectorConfig,
-        collateral_manager::CollateralManagerConfig,
-        collateral_router::CollateralRouterConfig,
-        fix_server::FixServerConfig,
-        index_order_manager::IndexOrderManagerConfig,
-        market_data::MarketDataConfig,
-        order_sender::{OrderSenderConfig, OrderSenderCredentials},
-        quote_request_manager::QuoteRequestManagerConfig,
-        simple_chain::SimpleChainConnectorConfig,
-        simple_router::SimpleCollateralRouterConfig,
-        simple_server::{SimpleServer, SimpleServerConfig},
-        simple_solver::SimpleSolverConfig,
-        solver::{
+        basket_manager::BasketManagerConfig, batch_manager::BatchManagerConfig, chain_connector::RealChainConnectorConfig, collateral_manager::CollateralManagerConfig, collateral_router::CollateralRouterConfig, fix_server::FixServerConfig, index_order_manager::IndexOrderManagerConfig, market_data::MarketDataConfig, mint_invoice_manager::MintInvoiceManagerConfig, order_sender::{OrderSenderConfig, OrderSenderCredentials}, quote_request_manager::QuoteRequestManagerConfig, simple_chain::SimpleChainConnectorConfig, simple_router::SimpleCollateralRouterConfig, simple_server::{SimpleServer, SimpleServerConfig}, simple_solver::SimpleSolverConfig, solver::{
             ChainConnectorConfig, OrderIdProviderConfig, ServerConfig, SolverConfig,
             SolverStrategyConfig,
-        },
-        timestamp_ids::TimestampOrderIdsConfig,
+        }, timestamp_ids::TimestampOrderIdsConfig
     },
-    server::server::ServerEvent,
+    server::server::ServerEvent, solver::mint_invoice_manager,
 };
 use itertools::Itertools;
 use otc_custody::custody_authority::CustodyAuthority;
@@ -474,9 +459,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
+    let mint_invoice_manager_config = MintInvoiceManagerConfig::builder()
+        .build()
+        .expect("Failed to build mint invoice manager config");
+    
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
         .with_server(app_mode.get_server_config())
+        .with_invoice_manager(mint_invoice_manager_config)
         .build()
         .expect("Failed to build index order manager");
 

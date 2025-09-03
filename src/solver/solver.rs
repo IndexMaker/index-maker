@@ -1503,9 +1503,7 @@ impl Persist for Solver {
             .map_err(|err| eyre!("{:?}", err))?
             .load()?;
 
-        self.inventory_manager
-            .write()
-            .load()?;
+        self.inventory_manager.write().load()?;
 
         let _value = self.persistence.load_value()?;
 
@@ -1533,16 +1531,15 @@ impl Persist for Solver {
             .map_err(|err| eyre!("{:?}", err))?
             .store()?;
 
-        self.inventory_manager
-            .write()
-            .store()?;
+        self.inventory_manager.write().store()?;
 
         //TODO: store these
         //self.client_orders;
         //self.ready_orders;
         //self.ready_mints;
 
-        self.persistence.store_value(json!({"some_solver_data": ""}))
+        self.persistence
+            .store_value(json!({"some_solver_data": ""}))
     }
 }
 
@@ -1605,7 +1602,7 @@ mod test {
 
     use crate::{
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
-        solver::solvers::simple_solver::SimpleSolver,
+        solver::{mint_invoice_manager::MintInvoiceManager, solvers::simple_solver::SimpleSolver},
     };
 
     use super::*;
@@ -1824,9 +1821,15 @@ mod test {
             tolerance,
         )));
 
+        let mint_invoice_persistence = Arc::new(InMemoryPersistence::new());
+        let mint_invoice_manager = Arc::new(RwLock::new(MintInvoiceManager::new(
+            mint_invoice_persistence,
+        )));
+
         let index_order_manager_persistence = Arc::new(InMemoryPersistence::new());
         let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
             fix_server.clone(),
+            mint_invoice_manager.clone(),
             index_order_manager_persistence,
             tolerance,
         )));
