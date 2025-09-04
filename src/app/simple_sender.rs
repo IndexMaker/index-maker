@@ -13,11 +13,12 @@ use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::{
     core::{
+        self,
         async_loop::AsyncLoop,
-        bits::{Amount, SingleOrder},
+        bits::{self, Amount, SingleOrder, Symbol},
         decimal_ext::DecimalExt,
         functional::{
-            IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
+            self, IntoObservableSingleVTable, NotificationHandlerOnce, OneShotPublishSingle, OneShotSingleObserver, PublishSingle, SingleObserver
         },
         limit::{LimiterConfig, MultiLimiter},
     },
@@ -118,11 +119,24 @@ impl SimpleOrderHandler {
 
         Ok(())
     }
+
+    async fn handle_get_balances(
+        &self,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<()> {
+        observer.one_shot_publish_single(HashMap::from([
+            // TODO: Fake for now
+            (Symbol::from("USDC"), dec!(10000.0)),
+            (Symbol::from("ETH"), dec!(1000.0))
+        ]));
+        Ok(())
+    }
 }
 
 enum SimpleSenderCommand {
     Logon(SessionId),
     SendOrder(Arc<SimpleOrderHandler>, Arc<SingleOrder>),
+    GetBalances(Arc<SimpleOrderHandler>, OneShotSingleObserver<HashMap<Symbol, Amount>>),
 }
 
 pub struct SimpleOrderSender {
@@ -178,6 +192,11 @@ impl SimpleOrderSender {
                                 tracing::warn!("Failed to handle new order: {:?}", err);
                             }
                         },
+                        SimpleSenderCommand::GetBalances(order_handler, observer) => {
+                            if let Err(err) = order_handler.handle_get_balances(observer).await {
+                                tracing::warn!("Failed to handle get balances: {:?}", err);
+                            }
+                        },
                     }
                 }
             }
@@ -227,6 +246,25 @@ impl OrderConnector for SimpleOrderSender {
         self.command_tx
             .send(SimpleSenderCommand::SendOrder(session, order.clone()))
             .map_err(|err| eyre!("Failed to send order: {:?}", err))?;
+
+        Ok(())
+    }
+
+    fn get_balances(
+        &self,
+        session_id: SessionId,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<()> {
+        let session = self
+            .sessions
+            .read()
+            .get(&session_id)
+            .cloned()
+            .ok_or_eyre("Cannot find session")?;
+
+        self.command_tx
+            .send(SimpleSenderCommand::GetBalances(session, observer))
+            .map_err(|err| eyre!("Failed to send get balances: {:?}", err))?;
 
         Ok(())
     }

@@ -1,14 +1,27 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{
+        self,
+        hash_map::{self, Entry},
+        HashMap,
+    },
+    ops::Deref,
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, Context, Result};
 use itertools::partition;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::core::{
-    persistence::{Persist, Persistence},
-    telemetry::{TracingData, WithBaggage},
+use crate::{
+    core::{
+        functional::{OneShotPublishSingle, OneShotSingleObserver},
+        persistence::{Persist, Persistence},
+        telemetry::{TracingData, WithBaggage},
+    },
+    order_sender::position,
 };
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
@@ -23,9 +36,21 @@ use crate::{
 
 use super::position::{LotId, Position};
 
+#[derive(Serialize, Deserialize)]
 pub struct GetPositionsResponse {
     pub positions: HashMap<Symbol, Box<Position>>,
     pub missing_symbols: Vec<Symbol>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ReconciledPosition {
+    pub inventory_position: Option<Position>,
+    pub actual_balance: Option<Amount>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetReconciledPositionsResponse {
+    pub positions: HashMap<Symbol, Box<ReconciledPosition>>,
 }
 
 #[derive(Debug, WithBaggage)]
@@ -388,6 +413,49 @@ impl InventoryManager {
             missing_symbols,
         }
     }
+
+    pub fn get_reconciled_positions(
+        &self,
+        observer: OneShotSingleObserver<GetReconciledPositionsResponse>,
+    ) -> eyre::Result<()> {
+        let mut reconciled_positions = GetReconciledPositionsResponse {
+            positions: self
+                .positions
+                .iter()
+                .map(|(symbol, position)| {
+                    (
+                        symbol.clone(),
+                        Box::new(ReconciledPosition {
+                            inventory_position: Some(position.as_ref().clone()),
+                            actual_balance: Some(Amount::ZERO),
+                        }),
+                    )
+                })
+                .collect(),
+        };
+
+        self.order_tracker
+            .read()
+            .get_balances(OneShotSingleObserver::new_with_fn(
+                move |balances: HashMap<Symbol, Amount>| {
+                    balances.into_iter().for_each(|(symbol, balance)| {
+                        match reconciled_positions.positions.entry(symbol) {
+                            Entry::Occupied(mut occupied_entry) => {
+                                occupied_entry.get_mut().actual_balance.replace(balance);
+                            }
+                            Entry::Vacant(vacant_entry) => {
+                                vacant_entry.insert(Box::new(ReconciledPosition {
+                                    inventory_position: None,
+                                    actual_balance: Some(balance),
+                                }));
+                            }
+                        };
+                    });
+                    observer.one_shot_publish_single(reconciled_positions);
+                },
+            ))?;
+        Ok(())
+    }
 }
 
 impl Persist for InventoryManager {
@@ -398,7 +466,8 @@ impl Persist for InventoryManager {
     }
 
     fn store(&self) -> Result<()> {
-        self.persistence.store_value(json!({"inventory_manager_data": ""}))
+        self.persistence
+            .store_value(json!({"inventory_manager_data": ""}))
     }
 }
 
@@ -423,7 +492,10 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder}, functional::IntoObservableSingle, persistence::util::InMemoryPersistence, test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred}
+            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
+            functional::IntoObservableSingle,
+            persistence::util::InMemoryPersistence,
+            test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
         },
         order_sender::{
             order_connector::{

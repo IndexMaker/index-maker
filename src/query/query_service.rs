@@ -8,7 +8,14 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use std::net::SocketAddr;
-use symm_core::core::bits::{Address, ClientOrderId};
+use symm_core::{
+    core::{
+        bits::{Address, ClientOrderId},
+        functional::OneShotSingleObserver,
+    },
+    order_sender::inventory_manager::GetReconciledPositionsResponse,
+};
+use tokio::sync::oneshot;
 
 use crate::{
     collateral::collateral_position::CollateralPosition,
@@ -44,6 +51,8 @@ impl QueryService {
             let collateral_position_api =
                 Router::new().route("/position/:chain_id/:address", get(get_collateral_position));
 
+            let inventory_api = Router::new().route("/inventory", get(get_inventory));
+
             let mint_invoice_api = Router::new()
                 .route(
                     "/invoice/:chain_id/:address/:client_order_id",
@@ -69,6 +78,26 @@ impl QueryService {
 
         Ok(())
     }
+}
+
+/// Example URL
+///  `/api/v1/inventory`
+async fn get_inventory(
+    State(state): State<Arc<QueryServiceState>>,
+) -> Result<Json<GetReconciledPositionsResponse>, StatusCode> {
+    let (tx, rx) = oneshot::channel();
+    state
+        .get_inventory_manager()
+        .read()
+        .get_reconciled_positions(OneShotSingleObserver::new_with_fn(|positions| {
+            if Err(err) = tx.send(positions) {
+                tracing::warn!("Failed to propagate reconciled positions: {:?}");
+            }
+        }))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let positions = rx.await.map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok(Json(positions))
 }
 
 /// Example URL:
