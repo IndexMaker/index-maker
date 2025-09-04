@@ -36,19 +36,19 @@ use crate::{
 
 use super::position::{LotId, Position};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GetPositionsResponse {
     pub positions: HashMap<Symbol, Box<Position>>,
     pub missing_symbols: Vec<Symbol>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ReconciledPosition {
     pub inventory_position: Option<Position>,
     pub actual_balance: Option<Amount>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GetReconciledPositionsResponse {
     pub positions: HashMap<Symbol, Box<ReconciledPosition>>,
 }
@@ -466,7 +466,10 @@ impl Persist for InventoryManager {
                     serde_json::from_value(positions_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize positions: {:?}", err))?;
                 self.positions = loaded_positions;
-                tracing::info!("Loaded {} inventory positions from persistence", self.positions.len());
+                tracing::info!(
+                    "Loaded {} inventory positions from persistence",
+                    self.positions.len()
+                );
             }
         }
         Ok(())
@@ -476,7 +479,8 @@ impl Persist for InventoryManager {
         let data = json!({
             "positions": self.positions
         });
-        self.persistence.store_value(data)
+        self.persistence
+            .store_value(data)
             .map_err(|err| eyre!("Failed to store InventoryManager state: {:?}", err))
     }
 }

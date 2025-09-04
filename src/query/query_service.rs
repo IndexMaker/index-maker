@@ -51,7 +51,7 @@ impl QueryService {
             let collateral_position_api =
                 Router::new().route("/position/:chain_id/:address", get(get_collateral_position));
 
-            let inventory_api = Router::new().route("/inventory", get(get_inventory));
+            let inventory_api = Router::new().route("/all", get(get_inventory));
 
             let mint_invoice_api = Router::new()
                 .route(
@@ -65,6 +65,7 @@ impl QueryService {
 
             let api_v1 = Router::new()
                 .nest("/collateral", collateral_position_api)
+                .nest("/inventory", inventory_api)
                 .nest("/mint_invoices", mint_invoice_api);
 
             let app = Router::new()
@@ -90,8 +91,8 @@ async fn get_inventory(
         .get_inventory_manager()
         .read()
         .get_reconciled_positions(OneShotSingleObserver::new_with_fn(|positions| {
-            if Err(err) = tx.send(positions) {
-                tracing::warn!("Failed to propagate reconciled positions: {:?}");
+            if let Err(err) = tx.send(positions) {
+                tracing::warn!("Failed to propagate reconciled positions: {:?}", err);
             }
         }))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
