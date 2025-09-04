@@ -45,7 +45,7 @@ use crate::collateral::{
 
 use super::{
     batch_manager::{BatchEvent, BatchManager, BatchManagerHost},
-    index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager, ShutdownChecker},
+    index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
     solver_quote::{SolverClientQuotes, SolverQuote, SolverQuoteStatus},
@@ -1674,11 +1674,7 @@ impl CollateralManagerHost for Solver {
     }
 }
 
-impl ShutdownChecker for Solver {
-    fn is_accepting_orders(&self) -> bool {
-        self.get_status() == SolverStatus::Running
-    }
-}
+
 
 impl Persist for Solver {
     fn load(&mut self) -> Result<()> {

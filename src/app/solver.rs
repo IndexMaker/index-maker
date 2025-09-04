@@ -877,7 +877,12 @@ impl SolverConfig {
             tracing::info!("Initiating graceful solver shutdown...");
             solver.initiate_shutdown();
 
-            // Step 2: Batch completion is now handled by the dispatch loop
+            // Step 2: Initialize server shutdown to block new orders
+            if let Some(server) = self.server.as_deref() {
+                server.write().initialize_shutdown();
+            }
+
+            // Step 3: Batch completion is now handled by the dispatch loop
             // The solver will automatically transition to Stopped when all batches complete
             tracing::info!("Graceful shutdown initiated - batches will complete via dispatch loop");
         }
@@ -911,6 +916,11 @@ impl SolverConfig {
         if let Some(solver) = self.solver.as_deref() {
             tracing::info!("Initiating graceful quotes shutdown...");
             solver.initiate_shutdown();
+
+            // Initialize server shutdown to block new orders
+            if let Some(server) = self.server.as_deref() {
+                server.write().initialize_shutdown();
+            }
 
             // Batch completion is now handled by the dispatch loop
             tracing::info!("Quotes graceful shutdown initiated - batches will complete via dispatch loop");
@@ -1022,11 +1032,7 @@ impl SolverConfigBuilder {
             config.client_quote_wait_period,
         ));
 
-        // Set up shutdown checker for IndexOrderManager
-        index_order_manager
-            .write()
-            .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
-            .set_shutdown_checker(solver.clone());
+
 
         // There is a good reason for Persist::load(&mut self) to work on &mut Self and not &Self.
         // Persist::load() should restore consistent state, and for that the whole object needs

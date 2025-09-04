@@ -37,9 +37,7 @@ use super::{
     solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
-pub trait ShutdownChecker {
-    fn is_accepting_orders(&self) -> bool;
-}
+
 
 pub struct EngageOrderRequest {
     pub chain_id: u32,
@@ -185,7 +183,7 @@ pub struct IndexOrderManager {
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>>,
     index_symbols: HashSet<Symbol>,
     tolerance: Amount,
-    shutdown_checker: Option<Arc<dyn ShutdownChecker + Send + Sync>>,
+
 }
 
 /// manage index orders, receive orders and route into solver
@@ -202,13 +200,11 @@ impl IndexOrderManager {
             index_orders: HashMap::new(),
             index_symbols: HashSet::new(),
             tolerance,
-            shutdown_checker: None,
+
         }
     }
 
-    pub fn set_shutdown_checker(&mut self, shutdown_checker: Arc<dyn ShutdownChecker + Send + Sync>) {
-        self.shutdown_checker = Some(shutdown_checker);
-    }
+
 
     pub fn add_index_symbol(&mut self, symbol: Symbol) {
         self.index_symbols.insert(symbol);
@@ -230,17 +226,7 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
-        // Block new orders during shutdown
-        if let Some(shutdown_checker) = &self.shutdown_checker {
-            if !shutdown_checker.is_accepting_orders() {
-                tracing::info!("Blocking new index order - system is shutting down");
-                return Err(ServerResponseReason::User(
-                    NewIndexOrderNakReason::OtherReason {
-                        detail: String::from("Service shutting down"),
-                    },
-                ));
-            }
-        }
+
 
         // Temporary sell side block
         if side == Side::Sell {
