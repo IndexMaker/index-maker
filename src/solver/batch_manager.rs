@@ -8,6 +8,7 @@ use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{info_span, span, Level};
 
@@ -50,6 +51,7 @@ pub enum BatchEvent {
 /// acquired it. The BatchAssetLot is different kind of lot, in which we store
 /// one unit of execution for a batch created by Solver, and then we allocate
 /// some portion of that unit to index orders, using allocations list.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BatchAssetLot {
     /// Asset Order ID
     pub order_id: OrderId,
@@ -475,6 +477,7 @@ impl BatchOrderStatus {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 struct BatchCarryOver {
     /// Total quantity carried over
     carried_position: Amount,
@@ -1392,13 +1395,25 @@ impl BatchManager {
 
 impl Persist for BatchManager {
     fn load(&mut self) -> Result<()> {
-        let _value = self.persistence.load_value()?;
-        //self.carry_overs;
+        if let Some(value) = self.persistence.load_value()? {
+            if let Some(carry_overs_value) = value.get("carry_overs") {
+                let loaded_carry_overs: HashMap<(Symbol, Side), BatchCarryOver> =
+                    serde_json::from_value(carry_overs_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize carry_overs: {:?}", err))?;
+                *self.carry_overs.lock() = loaded_carry_overs;
+                tracing::info!("Loaded {} carry-over positions from persistence", self.carry_overs.lock().len());
+            }
+        }
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
-        self.persistence.store_value(json!({"batch_manager_data": ""}))
+        let carry_overs_for_serialization = self.carry_overs.lock().clone();
+        let data = json!({
+            "carry_overs": carry_overs_for_serialization
+        });
+        self.persistence.store_value(data)
+            .map_err(|err| eyre!("Failed to store BatchManager state: {:?}", err))
     }
 }
 

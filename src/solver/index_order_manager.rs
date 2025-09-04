@@ -1014,13 +1014,33 @@ impl IndexOrderManager {
 
 impl Persist for IndexOrderManager {
     fn load(&mut self) -> Result<()> {
-        let _value = self.persistence.load_value()?;
-        //self.index_orders = ...
+        if let Some(value) = self.persistence.load_value()? {
+            if let Some(index_orders_value) = value.get("index_orders") {
+                let loaded_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>> =
+                    serde_json::from_value(index_orders_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize index_orders: {:?}", err))?;
+                self.index_orders = loaded_orders;
+                tracing::info!("Loaded {} index order groups from persistence", self.index_orders.len());
+            }
+
+            if let Some(index_symbols_value) = value.get("index_symbols") {
+                let loaded_symbols: HashSet<Symbol> =
+                    serde_json::from_value(index_symbols_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize index_symbols: {:?}", err))?;
+                self.index_symbols = loaded_symbols;
+                tracing::info!("Loaded {} index symbols from persistence", self.index_symbols.len());
+            }
+        }
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
-        self.persistence.store_value(json!({"index_order_manager_data": ""}))
+        let data = json!({
+            "index_orders": self.index_orders,
+            "index_symbols": self.index_symbols
+        });
+        self.persistence.store_value(data)
+            .map_err(|err| eyre!("Failed to store IndexOrderManager state: {:?}", err))
     }
 }
 
