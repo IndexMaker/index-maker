@@ -324,7 +324,9 @@ impl Solver {
                             "Missing prices for order",
                         );
                     })(&failed_order.read());
-                    self.client_orders.write().put_back(failed_order, timestamp);
+                    self.client_orders
+                        .write()
+                        .put_back(failed_order.clone(), timestamp);
                 }
                 _ => {
                     let o = failed_order.read();
@@ -372,16 +374,17 @@ impl Solver {
             .iter()
             .for_each(|order| order.read().add_span_context_link());
 
-        let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch.clone()) {
-            Err(err) => {
-                order_batch
-                    .iter()
-                    .for_each(|x| self.client_orders.write().put_back(x.clone(), timestamp));
-                return Err(err);
-            }
-            Ok(None) => return Ok(()),
-            Ok(Some(x)) => x,
-        };
+        let solve_engagements_result =
+            match self.strategy.solve_engagements(self, order_batch.clone()) {
+                Err(err) => {
+                    order_batch.iter().for_each(|x| {
+                        self.client_orders.write().put_back(x.clone(), timestamp);
+                    });
+                    return Err(err);
+                }
+                Ok(None) => return Ok(()),
+                Ok(Some(x)) => x,
+            };
 
         self.handle_failed_orders(solve_engagements_result.failed_orders, timestamp)?;
 
@@ -541,7 +544,7 @@ impl Solver {
 
     fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
         while let Some(solver_order) = self.client_orders.write().get_next_client_order(timestamp) {
-            let (chain_id, address, client_order_id, symbol, timestamp) = {
+            let (chain_id, address, client_order_id, symbol, timestamp, status) = {
                 let order_upread = solver_order.read();
                 (
                     order_upread.chain_id,
@@ -549,6 +552,7 @@ impl Solver {
                     order_upread.client_order_id.clone(),
                     order_upread.symbol.clone(),
                     order_upread.timestamp,
+                    order_upread.status,
                 )
             };
             tracing::info!(
@@ -557,10 +561,32 @@ impl Solver {
                 %client_order_id,
                 %symbol,
                 %timestamp,
+                ?status,
                 "Serving client order");
 
-            if let Err(err) = self.manage_collateral(solver_order.clone()) {
-                tracing::warn!("Failed to manage collateral: {:?}", err);
+            let result = match status {
+                SolverOrderStatus::Open => self.manage_collateral(solver_order.clone()),
+                SolverOrderStatus::ManageCollateral => todo!(),
+                SolverOrderStatus::Ready
+                | SolverOrderStatus::Engaged
+                | SolverOrderStatus::PartlyMintable => {
+                    self.ready_orders.lock().push_back(solver_order.clone());
+                    Ok(())
+                }
+                SolverOrderStatus::FullyMintable => {
+                    self.ready_mints.lock().push_back(solver_order.clone());
+                    Ok(())
+                }
+                SolverOrderStatus::Minted
+                | SolverOrderStatus::InvalidSymbol
+                | SolverOrderStatus::InvalidOrder
+                | SolverOrderStatus::InvalidCollateral
+                | SolverOrderStatus::ServiceUnavailable
+                | SolverOrderStatus::InternalError => Err(eyre!("Cannot resume failed order")),
+            };
+
+            if let Err(err) = result {
+                tracing::warn!("Failed to resume order processing: {:?}", err);
 
                 self.set_order_status(&mut solver_order.write(), SolverOrderStatus::InternalError);
                 self.index_order_manager
