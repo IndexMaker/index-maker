@@ -38,6 +38,7 @@ pub enum SolverOrderStatus {
 }
 
 /// Solver's view of the Index Order
+#[derive(Serialize, Deserialize)]
 pub struct SolverOrder {
     // Chain ID
     pub chain_id: u32,
@@ -146,6 +147,7 @@ impl SolverOrderAssetLot {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SolverClientOrders {
     /// A map of all index orders from all clients
     client_orders: HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>,
@@ -178,6 +180,10 @@ impl SolverClientOrders {
         self.client_orders
             .get(&(chain_id, address, client_order_id))
             .cloned()
+    }
+
+    pub fn len(&self) -> usize {
+        self.client_orders.len()
     }
 
     pub fn get_next_client_order(

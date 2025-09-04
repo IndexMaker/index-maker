@@ -37,6 +37,8 @@ use super::{
     solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
+
+
 pub struct EngageOrderRequest {
     pub chain_id: u32,
     pub address: Address,
@@ -181,6 +183,7 @@ pub struct IndexOrderManager {
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>>,
     index_symbols: HashSet<Symbol>,
     tolerance: Amount,
+
 }
 
 /// manage index orders, receive orders and route into solver
@@ -197,8 +200,11 @@ impl IndexOrderManager {
             index_orders: HashMap::new(),
             index_symbols: HashSet::new(),
             tolerance,
+
         }
     }
+
+
 
     pub fn add_index_symbol(&mut self, symbol: Symbol) {
         self.index_symbols.insert(symbol);
@@ -220,6 +226,8 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
+
+
         // Temporary sell side block
         if side == Side::Sell {
             return Err(ServerResponseReason::User(

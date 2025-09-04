@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, RwLock as ComponentLock},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc, RwLock as ComponentLock,
+    },
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -8,6 +11,7 @@ use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
     core::{
@@ -123,6 +127,29 @@ pub trait OrderIdProvider {
     fn next_payment_id(&mut self) -> PaymentId;
 }
 
+/// Status of the Solver
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverStatus {
+    Running,
+    ShuttingDown,
+    Stopped,
+}
+
+/// Status of the BatchManager
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchManagerStatus {
+    ActiveBatches(usize),
+    Idle,
+}
+
+/// Serializable representation of Solver state for persistence
+#[derive(Serialize, Deserialize)]
+struct SolverPersistedState {
+    client_orders: SolverClientOrders,
+    ready_orders: Vec<(u32, Address, ClientOrderId)>,
+    ready_mints: Vec<(u32, Address, ClientOrderId)>,
+}
+
 pub trait SetSolverOrderStatus {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus);
     fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus);
@@ -198,6 +225,8 @@ pub struct Solver {
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
+    // status management
+    status: Arc<AtomicU8>, // 0=Running, 1=ShuttingDown, 2=Stopped
 }
 impl Solver {
     pub fn new(
@@ -241,7 +270,31 @@ impl Solver {
             // parameters
             max_batch_size,
             zero_threshold,
+            // status management
+            status: Arc::new(AtomicU8::new(0)), // Start as Running
         }
+    }
+
+    /// Initiate graceful shutdown by blocking new orders and engagement
+    /// Get current solver status
+    pub fn get_status(&self) -> SolverStatus {
+        match self.status.load(Ordering::SeqCst) {
+            0 => SolverStatus::Running,
+            1 => SolverStatus::ShuttingDown,
+            2 => SolverStatus::Stopped,
+            _ => SolverStatus::Running, // Default fallback
+        }
+    }
+
+    /// Initiate graceful shutdown by setting status to ShuttingDown
+    pub fn initiate_shutdown(&self) {
+        self.status.store(1, Ordering::SeqCst); // ShuttingDown
+        tracing::info!("Solver shutdown initiated - status set to ShuttingDown");
+    }
+
+    /// Check if the solver is accepting new orders
+    fn is_accepting_orders(&self) -> bool {
+        self.get_status() == SolverStatus::Running
     }
 
     fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>> {
@@ -282,7 +335,7 @@ impl Solver {
                     );
                     self.index_order_manager
                         .write()
-                        .map_err(|e| eyre!("Cannot access index order manager {}", e))?
+                        .map_err(|e| eyre!("Failed to access index order manager: {:?}", e))?
                         .order_failed(
                             o.chain_id,
                             &o.address,
@@ -298,6 +351,12 @@ impl Solver {
     }
 
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        // Block engagement during shutdown
+        if !self.is_accepting_orders() {
+            tracing::info!("Blocking order engagement - system is shutting down");
+            return Ok(());
+        }
+
         let order_batch = self.get_order_batch();
         if order_batch.is_empty() {
             return Ok(());
@@ -431,14 +490,14 @@ impl Solver {
             let batch_order_id = self
                 .batch_manager
                 .write()
-                .map_err(|e| eyre!("Failed to access batch manager: {}", e))?
+                .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))?
                 .handle_new_engagement(Arc::new(RwLock::new(engaged_orders)))?;
 
             // We must tell IOM to engage the order, and in response IOM will
             // send us engage event confirming the engaged amount.
             self.index_order_manager
                 .write()
-                .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                .map_err(|e| eyre!("Failed to access index order manager: {:?}", e))?
                 .engage_orders(batch_order_id, send_engage)?;
         }
 
@@ -588,51 +647,96 @@ impl Solver {
         Ok(())
     }
 
-    /// Core thinking function
-    pub fn solve(&self, timestamp: DateTime<Utc>) {
-        tracing::trace!("\nBegin solve");
+    /// Core thinking function - returns current solver status
+    pub fn solve(&self, timestamp: DateTime<Utc>) -> SolverStatus {
+        let current_status = self.get_status();
 
-        tracing::trace!("* Process collateral");
-        if let Err(err) = self
-            .collateral_manager
-            .write()
-            .map_err(|e| eyre!("Failed to access collateral manager {}", e))
-            .and_then(|mut x| x.process_collateral(self, timestamp))
-        {
-            tracing::warn!("Error while processing credits: {:?}", err);
+        match current_status {
+            SolverStatus::Running => {
+                tracing::trace!("\nBegin solve");
+
+                tracing::trace!("* Process collateral");
+                if let Err(err) = self
+                    .collateral_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access collateral manager: {:?}", e))
+                    .and_then(|mut x| x.process_collateral(self, timestamp))
+                {
+                    tracing::warn!("Error while processing credits: {:?}", err);
+                }
+
+                tracing::trace!("* Mint indexes");
+                if let Err(err) = self.mint_indexes(timestamp) {
+                    tracing::warn!("Error while processing mints: {:?}", err);
+                }
+
+                tracing::trace!("* Serve more clients");
+                if let Err(err) = self.serve_more_clients(timestamp) {
+                    tracing::warn!("Error while serving more clients: {:?}", err);
+                }
+
+                tracing::trace!("* Engage more orders");
+                if let Err(err) = self.engage_more_orders(timestamp) {
+                    tracing::warn!("Error while engaging more orders: {:?}", err);
+                }
+
+                tracing::trace!("* Process batches");
+                let batch_status = match self
+                    .batch_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
+                    .and_then(|mut x| x.process_batches(self, timestamp))
+                {
+                    Ok(status) => status,
+                    Err(err) => {
+                        tracing::warn!("Error while sending more batches: {:?}", err);
+                        BatchManagerStatus::Idle // Assume idle on error
+                    }
+                };
+
+                tracing::trace!("* Process quotes");
+                if let Err(err) = self.process_more_quotes(timestamp) {
+                    tracing::warn!("Error while processing more quotes: {:?}", err);
+                }
+
+                tracing::trace!("End solve\n");
+                SolverStatus::Running
+            }
+            SolverStatus::ShuttingDown => {
+                tracing::trace!("Solver shutting down - processing batches only");
+
+                // During shutdown, only process batches to completion
+                let batch_status = match self
+                    .batch_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
+                    .and_then(|mut x| x.process_batches(self, timestamp))
+                {
+                    Ok(status) => status,
+                    Err(err) => {
+                        tracing::warn!("Error while processing batches during shutdown: {:?}", err);
+                        BatchManagerStatus::Idle // Assume idle on error
+                    }
+                };
+
+                // Check if we can transition to Stopped
+                match batch_status {
+                    BatchManagerStatus::Idle => {
+                        tracing::info!("All batches completed - transitioning to Stopped");
+                        self.status.store(2, Ordering::SeqCst); // Stopped
+                        SolverStatus::Stopped
+                    }
+                    BatchManagerStatus::ActiveBatches(count) => {
+                        tracing::debug!("Still waiting for {} active batches to complete", count);
+                        SolverStatus::ShuttingDown
+                    }
+                }
+            }
+            SolverStatus::Stopped => {
+                tracing::trace!("Solver stopped - no processing");
+                SolverStatus::Stopped
+            }
         }
-
-        tracing::trace!("* Mint indexes");
-        if let Err(err) = self.mint_indexes(timestamp) {
-            tracing::warn!("Error while processing mints: {:?}", err);
-        }
-
-        tracing::trace!("* Serve more clients");
-        if let Err(err) = self.serve_more_clients(timestamp) {
-            tracing::warn!("Error while serving more clients: {:?}", err);
-        }
-
-        tracing::trace!("* Engage more orders");
-        if let Err(err) = self.engage_more_orders(timestamp) {
-            tracing::warn!("Error while engaging more orders: {:?}", err);
-        }
-
-        tracing::trace!("* Process batches");
-        if let Err(err) = self
-            .batch_manager
-            .write()
-            .map_err(|e| eyre!("Failed to access batch manager {}", e))
-            .and_then(|mut x| x.process_batches(self, timestamp))
-        {
-            tracing::warn!("Error while sending more batches: {:?}", err);
-        }
-
-        tracing::trace!("* Process quotes");
-        if let Err(err) = self.process_more_quotes(timestamp) {
-            tracing::warn!("Error while processing more quotes: {:?}", err);
-        }
-
-        tracing::trace!("End solve\n");
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
@@ -668,7 +772,8 @@ impl Solver {
                     );
                 }
 
-                let target_price = "1000".try_into().unwrap(); // TODO
+                let target_price = "1000".try_into()
+                    .map_err(|err| eyre!("Failed to parse target price: {:?}", err))?;
 
                 if let Err(err) = self.basket_manager.write().set_basket_from_definition(
                     symbol.clone(),
@@ -735,6 +840,8 @@ impl Solver {
                         .map(|o| o.read().client_order_id.clone())
                         .collect_vec()),
                     "Batch Complete");
+
+                // Batch completion is now tracked via BatchManager status
 
                 self.ready_orders.lock().extend(continued_orders);
                 Ok(())
@@ -1377,6 +1484,85 @@ impl Solver {
             }
         }
     }
+
+    fn load_solver_state(&mut self, value: serde_json::Value) -> Result<()> {
+        // Parse the JSON structure
+        let solver_data: SolverPersistedState = serde_json::from_value(value)
+            .map_err(|err| eyre!("Failed to deserialize solver state: {:?}", err))?;
+
+        // Restore client_orders
+        *self.client_orders.write() = solver_data.client_orders;
+
+        // Restore ready_orders by looking up references in client_orders
+        let ready_orders = solver_data.ready_orders
+            .iter()
+            .filter_map(|(chain_id, address, client_order_id)| {
+                match self.client_orders.read().get_client_order(*chain_id, *address, client_order_id.clone()) {
+                    Some(order_ref) => Some(order_ref),
+                    None => {
+                        tracing::warn!("Ready order not found in client_orders: ({}, {}, {})", chain_id, address, client_order_id);
+                        None
+                    }
+                }
+            })
+            .collect();
+        *self.ready_orders.lock() = ready_orders;
+
+        // Restore ready_mints by looking up references in client_orders
+        let ready_mints = solver_data.ready_mints
+            .iter()
+            .filter_map(|(chain_id, address, client_order_id)| {
+                match self.client_orders.read().get_client_order(*chain_id, *address, client_order_id.clone()) {
+                    Some(order_ref) => Some(order_ref),
+                    None => {
+                        tracing::warn!("Ready mint not found in client_orders: ({}, {}, {})", chain_id, address, client_order_id);
+                        None
+                    }
+                }
+            })
+            .collect();
+        *self.ready_mints.lock() = ready_mints;
+
+        tracing::info!(
+            "Loaded solver state: {} client orders, {} ready orders, {} ready mints",
+            self.client_orders.read().len(),
+            self.ready_orders.lock().len(),
+            self.ready_mints.lock().len()
+        );
+
+        Ok(())
+    }
+
+    fn create_solver_state_snapshot(&self) -> Result<SolverPersistedState> {
+        // Snapshot client_orders (full data)
+        let client_orders = self.client_orders.read().clone();
+
+        // Snapshot ready_orders as tuple keys
+        let ready_orders = self.ready_orders
+            .lock()
+            .iter()
+            .map(|order_ref| {
+                let order = order_ref.read();
+                order.get_key()
+            })
+            .collect();
+
+        // Snapshot ready_mints as tuple keys
+        let ready_mints = self.ready_mints
+            .lock()
+            .iter()
+            .map(|order_ref| {
+                let order = order_ref.read();
+                order.get_key()
+            })
+            .collect();
+
+        Ok(SolverPersistedState {
+            client_orders,
+            ready_orders,
+            ready_mints,
+        })
+    }
 }
 
 impl SetSolverOrderStatus for Solver {
@@ -1448,6 +1634,8 @@ impl BatchManagerHost for Solver {
     }
 
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
+        // Batch tracking is now handled by BatchManager status
+
         self.inventory_manager.write().new_order_batch(batch_order)
     }
 
@@ -1486,63 +1674,79 @@ impl CollateralManagerHost for Solver {
     }
 }
 
+
+
 impl Persist for Solver {
     fn load(&mut self) -> Result<()> {
+        // First load all dependent components
         self.index_order_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
             .load()?;
 
         self.collateral_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access collateral manager: {:?}", err))?
             .load()?;
 
         self.batch_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
             .load()?;
 
         self.inventory_manager
             .write()
             .load()?;
 
-        let _value = self.persistence.load_value()?;
-
-        //TODO: load these
-        //self.client_orders;
-        //self.ready_orders;
-        //self.ready_mints;
+        // Load solver-specific state
+        if let Some(value) = self.persistence.load_value()? {
+            self.load_solver_state(value)?;
+        } else {
+            tracing::info!("No persisted solver state found, starting with empty state");
+        }
 
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
+        // First store all dependent components
         self.index_order_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
             .store()?;
 
         self.collateral_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access collateral manager: {:?}", err))?
             .store()?;
 
         self.batch_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
             .store()?;
 
         self.inventory_manager
             .write()
             .store()?;
 
-        //TODO: store these
-        //self.client_orders;
-        //self.ready_orders;
-        //self.ready_mints;
+        // Create solver state snapshot
+        let solver_state = self.create_solver_state_snapshot()?;
 
-        self.persistence.store_value(json!({"some_solver_data": ""}))
+        // Serialize and store
+        let json_value = serde_json::to_value(&solver_state)
+            .map_err(|err| eyre!("Failed to serialize solver state: {:?}", err))?;
+
+        self.persistence.store_value(json_value)
+            .map_err(|err| eyre!("Failed to persist solver state: {:?}", err))?;
+
+        tracing::info!(
+            "Stored solver state: {} client orders, {} ready orders, {} ready mints",
+            solver_state.client_orders.len(),
+            solver_state.ready_orders.len(),
+            solver_state.ready_mints.len()
+        );
+
+        Ok(())
     }
 }
 

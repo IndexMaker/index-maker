@@ -32,6 +32,12 @@ impl Server for SimpleServer {
     fn respond_with(&mut self, response: ServerResponse) {
         tracing::info!("Received response: {:?}", response);
     }
+
+    fn initialize_shutdown(&mut self) {
+        tracing::info!("SimpleServer shutdown initialized - blocking new orders");
+        // SimpleServer doesn't need to do anything special for shutdown
+        // as it's just a test implementation
+    }
 }
 
 impl IntoObservableManyVTable<Arc<ServerEvent>> for SimpleServer {
