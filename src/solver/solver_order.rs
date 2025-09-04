@@ -9,6 +9,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
@@ -20,7 +21,7 @@ use symm_core::{
     order_sender::position::LotId,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum SolverOrderStatus {
     Open,
     ManageCollateral,
@@ -165,6 +166,8 @@ impl SolverClientOrders {
             client_wait_period,
         }
     }
+
+
 
     pub fn get_client_order(
         &self,

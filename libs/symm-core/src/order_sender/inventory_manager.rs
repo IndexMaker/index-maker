@@ -9,7 +9,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Context, Result};
+use eyre::{eyre, Result};
 use itertools::partition;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -460,14 +460,24 @@ impl InventoryManager {
 
 impl Persist for InventoryManager {
     fn load(&mut self) -> Result<()> {
-        let _value = self.persistence.load_value()?;
-        // self.positions = ...
+        if let Some(value) = self.persistence.load_value()? {
+            if let Some(positions_value) = value.get("positions") {
+                let loaded_positions: HashMap<Symbol, Box<Position>> =
+                    serde_json::from_value(positions_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize positions: {:?}", err))?;
+                self.positions = loaded_positions;
+                tracing::info!("Loaded {} inventory positions from persistence", self.positions.len());
+            }
+        }
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
-        self.persistence
-            .store_value(json!({"inventory_manager_data": ""}))
+        let data = json!({
+            "positions": self.positions
+        });
+        self.persistence.store_value(data)
+            .map_err(|err| eyre!("Failed to store InventoryManager state: {:?}", err))
     }
 }
 
