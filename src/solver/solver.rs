@@ -1,6 +1,9 @@
 use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, RwLock as ComponentLock},
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock as ComponentLock,
+    },
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -8,6 +11,7 @@ use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
     core::{
@@ -41,7 +45,7 @@ use crate::collateral::{
 
 use super::{
     batch_manager::{BatchEvent, BatchManager, BatchManagerHost},
-    index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
+    index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager, ShutdownChecker},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
     solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
     solver_quote::{SolverClientQuotes, SolverQuote, SolverQuoteStatus},
@@ -123,6 +127,14 @@ pub trait OrderIdProvider {
     fn next_payment_id(&mut self) -> PaymentId;
 }
 
+/// Serializable representation of Solver state for persistence
+#[derive(Serialize, Deserialize)]
+struct SolverPersistedState {
+    client_orders: SolverClientOrders,
+    ready_orders: Vec<(u32, Address, ClientOrderId)>,
+    ready_mints: Vec<(u32, Address, ClientOrderId)>,
+}
+
 pub trait SetSolverOrderStatus {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus);
     fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus);
@@ -198,6 +210,9 @@ pub struct Solver {
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
+    // shutdown management
+    is_shutting_down: Arc<AtomicBool>,
+    active_batches: Arc<RwLock<HashSet<BatchOrderId>>>,
 }
 impl Solver {
     pub fn new(
@@ -241,7 +256,80 @@ impl Solver {
             // parameters
             max_batch_size,
             zero_threshold,
+            // shutdown management
+            is_shutting_down: Arc::new(AtomicBool::new(false)),
+            active_batches: Arc::new(RwLock::new(HashSet::new())),
         }
+    }
+
+    /// Initiate graceful shutdown by blocking new orders and engagement
+    pub fn initiate_shutdown(&self) {
+        self.is_shutting_down.store(true, Ordering::SeqCst);
+        tracing::info!("Solver shutdown initiated - blocking new orders and engagement");
+    }
+
+    /// Check if the solver is accepting new orders
+    fn is_accepting_orders(&self) -> bool {
+        !self.is_shutting_down.load(Ordering::SeqCst)
+    }
+
+    /// Track when a batch is sent
+    fn on_batch_sent(&self, batch_order_id: BatchOrderId) {
+        self.active_batches.write().insert(batch_order_id.clone());
+        tracing::debug!("Tracking active batch: {}", batch_order_id);
+    }
+
+    /// Handle batch completion events
+    fn on_batch_complete(&self, batch_order_id: BatchOrderId) {
+        let removed = self.active_batches.write().remove(&batch_order_id);
+        if removed {
+            tracing::debug!("Batch completed: {}", batch_order_id);
+        }
+    }
+
+    /// Await all batches to complete with timeout
+    pub async fn await_all_batches_complete(&self, timeout_duration: std::time::Duration) -> Result<()> {
+        let start_time = std::time::Instant::now();
+
+        tokio::time::timeout(timeout_duration, async {
+            loop {
+                let active_batches = {
+                    let batches = self.active_batches.read();
+                    batches.clone()
+                };
+
+                if active_batches.is_empty() {
+                    tracing::info!("All batches completed successfully");
+                    break;
+                }
+
+                let elapsed = start_time.elapsed();
+                tracing::info!(
+                    "Waiting for {} active batches to complete (elapsed: {:?})",
+                    active_batches.len(),
+                    elapsed
+                );
+
+                // Log which batches are still active for debugging
+                for batch_id in &active_batches {
+                    tracing::debug!("Still waiting for batch: {}", batch_id);
+                }
+
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            let remaining_batches = self.active_batches.read().clone();
+            eyre!(
+                "Batch completion timeout after {:?}. {} batches still active: {:?}",
+                timeout_duration,
+                remaining_batches.len(),
+                remaining_batches
+            )
+        })?;
+
+        Ok(())
     }
 
     fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>> {
@@ -298,6 +386,12 @@ impl Solver {
     }
 
     fn engage_more_orders(&self, timestamp: DateTime<Utc>) -> Result<()> {
+        // Block engagement during shutdown
+        if !self.is_accepting_orders() {
+            tracing::info!("Blocking order engagement - system is shutting down");
+            return Ok(());
+        }
+
         let order_batch = self.get_order_batch();
         if order_batch.is_empty() {
             return Ok(());
@@ -735,6 +829,9 @@ impl Solver {
                         .map(|o| o.read().client_order_id.clone())
                         .collect_vec()),
                     "Batch Complete");
+
+                // Mark batch as complete for shutdown tracking
+                self.on_batch_complete(batch_order_id);
 
                 self.ready_orders.lock().extend(continued_orders);
                 Ok(())
@@ -1377,6 +1474,85 @@ impl Solver {
             }
         }
     }
+
+    fn load_solver_state(&mut self, value: serde_json::Value) -> Result<()> {
+        // Parse the JSON structure
+        let solver_data: SolverPersistedState = serde_json::from_value(value)
+            .map_err(|err| eyre!("Failed to deserialize solver state: {:?}", err))?;
+
+        // Restore client_orders
+        *self.client_orders.write() = solver_data.client_orders;
+
+        // Restore ready_orders by looking up references in client_orders
+        let ready_orders = solver_data.ready_orders
+            .iter()
+            .filter_map(|(chain_id, address, client_order_id)| {
+                match self.client_orders.read().get_client_order(*chain_id, *address, client_order_id.clone()) {
+                    Some(order_ref) => Some(order_ref),
+                    None => {
+                        tracing::warn!("Ready order not found in client_orders: ({}, {}, {})", chain_id, address, client_order_id);
+                        None
+                    }
+                }
+            })
+            .collect();
+        *self.ready_orders.lock() = ready_orders;
+
+        // Restore ready_mints by looking up references in client_orders
+        let ready_mints = solver_data.ready_mints
+            .iter()
+            .filter_map(|(chain_id, address, client_order_id)| {
+                match self.client_orders.read().get_client_order(*chain_id, *address, client_order_id.clone()) {
+                    Some(order_ref) => Some(order_ref),
+                    None => {
+                        tracing::warn!("Ready mint not found in client_orders: ({}, {}, {})", chain_id, address, client_order_id);
+                        None
+                    }
+                }
+            })
+            .collect();
+        *self.ready_mints.lock() = ready_mints;
+
+        tracing::info!(
+            "Loaded solver state: {} client orders, {} ready orders, {} ready mints",
+            self.client_orders.read().len(),
+            self.ready_orders.lock().len(),
+            self.ready_mints.lock().len()
+        );
+
+        Ok(())
+    }
+
+    fn create_solver_state_snapshot(&self) -> Result<SolverPersistedState> {
+        // Snapshot client_orders (full data)
+        let client_orders = self.client_orders.read().clone();
+
+        // Snapshot ready_orders as tuple keys
+        let ready_orders = self.ready_orders
+            .lock()
+            .iter()
+            .map(|order_ref| {
+                let order = order_ref.read();
+                order.get_key()
+            })
+            .collect();
+
+        // Snapshot ready_mints as tuple keys
+        let ready_mints = self.ready_mints
+            .lock()
+            .iter()
+            .map(|order_ref| {
+                let order = order_ref.read();
+                order.get_key()
+            })
+            .collect();
+
+        Ok(SolverPersistedState {
+            client_orders,
+            ready_orders,
+            ready_mints,
+        })
+    }
 }
 
 impl SetSolverOrderStatus for Solver {
@@ -1448,6 +1624,9 @@ impl BatchManagerHost for Solver {
     }
 
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
+        // Track the batch as active
+        self.on_batch_sent(batch_order.batch_order_id.clone());
+
         self.inventory_manager.write().new_order_batch(batch_order)
     }
 
@@ -1486,63 +1665,83 @@ impl CollateralManagerHost for Solver {
     }
 }
 
+impl ShutdownChecker for Solver {
+    fn is_accepting_orders(&self) -> bool {
+        !self.is_shutting_down.load(Ordering::SeqCst)
+    }
+}
+
 impl Persist for Solver {
     fn load(&mut self) -> Result<()> {
+        // First load all dependent components
         self.index_order_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
             .load()?;
 
         self.collateral_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access collateral manager: {:?}", err))?
             .load()?;
 
         self.batch_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
             .load()?;
 
         self.inventory_manager
             .write()
             .load()?;
 
-        let _value = self.persistence.load_value()?;
-
-        //TODO: load these
-        //self.client_orders;
-        //self.ready_orders;
-        //self.ready_mints;
+        // Load solver-specific state
+        if let Some(value) = self.persistence.load_value()? {
+            self.load_solver_state(value)?;
+        } else {
+            tracing::info!("No persisted solver state found, starting with empty state");
+        }
 
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
+        // First store all dependent components
         self.index_order_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
             .store()?;
 
         self.collateral_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access collateral manager: {:?}", err))?
             .store()?;
 
         self.batch_manager
             .write()
-            .map_err(|err| eyre!("{:?}", err))?
+            .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
             .store()?;
 
         self.inventory_manager
             .write()
             .store()?;
 
-        //TODO: store these
-        //self.client_orders;
-        //self.ready_orders;
-        //self.ready_mints;
+        // Create solver state snapshot
+        let solver_state = self.create_solver_state_snapshot()?;
 
-        self.persistence.store_value(json!({"some_solver_data": ""}))
+        // Serialize and store
+        let json_value = serde_json::to_value(&solver_state)
+            .map_err(|err| eyre!("Failed to serialize solver state: {:?}", err))?;
+
+        self.persistence.store_value(json_value)
+            .map_err(|err| eyre!("Failed to persist solver state: {:?}", err))?;
+
+        tracing::info!(
+            "Stored solver state: {} client orders, {} ready orders, {} ready mints",
+            solver_state.client_orders.len(),
+            solver_state.ready_orders.len(),
+            solver_state.ready_mints.len()
+        );
+
+        Ok(())
     }
 }
 

@@ -842,14 +842,32 @@ impl SolverConfig {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
+        // Step 1: Initiate graceful shutdown
+        if let Some(solver) = self.solver.as_deref() {
+            tracing::info!("Initiating graceful solver shutdown...");
+            solver.initiate_shutdown();
+
+            // Step 2: Await batch completion with timeout
+            tracing::info!("Waiting for active batches to complete...");
+            if let Err(err) = solver.await_all_batches_complete(std::time::Duration::from_secs(10)).await {
+                tracing::warn!("Batch completion timeout: {}", err);
+                // Continue with shutdown even if batches don't complete
+            }
+        }
+
+        // Step 3-6: Existing shutdown sequence
         self.stop_orders_backend().await?;
         self.stop_quotes_backend().await?;
         self.stop_solver().await?;
         self.stop_market_data().await?;
+
+        // Step 7: Persist state
         self.solver
             .as_deref()
             .expect("Unexpected: solver must have existed")
             .store()?;
+
+        tracing::info!("Graceful solver shutdown completed");
         Ok(())
     }
 
@@ -862,6 +880,16 @@ impl SolverConfig {
     }
 
     pub async fn stop_quotes(&mut self) -> Result<()> {
+        // Similar graceful shutdown for quotes mode
+        if let Some(solver) = self.solver.as_deref() {
+            tracing::info!("Initiating graceful quotes shutdown...");
+            solver.initiate_shutdown();
+
+            if let Err(err) = solver.await_all_batches_complete(std::time::Duration::from_secs(10)).await {
+                tracing::warn!("Batch completion timeout during quotes shutdown: {}", err);
+            }
+        }
+
         self.stop_quotes_backend().await?;
         self.stop_solver().await?;
         self.stop_market_data().await?;
@@ -958,7 +986,7 @@ impl SolverConfigBuilder {
             chain_connector,
             batch_manager,
             collateral_manager,
-            index_order_manager,
+            index_order_manager.clone(),
             quote_request_manager,
             inventory_manager,
             persistence,
@@ -967,6 +995,12 @@ impl SolverConfigBuilder {
             config.client_order_wait_period,
             config.client_quote_wait_period,
         ));
+
+        // Set up shutdown checker for IndexOrderManager
+        index_order_manager
+            .write()
+            .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
+            .set_shutdown_checker(solver.clone());
 
         // There is a good reason for Persist::load(&mut self) to work on &mut Self and not &Self.
         // Persist::load() should restore consistent state, and for that the whole object needs
