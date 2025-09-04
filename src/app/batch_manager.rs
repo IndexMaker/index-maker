@@ -9,7 +9,7 @@ use eyre::{OptionExt, Result};
 use rust_decimal::dec;
 use symm_core::core::{
     bits::Amount,
-    persistence::{self, util::JsonFilePersistence},
+    persistence::util::JsonFilePersistence,
 };
 
 #[derive(Clone, Builder)]

@@ -658,10 +658,7 @@ impl SolverConfig {
             loop {
                 select! {
                     recv(stop_solver_rx) -> _ => {
-                        if let Err(err) = solver_stopped_tx.send(()) {
-                            tracing::warn!("Failed to send solver stopped event: {:?}", err);
-                        }
-                        break;
+                        solver.initiate_shutdown();
                     },
                     recv(collateral_event_rx) -> res => match res {
                         Ok(event) => {
@@ -738,10 +735,10 @@ impl SolverConfig {
                         let status = solver.solve(Utc::now());
                         match status {
                             SolverStatus::Stopped => {
-                                tracing::info!("Solver has stopped - exiting dispatch loop");
                                 if let Err(err) = solver_stopped_tx.send(()) {
                                     tracing::warn!("Failed to send solver stopped event: {:?}", err);
                                 }
+                                tracing::info!("Solver has stopped - exiting dispatch loop");
                                 break;
                             }
                             SolverStatus::ShuttingDown => {
@@ -853,9 +850,8 @@ impl SolverConfig {
 
     async fn stop_solver(&mut self) -> Result<()> {
         if let Some((stop_solver_tx, solver_stopped_rx)) = self.stopping_solver.take() {
-            stop_solver_tx.send(()).unwrap();
-            solver_stopped_rx.await.unwrap();
-
+            stop_solver_tx.send(())?;
+            solver_stopped_rx.await?;
             Ok(())
         } else {
             Err(eyre!("Cannot stop solver: Not started"))
@@ -872,30 +868,32 @@ impl SolverConfig {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        // Step 1: Initiate graceful shutdown
-        if let Some(solver) = self.solver.as_deref() {
-            tracing::info!("Initiating graceful solver shutdown...");
-            solver.initiate_shutdown();
+        // --==| Graceful shutdown |==--
 
-            // Step 2: Initialize server shutdown to block new orders
-            self.with_index_order_manager
-                .with_server
-                .try_get_server_cloned()?
-                .write()
-                .initialize_shutdown();
+        // 1. Stop receiving Index Orders & Quotes
+        // a. Close server for incoming requests
+        self.with_index_order_manager
+            .with_server
+            .try_get_server_cloned()?
+            .write()
+            .initialize_shutdown();
 
-            // Step 3: Batch completion is now handled by the dispatch loop
-            // The solver will automatically transition to Stopped when all batches complete
-            tracing::info!("Graceful shutdown initiated - batches will complete via dispatch loop");
-        }
-
-        // Step 3-6: Existing shutdown sequence
+        // b. Stop dispatching server events
         self.stop_orders_backend().await?;
         self.stop_quotes_backend().await?;
+
+        // 2. Shutdown Solver
+        // a. Send stop event
+        // b. Solver will initiate its shudown (enter ShuttingDown state)
+        // c. Solver will await any pending batches to complete (returned BatchManagerStatus)
+        // d. Solver will notify about shutdown completion (returned SolverStatus)
+        // e. We will receive stop confirmation event (sent from dispatch loop)
         self.stop_solver().await?;
+        
+        // 3. Stop receiving market data
         self.stop_market_data().await?;
 
-        // Step 7: Persist state
+        // 4. Persist state
         self.solver
             .as_deref()
             .ok_or_eyre("Failed to access solver for persistence")?

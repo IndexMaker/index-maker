@@ -319,6 +319,34 @@ impl SolverClientOrders {
         Ok(())
     }
 
+    pub fn write_trace_all_queues(&self, message: &str) {
+        for ((chain_id, address, ..), x) in self.client_orders.iter() {
+            tracing::info!(
+            %message,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(*chain_id, *address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+        }
+    }
+
+    pub fn write_trace_one_queue(&self, chain_id: u32, address: Address, message: &str) {
+        tracing::info!(
+            %chain_id,
+            %address,
+            %message,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+    }
+
     pub fn cancel_client_order(
         &mut self,
         chain_id: u32,

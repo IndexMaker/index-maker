@@ -42,7 +42,8 @@ use crate::{
     collateral::{
         collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
         collateral_position::{ConfirmStatus, PreAuthStatus, RoutingStatus},
-    }, solver::solver_order::solver_order_serde::StoredSolverClientOrders,
+    },
+    solver::solver_order::solver_order_serde::StoredSolverClientOrders,
 };
 
 use super::{
@@ -371,8 +372,13 @@ impl Solver {
             .iter()
             .for_each(|order| order.read().add_span_context_link());
 
-        let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch) {
-            Err(err) => return Err(err),
+        let solve_engagements_result = match self.strategy.solve_engagements(self, order_batch.clone()) {
+            Err(err) => {
+                order_batch
+                    .iter()
+                    .for_each(|x| self.client_orders.write().put_back(x.clone(), timestamp));
+                return Err(err);
+            }
             Ok(None) => return Ok(()),
             Ok(Some(x)) => x,
         };
@@ -1547,11 +1553,15 @@ impl Solver {
         *self.ready_mints.lock() = ready_mints;
 
         tracing::info!(
-            "Loaded solver state: {} client orders, {} ready orders, {} ready mints",
-            self.client_orders.read().len(),
-            self.ready_orders.lock().len(),
-            self.ready_mints.lock().len()
+            client_orders_len = %self.client_orders.read().len(),
+            ready_orders_len = %self.ready_orders.lock().len(),
+            raedy_mints_len = %self.ready_mints.lock().len(),
+            "Loaded solver state"
         );
+
+        self.client_orders
+            .read()
+            .write_trace_all_queues("After Load");
 
         Ok(())
     }
