@@ -1,7 +1,7 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicU8, Ordering},
         Arc, RwLock as ComponentLock,
     },
 };
@@ -127,6 +127,21 @@ pub trait OrderIdProvider {
     fn next_payment_id(&mut self) -> PaymentId;
 }
 
+/// Status of the Solver
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverStatus {
+    Running,
+    ShuttingDown,
+    Stopped,
+}
+
+/// Status of the BatchManager
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchManagerStatus {
+    ActiveBatches(usize),
+    Idle,
+}
+
 /// Serializable representation of Solver state for persistence
 #[derive(Serialize, Deserialize)]
 struct SolverPersistedState {
@@ -210,9 +225,8 @@ pub struct Solver {
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
-    // shutdown management
-    is_shutting_down: Arc<AtomicBool>,
-    active_batches: Arc<RwLock<HashSet<BatchOrderId>>>,
+    // status management
+    status: Arc<AtomicU8>, // 0=Running, 1=ShuttingDown, 2=Stopped
 }
 impl Solver {
     pub fn new(
@@ -256,80 +270,31 @@ impl Solver {
             // parameters
             max_batch_size,
             zero_threshold,
-            // shutdown management
-            is_shutting_down: Arc::new(AtomicBool::new(false)),
-            active_batches: Arc::new(RwLock::new(HashSet::new())),
+            // status management
+            status: Arc::new(AtomicU8::new(0)), // Start as Running
         }
     }
 
     /// Initiate graceful shutdown by blocking new orders and engagement
+    /// Get current solver status
+    pub fn get_status(&self) -> SolverStatus {
+        match self.status.load(Ordering::SeqCst) {
+            0 => SolverStatus::Running,
+            1 => SolverStatus::ShuttingDown,
+            2 => SolverStatus::Stopped,
+            _ => SolverStatus::Running, // Default fallback
+        }
+    }
+
+    /// Initiate graceful shutdown by setting status to ShuttingDown
     pub fn initiate_shutdown(&self) {
-        self.is_shutting_down.store(true, Ordering::SeqCst);
-        tracing::info!("Solver shutdown initiated - blocking new orders and engagement");
+        self.status.store(1, Ordering::SeqCst); // ShuttingDown
+        tracing::info!("Solver shutdown initiated - status set to ShuttingDown");
     }
 
     /// Check if the solver is accepting new orders
     fn is_accepting_orders(&self) -> bool {
-        !self.is_shutting_down.load(Ordering::SeqCst)
-    }
-
-    /// Track when a batch is sent
-    fn on_batch_sent(&self, batch_order_id: BatchOrderId) {
-        self.active_batches.write().insert(batch_order_id.clone());
-        tracing::debug!("Tracking active batch: {}", batch_order_id);
-    }
-
-    /// Handle batch completion events
-    fn on_batch_complete(&self, batch_order_id: BatchOrderId) {
-        let removed = self.active_batches.write().remove(&batch_order_id);
-        if removed {
-            tracing::debug!("Batch completed: {}", batch_order_id);
-        }
-    }
-
-    /// Await all batches to complete with timeout
-    pub async fn await_all_batches_complete(&self, timeout_duration: std::time::Duration) -> Result<()> {
-        let start_time = std::time::Instant::now();
-
-        tokio::time::timeout(timeout_duration, async {
-            loop {
-                let active_batches = {
-                    let batches = self.active_batches.read();
-                    batches.clone()
-                };
-
-                if active_batches.is_empty() {
-                    tracing::info!("All batches completed successfully");
-                    break;
-                }
-
-                let elapsed = start_time.elapsed();
-                tracing::info!(
-                    "Waiting for {} active batches to complete (elapsed: {:?})",
-                    active_batches.len(),
-                    elapsed
-                );
-
-                // Log which batches are still active for debugging
-                for batch_id in &active_batches {
-                    tracing::debug!("Still waiting for batch: {}", batch_id);
-                }
-
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        })
-        .await
-        .map_err(|_| {
-            let remaining_batches = self.active_batches.read().clone();
-            eyre!(
-                "Batch completion timeout after {:?}. {} batches still active: {:?}",
-                timeout_duration,
-                remaining_batches.len(),
-                remaining_batches
-            )
-        })?;
-
-        Ok(())
+        self.get_status() == SolverStatus::Running
     }
 
     fn get_order_batch(&self) -> Vec<Arc<RwLock<SolverOrder>>> {
@@ -370,7 +335,7 @@ impl Solver {
                     );
                     self.index_order_manager
                         .write()
-                        .map_err(|e| eyre!("Cannot access index order manager {}", e))?
+                        .map_err(|e| eyre!("Failed to access index order manager: {:?}", e))?
                         .order_failed(
                             o.chain_id,
                             &o.address,
@@ -525,14 +490,14 @@ impl Solver {
             let batch_order_id = self
                 .batch_manager
                 .write()
-                .map_err(|e| eyre!("Failed to access batch manager: {}", e))?
+                .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))?
                 .handle_new_engagement(Arc::new(RwLock::new(engaged_orders)))?;
 
             // We must tell IOM to engage the order, and in response IOM will
             // send us engage event confirming the engaged amount.
             self.index_order_manager
                 .write()
-                .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                .map_err(|e| eyre!("Failed to access index order manager: {:?}", e))?
                 .engage_orders(batch_order_id, send_engage)?;
         }
 
@@ -682,51 +647,96 @@ impl Solver {
         Ok(())
     }
 
-    /// Core thinking function
-    pub fn solve(&self, timestamp: DateTime<Utc>) {
-        tracing::trace!("\nBegin solve");
+    /// Core thinking function - returns current solver status
+    pub fn solve(&self, timestamp: DateTime<Utc>) -> SolverStatus {
+        let current_status = self.get_status();
 
-        tracing::trace!("* Process collateral");
-        if let Err(err) = self
-            .collateral_manager
-            .write()
-            .map_err(|e| eyre!("Failed to access collateral manager {}", e))
-            .and_then(|mut x| x.process_collateral(self, timestamp))
-        {
-            tracing::warn!("Error while processing credits: {:?}", err);
+        match current_status {
+            SolverStatus::Running => {
+                tracing::trace!("\nBegin solve");
+
+                tracing::trace!("* Process collateral");
+                if let Err(err) = self
+                    .collateral_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access collateral manager: {:?}", e))
+                    .and_then(|mut x| x.process_collateral(self, timestamp))
+                {
+                    tracing::warn!("Error while processing credits: {:?}", err);
+                }
+
+                tracing::trace!("* Mint indexes");
+                if let Err(err) = self.mint_indexes(timestamp) {
+                    tracing::warn!("Error while processing mints: {:?}", err);
+                }
+
+                tracing::trace!("* Serve more clients");
+                if let Err(err) = self.serve_more_clients(timestamp) {
+                    tracing::warn!("Error while serving more clients: {:?}", err);
+                }
+
+                tracing::trace!("* Engage more orders");
+                if let Err(err) = self.engage_more_orders(timestamp) {
+                    tracing::warn!("Error while engaging more orders: {:?}", err);
+                }
+
+                tracing::trace!("* Process batches");
+                let batch_status = match self
+                    .batch_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
+                    .and_then(|mut x| x.process_batches(self, timestamp))
+                {
+                    Ok(status) => status,
+                    Err(err) => {
+                        tracing::warn!("Error while sending more batches: {:?}", err);
+                        BatchManagerStatus::Idle // Assume idle on error
+                    }
+                };
+
+                tracing::trace!("* Process quotes");
+                if let Err(err) = self.process_more_quotes(timestamp) {
+                    tracing::warn!("Error while processing more quotes: {:?}", err);
+                }
+
+                tracing::trace!("End solve\n");
+                SolverStatus::Running
+            }
+            SolverStatus::ShuttingDown => {
+                tracing::trace!("Solver shutting down - processing batches only");
+
+                // During shutdown, only process batches to completion
+                let batch_status = match self
+                    .batch_manager
+                    .write()
+                    .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
+                    .and_then(|mut x| x.process_batches(self, timestamp))
+                {
+                    Ok(status) => status,
+                    Err(err) => {
+                        tracing::warn!("Error while processing batches during shutdown: {:?}", err);
+                        BatchManagerStatus::Idle // Assume idle on error
+                    }
+                };
+
+                // Check if we can transition to Stopped
+                match batch_status {
+                    BatchManagerStatus::Idle => {
+                        tracing::info!("All batches completed - transitioning to Stopped");
+                        self.status.store(2, Ordering::SeqCst); // Stopped
+                        SolverStatus::Stopped
+                    }
+                    BatchManagerStatus::ActiveBatches(count) => {
+                        tracing::debug!("Still waiting for {} active batches to complete", count);
+                        SolverStatus::ShuttingDown
+                    }
+                }
+            }
+            SolverStatus::Stopped => {
+                tracing::trace!("Solver stopped - no processing");
+                SolverStatus::Stopped
+            }
         }
-
-        tracing::trace!("* Mint indexes");
-        if let Err(err) = self.mint_indexes(timestamp) {
-            tracing::warn!("Error while processing mints: {:?}", err);
-        }
-
-        tracing::trace!("* Serve more clients");
-        if let Err(err) = self.serve_more_clients(timestamp) {
-            tracing::warn!("Error while serving more clients: {:?}", err);
-        }
-
-        tracing::trace!("* Engage more orders");
-        if let Err(err) = self.engage_more_orders(timestamp) {
-            tracing::warn!("Error while engaging more orders: {:?}", err);
-        }
-
-        tracing::trace!("* Process batches");
-        if let Err(err) = self
-            .batch_manager
-            .write()
-            .map_err(|e| eyre!("Failed to access batch manager {}", e))
-            .and_then(|mut x| x.process_batches(self, timestamp))
-        {
-            tracing::warn!("Error while sending more batches: {:?}", err);
-        }
-
-        tracing::trace!("* Process quotes");
-        if let Err(err) = self.process_more_quotes(timestamp) {
-            tracing::warn!("Error while processing more quotes: {:?}", err);
-        }
-
-        tracing::trace!("End solve\n");
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
@@ -762,7 +772,8 @@ impl Solver {
                     );
                 }
 
-                let target_price = "1000".try_into().unwrap(); // TODO
+                let target_price = "1000".try_into()
+                    .map_err(|err| eyre!("Failed to parse target price: {:?}", err))?;
 
                 if let Err(err) = self.basket_manager.write().set_basket_from_definition(
                     symbol.clone(),
@@ -830,8 +841,7 @@ impl Solver {
                         .collect_vec()),
                     "Batch Complete");
 
-                // Mark batch as complete for shutdown tracking
-                self.on_batch_complete(batch_order_id);
+                // Batch completion is now tracked via BatchManager status
 
                 self.ready_orders.lock().extend(continued_orders);
                 Ok(())
@@ -1624,8 +1634,7 @@ impl BatchManagerHost for Solver {
     }
 
     fn send_order_batch(&self, batch_order: Arc<BatchOrder>) -> Result<()> {
-        // Track the batch as active
-        self.on_batch_sent(batch_order.batch_order_id.clone());
+        // Batch tracking is now handled by BatchManager status
 
         self.inventory_manager.write().new_order_batch(batch_order)
     }
@@ -1667,7 +1676,7 @@ impl CollateralManagerHost for Solver {
 
 impl ShutdownChecker for Solver {
     fn is_accepting_orders(&self) -> bool {
-        !self.is_shutting_down.load(Ordering::SeqCst)
+        self.get_status() == SolverStatus::Running
     }
 }
 

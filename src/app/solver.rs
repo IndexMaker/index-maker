@@ -23,7 +23,7 @@ use crate::{
         batch_manager::BatchEvent,
         index_order_manager::IndexOrderEvent,
         index_quote_manager::QuoteRequestEvent,
-        solver::{OrderIdProvider, Solver, SolverStrategy},
+        solver::{OrderIdProvider, Solver, SolverStatus, SolverStrategy},
     },
 };
 
@@ -735,7 +735,22 @@ impl SolverConfig {
                         }
                     },
                     default(tick_delta) => {
-                        solver.solve(Utc::now());
+                        let status = solver.solve(Utc::now());
+                        match status {
+                            SolverStatus::Stopped => {
+                                tracing::info!("Solver has stopped - exiting dispatch loop");
+                                if let Err(err) = solver_stopped_tx.send(()) {
+                                    tracing::warn!("Failed to send solver stopped event: {:?}", err);
+                                }
+                                break;
+                            }
+                            SolverStatus::ShuttingDown => {
+                                tracing::debug!("Solver is shutting down - waiting for batches to complete");
+                            }
+                            SolverStatus::Running => {
+                                // Continue normal operation
+                            }
+                        }
                     }
                 }
             }
@@ -808,7 +823,22 @@ impl SolverConfig {
                         }
                     },
                     default(tick_delta) => {
-                        solver.solve(Utc::now());
+                        let status = solver.solve(Utc::now());
+                        match status {
+                            SolverStatus::Stopped => {
+                                tracing::info!("Quotes solver has stopped - exiting dispatch loop");
+                                if let Err(err) = solver_stopped_tx.send(()) {
+                                    tracing::warn!("Failed to send solver stopped event: {:?}", err);
+                                }
+                                break;
+                            }
+                            SolverStatus::ShuttingDown => {
+                                tracing::debug!("Quotes solver is shutting down - waiting for batches to complete");
+                            }
+                            SolverStatus::Running => {
+                                // Continue normal operation
+                            }
+                        }
                     }
                 }
             }
@@ -847,12 +877,9 @@ impl SolverConfig {
             tracing::info!("Initiating graceful solver shutdown...");
             solver.initiate_shutdown();
 
-            // Step 2: Await batch completion with timeout
-            tracing::info!("Waiting for active batches to complete...");
-            if let Err(err) = solver.await_all_batches_complete(std::time::Duration::from_secs(10)).await {
-                tracing::warn!("Batch completion timeout: {}", err);
-                // Continue with shutdown even if batches don't complete
-            }
+            // Step 2: Batch completion is now handled by the dispatch loop
+            // The solver will automatically transition to Stopped when all batches complete
+            tracing::info!("Graceful shutdown initiated - batches will complete via dispatch loop");
         }
 
         // Step 3-6: Existing shutdown sequence
@@ -864,7 +891,7 @@ impl SolverConfig {
         // Step 7: Persist state
         self.solver
             .as_deref()
-            .expect("Unexpected: solver must have existed")
+            .ok_or_eyre("Failed to access solver for persistence")?
             .store()?;
 
         tracing::info!("Graceful solver shutdown completed");
@@ -885,9 +912,8 @@ impl SolverConfig {
             tracing::info!("Initiating graceful quotes shutdown...");
             solver.initiate_shutdown();
 
-            if let Err(err) = solver.await_all_batches_complete(std::time::Duration::from_secs(10)).await {
-                tracing::warn!("Batch completion timeout during quotes shutdown: {}", err);
-            }
+            // Batch completion is now handled by the dispatch loop
+            tracing::info!("Quotes graceful shutdown initiated - batches will complete via dispatch loop");
         }
 
         self.stop_quotes_backend().await?;
@@ -1012,7 +1038,7 @@ impl SolverConfigBuilder {
         // Note that other components can reload their state on-the-go, e.g. to rollback failed
         // operation, and they can store their stat on-the-go, e.g. to commit stable state.
         Arc::get_mut(&mut solver)
-            .expect("Unexpected: Solver must not have any other references")
+            .ok_or_else(|| ConfigBuildError::Other(String::from("Failed to get mutable reference to solver for state loading")))?
             .load()
             .map_err(|err| {
                 ConfigBuildError::Other(format!("Failed to load solver state: {:?}", err))

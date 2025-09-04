@@ -28,7 +28,7 @@ use symm_core::{
 
 use super::{
     index_order_manager::EngagedIndexOrder,
-    solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
+    solver::{BatchManagerStatus, EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
     solver_order::{SolverOrder, SolverOrderAssetLot},
 };
 
@@ -1047,14 +1047,20 @@ impl BatchManager {
         &mut self,
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
+    ) -> Result<BatchManagerStatus> {
         let process_batches_span = span!(Level::TRACE, "process-batches");
         let _guard = process_batches_span.enter();
 
         self.send_more_batches(host, timestamp)?;
         self.cleanup_batches()?;
 
-        Ok(())
+        // Return status based on active batches
+        let active_count = self.batches.len();
+        if active_count == 0 {
+            Ok(BatchManagerStatus::Idle)
+        } else {
+            Ok(BatchManagerStatus::ActiveBatches(active_count))
+        }
     }
 
     pub fn get_total_volley_size(&self) -> Amount {
