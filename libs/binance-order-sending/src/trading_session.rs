@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use binance_sdk::common::websocket::WebsocketStream;
@@ -16,6 +17,7 @@ use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
 use symm_core::core::bits::{Amount, SingleOrder};
 use symm_core::core::decimal_ext::DecimalExt;
+use symm_core::core::functional::OneShotSingleObserver;
 use symm_core::{
     core::{
         bits::{OrderId, Side, Symbol},
@@ -282,6 +284,13 @@ impl TradingSession {
         Ok(())
     }
 
+    pub async fn get_balances(
+        &mut self,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<(), SessionError> {
+        todo!("Not implemented")
+    }
+
     pub async fn send_command(
         &mut self,
         command: Command,
@@ -314,6 +323,7 @@ impl TradingSession {
                 Ok(())
             }
             Command::GetExchangeInfo(symbols) => self.get_exchange_info(symbols).await,
+            Command::GetBalances(observer) => self.get_balances(observer).await,
         }
     }
 

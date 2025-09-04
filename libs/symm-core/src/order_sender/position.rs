@@ -15,7 +15,7 @@ use crate::{
 
 string_id!(LotId);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LotTransaction {
     /// ID of the closing order that was executed
     pub order_id: OrderId,
@@ -54,7 +54,7 @@ pub struct LotTransaction {
 /// short-selling.
 ///
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Lot {
     /// ID of the order that was executed, and caused to open this lot
     pub original_order_id: OrderId,
@@ -97,7 +97,7 @@ impl Lot {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Position {
     /// An asset we received
     pub symbol: Symbol,

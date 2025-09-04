@@ -12,16 +12,15 @@ pub trait Persistence {
 }
 
 pub mod util {
-    use std::{fs, io, path::PathBuf};
+    use std::{fs, path::PathBuf};
 
-    use eyre::{eyre, Context, Result};
+    use eyre::{Context, Result};
     use parking_lot::RwLock;
     use serde_json::Value;
 
-    use crate::core::{
-        json_file::{read_from_json_file, write_json_to_file},
-        persistence::Persistence,
-    };
+    use crate::core::
+        persistence::Persistence
+    ;
 
     pub struct InMemoryPersistence {
         data: RwLock<Option<String>>,
@@ -47,7 +46,7 @@ pub mod util {
         }
 
         fn store_value(&self, value: Value) -> Result<()> {
-            let json_string = serde_json::to_string(&value)?;
+            let json_string = serde_json::to_string_pretty(&value)?;
             *self.data.write() = Some(json_string);
             Ok(())
         }
@@ -81,7 +80,7 @@ pub mod util {
                 fs::create_dir_all(parent).context("Failed to create parent directory")?;
             }
 
-            let json_string = serde_json::to_string(&value).context("Failed to serialize")?;
+            let json_string = serde_json::to_string_pretty(&value).context("Failed to serialize")?;
             fs::write(&self.path, &json_string).context("Failed to write json file")
         }
     }

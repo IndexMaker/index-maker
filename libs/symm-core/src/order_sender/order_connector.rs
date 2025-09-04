@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     core::{
         bits::{Amount, OrderId, Side, SingleOrder, Symbol},
-        functional::IntoObservableSingleVTable,
+        functional::{IntoObservableSingleVTable, OneShotSingleObserver},
     },
     order_sender::position::LotId,
     string_id,
@@ -85,13 +85,23 @@ pub trait OrderConnector:
 {
     // Send order to exchange (-> Binance)
     fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()>;
+
+    // Ask exchange for balances (-> Binance)
+    fn get_balances(
+        &self,
+        session_id: SessionId,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<()>;
 }
 
 pub mod test_util {
 
-    use std::sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+    use std::{
+        collections::HashMap,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
     };
 
     use crate::{
@@ -100,7 +110,7 @@ pub mod test_util {
             bits::{Amount, OrderId, Side, SingleOrder, Symbol},
             functional::{
                 self, IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
-                PublishSingle, SingleObserver,
+                OneShotPublishSingle, OneShotSingleObserver, PublishSingle, SingleObserver,
             },
         },
         order_sender::{order_connector::SessionId, position::LotId},
@@ -223,6 +233,14 @@ pub mod test_util {
         fn send_order(&mut self, session_id: SessionId, order: &Arc<SingleOrder>) -> Result<()> {
             self.implementor.publish_single((session_id, order.clone()));
             Ok(())
+        }
+
+        fn get_balances(
+            &self,
+            _session_id: SessionId,
+            _observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+        ) -> Result<()> {
+            todo!("Not implemented")
         }
     }
 

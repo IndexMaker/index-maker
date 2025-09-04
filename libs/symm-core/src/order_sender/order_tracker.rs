@@ -8,7 +8,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
-use crate::core::functional::{IntoObservableSingle, PublishSingle};
+use crate::core::functional::{IntoObservableSingle, OneShotSingleObserver, PublishSingle};
 
 use crate::core::telemetry::{TracingData, WithBaggage};
 use derive_with_baggage::WithBaggage;
@@ -386,6 +386,22 @@ impl OrderTracker {
         self.orders
             .get(order_id)
             .and_then(|x| Some(x.order.clone()))
+    }
+
+    pub fn get_balances(
+        &self,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<()> {
+        let session_id = self
+            .session
+            .clone()
+            .ok_or_eyre("No connected session available")?;
+
+        self.order_connector
+            .read()
+            .get_balances(session_id, observer)?;
+
+        Ok(())
     }
 }
 

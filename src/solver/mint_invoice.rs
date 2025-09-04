@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 use itertools::Itertools;
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     collateral::collateral_position::CollateralPosition,
@@ -275,7 +276,7 @@ pub fn print_mint_invoice(
     })
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MintInvoice {
     pub client_order_id: ClientOrderId,
     pub payment_id: PaymentId,

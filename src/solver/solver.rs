@@ -1830,7 +1830,7 @@ mod test {
 
     use crate::{
         server::server::{test_util::MockServer, ServerEvent, ServerResponse},
-        solver::solvers::simple_solver::SimpleSolver,
+        solver::{mint_invoice_manager::MintInvoiceManager, solvers::simple_solver::SimpleSolver},
     };
 
     use super::*;
@@ -2049,9 +2049,15 @@ mod test {
             tolerance,
         )));
 
+        let mint_invoice_persistence = Arc::new(InMemoryPersistence::new());
+        let mint_invoice_manager = Arc::new(RwLock::new(MintInvoiceManager::new(
+            mint_invoice_persistence,
+        )));
+
         let index_order_manager_persistence = Arc::new(InMemoryPersistence::new());
         let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
             fix_server.clone(),
+            mint_invoice_manager.clone(),
             index_order_manager_persistence,
             tolerance,
         )));

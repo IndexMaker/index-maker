@@ -40,6 +40,8 @@ alloy-primitives = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true }
+axum-server = { workspace = true }
 axum-fix-server = { workspace = true }
 binance-market-data = { workspace = true }
 binance-order-sending = { workspace = true }
@@ -84,6 +86,7 @@ symm-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }

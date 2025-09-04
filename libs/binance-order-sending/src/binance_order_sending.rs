@@ -1,13 +1,17 @@
-use std::sync::Arc;
+use std::{
+    collections::{self, HashMap},
+    sync::Arc,
+};
 
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;
 use symm_core::{
     core::{
-        bits::{SingleOrder, Symbol},
+        self,
+        bits::{self, Amount, SingleOrder, Symbol},
         functional::{
-            IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
-            SingleObserver,
+            self, IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
+            OneShotSingleObserver, SingleObserver,
         },
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
@@ -86,6 +90,16 @@ impl OrderConnector for BinanceOrderSending {
             .ok_or_else(|| eyre!("Cannot find session: {}", session_id))?;
 
         session.send_command(Command::NewOrder(order.clone()))
+    }
+
+    fn get_balances(&self, session_id: SessionId, observer: OneShotSingleObserver<HashMap<Symbol, Amount>>) -> Result<()> {
+        tracing::debug!("Send to: {} command: Get Balances", session_id);
+        let sessions = self.sessions.read();
+        let session = sessions
+            .get_session(&session_id)
+            .ok_or_else(|| eyre!("Cannot find session: {}", session_id))?;
+
+        session.send_command(Command::GetBalances(observer))
     }
 }
 

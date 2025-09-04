@@ -23,7 +23,10 @@ use crate::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
     },
-    solver::{index_order::IndexOrder, mint_invoice::MintInvoice},
+    solver::{
+        index_order::IndexOrder, mint_invoice::MintInvoice,
+        mint_invoice_manager::MintInvoiceManager,
+    },
 };
 use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
@@ -177,6 +180,7 @@ pub enum IndexOrderEvent {
 pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
+    invoice_manager: Arc<RwLock<MintInvoiceManager>>,
     persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>>,
     index_symbols: HashSet<Symbol>,
@@ -187,12 +191,14 @@ pub struct IndexOrderManager {
 impl IndexOrderManager {
     pub fn new(
         server: Arc<RwLock<dyn Server>>,
+        invoice_manager: Arc<RwLock<MintInvoiceManager>>,
         persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         tolerance: Amount,
     ) -> Self {
         Self {
             observer: SingleObserver::new(),
             server,
+            invoice_manager,
             persistence,
             index_orders: HashMap::new(),
             index_symbols: HashSet::new(),
@@ -710,6 +716,7 @@ impl IndexOrderManager {
             });
 
         let server = self.server.clone();
+        let invoice_manager = self.invoice_manager.clone();
 
         let process = move |index_order: &mut IndexOrder| -> eyre::Result<()> {
             let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
@@ -734,6 +741,10 @@ impl IndexOrderManager {
                 position,
                 timestamp,
             )?;
+
+            invoice_manager
+                .write()
+                .add_invoice(chain_id, *address, mint_invoice.clone())?;
 
             server.write().respond_with({
                 ServerResponse::MintInvoice {

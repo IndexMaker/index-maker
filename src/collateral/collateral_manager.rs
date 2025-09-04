@@ -383,7 +383,7 @@ impl CollateralManager {
             })
     }
 
-    fn get_position(
+    pub fn get_position(
         &self,
         chain_id: u32,
         address: &Address,
