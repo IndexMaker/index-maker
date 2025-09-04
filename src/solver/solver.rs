@@ -566,23 +566,11 @@ impl Solver {
 
             let result = match status {
                 SolverOrderStatus::Open => self.manage_collateral(solver_order.clone()),
-                SolverOrderStatus::ManageCollateral => todo!(),
-                SolverOrderStatus::Ready
-                | SolverOrderStatus::Engaged
-                | SolverOrderStatus::PartlyMintable => {
+                SolverOrderStatus::Ready => {
                     self.ready_orders.lock().push_back(solver_order.clone());
                     Ok(())
                 }
-                SolverOrderStatus::FullyMintable => {
-                    self.ready_mints.lock().push_back(solver_order.clone());
-                    Ok(())
-                }
-                SolverOrderStatus::Minted
-                | SolverOrderStatus::InvalidSymbol
-                | SolverOrderStatus::InvalidOrder
-                | SolverOrderStatus::InvalidCollateral
-                | SolverOrderStatus::ServiceUnavailable
-                | SolverOrderStatus::InternalError => Err(eyre!("Cannot resume failed order")),
+                _ => Err(eyre!("Programming error: Expected either Open | Ready order status")).unwrap(),
             };
 
             if let Err(err) = result {

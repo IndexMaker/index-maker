@@ -878,10 +878,6 @@ impl SolverConfig {
             .write()
             .initialize_shutdown();
 
-        // b. Stop dispatching server events
-        self.stop_orders_backend().await?;
-        self.stop_quotes_backend().await?;
-
         // 2. Shutdown Solver
         // a. Send stop event
         // b. Solver will initiate its shudown (enter ShuttingDown state)
@@ -889,11 +885,15 @@ impl SolverConfig {
         // d. Solver will notify about shutdown completion (returned SolverStatus)
         // e. We will receive stop confirmation event (sent from dispatch loop)
         self.stop_solver().await?;
+
+        // 3. Stop dispatching server events
+        self.stop_orders_backend().await?;
+        self.stop_quotes_backend().await?;
         
-        // 3. Stop receiving market data
+        // 4. Stop receiving market data
         self.stop_market_data().await?;
 
-        // 4. Persist state
+        // 5. Persist state
         self.solver
             .as_deref()
             .ok_or_eyre("Failed to access solver for persistence")?

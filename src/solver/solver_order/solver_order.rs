@@ -220,7 +220,7 @@ impl SolverClientOrders {
         let address = order_upread.address;
 
         order_upread.with_upgraded(|order_write| {
-            order_write.status = SolverOrderStatus::Open;
+            order_write.status = SolverOrderStatus::Ready;
             order_write.timestamp = timestamp;
         });
 
