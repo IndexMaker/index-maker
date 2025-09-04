@@ -37,7 +37,7 @@ use symm_core::core::{
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
     mint_invoice::{print_fill_report, IndexOrderUpdateReport},
-    solver_order::{SolverOrderAssetLot, SolverOrderStatus},
+    solver_order::solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
 pub struct EngageOrderRequest {
@@ -1031,7 +1031,10 @@ impl Persist for IndexOrderManager {
                     serde_json::from_value(index_orders_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize index_orders: {:?}", err))?;
                 self.index_orders = loaded_orders;
-                tracing::info!("Loaded {} index order groups from persistence", self.index_orders.len());
+                tracing::info!(
+                    "Loaded {} index order groups from persistence",
+                    self.index_orders.len()
+                );
             }
 
             if let Some(index_symbols_value) = value.get("index_symbols") {
@@ -1039,7 +1042,10 @@ impl Persist for IndexOrderManager {
                     serde_json::from_value(index_symbols_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize index_symbols: {:?}", err))?;
                 self.index_symbols = loaded_symbols;
-                tracing::info!("Loaded {} index symbols from persistence", self.index_symbols.len());
+                tracing::info!(
+                    "Loaded {} index symbols from persistence",
+                    self.index_symbols.len()
+                );
             }
         }
         Ok(())
@@ -1050,7 +1056,8 @@ impl Persist for IndexOrderManager {
             "index_orders": self.index_orders,
             "index_symbols": self.index_symbols
         });
-        self.persistence.store_value(data)
+        self.persistence
+            .store_value(data)
             .map_err(|err| eyre!("Failed to store IndexOrderManager state: {:?}", err))
     }
 }

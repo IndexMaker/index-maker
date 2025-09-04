@@ -3,14 +3,14 @@ use std::sync::Arc;
 
 pub trait SafeUpdate<T> {
     /// Safe Update
-    /// 
+    ///
     /// Perform modification on the copy, and if all operations were successful
     /// then write into store. Practically this is implemented as an RCU (Read-Compare-Update)
     /// loop, specifically for ArcSwap.
-    /// 
+    ///
     /// Trait requires that `self` is not changed if an `Err()` was returned by `f`, and only
     /// changed if `Ok()` was returned.
-    /// 
+    ///
     fn safe_update<R, E>(&self, f: impl Fn(&mut T) -> Result<R, E>) -> Result<R, E>;
 }
 

@@ -23,7 +23,7 @@ use crate::solver::{
         CollateralManagement, EngagedSolverOrders, EngagedSolverOrdersSide, SolveEngagementsResult,
         SolveQuotesResult, SolverOrderEngagement, SolverStrategy, SolverStrategyHost,
     },
-    solver_order::{SolverOrder, SolverOrderStatus},
+    solver_order::solver_order::{SolverOrder, SolverOrderStatus},
     solver_quote::{SolverQuote, SolverQuoteStatus},
 };
 use ::index_core::index::basket::Basket;
@@ -1680,7 +1680,7 @@ mod test {
 
     use crate::solver::{
         solver::*,
-        solver_order::{SolverOrder, SolverOrderStatus},
+        solver_order::solver_order::{SolverOrder, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
     };
     use index_core::index::basket::*;

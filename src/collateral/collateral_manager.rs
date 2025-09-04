@@ -7,7 +7,7 @@ use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use itertools::{Either, Itertools};
 
-use eyre::{eyre, Context, OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
@@ -477,7 +477,10 @@ impl Persist for CollateralManager {
                     .map(|(key, position)| (key, ArcSwap::new(Arc::new(position))))
                     .collect();
 
-                tracing::info!("Loaded {} client fund positions from persistence", self.client_funds.len());
+                tracing::info!(
+                    "Loaded {} client fund positions from persistence",
+                    self.client_funds.len()
+                );
             }
         }
         Ok(())
@@ -485,17 +488,18 @@ impl Persist for CollateralManager {
 
     fn store(&self) -> Result<()> {
         // Extract values from ArcSwap for serialization
-        let client_funds_for_serialization: HashMap<(u32, Address), CollateralPosition> =
-            self.client_funds
-                .iter()
-                .map(|(key, arc_swap)| (*key, (**arc_swap.load()).clone()))
-                .collect();
+        let client_funds_for_serialization: HashMap<(u32, Address), CollateralPosition> = self
+            .client_funds
+            .iter()
+            .map(|(key, arc_swap)| (*key, (**arc_swap.load()).clone()))
+            .collect();
 
         let data = json!({
             "client_funds": client_funds_for_serialization
         });
 
-        self.persistence.store_value(data)
+        self.persistence
+            .store_value(data)
             .map_err(|err| eyre!("Failed to store CollateralManager state: {:?}", err))
     }
 }
@@ -522,11 +526,15 @@ mod test {
     use symm_core::{
         assert_decimal_approx_eq,
         core::{
-            bits::{PaymentId, Side}, functional::IntoObservableSingle, persistence::util::InMemoryPersistence, telemetry::TracingData, test_util::{
+            bits::{PaymentId, Side},
+            functional::IntoObservableSingle,
+            persistence::util::InMemoryPersistence,
+            telemetry::TracingData,
+            test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
                 get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
                 get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool,
-            }
+            },
         },
     };
 
@@ -534,7 +542,7 @@ mod test {
         collateral::{collateral_manager::PreAuthStatus, collateral_position::RoutingStatus},
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
-            solver_order::{SolverOrder, SolverOrderStatus},
+            solver_order::solver_order::{SolverOrder, SolverOrderStatus},
             solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };

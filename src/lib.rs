@@ -52,7 +52,10 @@ pub mod solver {
     pub mod mint_invoice;
     pub mod mint_invoice_manager;
     pub mod solver;
-    pub mod solver_order;
+    pub mod solver_order {
+        pub mod solver_order;
+        pub mod solver_order_serde;
+    }
     pub mod solver_quote;
     pub mod solvers {
         pub mod simple_solver;

@@ -9,7 +9,6 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
-
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
@@ -38,6 +37,7 @@ pub enum SolverOrderStatus {
 }
 
 /// Solver's view of the Index Order
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SolverOrder {
     // Chain ID
     pub chain_id: u32,
@@ -146,15 +146,16 @@ impl SolverOrderAssetLot {
     }
 }
 
+#[derive(Clone)]
 pub struct SolverClientOrders {
     /// A map of all index orders from all clients
-    client_orders: HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>,
+    pub(super) client_orders: HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>,
     /// A map of queues with index order client IDs, so that we process them in that order
-    client_order_queues: HashMap<(u32, Address), VecDeque<ClientOrderId>>,
+    pub(super) client_order_queues: HashMap<(u32, Address), VecDeque<ClientOrderId>>,
     /// An internal notification queue, that we check on solver tick
-    client_notify_queue: VecDeque<(u32, Address)>,
+    pub(super) client_notify_queue: VecDeque<(u32, Address)>,
     /// A delay before we start processing client order
-    client_wait_period: TimeDelta,
+    pub(super) client_wait_period: TimeDelta,
 }
 
 impl SolverClientOrders {
@@ -167,8 +168,6 @@ impl SolverClientOrders {
         }
     }
 
-
-
     pub fn get_client_order(
         &self,
         chain_id: u32,
@@ -178,6 +177,10 @@ impl SolverClientOrders {
         self.client_orders
             .get(&(chain_id, address, client_order_id))
             .cloned()
+    }
+
+    pub fn len(&self) -> usize {
+        self.client_orders.len()
     }
 
     pub fn get_next_client_order(
