@@ -11,6 +11,7 @@ use safe_math::safe;
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::core::{
     persistence::{Persist, Persistence},
@@ -1023,39 +1024,60 @@ impl IndexOrderManager {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct StoredIndexOrderManager {
+    index_orders: Vec<((u32, Address), HashMap<Symbol, IndexOrder>)>,
+}
+
 impl Persist for IndexOrderManager {
     fn load(&mut self) -> Result<()> {
-        if let Some(value) = self.persistence.load_value()? {
-            if let Some(index_orders_value) = value.get("index_orders") {
-                let loaded_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>> =
-                    serde_json::from_value(index_orders_value.clone())
-                        .map_err(|err| eyre!("Failed to deserialize index_orders: {:?}", err))?;
-                self.index_orders = loaded_orders;
-                tracing::info!(
-                    "Loaded {} index order groups from persistence",
-                    self.index_orders.len()
-                );
-            }
+        self.invoice_manager.write().load()?;
 
-            if let Some(index_symbols_value) = value.get("index_symbols") {
-                let loaded_symbols: HashSet<Symbol> =
-                    serde_json::from_value(index_symbols_value.clone())
-                        .map_err(|err| eyre!("Failed to deserialize index_symbols: {:?}", err))?;
-                self.index_symbols = loaded_symbols;
-                tracing::info!(
-                    "Loaded {} index symbols from persistence",
-                    self.index_symbols.len()
-                );
-            }
+        if let Some(value) = self.persistence.load_value()? {
+            let loaded_state: StoredIndexOrderManager = serde_json::from_value(value)
+                .map_err(|err| eyre!("Failed to deserialize IndexOrderManager state: {:?}", err))?;
+
+            self.index_orders = loaded_state
+                .index_orders
+                .into_iter()
+                .map(|(client_key, inner_map)| {
+                    let inner_map_with_box: HashMap<Symbol, Box<IndexOrder>> = inner_map
+                        .into_iter()
+                        .map(|(symbol, order)| (symbol, Box::new(order)))
+                        .collect();
+                    (client_key, inner_map_with_box)
+                })
+                .collect();
+
+            tracing::info!(
+                "Loaded {} client fund positions from persistence",
+                self.index_orders.len()
+            );
         }
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
-        let data = json!({
-            "index_orders": self.index_orders,
-            "index_symbols": self.index_symbols
-        });
+        self.invoice_manager.read().store()?;
+
+        let index_orders_vec: Vec<((u32, Address), HashMap<Symbol, IndexOrder>)> = self
+            .index_orders
+            .iter()
+            .map(|(client_key, inner_map)| {
+                let inner_map_without_box: HashMap<Symbol, IndexOrder> = inner_map
+                    .iter()
+                    .map(|(symbol, order)| (symbol.clone(), (**order).clone()))
+                    .collect();
+                ((*client_key).clone(), inner_map_without_box)
+            })
+            .collect();
+
+        let store_data = StoredIndexOrderManager {
+            index_orders: index_orders_vec,
+        };
+
+        let data = serde_json::to_value(&store_data)?;
+
         self.persistence
             .store_value(data)
             .map_err(|err| eyre!("Failed to store IndexOrderManager state: {:?}", err))

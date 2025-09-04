@@ -11,6 +11,7 @@ use eyre::{eyre, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::core::{
     persistence::{Persist, Persistence},
@@ -463,40 +464,43 @@ impl CollateralManager {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct StoredCollateralManager {
+    client_funds: Vec<((u32, Address), CollateralPosition)>,
+}
+
 impl Persist for CollateralManager {
     fn load(&mut self) -> Result<()> {
         if let Some(value) = self.persistence.load_value()? {
-            if let Some(client_funds_value) = value.get("client_funds") {
-                let loaded_positions: HashMap<(u32, Address), CollateralPosition> =
-                    serde_json::from_value(client_funds_value.clone())
-                        .map_err(|err| eyre!("Failed to deserialize client_funds: {:?}", err))?;
+            let loaded_state: StoredCollateralManager = serde_json::from_value(value)
+                .map_err(|err| eyre!("Failed to deserialize CollateralManager state: {:?}", err))?;
 
-                // Convert loaded positions back to ArcSwap
-                self.client_funds = loaded_positions
-                    .into_iter()
-                    .map(|(key, position)| (key, ArcSwap::new(Arc::new(position))))
-                    .collect();
+            self.client_funds = loaded_state
+                .client_funds
+                .into_iter()
+                .map(|(key, position)| (key, ArcSwap::new(Arc::new(position))))
+                .collect();
 
-                tracing::info!(
-                    "Loaded {} client fund positions from persistence",
-                    self.client_funds.len()
-                );
-            }
+            tracing::info!(
+                "Loaded {} client fund positions from persistence",
+                self.client_funds.len()
+            );
         }
         Ok(())
     }
 
     fn store(&self) -> Result<()> {
-        // Extract values from ArcSwap for serialization
-        let client_funds_for_serialization: HashMap<(u32, Address), CollateralPosition> = self
+        let client_funds_vec: Vec<((u32, Address), CollateralPosition)> = self
             .client_funds
             .iter()
-            .map(|(key, arc_swap)| (*key, (**arc_swap.load()).clone()))
+            .map(|(key, arc_swap)| ((*key).clone(), (**arc_swap.load()).clone()))
             .collect();
 
-        let data = json!({
-            "client_funds": client_funds_for_serialization
-        });
+        let store_data = StoredCollateralManager {
+            client_funds: client_funds_vec,
+        };
+
+        let data = serde_json::to_value(&store_data)?;
 
         self.persistence
             .store_value(data)

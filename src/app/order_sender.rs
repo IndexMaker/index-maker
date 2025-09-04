@@ -177,7 +177,9 @@ impl OrderSenderConfigBuilder {
 
         let order_sender_variant = match &mut config.credentials {
             OrderSenderCredentials::Simple(session_id) => OrderSenderVariant::Simple(
-                Arc::new(RwLock::new(SimpleOrderSender::new())),
+                Arc::new(RwLock::new(SimpleOrderSender::new(Arc::new(
+                    JsonFilePersistence::new("./persistence/SimpleOrderSender.json"),
+                )))),
                 session_id.clone(),
             ),
             OrderSenderCredentials::Binance(credentials) => OrderSenderVariant::Binance(

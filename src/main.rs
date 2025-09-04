@@ -18,7 +18,7 @@ use index_maker::{
         market_data::MarketDataConfig,
         mint_invoice_manager::MintInvoiceManagerConfig,
         order_sender::{OrderSenderConfig, OrderSenderCredentials},
-        query_service::{self, QueryServiceConfig, QueryServiceConfigBuilder},
+        query_service::QueryServiceConfig,
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
@@ -562,6 +562,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    tracing::info!("Starting application threads...");
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {
             solver_config
@@ -576,11 +577,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    app_mode.run().await;
+    tracing::info!("Connecting to blockchain...");
     chain_mode
         .run()
         .await
         .expect("Failed to start chain connector");
+
+    tracing::info!("Starting FIX server...");
+    app_mode.run().await;
+
+    tracing::info!("Starting query service...");
+    if let Some(query_service_config) = query_service_config {
+        query_service_config.start().await?;
+
+        tracing::info!(
+            "Running query service at {}",
+            query_service_config.address.unwrap()
+        );
+    }
 
     tracing::info!("Awaiting market data...");
     loop {
@@ -690,10 +704,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fix_server_config.address);
         }
     };
-
-    if let Some(query_service_config) = query_service_config {
-        query_service_config.start().await?;
-    }
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;

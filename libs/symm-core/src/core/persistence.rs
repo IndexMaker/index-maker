@@ -68,6 +68,7 @@ pub mod util {
                 return Ok(None);
             }
 
+            tracing::info!("Loading {:#?}", self.path);
             let json_string = fs::read_to_string(&self.path)?;
             Ok(Some(
                 serde_json::from_str(&json_string).context("Failed to deserialize")?,
@@ -80,6 +81,7 @@ pub mod util {
                 fs::create_dir_all(parent).context("Failed to create parent directory")?;
             }
 
+            tracing::info!("Storing {:#?}", self.path);
             let json_string = serde_json::to_string_pretty(&value).context("Failed to serialize")?;
             fs::write(&self.path, &json_string).context("Failed to write json file")
         }

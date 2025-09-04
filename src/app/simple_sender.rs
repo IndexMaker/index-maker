@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -7,20 +7,21 @@ use std::{
 };
 
 use chrono::{Duration, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::{
     core::{
-        self,
         async_loop::AsyncLoop,
-        bits::{self, Amount, SingleOrder, Symbol},
+        bits::{Amount, Side, SingleOrder, Symbol},
         decimal_ext::DecimalExt,
         functional::{
-            self, IntoObservableSingleVTable, NotificationHandlerOnce, OneShotPublishSingle, OneShotSingleObserver, PublishSingle, SingleObserver
+            IntoObservableSingleVTable, NotificationHandlerOnce, OneShotPublishSingle,
+            OneShotSingleObserver, PublishSingle, SingleObserver,
         },
         limit::{LimiterConfig, MultiLimiter},
+        persistence::{Persist, Persistence},
     },
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };
@@ -31,14 +32,21 @@ use tokio::{
 
 pub struct SimpleOrderHandler {
     observer: Arc<RwLock<SingleObserver<OrderConnectorNotification>>>,
+    balances: Arc<RwLock<HashMap<Symbol, Amount>>>,
+    main_quote_currency: Symbol,
     order_limit: RwLock<MultiLimiter>,
     last_lot_number: AtomicUsize,
 }
 
 impl SimpleOrderHandler {
-    fn new(observer: Arc<RwLock<SingleObserver<OrderConnectorNotification>>>) -> Self {
+    fn new(
+        observer: Arc<RwLock<SingleObserver<OrderConnectorNotification>>>,
+        balances: Arc<RwLock<HashMap<Symbol, Amount>>>,
+    ) -> Self {
         Self {
             observer,
+            main_quote_currency: Symbol::from("USDC"),
+            balances,
             order_limit: RwLock::new(MultiLimiter::new(vec![
                 LimiterConfig::new(100, Duration::seconds(10)),
                 LimiterConfig::new(6_000, Duration::minutes(1)),
@@ -91,8 +99,45 @@ impl SimpleOrderHandler {
 
         let lot_number = self.last_lot_number.fetch_add(1, Ordering::Relaxed);
 
+        let executed_quantity = order.quantity;
+        let executed_price = order.price;
+        let executed_value = safe!(executed_quantity * executed_price).ok_or_eyre("Math error")?;
+
         let fee_rate = dec!(0.0005);
-        let fee = safe!(safe!(order.price * order.quantity) * fee_rate).ok_or_eyre("Math error")?;
+        let fee = safe!(executed_value * fee_rate).ok_or_eyre("Math error")?;
+        let execution_cost = safe!(executed_value + fee).ok_or_eyre("Math error")?;
+
+        {
+            let mut balances_write = self.balances.write();
+            match balances_write.entry(order.symbol.clone()) {
+                Entry::Occupied(mut occupied_entry) => {
+                    match order.side {
+                        Side::Buy => *occupied_entry.get_mut() += executed_quantity,
+                        Side::Sell => *occupied_entry.get_mut() -= executed_quantity,
+                    };
+                }
+                Entry::Vacant(vacant_entry) => {
+                    match order.side {
+                        Side::Buy => vacant_entry.insert(executed_quantity),
+                        Side::Sell => vacant_entry.insert(-executed_quantity),
+                    };
+                }
+            }
+            match balances_write.entry(self.main_quote_currency.clone()) {
+                Entry::Occupied(mut occupied_entry) => {
+                    match order.side {
+                        Side::Buy => *occupied_entry.get_mut() -= execution_cost,
+                        Side::Sell => *occupied_entry.get_mut() += execution_cost,
+                    };
+                }
+                Entry::Vacant(vacant_entry) => {
+                    match order.side {
+                        Side::Buy => vacant_entry.insert(-execution_cost),
+                        Side::Sell => vacant_entry.insert(execution_cost),
+                    };
+                }
+            }
+        }
 
         self.observer
             .read()
@@ -100,8 +145,8 @@ impl SimpleOrderHandler {
                 order_id: order.order_id.clone(),
                 symbol: order.symbol.clone(),
                 side: order.side,
-                price: order.price,
-                quantity: order.quantity,
+                price: executed_price,
+                quantity: executed_quantity,
                 timestamp: order.created_timestamp,
                 lot_id: format!("{}-L-{}", order.order_id, lot_number).into(),
                 fee,
@@ -124,11 +169,7 @@ impl SimpleOrderHandler {
         &self,
         observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
     ) -> Result<()> {
-        observer.one_shot_publish_single(HashMap::from([
-            // TODO: Fake for now
-            (Symbol::from("USDC"), dec!(10000.0)),
-            (Symbol::from("ETH"), dec!(1000.0))
-        ]));
+        observer.one_shot_publish_single((&*self.balances.read()).clone());
         Ok(())
     }
 }
@@ -136,30 +177,40 @@ impl SimpleOrderHandler {
 enum SimpleSenderCommand {
     Logon(SessionId),
     SendOrder(Arc<SimpleOrderHandler>, Arc<SingleOrder>),
-    GetBalances(Arc<SimpleOrderHandler>, OneShotSingleObserver<HashMap<Symbol, Amount>>),
+    GetBalances(
+        Arc<SimpleOrderHandler>,
+        OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ),
 }
 
 pub struct SimpleOrderSender {
     observer: Arc<RwLock<SingleObserver<OrderConnectorNotification>>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     command_loop: AsyncLoop<()>,
     command_tx: UnboundedSender<SimpleSenderCommand>,
     command_rx: Option<UnboundedReceiver<SimpleSenderCommand>>,
     sessions: Arc<RwLock<HashMap<SessionId, Arc<SimpleOrderHandler>>>>,
+    balances: Arc<RwLock<HashMap<Symbol, Amount>>>,
 }
 
 impl SimpleOrderSender {
-    pub fn new() -> Self {
+    pub fn new(persistence: Arc<dyn Persistence + Send + Sync + 'static>) -> Self {
         let (tx, rx) = unbounded_channel();
         Self {
             observer: Arc::new(RwLock::new(SingleObserver::new())),
+            persistence,
             command_loop: AsyncLoop::new(),
             command_tx: tx,
             command_rx: Some(rx),
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            balances: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     pub fn start(&mut self) -> Result<()> {
+        self.load()?;
+
+        let balances = self.balances.clone();
         let sessions = self.sessions.clone();
         let observer = self.observer.clone();
         let mut rx = self
@@ -177,7 +228,9 @@ impl SimpleOrderSender {
                         SimpleSenderCommand::Logon(session_id) => {
                             sessions.write().insert(
                                 session_id.clone(),
-                                Arc::new(SimpleOrderHandler::new(observer.clone())),
+                                Arc::new(SimpleOrderHandler::new(
+                                    observer.clone(), balances.clone()
+                                )),
                             );
 
                             observer
@@ -230,6 +283,8 @@ impl SimpleOrderSender {
             .await
             .map_err(|err| eyre!("Failed to stop SimpleSender: {:?}", err))?;
 
+        self.store()?;
+
         Ok(())
     }
 }
@@ -266,6 +321,24 @@ impl OrderConnector for SimpleOrderSender {
             .send(SimpleSenderCommand::GetBalances(session, observer))
             .map_err(|err| eyre!("Failed to send get balances: {:?}", err))?;
 
+        Ok(())
+    }
+}
+
+impl Persist for SimpleOrderSender {
+    fn load(&mut self) -> Result<()> {
+        if let Some(value) = self.persistence.load_value()? {
+            self.balances = Arc::new(RwLock::new(
+                serde_json::from_value(value).context("Failed to load state")?,
+            ));
+        }
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        let balances = &*self.balances.read();
+        let value = serde_json::to_value(balances).context("Failed to store state")?;
+        self.persistence.store_value(value)?;
         Ok(())
     }
 }

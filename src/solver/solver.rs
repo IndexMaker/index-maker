@@ -42,8 +42,7 @@ use crate::{
     collateral::{
         collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
         collateral_position::{ConfirmStatus, PreAuthStatus, RoutingStatus},
-    },
-    solver::solver_order::solver_order_serde::SolverClientOrdersSerde,
+    }, solver::solver_order::solver_order_serde::StoredSolverClientOrders,
 };
 
 use super::{
@@ -148,7 +147,7 @@ pub enum BatchManagerStatus {
 /// Serializable representation of Solver state for persistence
 #[derive(Serialize, Deserialize)]
 struct SolverPersistedState {
-    client_orders: SolverClientOrdersSerde,
+    client_orders: StoredSolverClientOrders,
     ready_orders: Vec<(u32, Address, ClientOrderId)>,
     ready_mints: Vec<(u32, Address, ClientOrderId)>,
 }

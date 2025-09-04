@@ -1404,10 +1404,10 @@ impl Persist for BatchManager {
     fn load(&mut self) -> Result<()> {
         if let Some(value) = self.persistence.load_value()? {
             if let Some(carry_overs_value) = value.get("carry_overs") {
-                let loaded_carry_overs: HashMap<(Symbol, Side), BatchCarryOver> =
+                let loaded_carry_overs: Vec<((Symbol, Side), BatchCarryOver)> =
                     serde_json::from_value(carry_overs_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize carry_overs: {:?}", err))?;
-                *self.carry_overs.lock() = loaded_carry_overs;
+                *self.carry_overs.lock() = loaded_carry_overs.into_iter().collect();
                 tracing::info!(
                     "Loaded {} carry-over positions from persistence",
                     self.carry_overs.lock().len()
@@ -1420,7 +1420,7 @@ impl Persist for BatchManager {
     fn store(&self) -> Result<()> {
         let carry_overs_for_serialization = self.carry_overs.lock().clone();
         let data = json!({
-            "carry_overs": carry_overs_for_serialization
+            "carry_overs": carry_overs_for_serialization.into_iter().collect_vec()
         });
         self.persistence
             .store_value(data)
