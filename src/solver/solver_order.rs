@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     sync::Arc,
+    fmt,
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -9,7 +10,9 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::ser::SerializeMap;
+use serde::de::{self, MapAccess, Visitor};
 use serde_json::json;
 use symm_core::{
     core::{
@@ -146,7 +149,7 @@ impl SolverOrderAssetLot {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct SolverClientOrders {
     /// A map of all index orders from all clients
     client_orders: HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>,
@@ -442,6 +445,59 @@ impl SolverClientOrders {
             }
         }
         Ok(())
+    }
+}
+
+impl Serialize for SolverClientOrders {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.client_orders.len()))?;
+        for ((chain_id, address, client_order_id), order_ref) in &self.client_orders {
+            let key = (*chain_id, *address, client_order_id.clone());
+            let order = order_ref.read();
+            map.serialize_entry(&key, &*order)?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for SolverClientOrders {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SolverClientOrdersVisitor;
+
+        impl<'de> Visitor<'de> for SolverClientOrdersVisitor {
+            type Value = SolverClientOrders;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a map of client orders")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<SolverClientOrders, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut client_orders = HashMap::new();
+
+                while let Some((key, order)) = map.next_entry::<(u32, Address, ClientOrderId), SolverOrder>()? {
+                    let order_ref = Arc::new(RwLock::new(order));
+                    client_orders.insert(key, order_ref);
+                }
+
+                Ok(SolverClientOrders {
+                    client_orders,
+                    client_order_queues: HashMap::new(),
+                    client_notify_queue: VecDeque::new(),
+                    client_wait_period: TimeDelta::seconds(5), // Default value
+                })
+            }
+        }
+
+        deserializer.deserialize_map(SolverClientOrdersVisitor)
     }
 }
 

@@ -3009,4 +3009,131 @@ mod test {
         );
         heading("Scenario completed");
     }
+
+    #[tokio::test]
+    async fn test_graceful_shutdown() {
+        init_log!();
+
+        // Create a minimal test to verify shutdown functionality
+        // We'll create a solver with minimal dependencies just to test the shutdown logic
+
+        let tolerance = dec!(0.00001);
+        let max_batch_size = 10;
+        let client_order_wait_period = TimeDelta::seconds(5);
+        let client_quote_wait_period = TimeDelta::seconds(5);
+        let mint_wait_period = TimeDelta::seconds(30);
+
+        // Create solver strategy with correct parameters
+        let solver_strategy = Arc::new(SimpleSolver::new(
+            dec!(0.01),
+            3,
+            dec!(1.001),
+            dec!(3000.0),
+            dec!(2000.0),
+            dec!(0.001),
+            dec!(0.001),
+            dec!(0.001),
+            dec!(0.001),
+        ));
+
+        let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
+            order_ids: VecDeque::from_iter(
+                (1..4).map(|n| OrderId::from(format!("O-{:02}", n))),
+            ),
+            batch_order_ids: VecDeque::from_iter(
+                (1..4).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
+            ),
+            payment_ids: VecDeque::from_iter(
+                (1..4).map(|n| PaymentId::from(format!("P-{:02}", n))),
+            ),
+        }));
+
+        let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
+        let price_tracker = Arc::new(RwLock::new(PriceTracker::new()));
+        let order_book_manager = Arc::new(RwLock::new(PricePointBookManager::new(tolerance)));
+
+        let chain_connector = Arc::new(ComponentLock::new(MockChainConnector::new()));
+        let fix_server = Arc::new(RwLock::new(MockServer::new()));
+
+        let batch_manager_persistence = Arc::new(InMemoryPersistence::new());
+        let batch_manager = Arc::new(ComponentLock::new(BatchManager::new(
+            batch_manager_persistence,
+            max_batch_size,
+            tolerance,
+            dec!(0.9999),
+            dec!(0.99),
+            mint_wait_period,
+        )));
+
+        let collateral_router = Arc::new(ComponentLock::new(CollateralRouter::new()));
+        let collateral_manager_persistence = Arc::new(InMemoryPersistence::new());
+        let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
+            collateral_router,
+            collateral_manager_persistence,
+            tolerance,
+        )));
+
+        let index_order_manager_persistence = Arc::new(InMemoryPersistence::new());
+        let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
+            fix_server.clone(),
+            index_order_manager_persistence,
+            tolerance,
+        )));
+
+        let quote_request_manager = Arc::new(ComponentLock::new(QuoteRequestManager::new(
+            fix_server.clone(),
+        )));
+
+        let order_connector = Arc::new(RwLock::new(MockOrderConnector::new()));
+        let order_tracker = Arc::new(RwLock::new(OrderTracker::new(
+            order_connector.clone(),
+            tolerance,
+        )));
+        let inventory_persistence = Arc::new(InMemoryPersistence::new());
+        let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
+            order_tracker.clone(),
+            inventory_persistence,
+            tolerance,
+        )));
+
+        let solver_persistence = Arc::new(InMemoryPersistence::new());
+
+        let solver = Arc::new(Solver::new(
+            solver_strategy,
+            order_id_provider,
+            basket_manager,
+            price_tracker,
+            order_book_manager,
+            chain_connector,
+            batch_manager,
+            collateral_manager,
+            index_order_manager.clone(),
+            quote_request_manager,
+            inventory_manager,
+            solver_persistence,
+            max_batch_size,
+            tolerance,
+            client_order_wait_period,
+            client_quote_wait_period,
+        ));
+
+        // Set up shutdown checker for IndexOrderManager
+        index_order_manager
+            .write()
+            .expect("Failed to acquire write lock")
+            .set_shutdown_checker(solver.clone());
+
+        // Test 1: Initially should be accepting orders
+        assert!(solver.is_accepting_orders());
+
+        // Test 2: After initiating shutdown, should not accept orders
+        solver.initiate_shutdown();
+        assert!(!solver.is_accepting_orders());
+
+        // Test 3: Await batch completion should succeed immediately (no active batches)
+        let result = solver.await_all_batches_complete(Duration::from_secs(1)).await;
+        assert!(result.is_ok());
+
+        tracing::info!("Graceful shutdown test completed successfully");
+    }
 }
