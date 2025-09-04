@@ -398,7 +398,10 @@ impl Persist for InventoryManager {
                     serde_json::from_value(positions_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize positions: {:?}", err))?;
                 self.positions = loaded_positions;
-                tracing::info!("Loaded {} inventory positions from persistence", self.positions.len());
+                tracing::info!(
+                    "Loaded {} inventory positions from persistence",
+                    self.positions.len()
+                );
             }
         }
         Ok(())
@@ -408,7 +411,8 @@ impl Persist for InventoryManager {
         let data = json!({
             "positions": self.positions
         });
-        self.persistence.store_value(data)
+        self.persistence
+            .store_value(data)
             .map_err(|err| eyre!("Failed to store InventoryManager state: {:?}", err))
     }
 }
@@ -434,7 +438,10 @@ mod test {
     use crate::{
         assert_decimal_approx_eq,
         core::{
-            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder}, functional::IntoObservableSingle, persistence::util::InMemoryPersistence, test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred}
+            bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
+            functional::IntoObservableSingle,
+            persistence::util::InMemoryPersistence,
+            test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
         },
         order_sender::{
             order_connector::{

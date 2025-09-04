@@ -10,7 +10,10 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::{bits::{Amount, Symbol}, persistence::util::JsonFilePersistence},
+    core::{
+        bits::{Amount, Symbol},
+        persistence::util::JsonFilePersistence,
+    },
     order_sender::{
         inventory_manager::InventoryManager,
         order_connector::{OrderConnector, SessionId},

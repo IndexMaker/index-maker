@@ -287,6 +287,10 @@ pub mod test_util {
         fn respond_with(&mut self, response: ServerResponse) {
             self.implementor.publish_single(response);
         }
+
+        fn initialize_shutdown(&mut self) {
+            todo!()
+        }
     }
 
     impl IntoObservableMany<Arc<ServerEvent>> for MockServer {

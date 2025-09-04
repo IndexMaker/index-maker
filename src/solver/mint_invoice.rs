@@ -4,7 +4,8 @@ use itertools::Itertools;
 use safe_math::safe;
 
 use crate::{
-    collateral::collateral_position::CollateralPosition, solver::solver_order::SolverOrderAssetLot,
+    collateral::collateral_position::CollateralPosition,
+    solver::solver_order::solver_order::SolverOrderAssetLot,
 };
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},

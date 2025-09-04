@@ -878,9 +878,11 @@ impl SolverConfig {
             solver.initiate_shutdown();
 
             // Step 2: Initialize server shutdown to block new orders
-            if let Some(server) = self.server.as_deref() {
-                server.write().initialize_shutdown();
-            }
+            self.with_index_order_manager
+                .with_server
+                .try_get_server_cloned()?
+                .write()
+                .initialize_shutdown();
 
             // Step 3: Batch completion is now handled by the dispatch loop
             // The solver will automatically transition to Stopped when all batches complete
@@ -918,12 +920,16 @@ impl SolverConfig {
             solver.initiate_shutdown();
 
             // Initialize server shutdown to block new orders
-            if let Some(server) = self.server.as_deref() {
-                server.write().initialize_shutdown();
-            }
+            self.with_index_order_manager
+                .with_server
+                .try_get_server_cloned()?
+                .write()
+                .initialize_shutdown();
 
             // Batch completion is now handled by the dispatch loop
-            tracing::info!("Quotes graceful shutdown initiated - batches will complete via dispatch loop");
+            tracing::info!(
+                "Quotes graceful shutdown initiated - batches will complete via dispatch loop"
+            );
         }
 
         self.stop_quotes_backend().await?;
@@ -1032,8 +1038,6 @@ impl SolverConfigBuilder {
             config.client_quote_wait_period,
         ));
 
-
-
         // There is a good reason for Persist::load(&mut self) to work on &mut Self and not &Self.
         // Persist::load() should restore consistent state, and for that the whole object needs
         // to be locked or otherwise some fields would be deserialized out-of-sync. In case of
@@ -1044,7 +1048,11 @@ impl SolverConfigBuilder {
         // Note that other components can reload their state on-the-go, e.g. to rollback failed
         // operation, and they can store their stat on-the-go, e.g. to commit stable state.
         Arc::get_mut(&mut solver)
-            .ok_or_else(|| ConfigBuildError::Other(String::from("Failed to get mutable reference to solver for state loading")))?
+            .ok_or_else(|| {
+                ConfigBuildError::Other(String::from(
+                    "Failed to get mutable reference to solver for state loading",
+                ))
+            })?
             .load()
             .map_err(|err| {
                 ConfigBuildError::Other(format!("Failed to load solver state: {:?}", err))

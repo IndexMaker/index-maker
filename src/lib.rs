@@ -44,7 +44,10 @@ pub mod solver {
     pub mod index_quote_manager;
     pub mod mint_invoice;
     pub mod solver;
-    pub mod solver_order;
+    pub mod solver_order {
+        pub mod solver_order;
+        pub mod solver_order_serde;
+    }
     pub mod solver_quote;
     pub mod solvers {
         pub mod simple_solver;

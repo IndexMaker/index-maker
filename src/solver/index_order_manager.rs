@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Context, OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
@@ -34,10 +34,8 @@ use symm_core::core::{
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
     mint_invoice::{print_fill_report, IndexOrderUpdateReport},
-    solver_order::{SolverOrderAssetLot, SolverOrderStatus},
+    solver_order::solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
-
-
 
 pub struct EngageOrderRequest {
     pub chain_id: u32,
@@ -183,7 +181,6 @@ pub struct IndexOrderManager {
     index_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>>,
     index_symbols: HashSet<Symbol>,
     tolerance: Amount,
-
 }
 
 /// manage index orders, receive orders and route into solver
@@ -200,11 +197,8 @@ impl IndexOrderManager {
             index_orders: HashMap::new(),
             index_symbols: HashSet::new(),
             tolerance,
-
         }
     }
-
-
 
     pub fn add_index_symbol(&mut self, symbol: Symbol) {
         self.index_symbols.insert(symbol);
@@ -226,8 +220,6 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
-
-
         // Temporary sell side block
         if side == Side::Sell {
             return Err(ServerResponseReason::User(
@@ -1028,7 +1020,10 @@ impl Persist for IndexOrderManager {
                     serde_json::from_value(index_orders_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize index_orders: {:?}", err))?;
                 self.index_orders = loaded_orders;
-                tracing::info!("Loaded {} index order groups from persistence", self.index_orders.len());
+                tracing::info!(
+                    "Loaded {} index order groups from persistence",
+                    self.index_orders.len()
+                );
             }
 
             if let Some(index_symbols_value) = value.get("index_symbols") {
@@ -1036,7 +1031,10 @@ impl Persist for IndexOrderManager {
                     serde_json::from_value(index_symbols_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize index_symbols: {:?}", err))?;
                 self.index_symbols = loaded_symbols;
-                tracing::info!("Loaded {} index symbols from persistence", self.index_symbols.len());
+                tracing::info!(
+                    "Loaded {} index symbols from persistence",
+                    self.index_symbols.len()
+                );
             }
         }
         Ok(())
@@ -1047,7 +1045,8 @@ impl Persist for IndexOrderManager {
             "index_orders": self.index_orders,
             "index_symbols": self.index_symbols
         });
-        self.persistence.store_value(data)
+        self.persistence
+            .store_value(data)
             .map_err(|err| eyre!("Failed to store IndexOrderManager state: {:?}", err))
     }
 }

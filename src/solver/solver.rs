@@ -38,16 +38,19 @@ use index_core::{
     },
 };
 
-use crate::collateral::{
-    collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
-    collateral_position::{ConfirmStatus, PreAuthStatus, RoutingStatus},
+use crate::{
+    collateral::{
+        collateral_manager::{CollateralEvent, CollateralManager, CollateralManagerHost},
+        collateral_position::{ConfirmStatus, PreAuthStatus, RoutingStatus},
+    },
+    solver::solver_order::solver_order_serde::SolverClientOrdersSerde,
 };
 
 use super::{
     batch_manager::{BatchEvent, BatchManager, BatchManagerHost},
     index_order_manager::{EngageOrderRequest, IndexOrderEvent, IndexOrderManager},
     index_quote_manager::{QuoteRequestEvent, QuoteRequestManager},
-    solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
+    solver_order::solver_order::{SolverClientOrders, SolverOrder, SolverOrderStatus},
     solver_quote::{SolverClientQuotes, SolverQuote, SolverQuoteStatus},
 };
 
@@ -145,7 +148,7 @@ pub enum BatchManagerStatus {
 /// Serializable representation of Solver state for persistence
 #[derive(Serialize, Deserialize)]
 struct SolverPersistedState {
-    client_orders: SolverClientOrders,
+    client_orders: SolverClientOrdersSerde,
     ready_orders: Vec<(u32, Address, ClientOrderId)>,
     ready_mints: Vec<(u32, Address, ClientOrderId)>,
 }
@@ -772,7 +775,8 @@ impl Solver {
                     );
                 }
 
-                let target_price = "1000".try_into()
+                let target_price = "1000"
+                    .try_into()
                     .map_err(|err| eyre!("Failed to parse target price: {:?}", err))?;
 
                 if let Err(err) = self.basket_manager.write().set_basket_from_definition(
@@ -1491,16 +1495,26 @@ impl Solver {
             .map_err(|err| eyre!("Failed to deserialize solver state: {:?}", err))?;
 
         // Restore client_orders
-        *self.client_orders.write() = solver_data.client_orders;
+        *self.client_orders.write() = solver_data.client_orders.into();
 
         // Restore ready_orders by looking up references in client_orders
-        let ready_orders = solver_data.ready_orders
+        let ready_orders = solver_data
+            .ready_orders
             .iter()
             .filter_map(|(chain_id, address, client_order_id)| {
-                match self.client_orders.read().get_client_order(*chain_id, *address, client_order_id.clone()) {
+                match self.client_orders.read().get_client_order(
+                    *chain_id,
+                    *address,
+                    client_order_id.clone(),
+                ) {
                     Some(order_ref) => Some(order_ref),
                     None => {
-                        tracing::warn!("Ready order not found in client_orders: ({}, {}, {})", chain_id, address, client_order_id);
+                        tracing::warn!(
+                            "Ready order not found in client_orders: ({}, {}, {})",
+                            chain_id,
+                            address,
+                            client_order_id
+                        );
                         None
                     }
                 }
@@ -1509,13 +1523,23 @@ impl Solver {
         *self.ready_orders.lock() = ready_orders;
 
         // Restore ready_mints by looking up references in client_orders
-        let ready_mints = solver_data.ready_mints
+        let ready_mints = solver_data
+            .ready_mints
             .iter()
             .filter_map(|(chain_id, address, client_order_id)| {
-                match self.client_orders.read().get_client_order(*chain_id, *address, client_order_id.clone()) {
+                match self.client_orders.read().get_client_order(
+                    *chain_id,
+                    *address,
+                    client_order_id.clone(),
+                ) {
                     Some(order_ref) => Some(order_ref),
                     None => {
-                        tracing::warn!("Ready mint not found in client_orders: ({}, {}, {})", chain_id, address, client_order_id);
+                        tracing::warn!(
+                            "Ready mint not found in client_orders: ({}, {}, {})",
+                            chain_id,
+                            address,
+                            client_order_id
+                        );
                         None
                     }
                 }
@@ -1538,7 +1562,8 @@ impl Solver {
         let client_orders = self.client_orders.read().clone();
 
         // Snapshot ready_orders as tuple keys
-        let ready_orders = self.ready_orders
+        let ready_orders = self
+            .ready_orders
             .lock()
             .iter()
             .map(|order_ref| {
@@ -1548,7 +1573,8 @@ impl Solver {
             .collect();
 
         // Snapshot ready_mints as tuple keys
-        let ready_mints = self.ready_mints
+        let ready_mints = self
+            .ready_mints
             .lock()
             .iter()
             .map(|order_ref| {
@@ -1558,7 +1584,7 @@ impl Solver {
             .collect();
 
         Ok(SolverPersistedState {
-            client_orders,
+            client_orders: client_orders.into(),
             ready_orders,
             ready_mints,
         })
@@ -1674,8 +1700,6 @@ impl CollateralManagerHost for Solver {
     }
 }
 
-
-
 impl Persist for Solver {
     fn load(&mut self) -> Result<()> {
         // First load all dependent components
@@ -1694,9 +1718,7 @@ impl Persist for Solver {
             .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
             .load()?;
 
-        self.inventory_manager
-            .write()
-            .load()?;
+        self.inventory_manager.write().load()?;
 
         // Load solver-specific state
         if let Some(value) = self.persistence.load_value()? {
@@ -1725,9 +1747,7 @@ impl Persist for Solver {
             .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
             .store()?;
 
-        self.inventory_manager
-            .write()
-            .store()?;
+        self.inventory_manager.write().store()?;
 
         // Create solver state snapshot
         let solver_state = self.create_solver_state_snapshot()?;
@@ -1736,7 +1756,8 @@ impl Persist for Solver {
         let json_value = serde_json::to_value(&solver_state)
             .map_err(|err| eyre!("Failed to serialize solver state: {:?}", err))?;
 
-        self.persistence.store_value(json_value)
+        self.persistence
+            .store_value(json_value)
             .map_err(|err| eyre!("Failed to persist solver state: {:?}", err))?;
 
         tracing::info!(
@@ -2598,7 +2619,8 @@ mod test {
                     },
                     recv(deferred) -> res => (res.unwrap())(),
                     recv(solver_tick_receiver) -> res => {
-                        solver.solve(res.unwrap())
+                        let status = solver.solve(res.unwrap());
+                        tracing::info!("Solver Status: {:?}", status);
                     },
                     default => break,
                 }

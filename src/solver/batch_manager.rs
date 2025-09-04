@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use eyre::{eyre, Context, OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{info_span, span, Level};
 
-use crate::solver::solver_order::SolverOrderStatus;
 use symm_core::{
     core::{
         bits::{
@@ -29,8 +28,10 @@ use symm_core::{
 
 use super::{
     index_order_manager::EngagedIndexOrder,
-    solver::{BatchManagerStatus, EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
-    solver_order::{SolverOrder, SolverOrderAssetLot},
+    solver::{
+        BatchManagerStatus, EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement,
+    },
+    solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
 };
 
 pub enum BatchEvent {
@@ -1407,7 +1408,10 @@ impl Persist for BatchManager {
                     serde_json::from_value(carry_overs_value.clone())
                         .map_err(|err| eyre!("Failed to deserialize carry_overs: {:?}", err))?;
                 *self.carry_overs.lock() = loaded_carry_overs;
-                tracing::info!("Loaded {} carry-over positions from persistence", self.carry_overs.lock().len());
+                tracing::info!(
+                    "Loaded {} carry-over positions from persistence",
+                    self.carry_overs.lock().len()
+                );
             }
         }
         Ok(())
@@ -1418,7 +1422,8 @@ impl Persist for BatchManager {
         let data = json!({
             "carry_overs": carry_overs_for_serialization
         });
-        self.persistence.store_value(data)
+        self.persistence
+            .store_value(data)
             .map_err(|err| eyre!("Failed to store BatchManager state: {:?}", err))
     }
 }
@@ -1449,10 +1454,15 @@ mod test {
             bits::{
                 Address, Amount, AssetOrder, BatchOrder, ClientOrderId, OrderId, PaymentId, Side,
                 Symbol,
-            }, functional::IntoObservableSingle, logging::log_init, persistence::util::InMemoryPersistence, telemetry::TracingData, test_util::{
+            },
+            functional::IntoObservableSingle,
+            logging::log_init,
+            persistence::util::InMemoryPersistence,
+            telemetry::TracingData,
+            test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
                 get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool,
-            }
+            },
         },
         init_log,
     };
@@ -1466,7 +1476,7 @@ mod test {
             EngagedSolverOrders, EngagedSolverOrdersSide, SetSolverOrderStatus,
             SolverOrderEngagement,
         },
-        solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
+        solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
     };
 
