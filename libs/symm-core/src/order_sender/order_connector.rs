@@ -238,9 +238,10 @@ pub mod test_util {
         fn get_balances(
             &self,
             _session_id: SessionId,
-            _observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+            observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
         ) -> Result<()> {
-            todo!("Not implemented")
+            observer.one_shot_publish_single(HashMap::new());
+            Ok(())
         }
     }
 
