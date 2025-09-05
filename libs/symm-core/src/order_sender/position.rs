@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use eyre::{ensure, eyre, OptionExt, Result};
@@ -7,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
-        bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
+        bits::{Address, Amount, BatchOrderId, ClientOrderId, OrderId, Side, Symbol},
         decimal_ext::DecimalExt,
     },
     string_id,
@@ -39,6 +42,30 @@ pub struct LotTransaction {
 
     /// Time of the closing transaction
     pub closing_timestamp: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LotAssignment {
+    /// Chain ID
+    pub chain_id: u32,
+
+    /// On-chain wallet address
+    pub address: Address,
+
+    /// ID of the update assigned by the user (<- FIX)
+    pub client_order_id: ClientOrderId,
+
+    /// Side from which lot was assigned
+    pub side: Side,
+
+    /// Quantity allocated to index order
+    pub assigned_quantity: Amount,
+
+    /// Execution fee allocated to index order
+    pub assigned_fee: Amount,
+
+    /// Time when lot was assigned to index order
+    pub assigned_timestamp: DateTime<Utc>,
 }
 
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
@@ -86,6 +113,9 @@ pub struct Lot {
     /// All the transactions that were matched against this lot, and these transactions
     /// closed some portion of this lot.
     pub lot_transactions: Vec<Arc<LotTransaction>>,
+
+    /// Associates client orders with lots
+    pub lot_assignments: Vec<Arc<LotAssignment>>,
 }
 
 impl Lot {
@@ -165,6 +195,7 @@ impl Position {
             created_timestamp: fill_timestamp,
             last_update_timestamp: fill_timestamp,
             lot_transactions: Vec::new(),
+            lot_assignments: Vec::new(),
         }));
         // Update balance
         self.balance = match side {
@@ -306,5 +337,18 @@ impl Position {
                 ref_cb(&lot);
             }
         });
+    }
+
+    pub fn assign_lots(
+        &mut self,
+        mut lot_assignments: HashMap<LotId, Vec<Arc<LotAssignment>>>,
+    ) -> Result<()> {
+        for lot in self.open_lots.iter_mut() {
+            if let Some(lot_assignments) = lot_assignments.remove(&lot.lot_id) {
+                lot.lot_assignments.extend(lot_assignments);
+            }
+        }
+
+        Ok(())
     }
 }
