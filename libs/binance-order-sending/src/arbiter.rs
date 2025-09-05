@@ -11,8 +11,8 @@ use symm_core::{
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};
 
 use crate::{
-    credentials::Credentials, session_completion::SessionCompletionResult, sessions::Sessions,
-    subaccounts::SubAccounts,
+    binance_order_sending::BinanceFeeCalculator, credentials::Credentials,
+    session_completion::SessionCompletionResult, sessions::Sessions, subaccounts::SubAccounts,
 };
 
 /// Arbiter manages open sessions
@@ -43,6 +43,7 @@ impl Arbiter {
         subaccounts: Arc<AtomicLock<SubAccounts>>,
         mut subaccount_rx: UnboundedReceiver<Credentials>,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
         sessions: Arc<AtomicLock<Sessions>>,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
@@ -55,7 +56,8 @@ impl Arbiter {
                     },
                     Some(credentials) = subaccount_rx.recv() => {
                         let account_name = credentials.get_account_name();
-                        match sessions.write().add_session(credentials, symbols.clone(), observer.clone()) {
+                        match sessions.write().add_session(
+                            credentials, symbols.clone(), fee_calculator.clone(), observer.clone()) {
                             Ok(_) => {
                                 let mut suba = subaccounts.write();
                                 if let Err(err) = suba.add_subaccount_taken(account_name) {
@@ -85,6 +87,7 @@ impl Arbiter {
                     result,
                     &sessions,
                     &symbols,
+                    fee_calculator.clone(),
                     &observer,
                 ).await;
             }
@@ -98,6 +101,7 @@ impl Arbiter {
         completion_result: SessionCompletionResult,
         sessions: &Arc<AtomicLock<Sessions>>,
         symbols: &[Symbol],
+        fee_calculator: BinanceFeeCalculator,
         observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) {
         match completion_result {
@@ -118,8 +122,15 @@ impl Arbiter {
                 // Only attempt reconnection if error should trigger it and we have credentials
                 if error.should_reconnect() {
                     if let Some(creds) = credentials {
-                        Self::attempt_reconnection(creds, sessions, symbols, observer, &session_id)
-                            .await;
+                        Self::attempt_reconnection(
+                            creds,
+                            sessions,
+                            symbols,
+                            fee_calculator,
+                            observer,
+                            &session_id,
+                        )
+                        .await;
                     }
                 }
             }
@@ -130,6 +141,7 @@ impl Arbiter {
         credentials: Credentials,
         sessions: &Arc<AtomicLock<Sessions>>,
         symbols: &[Symbol],
+        fee_calculator: BinanceFeeCalculator,
         observer: &Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         original_session_id: &SessionId,
     ) {
@@ -138,10 +150,12 @@ impl Arbiter {
             original_session_id
         );
 
-        match sessions
-            .write()
-            .add_session(credentials, symbols.to_vec(), observer.clone())
-        {
+        match sessions.write().add_session(
+            credentials,
+            symbols.to_vec(),
+            fee_calculator,
+            observer.clone(),
+        ) {
             Ok(_) => {
                 tracing::info!(
                     "Successfully recreated session {} after error",

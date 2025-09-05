@@ -14,7 +14,7 @@ use symm_core::{
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    credentials::Credentials, session::Session, session_completion::SessionCompletionResult,
+    binance_order_sending::BinanceFeeCalculator, credentials::Credentials, session::Session, session_completion::SessionCompletionResult
 };
 
 pub struct Sessions {
@@ -32,13 +32,14 @@ impl Sessions {
         &mut self,
         credentials: Credentials,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) -> Result<()> {
         match self.sessions.entry(credentials.into_session_id()) {
             Entry::Vacant(entry) => {
                 let (tx, rx) = unbounded_channel();
                 let session = entry.insert(Session::new(tx));
-                session.start(rx, observer, credentials, symbols)
+                session.start(rx, observer, credentials, symbols, fee_calculator)
             }
             Entry::Occupied(_) => Err(eyre!("Session already started")),
         }

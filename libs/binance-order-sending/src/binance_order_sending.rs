@@ -5,16 +5,14 @@ use std::{
 
 use eyre::{eyre, OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;
+use safe_math::safe;
 use symm_core::{
     core::{
-        self,
-        bits::{self, Amount, SingleOrder, Symbol},
-        functional::{
+        self, bits::{self, Amount, SingleOrder, Symbol}, decimal_ext::DecimalExt, functional::{
             self, IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
             OneShotSingleObserver, SingleObserver,
-        },
-    },
-    order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
+        }
+    }, market_data::exchange_rates::ExchangeRates, order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId}
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
@@ -23,22 +21,54 @@ use crate::{
     subaccounts::SubAccounts,
 };
 
+#[derive(Clone)]
+pub struct BinanceFeeCalculator {
+    exchange_rates: Arc<dyn ExchangeRates + Send + Sync + 'static>,
+    quote: Symbol,
+}
+
+impl BinanceFeeCalculator {
+    pub fn new(
+        exchange_rates: Arc<dyn ExchangeRates + Send + Sync + 'static>,
+        quote: Symbol,
+    ) -> Self {
+        Self {
+            exchange_rates,
+            quote,
+        }
+    }
+
+    pub fn compute_amount(&self, base_amount: Amount, base_symbol: Symbol) -> eyre::Result<Amount> {
+        let rate = self
+            .exchange_rates
+            .get_exchange_rate(base_symbol, self.quote.clone())?;
+
+        let quote_amount =
+            safe!(rate * base_amount).ok_or_eyre("Failed to compute quote amount")?;
+
+        Ok(quote_amount)
+    }
+}
+
+
 pub struct BinanceOrderSending {
     observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     subaccounts: Arc<AtomicLock<SubAccounts>>,
     subaccount_rx: Option<UnboundedReceiver<Credentials>>,
     sessions: Arc<AtomicLock<Sessions>>,
+    fee_calculator: BinanceFeeCalculator,
     arbiter: Arbiter,
 }
 
 impl BinanceOrderSending {
-    pub fn new() -> Self {
+    pub fn new(fee_calculator: BinanceFeeCalculator) -> Self {
         let (subaccount_tx, subaccount_rx) = unbounded_channel();
         Self {
             observer: Arc::new(AtomicLock::new(SingleObserver::new())),
             subaccounts: Arc::new(AtomicLock::new(SubAccounts::new(subaccount_tx))),
             subaccount_rx: Some(subaccount_rx),
             sessions: Arc::new(AtomicLock::new(Sessions::new())),
+            fee_calculator,
             arbiter: Arbiter::new(),
         }
     }
@@ -53,6 +83,7 @@ impl BinanceOrderSending {
             self.subaccounts.clone(),
             subaccount_rx,
             symbols,
+            self.fee_calculator.clone(),
             self.sessions.clone(),
             self.observer.clone(),
         );
