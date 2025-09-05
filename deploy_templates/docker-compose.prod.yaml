@@ -6,10 +6,12 @@ services:
     image: ${DOCKER_IMAGE_NAME}
     ports:
        - "3000:3000"
+       - "8080:8080"
 
     command: ["./index-maker", 
-              "-b", "0.0.0.0:3000",
-              "-c", "configs", 
+              "--bind-address", "0.0.0.0:3000",
+              "--query-bind-address", "0.0.0.0:8080",
+              "--config-path", "configs", 
               "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
               "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
               "--batch-size", "50",

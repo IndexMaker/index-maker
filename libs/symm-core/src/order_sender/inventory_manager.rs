@@ -1,11 +1,30 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{
+        self,
+        hash_map::{self, Entry},
+        HashMap,
+    },
+    ops::Deref,
+    sync::Arc,
+};
 
+use arc_swap::{ArcSwap, ArcSwapAny};
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::partition;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use crate::core::telemetry::{TracingData, WithBaggage};
+use crate::{
+    assets::asset::get_base_asset_symbol_workaround,
+    core::{
+        functional::{OneShotPublishSingle, OneShotSingleObserver},
+        persistence::{Persist, Persistence},
+        telemetry::{TracingData, WithBaggage},
+    },
+    order_sender::position::{self, LotAssignment},
+};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
 
@@ -19,9 +38,21 @@ use crate::{
 
 use super::position::{LotId, Position};
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GetPositionsResponse {
-    pub positions: HashMap<Symbol, Arc<RwLock<Position>>>,
+    pub positions: HashMap<Symbol, Box<Position>>,
     pub missing_symbols: Vec<Symbol>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ReconciledPosition {
+    pub inventory_position: Option<Position>,
+    pub actual_balance: Option<Amount>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct GetReconciledPositionsResponse {
+    pub positions: HashMap<Symbol, Box<ReconciledPosition>>,
 }
 
 #[derive(Debug, WithBaggage)]
@@ -94,19 +125,47 @@ pub enum InventoryEvent {
     },
 }
 
+pub struct InventoryManagerSnapshot {
+    positions: ArcSwap<GetReconciledPositionsResponse>,
+}
+
+impl InventoryManagerSnapshot {
+    pub fn new() -> Self {
+        Self {
+            positions: ArcSwap::new(Arc::new(GetReconciledPositionsResponse::default())),
+        }
+    }
+
+    pub fn set(&self, response: Arc<GetReconciledPositionsResponse>) {
+        self.positions.store(response);
+    }
+
+    pub fn get(&self) -> Arc<GetReconciledPositionsResponse> {
+        self.positions.load_full()
+    }
+}
+
 pub struct InventoryManager {
     observer: SingleObserver<InventoryEvent>,
     order_tracker: Arc<RwLock<OrderTracker>>,
-    positions: HashMap<Symbol, Arc<RwLock<Position>>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+    positions: HashMap<Symbol, Box<Position>>,
+    snapshot: Arc<InventoryManagerSnapshot>,
     tolerance: Amount,
 }
 
 impl InventoryManager {
-    pub fn new(order_tracker: Arc<RwLock<OrderTracker>>, tolerance: Amount) -> Self {
+    pub fn new(
+        order_tracker: Arc<RwLock<OrderTracker>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+        tolerance: Amount,
+    ) -> Self {
         Self {
             observer: SingleObserver::new(),
+            persistence,
             order_tracker,
             positions: HashMap::new(),
+            snapshot: Arc::new(InventoryManagerSnapshot::new()),
             tolerance,
         }
     }
@@ -128,13 +187,13 @@ impl InventoryManager {
         quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let base_asset = get_base_asset_symbol_workaround(&symbol);
         let position = self
             .positions
-            .entry(symbol.clone())
-            .or_insert_with(|| Arc::new(RwLock::new(Position::new(symbol.clone(), side))))
-            .clone();
+            .entry(get_base_asset_symbol_workaround(&base_asset))
+            .or_insert_with(|| Box::new(Position::new(base_asset.clone(), side)));
 
-        position.write().create_lot(
+        position.create_lot(
             order_id.clone(),
             batch_order_id.clone(),
             lot_id.clone(),
@@ -178,13 +237,13 @@ impl InventoryManager {
         batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<Option<Amount>> {
+        let base_asset = get_base_asset_symbol_workaround(&symbol);
         // Find position for symbol
-        match self.positions.get(&symbol) {
+        match self.positions.get_mut(&base_asset) {
             // Position not found
             None => Ok(Some(quantity_filled)),
             Some(position) => {
                 // Match lots
-                let mut position = position.write();
                 let remaining = position.match_lots(
                     order_id.clone(),
                     batch_order_id.clone(),
@@ -198,7 +257,6 @@ impl InventoryManager {
                 )?;
 
                 position.drain_closed_lots_and_callback_on_updated(|lot| {
-                    let lot = lot.read();
                     self.observer.publish_single(InventoryEvent::CloseLot {
                         original_order_id: lot.original_order_id.clone(),
                         original_batch_order_id: lot.original_batch_order_id.clone(),
@@ -356,6 +414,46 @@ impl InventoryManager {
         Ok(())
     }
 
+    pub fn assign_lots(
+        &mut self,
+        lot_assignments: HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>>,
+    ) -> Result<()> {
+        let nested_map =
+            lot_assignments
+                .into_iter()
+                .fold(HashMap::new(), |mut map, ((symbol, lot_id), v)| {
+                    match map.entry(symbol) {
+                        Entry::Vacant(vacant_entry) => {
+                            let x = HashMap::from([(lot_id, v)]);
+                            vacant_entry.insert(x);
+                        }
+                        Entry::Occupied(mut occupied_entry) => {
+                            let x = occupied_entry.get_mut();
+                            match x.entry(lot_id) {
+                                Entry::Occupied(mut occupied_entry) => {
+                                    occupied_entry.get_mut().extend(v);
+                                }
+                                Entry::Vacant(vacant_entry) => {
+                                    vacant_entry.insert(v);
+                                }
+                            }
+                        }
+                    }
+                    map
+                });
+
+        for (symbol, map) in nested_map {
+            let position = self
+                .positions
+                .get_mut(&symbol)
+                .ok_or_eyre("Failed to find position")?;
+
+            position.assign_lots(map)?;
+        }
+
+        Ok(())
+    }
+
     /// provide method to get open lots
     pub fn get_positions(&self, symbols: &[Symbol]) -> GetPositionsResponse {
         // Optimistic: we should be able to find all symbols
@@ -381,6 +479,89 @@ impl InventoryManager {
             missing_symbols,
         }
     }
+
+    pub fn get_reconciled_positions(
+        &self,
+        observer: OneShotSingleObserver<GetReconciledPositionsResponse>,
+    ) -> eyre::Result<()> {
+        let mut reconciled_positions = GetReconciledPositionsResponse {
+            positions: self
+                .positions
+                .iter()
+                .map(|(symbol, position)| {
+                    (
+                        symbol.clone(),
+                        Box::new(ReconciledPosition {
+                            inventory_position: Some(position.as_ref().clone()),
+                            actual_balance: Some(Amount::ZERO),
+                        }),
+                    )
+                })
+                .collect(),
+        };
+
+        self.order_tracker
+            .read()
+            .get_balances(OneShotSingleObserver::new_with_fn(
+                move |balances: HashMap<Symbol, Amount>| {
+                    balances.into_iter().for_each(|(symbol, balance)| {
+                        match reconciled_positions.positions.entry(symbol) {
+                            Entry::Occupied(mut occupied_entry) => {
+                                occupied_entry.get_mut().actual_balance.replace(balance);
+                            }
+                            Entry::Vacant(vacant_entry) => {
+                                vacant_entry.insert(Box::new(ReconciledPosition {
+                                    inventory_position: None,
+                                    actual_balance: Some(balance),
+                                }));
+                            }
+                        };
+                    });
+                    observer.one_shot_publish_single(reconciled_positions);
+                },
+            ))?;
+        Ok(())
+    }
+    
+    pub fn update_snapshot(&self) -> Result<()> {
+        let snapshot = self.snapshot.clone();
+
+        self.get_reconciled_positions(OneShotSingleObserver::new_with_fn(move |x| {
+            snapshot.set(Arc::new(x))
+        }))
+    }
+
+    pub fn get_snapshot(&self) -> Arc<InventoryManagerSnapshot> {
+        self.snapshot.clone()
+    }
+
+}
+
+impl Persist for InventoryManager {
+    fn load(&mut self) -> Result<()> {
+        if let Some(value) = self.persistence.load_value()? {
+            if let Some(positions_value) = value.get("positions") {
+                let loaded_positions: HashMap<Symbol, Box<Position>> =
+                    serde_json::from_value(positions_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize positions: {:?}", err))?;
+                self.positions = loaded_positions;
+                tracing::info!(
+                    "Loaded {} inventory positions from persistence",
+                    self.positions.len()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        let data = json!({
+            "positions": self.positions
+        });
+        self.persistence
+            .store_value(data)
+            .map_err(|err| eyre!("Failed to store InventoryManager state: {:?}", err))
+    }
 }
 
 impl IntoObservableSingle<InventoryEvent> for InventoryManager {
@@ -397,6 +578,7 @@ mod test {
     };
 
     use chrono::Utc;
+    use itertools::Itertools;
     use parking_lot::RwLock;
     use rust_decimal::dec;
 
@@ -405,6 +587,7 @@ mod test {
         core::{
             bits::{Amount, AssetOrder, BatchOrder, BatchOrderId, OrderId, Side, SingleOrder},
             functional::IntoObservableSingle,
+            persistence::util::InMemoryPersistence,
             test_util::{get_mock_asset_name_1, get_mock_defer_channel, run_mock_deferred},
         },
         order_sender::{
@@ -466,8 +649,10 @@ mod test {
             order_connector.clone(),
             tolerance,
         )));
+        let persistence = Arc::new(InMemoryPersistence::new());
         let inventory_manager = Arc::new(RwLock::new(InventoryManager::new(
             order_tracker.clone(),
+            persistence,
             tolerance,
         )));
 
@@ -499,8 +684,8 @@ mod test {
         let sell_fill1_quantity = dec!(15.0);
         let sell_fee1 = dec!(0.0125);
 
-        let mut closed_lot = None;
-        assert!(matches!(closed_lot, None));
+        let mut closed_lot_id = None;
+        assert!(matches!(closed_lot_id, None));
 
         let logout_timestamp = Utc::now();
 
@@ -727,23 +912,22 @@ mod test {
             let position = all_positions
                 .positions
                 .get(&get_mock_asset_name_1())
-                .unwrap()
-                .read();
+                .unwrap();
 
             assert_eq!(position.balance, dec!(30.0));
 
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 2);
 
-            closed_lot = lots.get(0).cloned();
-
-            let lot = lots.get(0).unwrap().read();
+            let lot = lots.get(0).unwrap();
             assert_eq!(lot.lot_id, buy_lot1_id);
             assert_eq!(lot.lot_transactions.len(), 0);
 
+            closed_lot_id = Some(lot.lot_id.clone());
+
             // We will close that lot in next part II.
 
-            let lot = lots.get(1).unwrap().read();
+            let lot = lots.get(1).unwrap();
             assert_eq!(lot.lot_id, buy_lot2_id);
             assert_eq!(lot.lot_transactions.len(), 0);
         }
@@ -1013,28 +1197,38 @@ mod test {
             let position = all_positions
                 .positions
                 .get(&get_mock_asset_name_1())
-                .unwrap()
-                .read();
+                .unwrap();
 
             assert_eq!(position.balance, dec!(15.0));
 
             let lots = &position.open_lots;
             assert_eq!(lots.len(), 1);
 
-            let lot = lots.front().unwrap().read();
+            let lot = lots.front().unwrap();
             assert_eq!(lot.lot_id, buy_lot2_id);
 
             assert_eq!(lot.lot_transactions.len(), 1);
             let lot_tx = lot.lot_transactions.first().unwrap();
             assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
 
-            let lot = closed_lot.unwrap();
-            let lot = lot.read();
+            assert!(matches!(closed_lot_id, Some(_)));
+            let closed_lot_id = closed_lot_id.unwrap();
 
-            assert_eq!(lot.lot_id, buy_lot1_id);
-            assert_eq!(lot.lot_transactions.len(), 1);
-            let lot_tx = lot.lot_transactions.first().unwrap();
-            assert_eq!(lot_tx.matched_lot_id, sell_lot1_id);
+            assert!(matches!(
+                position
+                    .open_lots
+                    .iter()
+                    .find(|x| x.lot_id.eq(&closed_lot_id)),
+                None
+            ));
+
+            assert!(matches!(
+                position
+                    .closed_lots
+                    .iter()
+                    .find(|x| x.lot_id.eq(&closed_lot_id)),
+                None
+            ));
         }
 
         order_connector.write().notify_logout(

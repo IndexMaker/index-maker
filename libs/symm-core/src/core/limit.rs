@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 use chrono::{DateTime, Duration, Utc};
 use itertools::{

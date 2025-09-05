@@ -8,10 +8,10 @@ use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{info_span, span, Level};
 
-use crate::solver::solver_order::SolverOrderStatus;
 use symm_core::{
     core::{
         bits::{
@@ -20,6 +20,7 @@ use symm_core::{
         },
         decimal_ext::DecimalExt,
         functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+        persistence::{Persist, Persistence},
         telemetry::WithTracingContext,
     },
     order_sender::position::LotId,
@@ -27,8 +28,10 @@ use symm_core::{
 
 use super::{
     index_order_manager::EngagedIndexOrder,
-    solver::{EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement},
-    solver_order::{SolverOrder, SolverOrderAssetLot},
+    solver::{
+        BatchManagerStatus, EngagedSolverOrders, SetSolverOrderStatus, SolverOrderEngagement,
+    },
+    solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
 };
 
 pub enum BatchEvent {
@@ -49,6 +52,7 @@ pub enum BatchEvent {
 /// acquired it. The BatchAssetLot is different kind of lot, in which we store
 /// one unit of execution for a batch created by Solver, and then we allocate
 /// some portion of that unit to index orders, using allocations list.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BatchAssetLot {
     /// Asset Order ID
     pub order_id: OrderId,
@@ -474,6 +478,7 @@ impl BatchOrderStatus {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 struct BatchCarryOver {
     /// Total quantity carried over
     carried_position: Amount,
@@ -501,6 +506,7 @@ pub trait BatchManagerHost: SetSolverOrderStatus {
 
 pub struct BatchManager {
     observer: SingleObserver<BatchEvent>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     batches: HashMap<BatchOrderId, Arc<RwLock<BatchOrderStatus>>>,
     engagements: HashMap<BatchOrderId, Arc<RwLock<EngagedSolverOrders>>>,
     ready_batches: VecDeque<BatchOrderId>,
@@ -516,6 +522,7 @@ pub struct BatchManager {
 
 impl BatchManager {
     pub fn new(
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         max_batch_size: usize,
         zero_threshold: Amount,
         fill_threshold: Amount,
@@ -524,6 +531,7 @@ impl BatchManager {
     ) -> Self {
         Self {
             observer: SingleObserver::new(),
+            persistence,
             batches: HashMap::new(),
             engagements: HashMap::new(),
             ready_batches: VecDeque::new(),
@@ -1043,14 +1051,20 @@ impl BatchManager {
         &mut self,
         host: &dyn BatchManagerHost,
         timestamp: DateTime<Utc>,
-    ) -> Result<()> {
+    ) -> Result<BatchManagerStatus> {
         let process_batches_span = span!(Level::TRACE, "process-batches");
         let _guard = process_batches_span.enter();
 
         self.send_more_batches(host, timestamp)?;
         self.cleanup_batches()?;
 
-        Ok(())
+        // Return status based on active batches
+        let active_count = self.batches.len();
+        if active_count == 0 {
+            Ok(BatchManagerStatus::Idle)
+        } else {
+            Ok(BatchManagerStatus::ActiveBatches(active_count))
+        }
     }
 
     pub fn get_total_volley_size(&self) -> Amount {
@@ -1386,6 +1400,34 @@ impl BatchManager {
     }
 }
 
+impl Persist for BatchManager {
+    fn load(&mut self) -> Result<()> {
+        if let Some(value) = self.persistence.load_value()? {
+            if let Some(carry_overs_value) = value.get("carry_overs") {
+                let loaded_carry_overs: Vec<((Symbol, Side), BatchCarryOver)> =
+                    serde_json::from_value(carry_overs_value.clone())
+                        .map_err(|err| eyre!("Failed to deserialize carry_overs: {:?}", err))?;
+                *self.carry_overs.lock() = loaded_carry_overs.into_iter().collect();
+                tracing::info!(
+                    "Loaded {} carry-over positions from persistence",
+                    self.carry_overs.lock().len()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        let carry_overs_for_serialization = self.carry_overs.lock().clone();
+        let data = json!({
+            "carry_overs": carry_overs_for_serialization.into_iter().collect_vec()
+        });
+        self.persistence
+            .store_value(data)
+            .map_err(|err| eyre!("Failed to store BatchManager state: {:?}", err))
+    }
+}
+
 impl IntoObservableSingle<BatchEvent> for BatchManager {
     fn get_single_observer_mut(&mut self) -> &mut SingleObserver<BatchEvent> {
         &mut self.observer
@@ -1415,6 +1457,7 @@ mod test {
             },
             functional::IntoObservableSingle,
             logging::log_init,
+            persistence::util::InMemoryPersistence,
             telemetry::TracingData,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_1_arc,
@@ -1433,7 +1476,7 @@ mod test {
             EngagedSolverOrders, EngagedSolverOrdersSide, SetSolverOrderStatus,
             SolverOrderEngagement,
         },
-        solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
+        solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
     };
 
@@ -1776,7 +1819,9 @@ mod test {
 
         let host = MockHost;
 
+        let persistence = Arc::new(InMemoryPersistence::new());
         let mut batch_manager = BatchManager::new(
+            persistence,
             max_batch_size,
             zero_threshold,
             fill_threshold,

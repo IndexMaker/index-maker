@@ -3,6 +3,7 @@ pub mod assets {
 }
 
 pub mod core {
+    pub mod arcswaputil;
     pub mod async_loop;
     pub mod bits;
     pub mod decimal_ext;
@@ -11,13 +12,17 @@ pub mod core {
     pub mod functional;
     pub mod hashmap_macros;
     pub mod id_macros;
+    pub mod json_file;
+    pub mod json_file_async;
     pub mod limit;
     pub mod logging;
+    pub mod persistence;
     pub mod telemetry;
     pub mod test_util;
 }
 
 pub mod market_data {
+    pub mod exchange_rates;
     pub mod market_data_connector;
     pub mod price_tracker;
 

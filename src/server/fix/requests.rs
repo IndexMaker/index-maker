@@ -10,9 +10,9 @@ use axum_fix_server::{
     },
 };
 use eyre::{eyre, Result};
+use k256::ecdsa::signature::DigestVerifier;
 use k256::ecdsa::{Signature, VerifyingKey};
 use k256::elliptic_curve::generic_array::GenericArray;
-use k256::{ecdsa::signature::DigestVerifier, pkcs8::DecodePublicKey};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
@@ -456,7 +456,7 @@ mod tests {
         use axum_fix_server::plugins::rate_limit_plugin::{
             MessageType, RateLimitKey, WithRateLimitPlugin,
         };
-        use symm_core::core::test_util::{get_mock_address_1, get_mock_address_2};
+        use symm_core::core::test_util::get_mock_address_1;
 
         let user_id = (1, get_mock_address_1());
         let session_id = SessionId::from("test_session");

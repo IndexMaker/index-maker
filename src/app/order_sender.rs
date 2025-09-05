@@ -3,14 +3,20 @@ use std::sync::Arc;
 use crate::app::simple_sender::SimpleOrderSender;
 
 use super::config::ConfigBuildError;
-use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
+use binance_order_sending::{
+    binance_order_sending::{BinanceFeeCalculator, BinanceOrderSending},
+    credentials::Credentials,
+};
 use derive_builder::Builder;
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use rust_decimal::dec;
 use symm_core::{
-    core::bits::{Amount, Symbol},
+    core::{
+        bits::{Amount, Symbol},
+        persistence::util::JsonFilePersistence,
+    },
     order_sender::{
         inventory_manager::InventoryManager,
         order_connector::{OrderConnector, SessionId},
@@ -53,6 +59,9 @@ pub struct OrderSenderConfig {
 
     #[builder(setter(into, strip_option), default)]
     pub with_inventory_manager: Option<bool>,
+
+    #[builder(setter(into))]
+    pub with_binance_fee_calculator: Option<BinanceFeeCalculator>,
 
     #[builder(setter(into, strip_option))]
     pub credentials: OrderSenderCredentials,
@@ -174,13 +183,24 @@ impl OrderSenderConfigBuilder {
 
         let order_sender_variant = match &mut config.credentials {
             OrderSenderCredentials::Simple(session_id) => OrderSenderVariant::Simple(
-                Arc::new(RwLock::new(SimpleOrderSender::new())),
+                Arc::new(RwLock::new(SimpleOrderSender::new(Arc::new(
+                    JsonFilePersistence::new("./persistence/SimpleOrderSender.json"),
+                )))),
                 session_id.clone(),
             ),
-            OrderSenderCredentials::Binance(credentials) => OrderSenderVariant::Binance(
-                Arc::new(RwLock::new(BinanceOrderSending::new())),
-                credentials.drain(..).collect_vec(),
-            ),
+            OrderSenderCredentials::Binance(credentials) => {
+                let fee_calculator =
+                    config.with_binance_fee_calculator.clone().ok_or_else(|| {
+                        ConfigBuildError::UninitializedField("with_binance_fee_calculator")
+                    })?;
+
+                OrderSenderVariant::Binance(
+                    Arc::new(RwLock::new(BinanceOrderSending::new(
+                        fee_calculator.clone(),
+                    ))),
+                    credentials.drain(..).collect_vec(),
+                )
+            }
         };
 
         let order_sender = order_sender_variant.get_order_connector();
@@ -195,11 +215,17 @@ impl OrderSenderConfigBuilder {
 
             config.order_tracker.replace(order_tracker.clone());
 
+            // TODO: Configure me!
+            let persistence = Arc::new(JsonFilePersistence::new(String::from(
+                "./persistence/InventoryManager.json",
+            )));
+
             if config.with_inventory_manager.unwrap_or(true) {
                 config
                     .inventory_manager
                     .replace(Arc::new(RwLock::new(InventoryManager::new(
                         order_tracker,
+                        persistence,
                         config.zero_threshold.unwrap_or(dec!(0.00001)),
                     ))));
             }

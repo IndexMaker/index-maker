@@ -2,9 +2,10 @@ use alloy::providers::{Provider, WalletProvider};
 use alloy_primitives::Address;
 use symm_core::core::functional::PublishSingle;
 
+use otc_custody::contracts::ERC20;
+
 use crate::{
     command::BasicCommand,
-    contracts::ERC20,
     util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
 };
 
@@ -44,6 +45,12 @@ where
                 amount,
                 observer,
             } => {
+                tracing::info!(
+                    "Transferring collateral {} from wallet to {}",
+                    amount,
+                    receipient
+                );
+
                 let signer_address = provider.default_signer_address();
                 let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
                 let sender_balance = converter.into_amount(sender_balance_raw)?;
@@ -68,9 +75,16 @@ where
                     .get_receipt()
                     .await?;
 
-                let gas_amount = compute_gas_used(&converter, receipt)?;
+                let gas_amount = compute_gas_used(receipt)?;
+
+                tracing::info!(
+                    "💰 Collateral transferred to wallet {} gas used {}",
+                    receipient,
+                    gas_amount
+                );
+
                 observer.publish_single(gas_amount);
-                
+
                 let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
                 let sender_balance = converter.into_amount(sender_balance_raw)?;
                 let receipient_balance_raw = contract.balanceOf(receipient).call().await?;

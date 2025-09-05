@@ -1,8 +1,79 @@
+use core::fmt;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+// This is a case when both the observer and the event are consumed
+pub trait OneShotNotificationHandlerOnce<T>: Send + Sync {
+    fn handle_notification(self: Box<Self>, notification: T);
+}
+
+impl<F, T> OneShotNotificationHandlerOnce<T> for F
+where
+    F: FnOnce(T) + Send + Sync,
+{
+    fn handle_notification(self: Box<Self>, notification: T) {
+        (self)(notification)
+    }
+}
+
+pub trait IntoOneShotNotificationHandlerOnceBox<T> {
+    fn into_one_shot_notification_handler_once_box(
+        self,
+    ) -> Box<dyn OneShotNotificationHandlerOnce<T>>;
+}
+
+pub trait OneShotPublishSingle<T> {
+    fn one_shot_publish_single(self, notification: T);
+}
+
+pub struct OneShotSingleObserver<T> {
+    observer: Option<Box<dyn OneShotNotificationHandlerOnce<T>>>,
+}
+
+// We use one shot for asynchronous replies to commands, and
+// commands usually implement Debug.
+impl<T> fmt::Debug for OneShotSingleObserver<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OneShotSingleObserver(<user function>)")
+    }
+}
+
+impl<T> OneShotSingleObserver<T> {
+    pub fn new() -> Self {
+        Self { observer: None }
+    }
+
+    pub fn new_with_observer(observer: Box<dyn OneShotNotificationHandlerOnce<T>>) -> Self {
+        Self {
+            observer: Some(observer),
+        }
+    }
+
+    pub fn new_with_fn(observer: impl OneShotNotificationHandlerOnce<T> + 'static) -> Self {
+        Self::new_with_observer(Box::new(observer))
+    }
+
+    pub fn new_from(value: impl IntoOneShotNotificationHandlerOnceBox<T>) -> Self {
+        Self::new_with_observer(value.into_one_shot_notification_handler_once_box())
+    }
+
+    pub fn has_observer(&self) -> bool {
+        self.observer.is_some()
+    }
+}
+
+impl<T> OneShotPublishSingle<T> for OneShotSingleObserver<T> {
+    fn one_shot_publish_single(self, notification: T) {
+        if let Some(observer) = self.observer {
+            observer.handle_notification(notification);
+        }
+    }
+}
+
 /// Every notification is handled only once, and so then can be moved!
+/// This is the case when observer is reused for next events, and
+/// events are consumed (they live only once)
 pub trait NotificationHandlerOnce<T>: Send + Sync {
     fn handle_notification(&self, notification: T);
 }
@@ -208,9 +279,32 @@ pub mod crossbeam {
     use crossbeam::channel::Sender;
 
     use crate::core::functional::{
-        IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox, NotificationHandler,
-        NotificationHandlerOnce,
+        IntoNotificationHandlerBox, IntoNotificationHandlerOnceBox,
+        IntoOneShotNotificationHandlerOnceBox, NotificationHandler, NotificationHandlerOnce,
+        OneShotNotificationHandlerOnce,
     };
+
+    impl<T> OneShotNotificationHandlerOnce<T> for Sender<T>
+    where
+        T: Send + Sync,
+    {
+        fn handle_notification(self: Box<Self>, notification: T) {
+            if let Err(err) = self.send(notification) {
+                tracing::warn!("Failed to send {}: {:?}", type_name::<T>(), err);
+            }
+        }
+    }
+
+    impl<T> IntoOneShotNotificationHandlerOnceBox<T> for Sender<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        fn into_one_shot_notification_handler_once_box(
+            self,
+        ) -> Box<dyn OneShotNotificationHandlerOnce<T>> {
+            Box::new(self)
+        }
+    }
 
     impl<T> NotificationHandlerOnce<T> for Sender<T>
     where

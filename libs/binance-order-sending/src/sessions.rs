@@ -13,7 +13,9 @@ use symm_core::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{credentials::Credentials, session::Session};
+use crate::{
+    binance_order_sending::BinanceFeeCalculator, credentials::Credentials, session::Session, session_completion::SessionCompletionResult
+};
 
 pub struct Sessions {
     sessions: HashMap<SessionId, Session>,
@@ -30,13 +32,14 @@ impl Sessions {
         &mut self,
         credentials: Credentials,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     ) -> Result<()> {
         match self.sessions.entry(credentials.into_session_id()) {
             Entry::Vacant(entry) => {
                 let (tx, rx) = unbounded_channel();
                 let session = entry.insert(Session::new(tx));
-                session.start(rx, observer, credentials, symbols)
+                session.start(rx, observer, credentials, symbols, fee_calculator)
             }
             Entry::Occupied(_) => Err(eyre!("Session already started")),
         }
@@ -51,22 +54,39 @@ impl Sessions {
     }
 
     pub fn drain_all_sessions(&mut self) -> Vec<Session> {
-        self.sessions.drain().map(|(k, v)| v).collect_vec()
+        self.sessions.drain().map(|(_k, v)| v).collect_vec()
     }
 
-    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<()> {
+    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<Vec<SessionCompletionResult>> {
         let stop_futures = sessions.iter_mut().map(|sess| sess.stop()).collect_vec();
 
-        let (_, failures): (Vec<_>, Vec<_>) =
+        let (completion_results, failures): (Vec<_>, Vec<_>) =
             join_all(stop_futures).await.into_iter().partition_result();
 
         if !failures.is_empty() {
-            Err(eyre!(
-                "Sessions join failed {}",
+            tracing::warn!(
+                "Some sessions failed to stop cleanly: {}",
                 failures.iter().map(|e| format!("{:?}", e)).join(";"),
-            ))?;
+            );
         }
 
-        Ok(())
+        Ok(completion_results)
+    }
+
+    pub async fn stop_session(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<SessionCompletionResult> {
+        if let Some(mut session) = self.remove_session(session_id) {
+            match session.stop().await {
+                Ok(res) => Some(res),
+                Err(err) => {
+                    tracing::warn!("Error stopping session {}: {:?}", session_id, err);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 }

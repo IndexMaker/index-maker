@@ -80,4 +80,9 @@ impl ServerInterface for Server {
             tracing::warn!("Failed to respond with: {:?}", err);
         }
     }
+
+    fn initialize_shutdown(&mut self) {
+        tracing::info!("FIX Server shutdown initialized - closing server for new connections");
+        self.inner.close_server();
+    }
 }

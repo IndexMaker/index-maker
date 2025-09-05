@@ -117,7 +117,7 @@ pub struct CollateralRouter {
     observer: SingleObserver<CollateralTransferEvent>,
     bridges: HashMap<(Symbol, Symbol), Arc<ComponentLock<dyn CollateralBridge>>>,
     routes: Vec<Vec<Symbol>>,
-    chain_sources: HashMap<u32, Symbol>,
+    chain_sources: HashMap<(u32, Symbol), Symbol>,
     default_destination: Option<Symbol>,
 }
 
@@ -169,10 +169,11 @@ impl CollateralRouter {
     pub fn add_chain_source(
         &mut self,
         chain_id: u32,
+        symbol: Symbol,
         collateral_designation: Symbol,
     ) -> Result<()> {
         self.chain_sources
-            .insert(chain_id, collateral_designation)
+            .insert((chain_id, symbol), collateral_designation)
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate chain ID")
@@ -191,6 +192,7 @@ impl CollateralRouter {
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
+        symbol: Symbol,
         side: Side,
         amount: Amount,
     ) -> Result<()> {
@@ -207,8 +209,8 @@ impl CollateralRouter {
 
         let transfer_from = self
             .chain_sources
-            .get(&chain_id)
-            .ok_or_eyre("Failed to find source")?;
+            .get(&(chain_id, symbol.clone()))
+            .ok_or_else(|| eyre!("Failed to find source: {} {}", chain_id, symbol))?;
 
         let transfer_to = self
             .default_destination
@@ -355,6 +357,7 @@ pub mod test_util {
             IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
             PublishSingle, SingleObserver,
         },
+        test_util::{get_mock_index_name_1, get_mock_index_name_2, get_mock_index_name_3},
     };
 
     use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
@@ -616,12 +619,20 @@ pub mod test_util {
             implement_mock_bridge(tx, bridge, &router, &calculate_fee);
         }
 
+        let index_symbols = vec![
+            get_mock_index_name_1(),
+            get_mock_index_name_2(),
+            get_mock_index_name_3(),
+        ];
+
         for (chain_id, source) in source_chain_map {
-            router
-                .write()
-                .unwrap()
-                .add_chain_source(*chain_id, source.to_owned().into())
-                .unwrap();
+            for symbol in &index_symbols {
+                router
+                    .write()
+                    .unwrap()
+                    .add_chain_source(*chain_id, symbol.clone(), source.to_owned().into())
+                    .unwrap();
+            }
         }
 
         router
@@ -657,7 +668,8 @@ mod test {
             functional::IntoObservableSingle,
             test_util::{
                 flag_mock_atomic_bool, get_mock_address_1, get_mock_atomic_bool_pair,
-                get_mock_defer_channel, run_mock_deferred, test_mock_atomic_bool,
+                get_mock_defer_channel, get_mock_index_name_1, run_mock_deferred,
+                test_mock_atomic_bool,
             },
         },
     };
@@ -741,6 +753,7 @@ mod test {
                 expected_chain_id,
                 get_mock_address_1(),
                 "C-1".into(),
+                get_mock_index_name_1(),
                 Side::Buy,
                 dec!(1000.0),
             )

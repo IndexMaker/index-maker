@@ -6,34 +6,42 @@ use index_core::collateral::collateral_router::{
     CollateralBridge, CollateralDesignation, CollateralRouterEvent,
 };
 use parking_lot::RwLock as AtomicLock;
+use safe_math::safe;
 use symm_core::core::{
     self,
     bits::{Address, Amount, Symbol},
+    decimal_ext::DecimalExt,
     functional::{
         IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
     },
 };
 
-use crate::collateral::{
-    otc_custody_designation::OTCCustodyCollateralDesignation,
-    wallet_designation::WalletCollateralDesignation,
+use crate::{
+    chain_connector::GasFeeCalculator,
+    collateral::{
+        otc_custody_designation::OTCCustodyCollateralDesignation,
+        wallet_designation::WalletCollateralDesignation,
+    },
 };
 
 pub struct OTCCustodyToWalletCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,
     custody: Arc<RwLock<OTCCustodyCollateralDesignation>>,
     wallet: Arc<RwLock<WalletCollateralDesignation>>,
+    gas_fee_calculator: GasFeeCalculator,
 }
 
 impl OTCCustodyToWalletCollateralBridge {
     pub fn new(
         custody: Arc<RwLock<OTCCustodyCollateralDesignation>>,
         wallet: Arc<RwLock<WalletCollateralDesignation>>,
+        gas_fee_calculator: GasFeeCalculator,
     ) -> Self {
         Self {
             observer: Arc::new(AtomicLock::new(SingleObserver::new())),
             custody,
             wallet,
+            gas_fee_calculator,
         }
     }
 }
@@ -89,10 +97,30 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
 
         let custody_name = custody.get_full_name();
         let outer_observer = self.observer.clone();
+        let gas_fee_calculator = self.gas_fee_calculator.clone();
 
-        let observer = SingleObserver::new_with_fn(move |gas_amount| {
-            let _ = gas_amount;
-            let _ = cumulative_fee;
+        let compute_fee = move |gas_amount_eth| -> eyre::Result<(Amount, Amount)> {
+            let gas_fee = gas_fee_calculator.compute_amount(gas_amount_eth)?;
+            let cumulative_fee = safe!(cumulative_fee + gas_fee).ok_or_eyre("Math problem")?;
+            let amount = safe!(amount - gas_fee).ok_or_eyre("Math problem")?;
+            Ok((amount, cumulative_fee))
+        };
+
+        let observer = SingleObserver::new_with_fn(move |gas_amount_eth| {
+            let (amount, cumulative_fee) = match compute_fee(gas_amount_eth) {
+                Ok((amount, cumulative_fee)) => {
+                    tracing::info!(
+                        "✅ Collateral routed successfully: {}, cumulative fee: {}",
+                        amount,
+                        cumulative_fee
+                    );
+                    (amount, cumulative_fee)
+                }
+                Err(err) => {
+                    tracing::warn!("❗️ Failed to compute collateral routing fee: {:?}", err);
+                    (amount, Amount::ZERO)
+                }
+            };
             outer_observer
                 .read()
                 .publish_single(CollateralRouterEvent::HopComplete {
@@ -105,7 +133,7 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                     route_from: route_from.clone(),
                     route_to: route_to.clone(),
                     amount,
-                    fee: Amount::ZERO,
+                    fee: cumulative_fee,
                 });
         });
 

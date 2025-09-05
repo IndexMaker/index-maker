@@ -1,0 +1,19 @@
+[package]
+name = "anvil_provisioner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = { workspace = true }
+alloy-chain-connector = { workspace = true }
+eyre = { workspace = true }
+hex = { workspace = true }
+otc-custody = { workspace = true }
+reqwest = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+symm-core = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

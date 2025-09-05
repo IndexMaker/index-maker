@@ -4,6 +4,8 @@ pub mod command;
 pub mod config;
 pub mod credentials;
 pub mod session;
+pub mod session_completion;
+pub mod session_error;
 pub mod sessions;
 pub mod subaccounts;
 pub mod trading_markets;
