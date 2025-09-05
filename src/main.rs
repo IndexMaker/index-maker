@@ -2,10 +2,12 @@ use alloy::primitives::address;
 use alloy_chain_connector::{
     chain_connector::GasFeeCalculator, credentials::Credentials as AlloyCredentials,
 };
-use binance_order_sending::credentials::Credentials as BinanceCredentials;
+use binance_order_sending::{
+    binance_order_sending::BinanceFeeCalculator, credentials::Credentials as BinanceCredentials,
+};
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
-use index_core::{blockchain::chain_connector::ChainNotification, index::basket_manager};
+use index_core::blockchain::chain_connector::ChainNotification;
 use index_maker::{
     app::{
         basket_manager::BasketManagerConfig,
@@ -16,7 +18,9 @@ use index_maker::{
         fix_server::FixServerConfig,
         index_order_manager::IndexOrderManagerConfig,
         market_data::MarketDataConfig,
+        mint_invoice_manager::MintInvoiceManagerConfig,
         order_sender::{OrderSenderConfig, OrderSenderCredentials},
+        query_service::QueryServiceConfig,
         quote_request_manager::QuoteRequestManagerConfig,
         simple_chain::SimpleChainConnectorConfig,
         simple_router::SimpleCollateralRouterConfig,
@@ -29,6 +33,7 @@ use index_maker::{
         timestamp_ids::TimestampOrderIdsConfig,
     },
     server::server::ServerEvent,
+    solver::mint_invoice_manager,
 };
 use itertools::Itertools;
 use otc_custody::custody_authority::CustodyAuthority;
@@ -42,7 +47,7 @@ use symm_core::{
         logging::log_init,
         test_util::get_mock_address_1,
     },
-    market_data::{exchange_rates::ExchangeRates, market_data_connector::Subscription},
+    market_data::market_data_connector::Subscription,
     order_sender::order_connector::SessionId,
 };
 use tokio::{
@@ -70,6 +75,9 @@ struct Cli {
 
     #[arg(long, short)]
     bind_address: Option<String>,
+
+    #[arg(long, short)]
+    query_bind_address: Option<String>,
 
     #[arg(long)]
     rpc_url: Option<String>,
@@ -452,10 +460,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build market data");
 
     let price_tracker = market_data_config.expect_price_tracker_cloned();
+    let fee_calculator = BinanceFeeCalculator::new(
+        market_data_config.expect_price_tracker_exchange_rates_cloned(),
+        main_quote_currency.clone(),
+    );
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(credentials)
         .symbols(asset_symbols.clone())
+        .with_binance_fee_calculator(fee_calculator)
         .build()
         .expect("Failed to build order sender");
 
@@ -474,9 +487,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
+    let mint_invoice_manager_config = MintInvoiceManagerConfig::builder()
+        .build()
+        .expect("Failed to build mint invoice manager config");
+
     let index_order_manager_config = IndexOrderManagerConfig::builder()
         .zero_threshold(zero_threshold)
         .with_server(app_mode.get_server_config())
+        .with_invoice_manager(mint_invoice_manager_config.clone())
         .build()
         .expect("Failed to build index order manager");
 
@@ -499,6 +517,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_router(router_config)
         .build()
         .expect("Failed to build collateral manager");
+
+    let query_service_config = cli.query_bind_address.map(|query_bind_address| {
+        QueryServiceConfig::builder()
+            .with_collateral_manager(collateral_manager_config.expect_collateral_manager_cloned())
+            .with_index_order_manager(
+                index_order_manager_config.expect_index_order_manager_cloned(),
+            )
+            .with_inventory_manager(order_sender_config.expect_inventory_manager_cloned())
+            .with_invoice_manager(mint_invoice_manager_config.expect_invoice_manager_cloned())
+            .address(query_bind_address)
+            .build()
+            .expect("Failed to build query service")
+    });
 
     let strategy_config = SimpleSolverConfig::builder()
         .price_threshold(price_threshold)
@@ -538,6 +569,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    tracing::info!("Starting application threads...");
     let is_running_quotes = match &cli.command {
         Commands::QuoteServer {} => {
             solver_config
@@ -552,11 +584,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    app_mode.run().await;
+    tracing::info!("Connecting to blockchain...");
     chain_mode
         .run()
         .await
         .expect("Failed to start chain connector");
+
+    tracing::info!("Starting FIX server...");
+    app_mode.run().await;
+
+    tracing::info!("Starting query service...");
+    if let Some(query_service_config) = query_service_config {
+        query_service_config.start().await?;
+
+        tracing::info!(
+            "Running query service at {}",
+            query_service_config.address.unwrap()
+        );
+    }
 
     tracing::info!("Awaiting market data...");
     loop {

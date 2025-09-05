@@ -21,7 +21,7 @@ pub fn read_from_json_file<T: for<'a> Deserialize<'a>>(path: &str) -> eyre::Resu
 }
 
 /// Write to json file - synchronous version
-pub async fn write_json_to_file<T: Serialize>(path: &str, data: &T) -> eyre::Result<()> {
+pub fn write_json_to_file<T: Serialize>(path: &str, data: &T) -> eyre::Result<()> {
     let data = serde_json::to_string_pretty(data)?;
     let mut file = File::create(path)?;
     file.write_all(data.as_bytes())?;

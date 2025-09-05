@@ -1,5 +1,6 @@
 use alloy::{
-    providers::{Provider, ProviderBuilder, WalletProvider}, signers::local::PrivateKeySigner
+    providers::{Provider, ProviderBuilder, WalletProvider},
+    signers::local::PrivateKeySigner,
 };
 use eyre::eyre;
 use symm_core::core::bits::Address;
@@ -60,7 +61,7 @@ impl Credentials {
 
         Ok(provider)
     }
-    
+
     pub async fn connect_public(&self) -> eyre::Result<impl Provider + Clone> {
         let provider = ProviderBuilder::new()
             .connect(&self.rpc_url)

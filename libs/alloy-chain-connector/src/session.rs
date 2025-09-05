@@ -37,7 +37,6 @@ pub struct SessionBaggage {
     pub indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
 }
 
-
 pub struct Session {
     command_tx: UnboundedSender<Command>,
     session_loop: AsyncLoop<Credentials>,

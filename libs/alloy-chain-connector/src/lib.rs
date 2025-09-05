@@ -3,8 +3,8 @@ pub mod credentials;
 pub mod collateral {
     pub mod otc_custody_designation;
     pub mod otc_custody_to_wallet_bridge;
-    pub mod signer_wallet_designation;
     pub mod signer_to_wallet_bridge;
+    pub mod signer_wallet_designation;
     pub mod wallet_designation;
 }
 pub mod chain_connector;

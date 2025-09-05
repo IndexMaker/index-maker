@@ -5,8 +5,8 @@ use eyre::Result;
 use symm_core::core::functional::{IntoObservableManyVTable, NotificationHandler};
 
 use crate::server::{
-    fix::server_plugin::ServerPlugin,
     fix::rate_limit_config::FixRateLimitConfig,
+    fix::server_plugin::ServerPlugin,
     server::{Server as ServerInterface, ServerEvent, ServerResponse},
 };
 
@@ -18,7 +18,7 @@ impl Server {
     pub fn new() -> Self {
         Self::new_with_rate_limiting(FixRateLimitConfig::default())
     }
-    
+
     pub fn new_with_rate_limiting(rate_limit_config: FixRateLimitConfig) -> Self {
         Self {
             inner: AxumFixServer::new(ServerPlugin::new(rate_limit_config)),
@@ -46,5 +46,10 @@ impl ServerInterface for Server {
         if let Err(err) = self.inner.send_response(response) {
             tracing::warn!("Failed to respond with: {:?}", err);
         }
+    }
+
+    fn initialize_shutdown(&mut self) {
+        tracing::info!("FIX Server shutdown initialized - closing server for new connections");
+        self.inner.close_server();
     }
 }

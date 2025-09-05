@@ -67,7 +67,7 @@ string_id!(ClientOrderId);
 string_id!(ClientQuoteId);
 string_id!(PaymentId);
 
-#[derive(Hash, Eq, PartialEq, Clone, Copy, Serialize, Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Debug)]
 pub enum Side {
     Buy,
     Sell,

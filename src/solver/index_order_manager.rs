@@ -11,14 +11,23 @@ use safe_math::safe;
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use symm_core::core::telemetry::{TracingData, WithBaggage};
+use symm_core::core::{
+    persistence::{Persist, Persistence},
+    telemetry::{TracingData, WithBaggage},
+};
 
 use crate::{
-    collateral::collateral_position::CollateralPosition, server::server::{
+    collateral::collateral_position::CollateralPosition,
+    server::server::{
         CancelIndexOrderNakReason, NewIndexOrderNakReason, Server, ServerError, ServerEvent,
         ServerResponse, ServerResponseReason,
-    }, solver::{index_order::IndexOrder, mint_invoice::MintInvoice}
+    },
+    solver::{
+        index_order::IndexOrder, mint_invoice::MintInvoice,
+        mint_invoice_manager::MintInvoiceManager,
+    },
 };
 use symm_core::core::{
     bits::{Address, Amount, BatchOrderId, ClientOrderId, PaymentId, Side, Symbol},
@@ -29,7 +38,7 @@ use symm_core::core::{
 use super::{
     index_order::{CancelIndexOrderOutcome, IndexOrderUpdate, UpdateIndexOrderOutcome},
     mint_invoice::{print_fill_report, IndexOrderUpdateReport},
-    solver_order::{SolverOrderAssetLot, SolverOrderStatus},
+    solver_order::solver_order::{SolverOrderAssetLot, SolverOrderStatus},
 };
 
 pub struct EngageOrderRequest {
@@ -172,17 +181,26 @@ pub enum IndexOrderEvent {
 pub struct IndexOrderManager {
     observer: SingleObserver<IndexOrderEvent>,
     server: Arc<RwLock<dyn Server>>,
-    index_orders: HashMap<(u32, Address), HashMap<Symbol, Arc<RwLock<IndexOrder>>>>,
+    invoice_manager: Arc<RwLock<MintInvoiceManager>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+    index_orders: HashMap<(u32, Address), HashMap<Symbol, Box<IndexOrder>>>,
     index_symbols: HashSet<Symbol>,
     tolerance: Amount,
 }
 
 /// manage index orders, receive orders and route into solver
 impl IndexOrderManager {
-    pub fn new(server: Arc<RwLock<dyn Server>>, tolerance: Amount) -> Self {
+    pub fn new(
+        server: Arc<RwLock<dyn Server>>,
+        invoice_manager: Arc<RwLock<MintInvoiceManager>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+        tolerance: Amount,
+    ) -> Self {
         Self {
             observer: SingleObserver::new(),
             server,
+            invoice_manager,
+            persistence,
             index_orders: HashMap::new(),
             index_symbols: HashSet::new(),
             tolerance,
@@ -237,11 +255,7 @@ impl IndexOrderManager {
             .or_insert_with(|| HashMap::new());
 
         for index_order in user_index_orders.values() {
-            if index_order
-                .read()
-                .find_order_update(&client_order_id)
-                .is_some()
-            {
+            if index_order.find_order_update(&client_order_id).is_some() {
                 Err(ServerResponseReason::User(
                     NewIndexOrderNakReason::DuplicateClientOrderId {
                         detail: format!("Duplicate client order ID {}", client_order_id),
@@ -251,22 +265,18 @@ impl IndexOrderManager {
         }
 
         // Create index order if not created yet
-        let index_order = user_index_orders
-            .entry(symbol.clone())
-            .or_insert_with(|| {
-                Arc::new(RwLock::new(IndexOrder::new(
-                    chain_id,
-                    address.clone(),
-                    symbol.clone(),
-                    side,
-                    timestamp.clone(),
-                )))
-            })
-            .clone();
+        let index_order = user_index_orders.entry(symbol.clone()).or_insert_with(|| {
+            Box::new(IndexOrder::new(
+                chain_id,
+                address.clone(),
+                symbol.clone(),
+                side,
+                timestamp.clone(),
+            ))
+        });
 
         // Add update to index order
         let update_order_outcome = index_order
-            .write()
             .update_order(
                 client_order_id.clone(),
                 side,
@@ -286,8 +296,7 @@ impl IndexOrderManager {
             %client_order_id,
             %symbol,
             orders = %json!(
-                index_order.read().order_updates.iter()
-                    .map(|u| u.read())
+                index_order.order_updates.iter()
                     .map(|u| (
                         json!(u.client_order_id),
                         u.collateral_spent,
@@ -355,7 +364,7 @@ impl IndexOrderManager {
 
     /// We would've received CancelOrder request from FIX server.
     fn cancel_index_order(
-        &self,
+        &mut self,
         chain_id: u32,
         address: Address,
         client_order_id: ClientOrderId,
@@ -363,20 +372,22 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<CancelIndexOrderNakReason>> {
-        let user_orders = self.index_orders.get(&(chain_id, address)).ok_or_else(|| {
-            ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
-                detail: format!("No orders found for user {}", address),
-            })
-        })?;
+        let user_orders = self
+            .index_orders
+            .get_mut(&(chain_id, address))
+            .ok_or_else(|| {
+                ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
+                    detail: format!("No orders found for user {}", address),
+                })
+            })?;
 
-        let index_order = user_orders.get(&symbol).ok_or_else(|| {
+        let index_order = user_orders.get_mut(&symbol).ok_or_else(|| {
             ServerResponseReason::User(CancelIndexOrderNakReason::IndexOrderNotFound {
                 detail: format!("No order found for user {} for {}", address, symbol),
             })
         })?;
 
         match index_order
-            .write()
             .cancel_updates(collateral_amount, self.tolerance)
             .map_err(|err| {
                 ServerResponseReason::Server(ServerError::OtherReason {
@@ -520,16 +531,16 @@ impl IndexOrderManager {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         self.index_orders
-            .get(&(chain_id, *address))
-            .and_then(|x| x.get(symbol).map(|index_order| index_order.upgradable_read()))
-            .and_then(|mut order_upread| {
-                let (update_remaining_collateral, update_collateral_spent, update_fee) = (|| {
-                    let update = order_upread
+            .get_mut(&(chain_id, *address))
+            .and_then(|x| x.get_mut(symbol))
+            .and_then(|order_write| {
+                let (update_remaining_collateral, update_collateral_spent, update_fee) = {
+                    let update_write = order_write
                         .order_updates
-                        .iter()
-                        .find(|update| update.read().client_order_id.eq(client_order_id))?;
-                    let mut update_upread = update.upgradable_read();
+                        .iter_mut()
+                        .find(|update| update.client_order_id.eq(client_order_id))?;
 
+                    let update_upread: &IndexOrderUpdate = update_write;
                     let update_collateral_spent = safe!(update_upread.collateral_spent + fees)?;
                     let update_fee = safe!(update_upread.update_fee + fees)?;
                     let update_remaining_collateral = safe!(update_upread.remaining_collateral - fees)?;
@@ -553,25 +564,23 @@ impl IndexOrderManager {
                         return None;
                     }
 
-                    update_upread.with_upgraded(|update_write| {
-                        update_write.collateral_spent = update_collateral_spent;
-                        update_write.update_fee = update_fee;
-                        update_write.remaining_collateral = update_remaining_collateral;
-                        update_write.timestamp = timestamp;
-                    });
-                    Some((update_remaining_collateral, update_collateral_spent, update_fee))
-                })()?;
+                    update_write.collateral_spent = update_collateral_spent;
+                    update_write.update_fee = update_fee;
+                    update_write.remaining_collateral = update_remaining_collateral;
+                    update_write.timestamp = timestamp;
 
+                    Some((update_remaining_collateral, update_collateral_spent, update_fee))
+                }?;
+
+                let order_upread: &IndexOrder = order_write;
                 let order_remaining_collateral = safe!(order_upread.remaining_collateral - fees)?;
                 let order_collateral_spent = safe!(order_upread.collateral_spent + fees)?;
                 let order_fees = safe!(order_upread.fees + fees)?;
 
-                order_upread.with_upgraded(|order_write| {
-                    order_write.remaining_collateral = order_remaining_collateral;
-                    order_write.collateral_spent = order_collateral_spent;
-                    order_write.fees = order_fees;
-                    order_write.last_update_timestamp = timestamp;
-                });
+                order_write.remaining_collateral = order_remaining_collateral;
+                order_write.collateral_spent = order_collateral_spent;
+                order_write.fees = order_fees;
+                order_write.last_update_timestamp = timestamp;
 
                 self.observer
                     .publish_single(IndexOrderEvent::CollateralReady {
@@ -610,16 +619,15 @@ impl IndexOrderManager {
         address: &Address,
         symbol: &Symbol,
         client_order_id: &ClientOrderId,
-    ) -> Result<()> {
+    ) -> Result<Option<Box<IndexOrder>>> {
         match self.index_orders.entry((chain_id, *address)) {
             Entry::Occupied(mut entry) => {
-                match entry.get_mut().entry(symbol.clone()) {
-                    Entry::Occupied(inner_entry) => {
+                let result = match entry.get_mut().entry(symbol.clone()) {
+                    Entry::Occupied(mut inner_entry) => {
                         let should_remove = (|| -> Result<bool> {
-                            let index_order = inner_entry.get();
-                            let mut index_order_write = index_order.write();
-                            index_order_write.solver_complete(client_order_id)?;
-                            Ok(index_order_write.order_updates.is_empty())
+                            let index_order = inner_entry.get_mut();
+                            index_order.solver_complete(client_order_id)?;
+                            Ok(index_order.order_updates.is_empty())
                         })()?;
                         if should_remove {
                             tracing::info!(
@@ -629,9 +637,10 @@ impl IndexOrderManager {
                                 %client_order_id,
                                 "Removing entry: No more updates"
                             );
-                            inner_entry.remove();
+                            Ok(Some(inner_entry.remove()))
+                        } else {
+                            Ok(None)
                         }
-                        Ok(())
                     }
                     Entry::Vacant(_) => Err(eyre!(
                         "No Index orders found for: [{}:{}]",
@@ -647,9 +656,8 @@ impl IndexOrderManager {
                         %client_order_id,
                         "Removing entry: No more orders",
                     );
-                    entry.remove();
                 }
-                Ok(())
+                Ok(result)
             }
             Entry::Vacant(_) => Err(eyre!(
                 "No Index orders found for: [{}:{}]",
@@ -659,21 +667,28 @@ impl IndexOrderManager {
         }
     }
 
-    fn find_engaged_update(
+    fn find_index_order(
         &self,
         chain_id: u32,
         address: &Address,
-        client_order_id: &ClientOrderId,
         symbol: &Symbol,
-    ) -> Option<(Arc<RwLock<IndexOrder>>, Arc<RwLock<IndexOrderUpdate>>)> {
+    ) -> Option<&IndexOrder> {
         self.index_orders
             .get(&(chain_id, *address))
             .and_then(|x| x.get(symbol))
-            .and_then(|x| {
-                let r = x.read();
-                let u = r.find_engaged_update(client_order_id)?;
-                Some((x.clone(), u.clone()))
-            })
+            .map(|x| x.as_ref())
+    }
+
+    fn find_index_order_mut(
+        &mut self,
+        chain_id: u32,
+        address: &Address,
+        symbol: &Symbol,
+    ) -> Option<&mut IndexOrder> {
+        self.index_orders
+            .get_mut(&(chain_id, *address))
+            .and_then(|x| x.get_mut(symbol))
+            .map(|x| x.as_mut())
     }
 
     /// cleanup after minting
@@ -690,11 +705,8 @@ impl IndexOrderManager {
         position: CollateralPosition,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let (index_order, update) = self
-            .find_engaged_update(chain_id, address, client_order_id, symbol)
-            .ok_or_eyre("cannot find order update")?;
-
-        self.remove_index_order(chain_id, address, symbol, client_order_id)?;
+        let maybe_removed_index_order =
+            self.remove_index_order(chain_id, address, symbol, client_order_id)?;
 
         self.observer
             .publish_single(IndexOrderEvent::CancelIndexOrder {
@@ -704,31 +716,58 @@ impl IndexOrderManager {
                 timestamp,
             });
 
-        let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
-        index_order
-            .write()
-            .drain_closed_updates(|x| report.report_closed_update(x));
+        let server = self.server.clone();
+        let invoice_manager = self.invoice_manager.clone();
 
-        let mint_invoice = MintInvoice::try_new(
-            &index_order.read(),
-            &update.read(),
-            payment_id,
-            filled_quantity,
-            amount_paid,
-            lots,
-            position,
-            timestamp,
-        )?;
+        let process = move |index_order: &mut IndexOrder| -> eyre::Result<()> {
+            let report = IndexOrderUpdateReport::new(chain_id, *address, symbol.clone());
+            let mut update = None;
 
-        self.server.write().respond_with({
-            ServerResponse::MintInvoice {
-                chain_id,
-                address: *address,
-                mint_invoice,
+            index_order.drain_closed_updates(|x| {
+                report.report_closed_update(&x);
+                if x.client_order_id.eq(client_order_id) {
+                    update.replace(x);
+                }
+            });
+
+            let update = update.ok_or_eyre("Update not found")?;
+
+            let mint_invoice = MintInvoice::try_new(
+                index_order,
+                &update,
+                payment_id,
+                filled_quantity,
+                amount_paid,
+                lots,
+                position,
+                timestamp,
+            )?;
+
+            invoice_manager
+                .write()
+                .add_invoice(chain_id, *address, mint_invoice.clone())?;
+
+            server.write().respond_with({
+                ServerResponse::MintInvoice {
+                    chain_id,
+                    address: *address,
+                    mint_invoice,
+                }
+            });
+
+            Ok(())
+        };
+
+        match maybe_removed_index_order {
+            Some(mut index_order) => process(&mut index_order),
+            None => {
+                let index_order = self
+                    .find_index_order_mut(chain_id, address, symbol)
+                    .ok_or_eyre("cannot find index order")?;
+
+                process(index_order)
             }
-        });
-
-        Ok(())
+        }
     }
 
     /// provide a method to fill index order request
@@ -744,14 +783,23 @@ impl IndexOrderManager {
         status: SolverOrderStatus,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        let (index_order, update) = self
-            .find_engaged_update(chain_id, address, client_order_id, symbol)
-            .ok_or_eyre("cannot find order update")?;
+        let index_order = self
+            .find_index_order(chain_id, address, symbol)
+            .ok_or_eyre("cannot find index order")?;
 
-        (|| {
-            let mut index_order = index_order.upgradable_read();
-            let mut update = update.upgradable_read();
+        let update = index_order
+            .find_engaged_update(client_order_id)
+            .ok_or_eyre("cannot find engaged update")?;
 
+        let (
+            update_filled_quantity,
+            update_collateral_spent,
+            update_engaged_collateral,
+            update_collateral_unspent,
+            index_order_filled_quantity,
+            index_order_collateral_spent,
+            index_order_engaged_collateral,
+        ) = (|| {
             let index_order_filled_quantity = safe!(index_order.filled_quantity + fill_amount)?;
             let index_order_collateral_spent =
                 safe!(index_order.collateral_spent + collateral_spent)?;
@@ -766,46 +814,61 @@ impl IndexOrderManager {
             let update_collateral_unspent =
                 safe!(update_engaged_collateral + update.remaining_collateral)?;
 
-            update.with_upgraded(|update| {
-                update.filled_quantity = update_filled_quantity;
-                update.collateral_spent = update_collateral_spent;
-                update.engaged_collateral = update_engaged_collateral;
-                update.timestamp = timestamp;
-            });
-
-            index_order.with_upgraded(|index_order| {
-                index_order.filled_quantity = index_order_filled_quantity;
-                index_order.collateral_spent = index_order_collateral_spent;
-                index_order.engaged_collateral = index_order_engaged_collateral;
-                index_order.last_update_timestamp = timestamp;
-            });
-
-            let status_string = match status {
-                SolverOrderStatus::Engaged => "in progress",
-                SolverOrderStatus::PartlyMintable => "mintable",
-                SolverOrderStatus::FullyMintable => "fully mintable",
-                _ => "N/A",
-            };
-
-            self.server
-                .write()
-                .respond_with(ServerResponse::IndexOrderFill {
-                    chain_id,
-                    address: *address,
-                    client_order_id: client_order_id.clone(),
-                    filled_quantity: update_filled_quantity,
-                    collateral_spent: update_collateral_spent,
-                    collateral_remaining: update_collateral_unspent,
-                    fill_rate,
-                    status: status_string.to_owned(),
-                    timestamp,
-                });
-
-            Some(())
+            Some((
+                update_filled_quantity,
+                update_collateral_spent,
+                update_engaged_collateral,
+                update_collateral_unspent,
+                index_order_filled_quantity,
+                index_order_collateral_spent,
+                index_order_engaged_collateral,
+            ))
         })()
         .ok_or_eyre("Failed to update index order")?;
 
-        print_fill_report(&index_order.read(), &update.read(), fill_amount, timestamp)?;
+        print_fill_report(index_order, update, fill_amount, timestamp)?;
+
+        // --==| Commit |==--
+        {
+            let index_order_mut = self
+                .find_index_order_mut(chain_id, address, symbol)
+                .ok_or_eyre("cannot find index order")?;
+
+            let update_mut = index_order_mut
+                .find_engaged_update_mut(client_order_id)
+                .ok_or_eyre("cannot find engaged update")?;
+
+            update_mut.filled_quantity = update_filled_quantity;
+            update_mut.collateral_spent = update_collateral_spent;
+            update_mut.engaged_collateral = update_engaged_collateral;
+            update_mut.timestamp = timestamp;
+
+            index_order_mut.filled_quantity = index_order_filled_quantity;
+            index_order_mut.collateral_spent = index_order_collateral_spent;
+            index_order_mut.engaged_collateral = index_order_engaged_collateral;
+            index_order_mut.last_update_timestamp = timestamp;
+        }
+
+        let status_string = match status {
+            SolverOrderStatus::Engaged => "in progress",
+            SolverOrderStatus::PartlyMintable => "mintable",
+            SolverOrderStatus::FullyMintable => "fully mintable",
+            _ => "N/A",
+        };
+
+        self.server
+            .write()
+            .respond_with(ServerResponse::IndexOrderFill {
+                chain_id,
+                address: *address,
+                client_order_id: client_order_id.clone(),
+                filled_quantity: update_filled_quantity,
+                collateral_spent: update_collateral_spent,
+                collateral_remaining: update_collateral_unspent,
+                fill_rate,
+                status: status_string.to_owned(),
+                timestamp,
+            });
 
         Ok(())
     }
@@ -833,28 +896,25 @@ impl IndexOrderManager {
             .and_then(|map| map.get_mut(symbol))
             .ok_or_eyre("Cannot find index order")?;
 
-        index_order.write().solver_cancel(
+        index_order.solver_cancel(
             client_order_id,
             &format!("Failed with status: {:?}", status),
         );
 
-        (|o: &IndexOrder| {
-            tracing::info!(
-                remaining_collateral = %o.remaining_collateral,
-                collateral_spent = %o.collateral_spent,
-                orders = %json!(
-                    o.order_updates.iter()
-                        .map(|u| u.read())
-                        .map(|u| (
-                            json!(u.client_order_id),
-                            u.collateral_spent,
-                            u.remaining_collateral,
-                            u.filled_quantity))
-                        .collect_vec()
-                ),
-                "User Index Orders"
-            )
-        })(&index_order.read());
+        tracing::info!(
+            remaining_collateral = %index_order.remaining_collateral,
+            collateral_spent = %index_order.collateral_spent,
+            orders = %json!(
+                index_order.order_updates.iter()
+                    .map(|u| (
+                        json!(u.client_order_id),
+                        u.collateral_spent,
+                        u.remaining_collateral,
+                        u.filled_quantity))
+                    .collect_vec()
+            ),
+            "User Index Orders"
+        );
 
         self.observer
             .publish_single(IndexOrderEvent::CancelIndexOrder {
@@ -896,25 +956,20 @@ impl IndexOrderManager {
                 .get_mut(&(engage_order.chain_id, engage_order.address))
                 .and_then(|map| map.get_mut(&engage_order.symbol))
             {
-                let mut index_order = index_order.write();
-
-                (|o: &IndexOrder| {
-                    tracing::info!(
-                        remaining_collateral = %o.remaining_collateral,
-                        collateral_spent = %o.collateral_spent,
-                        orders = %json!(
-                            o.order_updates.iter()
-                                .map(|u| u.read())
-                                .map(|u| (
-                                    json!(u.client_order_id),
-                                    u.collateral_spent,
-                                    u.remaining_collateral,
-                                    u.filled_quantity))
-                                .collect_vec()
-                        ),
-                        "User Index Orders"
-                    )
-                })(&index_order);
+                tracing::info!(
+                    remaining_collateral = %index_order.remaining_collateral,
+                    collateral_spent = %index_order.collateral_spent,
+                    orders = %json!(
+                        index_order.order_updates.iter()
+                            .map(|u| (
+                                json!(u.client_order_id),
+                                u.collateral_spent,
+                                u.remaining_collateral,
+                                u.filled_quantity))
+                            .collect_vec()
+                    ),
+                    "User Index Orders"
+                );
 
                 let (remaining_collateral, unmatched_collateral) = index_order.solver_engage_one(
                     &engage_order.client_order_id,
@@ -966,6 +1021,66 @@ impl IndexOrderManager {
             });
 
         Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredIndexOrderManager {
+    index_orders: Vec<((u32, Address), HashMap<Symbol, IndexOrder>)>,
+}
+
+impl Persist for IndexOrderManager {
+    fn load(&mut self) -> Result<()> {
+        self.invoice_manager.write().load()?;
+
+        if let Some(value) = self.persistence.load_value()? {
+            let loaded_state: StoredIndexOrderManager = serde_json::from_value(value)
+                .map_err(|err| eyre!("Failed to deserialize IndexOrderManager state: {:?}", err))?;
+
+            self.index_orders = loaded_state
+                .index_orders
+                .into_iter()
+                .map(|(client_key, inner_map)| {
+                    let inner_map_with_box: HashMap<Symbol, Box<IndexOrder>> = inner_map
+                        .into_iter()
+                        .map(|(symbol, order)| (symbol, Box::new(order)))
+                        .collect();
+                    (client_key, inner_map_with_box)
+                })
+                .collect();
+
+            tracing::info!(
+                "Loaded {} client fund positions from persistence",
+                self.index_orders.len()
+            );
+        }
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        self.invoice_manager.read().store()?;
+
+        let index_orders_vec: Vec<((u32, Address), HashMap<Symbol, IndexOrder>)> = self
+            .index_orders
+            .iter()
+            .map(|(client_key, inner_map)| {
+                let inner_map_without_box: HashMap<Symbol, IndexOrder> = inner_map
+                    .iter()
+                    .map(|(symbol, order)| (symbol.clone(), (**order).clone()))
+                    .collect();
+                ((*client_key).clone(), inner_map_without_box)
+            })
+            .collect();
+
+        let store_data = StoredIndexOrderManager {
+            index_orders: index_orders_vec,
+        };
+
+        let data = serde_json::to_value(&store_data)?;
+
+        self.persistence
+            .store_value(data)
+            .map_err(|err| eyre!("Failed to store IndexOrderManager state: {:?}", err))
     }
 }
 

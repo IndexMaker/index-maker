@@ -14,7 +14,8 @@ use k256::{elliptic_curve::PrimeField, FieldBytes, Scalar};
 
 pub fn signing_key_bytes_from_hex(sk_hex: String) -> eyre::Result<[u8; 32]> {
     let sk_vec = hex::decode(sk_hex.trim_start_matches("0x"))?;
-    let sk_bytes: [u8; 32] = sk_vec.try_into()
+    let sk_bytes: [u8; 32] = sk_vec
+        .try_into()
         .map_err(|err| eyre!("Failed to parse key: {:?}", err))?;
     Ok(sk_bytes)
 }

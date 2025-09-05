@@ -1,12 +1,12 @@
-use chrono::{DateTime, Utc};
-use symm_core::order_sender::order_connector::SessionId;
 use crate::credentials::Credentials;
 use crate::session_error::SessionError;
+use chrono::{DateTime, Utc};
+use symm_core::order_sender::order_connector::SessionId;
 
 pub enum SessionCompletionResult {
     Success(Credentials),
-    Error { 
-        error: SessionError, 
+    Error {
+        error: SessionError,
         credentials: Option<Credentials>,
         session_id: SessionId,
     },
@@ -16,18 +16,26 @@ impl SessionCompletionResult {
     pub fn success(credentials: Credentials) -> Self {
         Self::Success(credentials)
     }
-    
-    pub fn error(error: SessionError, credentials: Option<Credentials>, session_id: SessionId) -> Self {
-        Self::Error { error, credentials, session_id }
+
+    pub fn error(
+        error: SessionError,
+        credentials: Option<Credentials>,
+        session_id: SessionId,
+    ) -> Self {
+        Self::Error {
+            error,
+            credentials,
+            session_id,
+        }
     }
-    
+
     pub fn should_reconnect(&self) -> bool {
         match self {
             Self::Success(_) => false,
             Self::Error { error, .. } => error.should_reconnect(),
         }
     }
-    
+
     pub fn get_credentials(self) -> Option<Credentials> {
         match self {
             Self::Success(credentials) => Some(credentials),
@@ -74,7 +82,10 @@ mod tests {
 
         assert!(!result.should_reconnect());
         assert!(result.get_error().is_none());
-        assert_eq!(result.get_credentials().unwrap().account_name(), expected_account_name);
+        assert_eq!(
+            result.get_credentials().unwrap().account_name(),
+            expected_account_name
+        );
     }
 
     #[test]
@@ -82,7 +93,7 @@ mod tests {
         let credentials = create_mock_credentials();
         let session_id = credentials.into_session_id();
         let error = SessionError::Disconnection {
-            message: String::from("Connection lost")
+            message: String::from("Connection lost"),
         };
 
         let result = SessionCompletionResult::error(error, Some(credentials), session_id);
@@ -97,7 +108,7 @@ mod tests {
         let credentials = create_mock_credentials();
         let session_id = credentials.into_session_id();
         let error = SessionError::AuthenticationError {
-            message: String::from("Invalid API key")
+            message: String::from("Invalid API key"),
         };
 
         let result = SessionCompletionResult::error(error, None, session_id);

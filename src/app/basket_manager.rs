@@ -70,7 +70,6 @@ impl BasketManagerConfig {
             .and_then(|v| v.as_array())
             .ok_or_eyre("Configuration must contain index_files")?;
 
-        
         let (index_configs, bad): (Vec<_>, Vec<_>) = index_files
             .into_iter()
             .map(|x| x.as_object().ok_or_eyre("Entry must be an object"))

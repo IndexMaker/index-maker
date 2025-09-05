@@ -240,6 +240,9 @@ pub enum ServerResponse {
 pub trait Server: IntoObservableManyVTable<Arc<ServerEvent>> + Send + Sync {
     /// Provide methods for sending FIX responses
     fn respond_with(&mut self, response: ServerResponse);
+
+    /// Initialize shutdown - block new orders
+    fn initialize_shutdown(&mut self);
 }
 
 pub mod test_util {
@@ -283,6 +286,10 @@ pub mod test_util {
         /// provide methods for sending FIX responses
         fn respond_with(&mut self, response: ServerResponse) {
             self.implementor.publish_single(response);
+        }
+
+        fn initialize_shutdown(&mut self) {
+            todo!()
         }
     }
 

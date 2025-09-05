@@ -19,11 +19,11 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::command::Command;
 use crate::credentials::Credentials;
-use crate::trading_session::{TradingSession, TradingSessionBuilder, TradingUserData};
 use crate::session_completion::SessionCompletionResult;
 use crate::session_error::SessionError;
+use crate::trading_session::{TradingSession, TradingSessionBuilder, TradingUserData};
+use crate::{binance_order_sending::BinanceFeeCalculator, command::Command};
 
 struct SessionSetupState {
     trading_session: Option<TradingSession>,
@@ -32,6 +32,7 @@ struct SessionSetupState {
     session_id: SessionId,
     observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     symbols: Vec<Symbol>,
+    fee_calculator: BinanceFeeCalculator,
 }
 
 impl SessionSetupState {
@@ -39,6 +40,7 @@ impl SessionSetupState {
         credentials: Credentials,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
     ) -> Self {
         let session_id = credentials.into_session_id();
         Self {
@@ -48,6 +50,7 @@ impl SessionSetupState {
             session_id,
             observer,
             symbols,
+            fee_calculator,
         }
     }
 
@@ -87,24 +90,31 @@ impl SessionSetupState {
             tracing::debug!("User data obtained successfully");
             self.user_data = Some(ud);
 
-            self.observer.read().publish_single(OrderConnectorNotification::SessionLogon {
-                session_id: self.session_id.clone(),
-                timestamp: Utc::now(),
-            });
+            self.observer
+                .read()
+                .publish_single(OrderConnectorNotification::SessionLogon {
+                    session_id: self.session_id.clone(),
+                    timestamp: Utc::now(),
+                });
         }
         Ok(())
     }
 
     fn log_error(&self, phase: &str, error: &SessionError) {
-        tracing::warn!("Session {} failed during {}: {}", self.session_id, phase, error);
-        self.observer.read().publish_single(OrderConnectorNotification::SessionLogout {
-            session_id: self.session_id.clone(),
-            reason: format!("Failed during {}: {}", phase, error),
-            timestamp: Utc::now(),
-        });
+        tracing::warn!(
+            "Session {} failed during {}: {}",
+            self.session_id,
+            phase,
+            error
+        );
+        self.observer
+            .read()
+            .publish_single(OrderConnectorNotification::SessionLogout {
+                session_id: self.session_id.clone(),
+                reason: format!("Failed during {}: {}", phase, error),
+                timestamp: Utc::now(),
+            });
     }
-
-
 }
 
 async fn run_main_loop(
@@ -113,8 +123,13 @@ async fn run_main_loop(
     cancel_token: CancellationToken,
 ) -> Option<SessionError> {
     let mut command_rx = command_rx;
-    if let (Some(ref mut ts), Some(ref ud)) = (&mut setup_state.trading_session, &setup_state.user_data) {
-        ud.subscribe(setup_state.observer.clone());
+    if let (Some(ref mut ts), Some(ref ud)) =
+        (&mut setup_state.trading_session, &setup_state.user_data)
+    {
+        ud.subscribe(
+            setup_state.fee_calculator.clone(),
+            setup_state.observer.clone(),
+        );
         tracing::info!("Session {} entering main loop", setup_state.session_id);
 
         loop {
@@ -171,12 +186,14 @@ impl Session {
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         credentials: Credentials,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
             tracing::info!("Session loop started");
             let session_id_clone = credentials.into_session_id();
 
-            let mut setup_state = SessionSetupState::new(credentials, observer, symbols);
+            let mut setup_state =
+                SessionSetupState::new(credentials, observer, symbols, fee_calculator);
 
             // Attempt to setup the session - early return on first error
             let setup_result = async {
@@ -185,7 +202,8 @@ impl Session {
                 setup_state.get_exchange_info().await?;
                 setup_state.get_user_data().await?;
                 Ok::<(), SessionError>(())
-            }.await;
+            }
+            .await;
 
             match setup_result {
                 Ok(()) => {
@@ -195,22 +213,33 @@ impl Session {
                             let should_return_credentials = error.should_reconnect();
                             tracing::warn!(
                                 "Session {} completed with error: {} (reconnect: {})",
-                                setup_state.session_id, error, should_return_credentials
+                                setup_state.session_id,
+                                error,
+                                should_return_credentials
                             );
 
                             SessionCompletionResult::error(
                                 error,
-                                if should_return_credentials { Some(setup_state.credentials) } else { None },
+                                if should_return_credentials {
+                                    Some(setup_state.credentials)
+                                } else {
+                                    None
+                                },
                                 setup_state.session_id,
                             )
                         }
                         None => {
-                            tracing::info!("Session {} completed successfully", setup_state.session_id);
-                            setup_state.observer.read().publish_single(OrderConnectorNotification::SessionLogout {
-                                session_id: session_id_clone,
-                                reason: String::from("Session ended gracefully"),
-                                timestamp: Utc::now(),
-                            });
+                            tracing::info!(
+                                "Session {} completed successfully",
+                                setup_state.session_id
+                            );
+                            setup_state.observer.read().publish_single(
+                                OrderConnectorNotification::SessionLogout {
+                                    session_id: session_id_clone,
+                                    reason: String::from("Session ended gracefully"),
+                                    timestamp: Utc::now(),
+                                },
+                            );
                             SessionCompletionResult::success(setup_state.credentials)
                         }
                     }
@@ -220,12 +249,18 @@ impl Session {
                     let should_return_credentials = error.should_reconnect();
                     tracing::warn!(
                         "Session {} setup failed: {} (reconnect: {})",
-                        session_id_clone, error, should_return_credentials
+                        session_id_clone,
+                        error,
+                        should_return_credentials
                     );
 
                     SessionCompletionResult::error(
                         error,
-                        if should_return_credentials { Some(setup_state.credentials) } else { None },
+                        if should_return_credentials {
+                            Some(setup_state.credentials)
+                        } else {
+                            None
+                        },
                         session_id_clone,
                     )
                 }
@@ -239,14 +274,22 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use crate::credentials::Credentials;
     use parking_lot::RwLock as AtomicLock;
-    use symm_core::core::{
-        functional::SingleObserver,
-        test_util::{get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool}
+    use rust_decimal::dec;
+    use std::{collections::HashMap, sync::Arc};
+    use symm_core::{
+        core::{
+            bits::Amount,
+            functional::SingleObserver,
+            test_util::{
+                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair,
+                get_mock_index_name_2, test_mock_atomic_bool,
+            },
+        },
+        market_data::exchange_rates::FixedExchangeRates,
     };
     use tokio::sync::mpsc::unbounded_channel;
-    use crate::credentials::Credentials;
 
     fn create_mock_credentials() -> Credentials {
         Credentials::new(
@@ -263,7 +306,7 @@ mod tests {
     async fn test_session_creation() {
         let (command_tx, _command_rx) = unbounded_channel();
         let session = Session::new(command_tx);
-        
+
         // Verify session is created with correct initial state
         assert!(!session.session_loop.has_stopped());
     }
@@ -272,16 +315,19 @@ mod tests {
     async fn test_send_command_success() {
         let (command_tx, mut command_rx) = unbounded_channel();
         let session = Session::new(command_tx);
-        
+
         let test_command = Command::EnableTrading(true);
         let result = session.send_command(test_command);
-        
+
         assert!(result.is_ok());
-        
+
         // Verify command was sent
         let received_command = command_rx.recv().await;
         assert!(received_command.is_some());
-        assert!(matches!(received_command.unwrap(), Command::EnableTrading(true)));
+        assert!(matches!(
+            received_command.unwrap(),
+            Command::EnableTrading(true)
+        ));
     }
 
     #[tokio::test]
@@ -296,7 +342,10 @@ mod tests {
         let result = session.send_command(test_command);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Failed to send command"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to send command"));
     }
 
     #[test]
@@ -304,8 +353,11 @@ mod tests {
         let credentials = create_mock_credentials();
         let observer = Arc::new(AtomicLock::new(SingleObserver::new()));
         let symbols = vec![get_mock_asset_name_1()];
+        let exchange_rates = Arc::new(FixedExchangeRates::new(HashMap::new()));
+        let fee_calculator = BinanceFeeCalculator::new(exchange_rates, get_mock_asset_name_1());
 
-        let setup_state = SessionSetupState::new(credentials, observer, symbols.clone());
+        let setup_state =
+            SessionSetupState::new(credentials, observer, symbols.clone(), fee_calculator);
 
         // Verify initial state
         assert!(setup_state.trading_session.is_none());
@@ -320,12 +372,11 @@ mod tests {
 
         // Test rate limit error (should reconnect)
         let error = SessionError::RateLimitExceeded {
-            message: "Rate limit exceeded".to_string()
+            message: "Rate limit exceeded".to_string(),
         };
 
         // Verify error properties
         assert!(error.should_reconnect());
         assert!(error.to_string().contains("Rate limit exceeded"));
     }
-
 }

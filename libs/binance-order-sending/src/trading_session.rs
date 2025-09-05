@@ -1,11 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use binance_sdk::common::websocket::WebsocketStream;
 use binance_sdk::models::{self, WebsocketApiRateLimit};
 use binance_sdk::spot::websocket_api::{
     ExchangeInfoParams, OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum,
-    UserDataStreamEventsResponse, UserDataStreamStartParams, UserDataStreamSubscribeParams,
-    WebsocketApi, PingParams
+    PingParams, UserDataStreamEventsResponse, UserDataStreamStartParams,
+    UserDataStreamSubscribeParams, WebsocketApi,
 };
 use binance_sdk::spot::{self, websocket_api};
 use binance_sdk::{config::ConfigurationWebsocketApi, spot::websocket_api::SessionLogonParams};
@@ -16,6 +17,7 @@ use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
 use symm_core::core::bits::{Amount, SingleOrder};
 use symm_core::core::decimal_ext::DecimalExt;
+use symm_core::core::functional::OneShotSingleObserver;
 use symm_core::{
     core::{
         bits::{OrderId, Side, Symbol},
@@ -27,10 +29,11 @@ use symm_core::{
 use tokio::time::sleep;
 use tracing::info;
 
+use crate::binance_order_sending::BinanceFeeCalculator;
 use crate::command::Command;
 use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
-use crate::trading_markets::TradingMarkets;
 use crate::session_error::SessionError;
+use crate::trading_markets::TradingMarkets;
 
 pub struct TradingSessionBuilder;
 
@@ -39,18 +42,17 @@ impl TradingSessionBuilder {
         let configuration = ConfigurationWebsocketApi::builder()
             .configure(credentials)
             .map_err(|err| SessionError::AuthenticationError {
-                message: format!("Failed to configure with credentials: {:?}", err)
+                message: format!("Failed to configure with credentials: {:?}", err),
             })?
             .build()
             .map_err(|err| SessionError::BadRequest {
-                message: format!("Failed to build configuration: {:?}", err)
+                message: format!("Failed to build configuration: {:?}", err),
             })?;
 
         let client = spot::SpotWsApi::production(configuration);
-        let wsapi = client
-            .connect()
-            .await
-            .map_err(|err| SessionError::from_eyre(&eyre::eyre!("Failed to connect to Binance: {:?}", err)))?;
+        let wsapi = client.connect().await.map_err(|err| {
+            SessionError::from_eyre(&eyre::eyre!("Failed to connect to Binance: {:?}", err))
+        })?;
 
         let trading_enabled = credentials.should_enable_trading();
 
@@ -126,11 +128,12 @@ impl TradingSession {
     }
 
     pub async fn logon(&mut self) -> Result<(), SessionError> {
-        let logon_params = SessionLogonParams::builder()
-            .build()
-            .map_err(|err| SessionError::BadRequest {
-                message: format!("Failed to build logon request: {}", err)
-            })?;
+        let logon_params =
+            SessionLogonParams::builder()
+                .build()
+                .map_err(|err| SessionError::BadRequest {
+                    message: format!("Failed to build logon request: {}", err),
+                })?;
 
         let res = self
             .wsapi
@@ -149,11 +152,11 @@ impl TradingSession {
         if self.trading_enabled == enable {
             if self.trading_enabled {
                 return Err(SessionError::TradingRestriction {
-                    message: String::from("Trading already enabled")
+                    message: String::from("Trading already enabled"),
                 });
             } else {
                 return Err(SessionError::TradingRestriction {
-                    message: String::from("Trading already disabled")
+                    message: String::from("Trading already disabled"),
                 });
             }
         }
@@ -258,31 +261,35 @@ impl TradingSession {
             .symbols(symbols)
             .build()
             .map_err(|err| SessionError::BadRequest {
-                message: format!("Failed to build exchange info params: {}", err)
+                message: format!("Failed to build exchange info params: {}", err),
             })?;
 
-        let res = self
-            .wsapi
-            .exchange_info(params)
-            .await
-            .map_err(|err| SessionError::from_eyre(&eyre::eyre!("Failed to obtain exchange info: {:?}", err)))?;
+        let res = self.wsapi.exchange_info(params).await.map_err(|err| {
+            SessionError::from_eyre(&eyre::eyre!("Failed to obtain exchange info: {:?}", err))
+        })?;
 
         if let Some(limits) = &res.rate_limits {
             self.update_limits(limits);
         }
 
-        let exchange_info = res
-            .data()
-            .map_err(|err| SessionError::ServerError {
-                message: format!("Failed to obtain exchange info data: {}", err)
-            })?;
+        let exchange_info = res.data().map_err(|err| SessionError::ServerError {
+            message: format!("Failed to obtain exchange info data: {}", err),
+        })?;
 
-        self.markets.ingest_exchange_info(exchange_info)
+        self.markets
+            .ingest_exchange_info(exchange_info)
             .map_err(|err| SessionError::BadRequest {
-                message: format!("Failed to ingest exchange info: {:?}", err)
+                message: format!("Failed to ingest exchange info: {:?}", err),
             })?;
 
         Ok(())
+    }
+
+    pub async fn get_balances(
+        &mut self,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<(), SessionError> {
+        todo!("Not implemented")
     }
 
     pub async fn send_command(
@@ -295,7 +302,7 @@ impl TradingSession {
             Command::NewOrder(single_order) => {
                 if !self.trading_enabled {
                     return Err(SessionError::TradingRestriction {
-                        message: String::from("Trading is disabled")
+                        message: String::from("Trading is disabled"),
                     });
                 }
 
@@ -317,21 +324,25 @@ impl TradingSession {
                 Ok(())
             }
             Command::GetExchangeInfo(symbols) => self.get_exchange_info(symbols).await,
+            Command::GetBalances(observer) => self.get_balances(observer).await,
         }
     }
 
     pub async fn get_user_data(&mut self) -> Result<TradingUserData, SessionError> {
-        let user_data_stream_start_params = UserDataStreamStartParams::builder()
-            .build()
-            .map_err(|err| SessionError::BadRequest {
-                message: format!("Failed to configure user data stream: {}", err)
-            })?;
+        let user_data_stream_start_params =
+            UserDataStreamStartParams::builder()
+                .build()
+                .map_err(|err| SessionError::BadRequest {
+                    message: format!("Failed to configure user data stream: {}", err),
+                })?;
 
         let res = self
             .wsapi
             .user_data_stream_start(user_data_stream_start_params)
             .await
-            .map_err(|err| SessionError::from_eyre(&eyre::eyre!("Failed to start user data stream: {:?}", err)))?;
+            .map_err(|err| {
+                SessionError::from_eyre(&eyre::eyre!("Failed to start user data stream: {:?}", err))
+            })?;
 
         if let Some(limits) = &res.rate_limits {
             self.update_limits(limits);
@@ -342,14 +353,19 @@ impl TradingSession {
         let user_data_stream_subscribe_params = UserDataStreamSubscribeParams::builder()
             .build()
             .map_err(|err| SessionError::BadRequest {
-                message: format!("Failed to configure user data subscription: {}", err)
+                message: format!("Failed to configure user data subscription: {}", err),
             })?;
 
         let (res, stream) = self
             .wsapi
             .user_data_stream_subscribe(user_data_stream_subscribe_params)
             .await
-            .map_err(|err| SessionError::from_eyre(&eyre::eyre!("Failed to subscribe to user data stream: {:?}", err)))?;
+            .map_err(|err| {
+                SessionError::from_eyre(&eyre::eyre!(
+                    "Failed to subscribe to user data stream: {:?}",
+                    err
+                ))
+            })?;
 
         if let Some(limits) = &res.rate_limits {
             self.update_limits(limits);
@@ -359,7 +375,7 @@ impl TradingSession {
 
         Ok(TradingUserData::new(stream))
     }
-    
+
     /// Check if the WebSocket connection is healthy
     pub async fn is_connection_healthy(&self) -> bool {
         self.wsapi.is_connected().await
@@ -367,15 +383,25 @@ impl TradingSession {
 
     /// Attempt to ping the WebSocket connection
     pub async fn ping_connection(&self) -> Result<()> {
-        tracing::trace!("Pinging WebSocket connection for session {}", self.session_id);
-        
+        tracing::trace!(
+            "Pinging WebSocket connection for session {}",
+            self.session_id
+        );
+
         match self.wsapi.ping(PingParams::default()).await {
             Ok(_) => {
-                tracing::trace!("WebSocket connection is healthy for session {}", self.session_id);
+                tracing::trace!(
+                    "WebSocket connection is healthy for session {}",
+                    self.session_id
+                );
                 Ok(())
             }
             Err(err) => {
-                tracing::warn!("Failed to ping WebSocket connection for session {}: {:?}", self.session_id, err);
+                tracing::warn!(
+                    "Failed to ping WebSocket connection for session {}: {:?}",
+                    self.session_id,
+                    err
+                );
                 Err(eyre!("WebSocket ping failed: {:?}", err))
             }
         }
@@ -395,7 +421,11 @@ impl TradingUserData {
         self.stream.unsubscribe().await;
     }
 
-    pub fn subscribe(&self, observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>) {
+    pub fn subscribe(
+        &self,
+        fee_calculator: BinanceFeeCalculator,
+        observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
+    ) {
         self.stream.on_message(move |data| {
             tracing::debug!("User data: {:#?}", data);
 
@@ -455,8 +485,20 @@ impl TradingUserData {
                     .and_then(|v| Some(Amount::from_str_exact(&v)))
                     .ok_or_eyre("Missing commission amount")?
                     .or_else(|e| Err(eyre!("Failed to parse commission amount: {:?}", e)))?;
-                
-                let commission_asset = execution_report.n_uppercase;
+
+                let fee = if let Some(commission_asset) = execution_report.n_uppercase {
+                    match fee_calculator
+                        .compute_amount(commission_amount, Symbol::from(commission_asset))
+                    {
+                        Ok(fee) => fee,
+                        Err(err) => {
+                            tracing::warn!("Failed to compute commission amount: {:?}", err);
+                            Amount::ZERO
+                        }
+                    }
+                } else {
+                    Amount::ZERO
+                };
 
                 let order_status = execution_report
                     .x_uppercase
@@ -479,7 +521,7 @@ impl TradingUserData {
                             side,
                             price: executed_price,
                             quantity: executed_quantity,
-                            fee: Amount::ZERO,
+                            fee,
                             timestamp: Utc::now(),
                         }),
                     "PARTIALLY_FILLED" => {
@@ -492,7 +534,7 @@ impl TradingUserData {
                                 side,
                                 price: executed_price,
                                 quantity: executed_quantity,
-                                fee: Amount::ZERO,
+                                fee,
                                 timestamp: Utc::now(),
                             })
                     }

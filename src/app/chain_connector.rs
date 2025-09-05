@@ -1,31 +1,21 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use alloy::primitives;
 use alloy_chain_connector::{
     chain_connector::{GasFeeCalculator, RealChainConnector},
     collateral::{
         otc_custody_designation::OTCCustodyCollateralDesignation,
         otc_custody_to_wallet_bridge::OTCCustodyToWalletCollateralBridge,
-        signer_to_wallet_bridge::SignerWalletToWalletCollateralBridge,
-        signer_wallet_designation::SignerWalletCollateralDesignation,
         wallet_designation::WalletCollateralDesignation,
     },
     credentials::Credentials,
 };
-use alloy_primitives::Address;
-use binance_order_sending::credentials;
 use eyre::{eyre, Context, OptionExt, Result};
 use otc_custody::{
     custody_authority::CustodyAuthority,
     custody_client::{CustodyClient, CustodyClientMethods},
     index::{index_deployment::IndexDeployment, index_deployment_serde::IndexMakerData},
 };
-use parking_lot::lock_api::RwLock;
-use primitives::address;
-use symm_core::{
-    core::{bits::Symbol, json_file_async::read_from_json_file_async},
-    market_data::exchange_rates::ExchangeRates,
-};
+use symm_core::core::{bits::Symbol, json_file_async::read_from_json_file_async};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
@@ -35,10 +25,7 @@ use index_core::{
     collateral::collateral_router::CollateralDesignation,
 };
 
-use crate::app::{
-    collateral_router::CollateralRouterConfig, market_data::MarketDataConfig,
-    solver::ChainConnectorConfig,
-};
+use crate::app::{collateral_router::CollateralRouterConfig, solver::ChainConnectorConfig};
 
 #[derive(Builder, Clone)]
 #[builder(

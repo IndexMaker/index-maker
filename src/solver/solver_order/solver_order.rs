@@ -12,7 +12,6 @@ use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
-    assert_decimal_approx_eq,
     core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
@@ -21,7 +20,7 @@ use symm_core::{
     order_sender::position::LotId,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum SolverOrderStatus {
     Open,
     ManageCollateral,
@@ -38,6 +37,7 @@ pub enum SolverOrderStatus {
 }
 
 /// Solver's view of the Index Order
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SolverOrder {
     // Chain ID
     pub chain_id: u32,
@@ -146,15 +146,16 @@ impl SolverOrderAssetLot {
     }
 }
 
+#[derive(Clone)]
 pub struct SolverClientOrders {
     /// A map of all index orders from all clients
-    client_orders: HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>,
+    pub(super) client_orders: HashMap<(u32, Address, ClientOrderId), Arc<RwLock<SolverOrder>>>,
     /// A map of queues with index order client IDs, so that we process them in that order
-    client_order_queues: HashMap<(u32, Address), VecDeque<ClientOrderId>>,
+    pub(super) client_order_queues: HashMap<(u32, Address), VecDeque<ClientOrderId>>,
     /// An internal notification queue, that we check on solver tick
-    client_notify_queue: VecDeque<(u32, Address)>,
+    pub(super) client_notify_queue: VecDeque<(u32, Address)>,
     /// A delay before we start processing client order
-    client_wait_period: TimeDelta,
+    pub(super) client_wait_period: TimeDelta,
 }
 
 impl SolverClientOrders {
@@ -176,6 +177,10 @@ impl SolverClientOrders {
         self.client_orders
             .get(&(chain_id, address, client_order_id))
             .cloned()
+    }
+
+    pub fn len(&self) -> usize {
+        self.client_orders.len()
     }
 
     pub fn get_next_client_order(
@@ -215,7 +220,7 @@ impl SolverClientOrders {
         let address = order_upread.address;
 
         order_upread.with_upgraded(|order_write| {
-            order_write.status = SolverOrderStatus::Open;
+            order_write.status = SolverOrderStatus::Ready;
             order_write.timestamp = timestamp;
         });
 
@@ -312,6 +317,34 @@ impl SolverClientOrders {
             "Client Orders");
 
         Ok(())
+    }
+
+    pub fn write_trace_all_queues(&self, message: &str) {
+        for ((chain_id, address, ..), x) in self.client_orders.iter() {
+            tracing::info!(
+            %message,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(*chain_id, *address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+        }
+    }
+
+    pub fn write_trace_one_queue(&self, chain_id: u32, address: Address, message: &str) {
+        tracing::info!(
+            %chain_id,
+            %address,
+            %message,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
     }
 
     pub fn cancel_client_order(
