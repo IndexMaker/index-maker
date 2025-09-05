@@ -21,6 +21,17 @@ impl Asset {
     }
 }
 
+// W/a: We need Asset Manager
+pub fn get_base_asset_symbol_workaround(symbol: &Symbol) -> Symbol {
+    const KNOWN_SUFFIXES: [&str; 3] = ["USDC", "USDT", "EUR"];
+
+    if let Some(stripped) = KNOWN_SUFFIXES.iter().find_map(|s| symbol.strip_suffix(s)) {
+        Symbol::from(stripped)
+    } else {
+        symbol.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use eyre::Result;

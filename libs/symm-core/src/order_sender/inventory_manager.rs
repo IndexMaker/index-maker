@@ -8,20 +8,22 @@ use std::{
     sync::Arc,
 };
 
+use arc_swap::{ArcSwap, ArcSwapAny};
 use chrono::{DateTime, Utc};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::partition;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
+    assets::asset::get_base_asset_symbol_workaround,
     core::{
         functional::{OneShotPublishSingle, OneShotSingleObserver},
         persistence::{Persist, Persistence},
         telemetry::{TracingData, WithBaggage},
     },
-    order_sender::position,
+    order_sender::position::{self, LotAssignment},
 };
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
@@ -48,7 +50,7 @@ pub struct ReconciledPosition {
     pub actual_balance: Option<Amount>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct GetReconciledPositionsResponse {
     pub positions: HashMap<Symbol, Box<ReconciledPosition>>,
 }
@@ -123,11 +125,32 @@ pub enum InventoryEvent {
     },
 }
 
+pub struct InventoryManagerSnapshot {
+    positions: ArcSwap<GetReconciledPositionsResponse>,
+}
+
+impl InventoryManagerSnapshot {
+    pub fn new() -> Self {
+        Self {
+            positions: ArcSwap::new(Arc::new(GetReconciledPositionsResponse::default())),
+        }
+    }
+
+    pub fn set(&self, response: Arc<GetReconciledPositionsResponse>) {
+        self.positions.store(response);
+    }
+
+    pub fn get(&self) -> Arc<GetReconciledPositionsResponse> {
+        self.positions.load_full()
+    }
+}
+
 pub struct InventoryManager {
     observer: SingleObserver<InventoryEvent>,
     order_tracker: Arc<RwLock<OrderTracker>>,
     persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     positions: HashMap<Symbol, Box<Position>>,
+    snapshot: Arc<InventoryManagerSnapshot>,
     tolerance: Amount,
 }
 
@@ -142,6 +165,7 @@ impl InventoryManager {
             persistence,
             order_tracker,
             positions: HashMap::new(),
+            snapshot: Arc::new(InventoryManagerSnapshot::new()),
             tolerance,
         }
     }
@@ -163,10 +187,11 @@ impl InventoryManager {
         quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        let base_asset = get_base_asset_symbol_workaround(&symbol);
         let position = self
             .positions
-            .entry(symbol.clone())
-            .or_insert_with(|| Box::new(Position::new(symbol.clone(), side)));
+            .entry(get_base_asset_symbol_workaround(&base_asset))
+            .or_insert_with(|| Box::new(Position::new(base_asset.clone(), side)));
 
         position.create_lot(
             order_id.clone(),
@@ -212,8 +237,9 @@ impl InventoryManager {
         batch_quantity_remaining: Amount,
         fill_timestamp: DateTime<Utc>,
     ) -> Result<Option<Amount>> {
+        let base_asset = get_base_asset_symbol_workaround(&symbol);
         // Find position for symbol
-        match self.positions.get_mut(&symbol) {
+        match self.positions.get_mut(&base_asset) {
             // Position not found
             None => Ok(Some(quantity_filled)),
             Some(position) => {
@@ -388,6 +414,46 @@ impl InventoryManager {
         Ok(())
     }
 
+    pub fn assign_lots(
+        &mut self,
+        lot_assignments: HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>>,
+    ) -> Result<()> {
+        let nested_map =
+            lot_assignments
+                .into_iter()
+                .fold(HashMap::new(), |mut map, ((symbol, lot_id), v)| {
+                    match map.entry(symbol) {
+                        Entry::Vacant(vacant_entry) => {
+                            let x = HashMap::from([(lot_id, v)]);
+                            vacant_entry.insert(x);
+                        }
+                        Entry::Occupied(mut occupied_entry) => {
+                            let x = occupied_entry.get_mut();
+                            match x.entry(lot_id) {
+                                Entry::Occupied(mut occupied_entry) => {
+                                    occupied_entry.get_mut().extend(v);
+                                }
+                                Entry::Vacant(vacant_entry) => {
+                                    vacant_entry.insert(v);
+                                }
+                            }
+                        }
+                    }
+                    map
+                });
+
+        for (symbol, map) in nested_map {
+            let position = self
+                .positions
+                .get_mut(&symbol)
+                .ok_or_eyre("Failed to find position")?;
+
+            position.assign_lots(map)?;
+        }
+
+        Ok(())
+    }
+
     /// provide method to get open lots
     pub fn get_positions(&self, symbols: &[Symbol]) -> GetPositionsResponse {
         // Optimistic: we should be able to find all symbols
@@ -456,6 +522,19 @@ impl InventoryManager {
             ))?;
         Ok(())
     }
+    
+    pub fn update_snapshot(&self) -> Result<()> {
+        let snapshot = self.snapshot.clone();
+
+        self.get_reconciled_positions(OneShotSingleObserver::new_with_fn(move |x| {
+            snapshot.set(Arc::new(x))
+        }))
+    }
+
+    pub fn get_snapshot(&self) -> Arc<InventoryManagerSnapshot> {
+        self.snapshot.clone()
+    }
+
 }
 
 impl Persist for InventoryManager {

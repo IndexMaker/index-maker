@@ -7,7 +7,7 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 
@@ -570,7 +570,10 @@ impl Solver {
                     self.ready_orders.lock().push_back(solver_order.clone());
                     Ok(())
                 }
-                _ => Err(eyre!("Programming error: Expected either Open | Ready order status")).unwrap(),
+                _ => Err(eyre!(
+                    "Programming error: Expected either Open | Ready order status"
+                ))
+                .unwrap(),
             };
 
             if let Err(err) = result {
@@ -1053,6 +1056,16 @@ impl Solver {
                                 timestamp,
                             );
 
+                        order_write
+                            .compress_lots()
+                            .context("Failed to compress lots")?;
+
+                        let lot_assignments = order_write.collect_lot_assignments();
+                        self.inventory_manager
+                            .write()
+                            .assign_lots(lot_assignments)
+                            .context("Failed to assign lots")?;
+
                         let lots = order_write.lots.drain(..).collect_vec();
                         self.index_order_manager
                             .write()
@@ -1071,6 +1084,10 @@ impl Solver {
                             )?;
 
                         self.set_order_status(&mut order_write, SolverOrderStatus::Minted);
+
+                        if let Err(err) = self.inventory_manager.write().update_snapshot() {
+                            tracing::warn!("Failed to update inventory snapshot: {:?}", err);
+                        }
                     } else {
                         tracing::warn!(%payment_id, "Payment authorized handling failed")
                     }

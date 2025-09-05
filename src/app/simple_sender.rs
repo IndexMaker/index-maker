@@ -12,7 +12,7 @@ use parking_lot::RwLock;
 use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::{
-    core::{
+    assets::asset::get_base_asset_symbol_workaround, core::{
         async_loop::AsyncLoop,
         bits::{Amount, Side, SingleOrder, Symbol},
         decimal_ext::DecimalExt,
@@ -22,8 +22,7 @@ use symm_core::{
         },
         limit::{LimiterConfig, MultiLimiter},
         persistence::{Persist, Persistence},
-    },
-    order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
+    }, order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId}
 };
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -109,7 +108,7 @@ impl SimpleOrderHandler {
 
         {
             let mut balances_write = self.balances.write();
-            match balances_write.entry(order.symbol.clone()) {
+            match balances_write.entry(get_base_asset_symbol_workaround(&order.symbol)) {
                 Entry::Occupied(mut occupied_entry) => {
                     match order.side {
                         Side::Buy => *occupied_entry.get_mut() += executed_quantity,

@@ -9,13 +9,9 @@ use axum::{
 use chrono::{DateTime, Utc};
 use std::net::SocketAddr;
 use symm_core::{
-    core::{
-        bits::{Address, ClientOrderId},
-        functional::OneShotSingleObserver,
-    },
+    core::bits::{Address, ClientOrderId},
     order_sender::inventory_manager::GetReconciledPositionsResponse,
 };
-use tokio::sync::oneshot;
 
 use crate::{
     collateral::collateral_position::CollateralPosition,
@@ -85,19 +81,8 @@ impl QueryService {
 ///  `/api/v1/inventory`
 async fn get_inventory(
     State(state): State<Arc<QueryServiceState>>,
-) -> Result<Json<GetReconciledPositionsResponse>, StatusCode> {
-    let (tx, rx) = oneshot::channel();
-    state
-        .get_inventory_manager()
-        .read()
-        .get_reconciled_positions(OneShotSingleObserver::new_with_fn(|positions| {
-            if let Err(err) = tx.send(positions) {
-                tracing::warn!("Failed to propagate reconciled positions: {:?}", err);
-            }
-        }))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let positions = rx.await.map_err(|_| StatusCode::NOT_FOUND)?;
+) -> Result<Json<Arc<GetReconciledPositionsResponse>>, StatusCode> {
+    let positions = state.get_inventory_manager().read().get_snapshot().get();
     Ok(Json(positions))
 }
 

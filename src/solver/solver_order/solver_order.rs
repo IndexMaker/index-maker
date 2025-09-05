@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{ensure, eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
@@ -12,12 +12,11 @@ use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
-    core::{
+    assets::asset::get_base_asset_symbol_workaround, core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingData},
-    },
-    order_sender::position::LotId,
+    }, order_sender::position::{LotAssignment, LotId}
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -91,6 +90,83 @@ pub struct SolverOrder {
 impl SolverOrder {
     pub fn get_key(&self) -> (u32, Address, ClientOrderId) {
         (self.chain_id, self.address, self.client_order_id.clone())
+    }
+
+    /// Compress to one assignment per lot
+    pub fn compress_lots(&mut self) -> eyre::Result<()> {
+        let mut map = HashMap::new();
+
+        while let Some(mut lot) = self.lots.pop() {
+            // Originally remaining quantity is value before lot is assigned. We
+            // want it to be the value after the assignment.
+            lot.remaining_quantity =
+                safe!(lot.remaining_quantity - lot.assigned_quantity).ok_or_eyre("Math problem")?;
+            
+            // W/a remove quote currency from symbol, keep only base
+            lot.symbol = get_base_asset_symbol_workaround(&lot.symbol);
+            
+            // We want to compress multiple assignments of each lot, to single
+            // assigment per lot
+            match map.entry((lot.symbol.clone(), lot.lot_id.clone())) {
+                Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(lot);
+                }
+                Entry::Occupied(mut occupied_entry) => {
+                    let current = occupied_entry.get_mut();
+
+                    // Sum assigned quantities
+                    current.assigned_quantity =
+                        safe!(current.assigned_quantity + lot.assigned_quantity)
+                            .ok_or_eyre("Math problem")?;
+                    
+                    // Sum assigned fees
+                    current.assigned_fee = safe!(current.assigned_fee + lot.assigned_fee)
+                        .ok_or_eyre("Math problem")?;
+
+                    // We want most recent value of remaining quantity, we don't
+                    // compare recency by timestamp as this may be inaccurate
+                    current.remaining_quantity =
+                        current.remaining_quantity.min(lot.remaining_quantity);
+
+                    // We want timestamp of the most recent assignment
+                    current.assigned_timestamp =
+                        current.assigned_timestamp.max(lot.assigned_timestamp);
+                }
+            }
+        }
+
+        self.lots = map
+            .into_iter()
+            .map(|(_, x)| x)
+            .sorted_by_key(|x| x.assigned_timestamp)
+            .collect_vec();
+
+        Ok(())
+    }
+
+    // Collect lot assignments for Inventory Manager
+    pub fn collect_lot_assignments(&self) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
+        self.lots
+            .iter()
+            .map(|lot| {
+                (
+                    (lot.symbol.clone(), lot.lot_id.clone()),
+                    Arc::new(LotAssignment {
+                        chain_id: self.chain_id,
+                        address: self.address,
+                        client_order_id: self.client_order_id.clone(),
+                        side: self.side,
+                        assigned_quantity: lot.assigned_quantity,
+                        assigned_fee: lot.assigned_fee,
+                        assigned_timestamp: lot.assigned_timestamp,
+                    }),
+                )
+            })
+            .fold(HashMap::new(), |mut map, (key, assignment)| {
+                let v = map.entry(key).or_insert_with(|| Vec::new());
+                v.push(assignment);
+                map
+            })
     }
 }
 
