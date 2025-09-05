@@ -2,7 +2,9 @@ use alloy::primitives::address;
 use alloy_chain_connector::{
     chain_connector::GasFeeCalculator, credentials::Credentials as AlloyCredentials,
 };
-use binance_order_sending::credentials::Credentials as BinanceCredentials;
+use binance_order_sending::{
+    binance_order_sending::BinanceFeeCalculator, credentials::Credentials as BinanceCredentials,
+};
 use chrono::{Duration, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
 use index_core::blockchain::chain_connector::ChainNotification;
@@ -458,10 +460,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build market data");
 
     let price_tracker = market_data_config.expect_price_tracker_cloned();
+    let fee_calculator = BinanceFeeCalculator::new(
+        market_data_config.expect_price_tracker_exchange_rates_cloned(),
+        main_quote_currency.clone(),
+    );
 
     let order_sender_config = OrderSenderConfig::builder()
         .credentials(credentials)
         .symbols(asset_symbols.clone())
+        .with_binance_fee_calculator(fee_calculator)
         .build()
         .expect("Failed to build order sender");
 

@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::app::simple_sender::SimpleOrderSender;
 
 use super::config::ConfigBuildError;
-use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
+use binance_order_sending::{
+    binance_order_sending::{BinanceFeeCalculator, BinanceOrderSending},
+    credentials::Credentials,
+};
 use derive_builder::Builder;
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -56,6 +59,9 @@ pub struct OrderSenderConfig {
 
     #[builder(setter(into, strip_option), default)]
     pub with_inventory_manager: Option<bool>,
+
+    #[builder(setter(into))]
+    pub with_binance_fee_calculator: Option<BinanceFeeCalculator>,
 
     #[builder(setter(into, strip_option))]
     pub credentials: OrderSenderCredentials,
@@ -182,10 +188,19 @@ impl OrderSenderConfigBuilder {
                 )))),
                 session_id.clone(),
             ),
-            OrderSenderCredentials::Binance(credentials) => OrderSenderVariant::Binance(
-                Arc::new(RwLock::new(BinanceOrderSending::new())),
-                credentials.drain(..).collect_vec(),
-            ),
+            OrderSenderCredentials::Binance(credentials) => {
+                let fee_calculator =
+                    config.with_binance_fee_calculator.clone().ok_or_else(|| {
+                        ConfigBuildError::UninitializedField("with_binance_fee_calculator")
+                    })?;
+
+                OrderSenderVariant::Binance(
+                    Arc::new(RwLock::new(BinanceOrderSending::new(
+                        fee_calculator.clone(),
+                    ))),
+                    credentials.drain(..).collect_vec(),
+                )
+            }
         };
 
         let order_sender = order_sender_variant.get_order_connector();

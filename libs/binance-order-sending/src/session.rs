@@ -19,11 +19,11 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::command::Command;
 use crate::credentials::Credentials;
 use crate::session_completion::SessionCompletionResult;
 use crate::session_error::SessionError;
 use crate::trading_session::{TradingSession, TradingSessionBuilder, TradingUserData};
+use crate::{binance_order_sending::BinanceFeeCalculator, command::Command};
 
 struct SessionSetupState {
     trading_session: Option<TradingSession>,
@@ -32,6 +32,7 @@ struct SessionSetupState {
     session_id: SessionId,
     observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
     symbols: Vec<Symbol>,
+    fee_calculator: BinanceFeeCalculator,
 }
 
 impl SessionSetupState {
@@ -39,6 +40,7 @@ impl SessionSetupState {
         credentials: Credentials,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
     ) -> Self {
         let session_id = credentials.into_session_id();
         Self {
@@ -48,6 +50,7 @@ impl SessionSetupState {
             session_id,
             observer,
             symbols,
+            fee_calculator,
         }
     }
 
@@ -123,7 +126,10 @@ async fn run_main_loop(
     if let (Some(ref mut ts), Some(ref ud)) =
         (&mut setup_state.trading_session, &setup_state.user_data)
     {
-        ud.subscribe(setup_state.observer.clone());
+        ud.subscribe(
+            setup_state.fee_calculator.clone(),
+            setup_state.observer.clone(),
+        );
         tracing::info!("Session {} entering main loop", setup_state.session_id);
 
         loop {
@@ -180,12 +186,14 @@ impl Session {
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
         credentials: Credentials,
         symbols: Vec<Symbol>,
+        fee_calculator: BinanceFeeCalculator,
     ) -> Result<()> {
         self.session_loop.start(async move |cancel_token| {
             tracing::info!("Session loop started");
             let session_id_clone = credentials.into_session_id();
 
-            let mut setup_state = SessionSetupState::new(credentials, observer, symbols);
+            let mut setup_state =
+                SessionSetupState::new(credentials, observer, symbols, fee_calculator);
 
             // Attempt to setup the session - early return on first error
             let setup_result = async {
@@ -268,10 +276,18 @@ mod tests {
     use super::*;
     use crate::credentials::Credentials;
     use parking_lot::RwLock as AtomicLock;
-    use std::sync::Arc;
-    use symm_core::core::{
-        functional::SingleObserver,
-        test_util::{get_mock_asset_name_1, get_mock_atomic_bool_pair, test_mock_atomic_bool},
+    use rust_decimal::dec;
+    use std::{collections::HashMap, sync::Arc};
+    use symm_core::{
+        core::{
+            bits::Amount,
+            functional::SingleObserver,
+            test_util::{
+                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair,
+                get_mock_index_name_2, test_mock_atomic_bool,
+            },
+        },
+        market_data::exchange_rates::FixedExchangeRates,
     };
     use tokio::sync::mpsc::unbounded_channel;
 
@@ -337,8 +353,11 @@ mod tests {
         let credentials = create_mock_credentials();
         let observer = Arc::new(AtomicLock::new(SingleObserver::new()));
         let symbols = vec![get_mock_asset_name_1()];
+        let exchange_rates = Arc::new(FixedExchangeRates::new(HashMap::new()));
+        let fee_calculator = BinanceFeeCalculator::new(exchange_rates, get_mock_asset_name_1());
 
-        let setup_state = SessionSetupState::new(credentials, observer, symbols.clone());
+        let setup_state =
+            SessionSetupState::new(credentials, observer, symbols.clone(), fee_calculator);
 
         // Verify initial state
         assert!(setup_state.trading_session.is_none());

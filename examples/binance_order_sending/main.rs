@@ -1,6 +1,9 @@
-use std::{env, sync::Arc, thread::spawn, time::Duration};
+use std::{collections::HashMap, env, sync::Arc, thread::spawn, time::Duration};
 
-use binance_order_sending::{binance_order_sending::BinanceOrderSending, credentials::Credentials};
+use binance_order_sending::{
+    binance_order_sending::{BinanceFeeCalculator, BinanceOrderSending},
+    credentials::Credentials,
+};
 use chrono::Utc;
 use clap::Parser;
 use crossbeam::{
@@ -15,6 +18,7 @@ use symm_core::{
         logging::log_init,
     },
     init_log,
+    market_data::exchange_rates::FixedExchangeRates,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
 };
 use tokio::{sync::mpsc::unbounded_channel, time::sleep};
@@ -52,7 +56,11 @@ pub async fn main() {
     let (event_tx, event_rx) = unbounded::<OrderConnectorNotification>();
     let (end_tx, end_rx) = bounded::<()>(1);
 
-    let order_sender = Arc::new(RwLock::new(BinanceOrderSending::new()));
+    let fee_calculator = BinanceFeeCalculator::new(
+        Arc::new(FixedExchangeRates::new(HashMap::new())),
+        Symbol::from("USDC"),
+    );
+    let order_sender = Arc::new(RwLock::new(BinanceOrderSending::new(fee_calculator)));
 
     order_sender
         .write()

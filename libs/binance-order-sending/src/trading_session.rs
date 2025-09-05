@@ -29,6 +29,7 @@ use symm_core::{
 use tokio::time::sleep;
 use tracing::info;
 
+use crate::binance_order_sending::BinanceFeeCalculator;
 use crate::command::Command;
 use crate::credentials::{ConfigureBinanceUsingCredentials, Credentials};
 use crate::session_error::SessionError;
@@ -420,7 +421,11 @@ impl TradingUserData {
         self.stream.unsubscribe().await;
     }
 
-    pub fn subscribe(&self, observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>) {
+    pub fn subscribe(
+        &self,
+        fee_calculator: BinanceFeeCalculator,
+        observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
+    ) {
         self.stream.on_message(move |data| {
             tracing::debug!("User data: {:#?}", data);
 
@@ -481,7 +486,19 @@ impl TradingUserData {
                     .ok_or_eyre("Missing commission amount")?
                     .or_else(|e| Err(eyre!("Failed to parse commission amount: {:?}", e)))?;
 
-                let commission_asset = execution_report.n_uppercase;
+                let fee = if let Some(commission_asset) = execution_report.n_uppercase {
+                    match fee_calculator
+                        .compute_amount(commission_amount, Symbol::from(commission_asset))
+                    {
+                        Ok(fee) => fee,
+                        Err(err) => {
+                            tracing::warn!("Failed to compute commission amount: {:?}", err);
+                            Amount::ZERO
+                        }
+                    }
+                } else {
+                    Amount::ZERO
+                };
 
                 let order_status = execution_report
                     .x_uppercase
@@ -504,7 +521,7 @@ impl TradingUserData {
                             side,
                             price: executed_price,
                             quantity: executed_quantity,
-                            fee: Amount::ZERO,
+                            fee,
                             timestamp: Utc::now(),
                         }),
                     "PARTIALLY_FILLED" => {
@@ -517,7 +534,7 @@ impl TradingUserData {
                                 side,
                                 price: executed_price,
                                 quantity: executed_quantity,
-                                fee: Amount::ZERO,
+                                fee,
                                 timestamp: Utc::now(),
                             })
                     }
