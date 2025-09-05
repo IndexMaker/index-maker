@@ -9,11 +9,13 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::core::{
-    bits::{Address, ClientOrderId, Symbol},
+    bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
     persistence::{Persist, Persistence},
 };
 
-use crate::solver::mint_invoice::MintInvoice;
+use crate::{
+    collateral::collateral_position::CollateralPosition, solver::mint_invoice::MintInvoice,
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct GetInvoiceData {
@@ -27,7 +29,16 @@ pub struct GetInvoicesData {
     pub chain_id: u32,
     pub address: Address,
     pub client_order_id: ClientOrderId,
+    pub payment_id: PaymentId,
     pub symbol: Symbol,
+    pub filled_quantity: Amount,
+    pub total_amount: Amount,
+    pub amount_paid: Amount,
+    pub amount_remaining: Amount,
+    pub management_fee: Amount,
+    pub assets_value: Amount,
+    pub exchange_fee: Amount,
+    pub fill_rate: Amount,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -105,6 +116,15 @@ impl MintInvoiceManager {
                 address: *address,
                 client_order_id: invoice.client_order_id.clone(),
                 symbol: invoice.symbol.clone(),
+                payment_id: invoice.payment_id.clone(),
+                filled_quantity: invoice.filled_quantity.clone(),
+                total_amount: invoice.total_amount,
+                amount_paid: invoice.amount_paid,
+                amount_remaining: invoice.amount_remaining,
+                management_fee: invoice.management_fee,
+                assets_value: invoice.assets_value,
+                exchange_fee: invoice.exchange_fee,
+                fill_rate: invoice.fill_rate,
                 timestamp: invoice.timestamp,
             })
             .collect_vec();
