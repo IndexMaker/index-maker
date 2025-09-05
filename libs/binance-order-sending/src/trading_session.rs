@@ -4,8 +4,8 @@ use std::sync::Arc;
 use binance_sdk::common::websocket::WebsocketStream;
 use binance_sdk::models::{self, WebsocketApiRateLimit};
 use binance_sdk::spot::websocket_api::{
-    ExchangeInfoParams, OrderPlaceParams, OrderPlaceSideEnum, OrderPlaceTimeInForceEnum,
-    PingParams, UserDataStreamEventsResponse, UserDataStreamStartParams,
+    AccountStatusParams, ExchangeInfoParams, OrderPlaceParams, OrderPlaceSideEnum,
+    OrderPlaceTimeInForceEnum, PingParams, UserDataStreamEventsResponse, UserDataStreamStartParams,
     UserDataStreamSubscribeParams, WebsocketApi,
 };
 use binance_sdk::spot::{self, websocket_api};
@@ -17,7 +17,7 @@ use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
 use symm_core::core::bits::{Amount, SingleOrder};
 use symm_core::core::decimal_ext::DecimalExt;
-use symm_core::core::functional::OneShotSingleObserver;
+use symm_core::core::functional::{OneShotPublishSingle, OneShotSingleObserver};
 use symm_core::{
     core::{
         bits::{OrderId, Side, Symbol},
@@ -289,7 +289,50 @@ impl TradingSession {
         &mut self,
         observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
     ) -> Result<(), SessionError> {
-        todo!("Not implemented")
+        let params =
+            AccountStatusParams::builder()
+                .omit_zero_balances(true)
+                .build()
+                .map_err(|err| SessionError::BadRequest {
+                    message: format!("Failed to build account balances params: {}", err),
+                })?;
+
+        let res = self.wsapi.account_status(params).await.map_err(|err| {
+            SessionError::from_eyre(&eyre::eyre!("Failed to obtain account balances: {:?}", err))
+        })?;
+
+        let account = res.data().map_err(|err| SessionError::ServerError {
+            message: format!("Failed to obtain account balances data: {}", err),
+        })?;
+
+        let mut result = HashMap::new();
+
+        if let Some(balances) = account.balances {
+            for balance in balances {
+                if let Some(asset) = balance.asset {
+                    let free: Amount = balance.free.unwrap_or_default().parse().map_err(|err| {
+                        SessionError::ServerError {
+                            message: format!("Failed to parse : {}", err),
+                        }
+                    })?;
+                    let locked: Amount =
+                        balance.locked.unwrap_or_default().parse().map_err(|err| {
+                            SessionError::ServerError {
+                                message: format!("Failed to parse : {}", err),
+                            }
+                        })?;
+                    let balance =
+                        safe!(free + locked).ok_or_else(|| SessionError::ServerError {
+                            message: format!("Failed to compute balance for: {}", asset),
+                        })?;
+
+                    result.insert(Symbol::from(asset), balance);
+                }
+            }
+        }
+
+        observer.one_shot_publish_single(result);
+        Ok(())
     }
 
     pub async fn send_command(
