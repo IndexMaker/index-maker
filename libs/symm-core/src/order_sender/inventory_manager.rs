@@ -23,7 +23,7 @@ use crate::{
         persistence::{Persist, Persistence},
         telemetry::{TracingData, WithBaggage},
     },
-    order_sender::position::{self, LotAssignment},
+    order_sender::{order_tracker::CancelStatus, position::{self, LotAssignment}},
 };
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
@@ -120,7 +120,7 @@ pub enum InventoryEvent {
         quantity_cancelled: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
-        is_cancelled: bool,
+        cancel_status: CancelStatus,
         cancel_timestamp: DateTime<Utc>,
     },
 }
@@ -344,7 +344,7 @@ impl InventoryManager {
                         quantity_cancelled: Amount::ZERO,
                         original_quantity,
                         quantity_remaining,
-                        is_cancelled: true,
+                        cancel_status: CancelStatus::FullyCancelled,
                         cancel_timestamp: fill_timestamp,
                     });
                 }
@@ -359,7 +359,7 @@ impl InventoryManager {
                 quantity_cancelled,
                 original_quantity,
                 quantity_remaining,
-                is_cancelled,
+                cancel_status,
                 cancel_timestamp,
             } => {
                 self.observer.publish_single(InventoryEvent::Cancel {
@@ -370,7 +370,7 @@ impl InventoryManager {
                     quantity_cancelled,
                     original_quantity,
                     quantity_remaining,
-                    is_cancelled,
+                    cancel_status,
                     cancel_timestamp,
                 });
                 Ok(())

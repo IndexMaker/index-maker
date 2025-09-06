@@ -425,7 +425,7 @@ impl TradingSession {
     }
 
     /// Attempt to ping the WebSocket connection
-    pub async fn ping_connection(&self) -> Result<()> {
+    pub async fn ping_connection(&self) -> Result<(), SessionError> {
         tracing::trace!(
             "Pinging WebSocket connection for session {}",
             self.session_id
@@ -445,7 +445,10 @@ impl TradingSession {
                     self.session_id,
                     err
                 );
-                Err(eyre!("WebSocket ping failed: {:?}", err))
+                Err(SessionError::from_eyre(&eyre::eyre!(
+                    "Failed to ping session: {:?}",
+                    err
+                )))
             }
         }
     }

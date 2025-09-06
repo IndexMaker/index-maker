@@ -1416,7 +1416,7 @@ impl Solver {
                 quantity_cancelled,
                 original_quantity,
                 quantity_remaining,
-                is_cancelled,
+                cancel_status,
                 cancel_timestamp,
             } => {
                 tracing::debug!(
@@ -1427,10 +1427,17 @@ impl Solver {
                     %quantity_cancelled,
                     %original_quantity,
                     %quantity_remaining,
-                    %is_cancelled,
+                    %cancel_status,
                     %cancel_timestamp,
                     "Handle Inventory Event Cancel",
                 );
+                if cancel_status.is_rejected() {
+                    // TODO: We must stop sending batches
+                    // Figure out better approach. ATM we just stop, otherwise
+                    // we can get banned for sending too many bad orders.
+                    tracing::error!("General system failure: Shutting down...");
+                    self.initiate_shutdown();
+                }
                 self.batch_manager
                     .read()
                     .map_err(|e| eyre!("Failed to access batch manager {}", e))?
@@ -1440,7 +1447,7 @@ impl Solver {
                         symbol,
                         side,
                         quantity_cancelled,
-                        is_cancelled,
+                        cancel_status.is_cancelled_or_rejected(),
                         cancel_timestamp,
                     )
             }

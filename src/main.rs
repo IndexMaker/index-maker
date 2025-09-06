@@ -717,6 +717,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sigquit = signal(SignalKind::quit())?;
 
     tokio::select! {
+        _ = solver_config.check_solver_stopped() => {
+            panic!("Solver terminated unexpectedly");
+        }
         _ = sigint.recv() => {
             tracing::info!("SIGINT received")
         }
