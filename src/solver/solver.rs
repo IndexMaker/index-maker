@@ -867,9 +867,15 @@ impl Solver {
                         .collect_vec()),
                     "Batch Complete");
 
-                // Batch completion is now tracked via BatchManager status
+                let is_last_batch = continued_orders.is_empty();
 
                 self.ready_orders.lock().extend(continued_orders);
+
+                if is_last_batch {
+                    if let Err(err) = self.inventory_manager.write().update_snapshot() {
+                        tracing::warn!("Failed to update inventory snapshot: {:?}", err);
+                    }
+                }
                 Ok(())
             }
             BatchEvent::BatchMintable { mintable_orders } => {
