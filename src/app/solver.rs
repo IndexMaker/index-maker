@@ -858,6 +858,15 @@ impl SolverConfig {
         }
     }
 
+    pub async fn check_solver_stopped(&mut self) -> Result<()> {
+        if let Some((_, solver_stopped_rx)) = &mut self.stopping_solver {
+            solver_stopped_rx.await?;
+            Ok(())
+        } else {
+            Err(eyre!("Cannot stop solver: Not started"))
+        }
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         self.run_orders_backend().await?;
         self.run_quotes_backend().await?;
@@ -889,7 +898,7 @@ impl SolverConfig {
         // 3. Stop dispatching server events
         self.stop_orders_backend().await?;
         self.stop_quotes_backend().await?;
-        
+
         // 4. Stop receiving market data
         self.stop_market_data().await?;
 
