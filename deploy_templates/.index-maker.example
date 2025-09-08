@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Logging and backtrace
+export RUST_LOG=info,binance_sdk=warn,hyper_util=warn,binance=warn,axum=warn,market_data=warn
+export RUST_BACKTRACE=1
+
+# Binance Trading API Key
+export BINANCE_PRIVATE_KEY_FILE=""
+export BINANCE_API_KEY=""
+export BINANCE_TRADING_ENABLED=1
+
+# Elastic API Key
+export ELASTIC_API_KEY="ApiKey "
+
+# FIX Server Response Signing Key
+export SERVER_PRIVATE_KEY=""
+
+# Private Key used to deploy Index
+export INDEX_MAKER_PRIVATE_KEY=""
+
+# Custody Authority Key (Schnorr)
+export CUSTODY_AUTHORITY_PRIVATE_KEY=""
