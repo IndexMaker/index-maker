@@ -10,7 +10,7 @@ use std::{
 
 use arc_swap::{ArcSwap, ArcSwapAny};
 use chrono::{DateTime, Utc};
-use eyre::{eyre, OptionExt, Result};
+use eyre::{eyre, Context, OptionExt, Result};
 use itertools::partition;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -550,6 +550,7 @@ impl Persist for InventoryManager {
                     self.positions.len()
                 );
             }
+            self.update_snapshot().context("Failed while loading state")?;
         }
         Ok(())
     }

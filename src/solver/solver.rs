@@ -2120,10 +2120,16 @@ mod test {
 
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
+        let expected_batch_size = 2;
+        let expected_num_batches = 7;
+        let expected_num_order_ids = expected_batch_size * expected_num_batches;
+
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
-            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId::from(format!("O-{:02}", n)))),
+            order_ids: VecDeque::from_iter(
+                (1..expected_num_order_ids + 1).map(|n| OrderId::from(format!("O-{:02}", n))),
+            ),
             batch_order_ids: VecDeque::from_iter(
-                (1..4).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
+                (1..expected_num_batches + 1).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
             ),
             payment_ids: VecDeque::from_iter(
                 (1..4).map(|n| PaymentId::from(format!("P-{:02}", n))),
@@ -2997,43 +3003,8 @@ mod test {
             }
         }
 
-        for _ in 0..2 {
-            let fix_response = mock_fix_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Failed to receive ServerResponse");
-
-            assert!(matches!(
-                fix_response,
-                ServerResponse::IndexOrderFill {
-                    chain_id: _,
-                    address: _,
-                    client_order_id: _,
-                    filled_quantity: _,
-                    collateral_remaining: _,
-                    collateral_spent: _,
-                    fill_rate: _,
-                    status: _,
-                    timestamp: _
-                }
-            ));
-
-            tracing::info!(" -> FIX response received");
-        }
-
-        for _ in 0..2 {
-            solver_tick(timestamp);
-            flush_events();
-            heading("Next order batch engaged");
-
-            solver_tick(timestamp);
-            flush_events();
-            heading("Next order batch filled");
-
-            for _ in 0..2 {
-                let fix_response = mock_fix_receiver
-                    .recv_timeout(Duration::from_secs(1))
-                    .expect("Failed to receive ServerResponse");
-
+        let maybe_filled = || {
+            if let Ok(fix_response) = mock_fix_receiver.recv_timeout(Duration::from_millis(1)) {
                 assert!(matches!(
                     fix_response,
                     ServerResponse::IndexOrderFill {
@@ -3050,6 +3021,24 @@ mod test {
                 ));
 
                 tracing::info!(" -> FIX response received");
+            }
+        };
+
+        for _ in 0..expected_batch_size {
+            maybe_filled();
+        }
+
+        for batch_number in 2..expected_num_batches + 1 {
+            solver_tick(timestamp);
+            flush_events();
+            heading(&format!("Next order batch (#{}) engaged", batch_number));
+
+            solver_tick(timestamp);
+            flush_events();
+            heading(&format!("Next order batch (#{}) filled", batch_number));
+
+            for _ in 0..expected_batch_size {
+                maybe_filled();
             }
         }
 

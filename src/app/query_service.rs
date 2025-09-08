@@ -82,12 +82,14 @@ impl QueryServiceConfig {
 impl QueryServiceConfigBuilder {
     pub fn build(self) -> Result<QueryServiceConfig, ConfigBuildError> {
         let mut config = self.try_build()?;
+        let snapshot = config.with_inventory_manager.read().get_snapshot();
 
         let service = QueryService::new(QueryServiceState::new(
             config.with_collateral_manager.clone(),
             config.with_index_order_manager.clone(),
             config.with_inventory_manager.clone(),
             config.with_invoice_manager.clone(),
+            snapshot,
         ));
 
         config.service.replace(Arc::new(service));
