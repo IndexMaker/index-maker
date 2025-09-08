@@ -550,6 +550,7 @@ impl Persist for InventoryManager {
                     self.positions.len()
                 );
             }
+            self.update_snapshot().context("Failed while loading state")?;
         }
         Ok(())
     }
