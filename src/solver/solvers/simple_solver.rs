@@ -1308,14 +1308,6 @@ impl SimpleSolver {
             order_asset_contributions,
         )?;
 
-        // Next we pad asset volley sizes to meet minimum asset volley size
-        // and we recompute total padded asset quantites
-        let total_asset_volley_size =
-            self.compute_asset_volley_size(&total_asset_quantities, &asset_price_limits)?;
-
-        let total_asset_quantities =
-            self.pad_asset_volley_sizes(&asset_price_limits, total_asset_volley_size)?;
-
         // And now we compute contribution fraction for each asset, so that when
         // we get fills we can distribute those fills between index orders in
         // the batch proportionally to that fraction
@@ -1326,6 +1318,14 @@ impl SimpleSolver {
                 &total_asset_quantities,
                 &order_asset_contributions,
             );
+
+        // Next we pad asset volley sizes to meet minimum asset volley size
+        // and we recompute total padded asset quantites
+        let total_asset_volley_size =
+            self.compute_asset_volley_size(&total_asset_quantities, &asset_price_limits)?;
+
+        let total_asset_quantities =
+            self.pad_asset_volley_sizes(&asset_price_limits, total_asset_volley_size)?;
 
         // orders for which an error occurred
         let bad = [
