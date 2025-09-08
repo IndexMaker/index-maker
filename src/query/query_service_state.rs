@@ -33,7 +33,7 @@ impl QueryServiceState {
     pub fn get_collateral_manager(&self) -> &Arc<ComponentLock<CollateralManager>> {
         &self.collateral_manager
     }
-    
+
     pub fn get_index_order_manager(&self) -> &Arc<ComponentLock<IndexOrderManager>> {
         &self.index_order_manager
     }

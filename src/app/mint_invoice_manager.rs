@@ -51,9 +51,7 @@ impl MintInvoiceManagerConfigBuilder {
 
         config
             .invoice_manager
-            .replace(Arc::new(RwLock::new(MintInvoiceManager::new(
-                persistence
-            ))));
+            .replace(Arc::new(RwLock::new(MintInvoiceManager::new(persistence))));
 
         Ok(config)
     }

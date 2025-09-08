@@ -1,7 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-};
+use std::{collections::VecDeque, sync::Arc};
 
 use chrono::TimeDelta;
 use parking_lot::RwLock;

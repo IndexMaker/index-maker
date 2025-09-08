@@ -289,13 +289,12 @@ impl TradingSession {
         &mut self,
         observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
     ) -> Result<(), SessionError> {
-        let params =
-            AccountStatusParams::builder()
-                .omit_zero_balances(true)
-                .build()
-                .map_err(|err| SessionError::BadRequest {
-                    message: format!("Failed to build account balances params: {}", err),
-                })?;
+        let params = AccountStatusParams::builder()
+            .omit_zero_balances(true)
+            .build()
+            .map_err(|err| SessionError::BadRequest {
+                message: format!("Failed to build account balances params: {}", err),
+            })?;
 
         let res = self.wsapi.account_status(params).await.map_err(|err| {
             SessionError::from_eyre(&eyre::eyre!("Failed to obtain account balances: {:?}", err))

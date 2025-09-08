@@ -12,11 +12,13 @@ use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
-    assets::asset::get_base_asset_symbol_workaround, core::{
+    assets::asset::get_base_asset_symbol_workaround,
+    core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingData},
-    }, order_sender::position::{LotAssignment, LotId}
+    },
+    order_sender::position::{LotAssignment, LotId},
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -101,10 +103,10 @@ impl SolverOrder {
             // want it to be the value after the assignment.
             lot.remaining_quantity =
                 safe!(lot.remaining_quantity - lot.assigned_quantity).ok_or_eyre("Math problem")?;
-            
+
             // W/a remove quote currency from symbol, keep only base
             lot.symbol = get_base_asset_symbol_workaround(&lot.symbol);
-            
+
             // We want to compress multiple assignments of each lot, to single
             // assigment per lot
             match map.entry((lot.symbol.clone(), lot.lot_id.clone())) {
@@ -118,7 +120,7 @@ impl SolverOrder {
                     current.assigned_quantity =
                         safe!(current.assigned_quantity + lot.assigned_quantity)
                             .ok_or_eyre("Math problem")?;
-                    
+
                     // Sum assigned fees
                     current.assigned_fee = safe!(current.assigned_fee + lot.assigned_fee)
                         .ok_or_eyre("Math problem")?;

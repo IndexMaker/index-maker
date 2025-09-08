@@ -18,9 +18,7 @@ pub mod util {
     use parking_lot::RwLock;
     use serde_json::Value;
 
-    use crate::core::
-        persistence::Persistence
-    ;
+    use crate::core::persistence::Persistence;
 
     pub struct InMemoryPersistence {
         data: RwLock<Option<String>>,
@@ -82,7 +80,8 @@ pub mod util {
             }
 
             tracing::info!("Storing {:#?}", self.path);
-            let json_string = serde_json::to_string_pretty(&value).context("Failed to serialize")?;
+            let json_string =
+                serde_json::to_string_pretty(&value).context("Failed to serialize")?;
             fs::write(&self.path, &json_string).context("Failed to write json file")
         }
     }

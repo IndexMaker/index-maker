@@ -1,6 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use symm_core::core::{bits::{Amount, SingleOrder, Symbol}, functional::OneShotSingleObserver};
+use symm_core::core::{
+    bits::{Amount, SingleOrder, Symbol},
+    functional::OneShotSingleObserver,
+};
 
 #[derive(Debug)]
 pub enum Command {
