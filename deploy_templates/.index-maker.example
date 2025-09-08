@@ -5,8 +5,9 @@ export RUST_LOG=info,binance_sdk=warn,hyper_util=warn,binance=warn,axum=warn,mar
 export RUST_BACKTRACE=1
 
 # Binance Trading API Key
-export BINANCE_PRIVATE_KEY_FILE=""
 export BINANCE_API_KEY=""
+export BINANCE_PRIVATE_KEY_FILE=""
+export BINANCE_PRIVATE_KEY_PHRASE=""
 export BINANCE_TRADING_ENABLED=1
 
 # Elastic API Key
