@@ -14,7 +14,11 @@ use symm_core::{
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{
-    binance_order_sending::BinanceFeeCalculator, command::Command, credentials::Credentials, session::{self, Session}, session_completion::SessionCompletionResult
+    binance_order_sending::BinanceFeeCalculator,
+    command::Command,
+    credentials::Credentials,
+    session::{self, Session},
+    session_completion::SessionCompletionResult,
 };
 
 pub struct Sessions {

@@ -7,10 +7,7 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use rust_decimal::dec;
-use symm_core::core::{
-    bits::Amount,
-    persistence::util::JsonFilePersistence,
-};
+use symm_core::core::{bits::Amount, persistence::util::JsonFilePersistence};
 
 #[derive(Clone, Builder)]
 #[builder(

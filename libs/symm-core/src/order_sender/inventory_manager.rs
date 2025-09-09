@@ -23,7 +23,10 @@ use crate::{
         persistence::{Persist, Persistence},
         telemetry::{TracingData, WithBaggage},
     },
-    order_sender::{order_tracker::CancelStatus, position::{self, LotAssignment}},
+    order_sender::{
+        order_tracker::CancelStatus,
+        position::{self, LotAssignment},
+    },
 };
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
@@ -522,7 +525,7 @@ impl InventoryManager {
             ))?;
         Ok(())
     }
-    
+
     pub fn update_snapshot(&self) -> Result<()> {
         let snapshot = self.snapshot.clone();
 
@@ -534,7 +537,6 @@ impl InventoryManager {
     pub fn get_snapshot(&self) -> Arc<InventoryManagerSnapshot> {
         self.snapshot.clone()
     }
-
 }
 
 impl Persist for InventoryManager {

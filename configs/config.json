@@ -1,0 +1,48 @@
+{
+  "app": {
+    "main_quote_currency": "USDC",
+    "simulate_sender": false,
+    "simulate_chain": false,
+    "index_config": "./index_config.json"
+  },
+  "solver": {
+    "price_threshold": "0.01",
+    "max_levels": 5,
+    "fee_factor": "1.002",
+    "max_order_volley_size": "20.0",
+    "max_volley_size": "100.0",
+    "min_asset_volley_size": "5.0",
+    "asset_volley_step_size": "0.1",
+    "max_total_volley_size": "1000.0",
+    "min_total_volley_available": "100.0",
+    "zero_threshold": "0.0001",
+    "max_batch_size": 10,
+    "fill_threshold": "0.9999",
+    "mint_threshold": "0.99",
+    "mint_wait_period_secs": 10,
+    "client_order_wait_period_secs": 30,
+    "client_quote_wait_period_secs": 5,
+    "solver_tick_interval_ms": 100,
+    "quotes_tick_interval_ms": 10
+  },
+  "connections": {
+    "market_data_provider": "binance",
+    "market_data_timeout_secs": 30,
+    "market_data_reconnection_attempts": 3,
+    "chain_provider": "ethereum",
+    "chain_rpc_url": null,
+    "chain_gas_price_multiplier": 1.1,
+    "order_sender_provider": "binance",
+    "order_sender_rate_limit_per_second": 10,
+    "server_bind_address": "127.0.0.1:8080",
+    "server_timeout_secs": 30
+  },
+  "logging": {
+    "level": "info",
+    "file_path": "./logs/index-maker.log",
+    "disable_terminal": false,
+    "otlp_trace_url": null,
+    "otlp_log_url": null,
+    "batch_size": 1000
+  }
+}

@@ -52,6 +52,15 @@ pub struct RealChainConnectorConfig {
     chain_connector: Option<Arc<ComponentLock<RealChainConnector>>>,
 }
 
+impl Default for RealChainConnectorConfig {
+    fn default() -> Self {
+        Self {
+            with_router: None,
+            chain_connector: None,
+        }
+    }
+}
+
 impl RealChainConnectorConfig {
     #[must_use]
     pub fn builder() -> RealChainConnectorConfigBuilder {
