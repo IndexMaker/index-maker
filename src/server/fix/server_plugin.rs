@@ -453,7 +453,9 @@ impl ServerPlugin {
             ServerResponse::MintInvoice {
                 chain_id,
                 address,
+                client_order_id: _,
                 mint_invoice,
+                timestamp: _,
             } => {
                 let chain_id = *chain_id;
                 let address = address.clone();
