@@ -1,3 +1,4 @@
+use std::fmt::{self, write};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -8,7 +9,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 
-use crate::core::functional::{IntoObservableSingle, PublishSingle};
+use crate::core::functional::{IntoObservableSingle, OneShotSingleObserver, PublishSingle};
 
 use crate::core::telemetry::{TracingData, WithBaggage};
 use derive_with_baggage::WithBaggage;
@@ -24,6 +25,53 @@ use crate::{
     core::functional::SingleObserver,
     order_sender::order_connector::{OrderConnector, OrderConnectorNotification},
 };
+
+#[derive(Debug)]
+pub enum CancelStatus {
+    Partial,
+    FullyCancelled,
+    Rejected { reason: String },
+}
+
+impl CancelStatus {
+    pub fn from_cancelled(is_cancelled: bool) -> Self {
+        if is_cancelled {
+            CancelStatus::FullyCancelled
+        } else {
+            CancelStatus::Partial
+        }
+    }
+
+    pub fn from_rejected(reason: String) -> Self {
+        CancelStatus::Rejected { reason }
+    }
+
+    pub fn is_cancelled_or_rejected(&self) -> bool {
+        match self {
+            CancelStatus::Partial => false,
+            CancelStatus::FullyCancelled => true,
+            CancelStatus::Rejected { reason: _ } => true,
+        }
+    }
+
+    pub fn is_rejected(&self) -> bool {
+        match self {
+            CancelStatus::Partial => false,
+            CancelStatus::FullyCancelled => false,
+            CancelStatus::Rejected { reason: _ } => true,
+        }
+    }
+}
+
+impl fmt::Display for CancelStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CancelStatus::Partial => write!(f, "Partial"),
+            CancelStatus::FullyCancelled => write!(f, "FullyCancelled"),
+            CancelStatus::Rejected { reason } => write!(f, "Rejected: {}", reason),
+        }
+    }
+}
 
 /// track orders that we sent to
 #[derive(Debug, WithBaggage)]
@@ -60,7 +108,7 @@ pub enum OrderTrackerNotification {
         quantity_cancelled: Amount,
         original_quantity: Amount,
         quantity_remaining: Amount,
-        is_cancelled: bool,
+        cancel_status: CancelStatus,
         cancel_timestamp: DateTime<Utc>,
     },
 }
@@ -271,7 +319,7 @@ impl OrderTracker {
                                 original_quantity: order_entry.order.quantity,
                                 quantity_cancelled: quantity,
                                 quantity_remaining,
-                                is_cancelled: true,
+                                cancel_status: CancelStatus::from_rejected(reason),
                                 cancel_timestamp: timestamp,
                             });
                         Ok(())
@@ -342,7 +390,7 @@ impl OrderTracker {
                                     original_quantity: order_entry.order.quantity,
                                     quantity_cancelled: quantity,
                                     quantity_remaining,
-                                    is_cancelled,
+                                    cancel_status: CancelStatus::from_cancelled(is_cancelled),
                                     cancel_timestamp: timestamp,
                                 });
                         } // otherwise we already notified in the fill
@@ -386,6 +434,22 @@ impl OrderTracker {
         self.orders
             .get(order_id)
             .and_then(|x| Some(x.order.clone()))
+    }
+
+    pub fn get_balances(
+        &self,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<()> {
+        let session_id = self
+            .session
+            .clone()
+            .ok_or_eyre("No connected session available")?;
+
+        self.order_connector
+            .read()
+            .get_balances(session_id, observer)?;
+
+        Ok(())
     }
 }
 
@@ -567,7 +631,7 @@ mod test {
                             quantity_cancelled,
                             original_quantity,
                             quantity_remaining,
-                            is_cancelled,
+                            cancel_status: _,
                             cancel_timestamp,
                         } => {
                             flag_mock_atomic_bool(&flag_cancel);

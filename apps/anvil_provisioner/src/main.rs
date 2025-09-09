@@ -6,13 +6,13 @@ use alloy_chain_connector::util::amount_converter::AmountConverter;
 use eyre::{eyre, Context, Result};
 use otc_custody::contracts::ERC20;
 use rust_decimal::dec;
-use symm_core::{core::logging::log_init, init_log};
 use std::{
     env,
     process::{Command, Stdio},
     str::FromStr,
     time::Duration,
 };
+use symm_core::{core::logging::log_init, init_log};
 use tokio::time::sleep;
 use tracing::{error, info};
 
@@ -24,7 +24,7 @@ fn get_address_from_env(key: &str) -> Result<Address> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_log!();
-    
+
     tracing::info!("--==| Anvil Provisioner |==--");
 
     let fork_url =
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
         .await?;
 
     info!("✅ Anvil ready ok");
-    
+
     let output = child.wait_with_output()?;
 
     print!("{}", String::from_utf8(output.stdout).unwrap());

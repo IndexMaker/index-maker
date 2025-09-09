@@ -667,7 +667,9 @@ mod test {
             bits::Side,
             functional::IntoObservableSingle,
             test_util::{
-                flag_mock_atomic_bool, get_mock_address_1, get_mock_atomic_bool_pair, get_mock_defer_channel, get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_atomic_bool_pair,
+                get_mock_defer_channel, get_mock_index_name_1, run_mock_deferred,
+                test_mock_atomic_bool,
             },
         },
     };

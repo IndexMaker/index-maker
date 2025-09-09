@@ -7,21 +7,22 @@ use index_core::collateral::collateral_router::{
 };
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
-use symm_core::{
-    core::{
-        self,
-        bits::{Address, Amount, Symbol},
-        decimal_ext::DecimalExt,
-        functional::{
-            IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
-        },
+use symm_core::core::{
+    self,
+    bits::{Address, Amount, Symbol},
+    decimal_ext::DecimalExt,
+    functional::{
+        IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
     },
 };
 
-use crate::{chain_connector::GasFeeCalculator, collateral::{
-    otc_custody_designation::OTCCustodyCollateralDesignation,
-    wallet_designation::WalletCollateralDesignation,
-}};
+use crate::{
+    chain_connector::GasFeeCalculator,
+    collateral::{
+        otc_custody_designation::OTCCustodyCollateralDesignation,
+        wallet_designation::WalletCollateralDesignation,
+    },
+};
 
 pub struct OTCCustodyToWalletCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,

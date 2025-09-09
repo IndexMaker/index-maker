@@ -16,10 +16,13 @@ use symm_core::core::{
     },
 };
 
-use crate::{chain_connector::GasFeeCalculator, collateral::{
-    signer_wallet_designation::SignerWalletCollateralDesignation,
-    wallet_designation::WalletCollateralDesignation,
-}};
+use crate::{
+    chain_connector::GasFeeCalculator,
+    collateral::{
+        signer_wallet_designation::SignerWalletCollateralDesignation,
+        wallet_designation::WalletCollateralDesignation,
+    },
+};
 
 pub struct SignerWalletToWalletCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,

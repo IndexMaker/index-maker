@@ -4,7 +4,10 @@ use symm_core::core::functional::PublishSingle;
 
 use otc_custody::{contracts::OTCCustody, custody_client::CustodyClient};
 
-use crate::{command::CustodyCommand, util::{amount_converter::AmountConverter, gas_util::compute_gas_used}};
+use crate::{
+    command::CustodyCommand,
+    util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
+};
 
 pub struct RpcCustodySession<P>
 where

@@ -3,17 +3,23 @@ use std::{
     sync::{Arc, RwLock as ComponentLock},
 };
 
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use itertools::{Either, Itertools};
-use parking_lot::RwLock;
 
 use eyre::{eyre, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
-use symm_core::core::telemetry::{TracingData, WithBaggage, WithTracingContext};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use symm_core::core::{
+    persistence::{Persist, Persistence},
+    telemetry::{TracingData, WithBaggage, WithTracingContext},
+};
 
 use symm_core::core::{
+    arcswaputil::SafeUpdate,
     bits::{Address, Amount, ClientOrderId, PaymentId, Side},
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
@@ -82,16 +88,22 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
     router: Arc<ComponentLock<CollateralRouter>>,
-    client_funds: HashMap<(u32, Address), Arc<RwLock<CollateralPosition>>>,
+    persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+    client_funds: HashMap<(u32, Address), ArcSwap<CollateralPosition>>,
     collateral_management_requests: VecDeque<CollateralManagement>,
     zero_threshold: Amount,
 }
 
 impl CollateralManager {
-    pub fn new(router: Arc<ComponentLock<CollateralRouter>>, zero_threshold: Amount) -> Self {
+    pub fn new(
+        router: Arc<ComponentLock<CollateralRouter>>,
+        persistence: Arc<dyn Persistence + Send + Sync + 'static>,
+        zero_threshold: Amount,
+    ) -> Self {
         Self {
             observer: SingleObserver::new(),
             router,
+            persistence,
             client_funds: HashMap::new(),
             collateral_management_requests: VecDeque::new(),
             zero_threshold,
@@ -111,7 +123,7 @@ impl CollateralManager {
         let (ready_to_route, check_later): (Vec<_>, Vec<_>) =
             requests.into_iter().partition_map(|request| {
                 if let Some(position) = self.get_position(request.chain_id, &request.address) {
-                    let position_read = position.read();
+                    let position_read = position.load();
                     let unconfirmed_balance = match request.side {
                         Side::Buy => position_read.side_cr.unconfirmed_balance,
                         Side::Sell => position_read.side_dr.unconfirmed_balance,
@@ -228,10 +240,15 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(%chain_id, %address, %amount, "Deposit");
 
-        let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
-            .write()
-            .deposit(payment_id, amount, timestamp)
+            .safe_update(|funds_write| {
+                funds_write
+                    .side_cr
+                    .open_lot(host.get_next_payment_id(), amount, timestamp)?;
+
+                funds_write.last_update_timestamp = timestamp;
+                Ok(())
+            })
     }
 
     pub fn handle_withdrawal(
@@ -244,10 +261,15 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(%chain_id, %address, %amount, "Withdrawal");
 
-        let payment_id = host.get_next_payment_id();
         self.add_position(chain_id, address, timestamp)
-            .write()
-            .withdraw(payment_id, amount, timestamp)
+            .safe_update(|funds_write| {
+                funds_write
+                    .side_dr
+                    .open_lot(host.get_next_payment_id(), amount, timestamp)?;
+
+                funds_write.last_update_timestamp = timestamp;
+                Ok(())
+            })
     }
 
     /// Pre-Authorize Payment
@@ -271,17 +293,18 @@ impl CollateralManager {
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let status = funds
-            .write()
-            .preauth_payment(
-                &client_order_id,
-                timestamp,
-                side,
-                amount_payable,
-                self.zero_threshold,
-                || host.get_next_payment_id(),
-            )
-            .ok_or_eyre("Math Problem")?;
+        let status = funds.safe_update(|funds_write| {
+            funds_write
+                .preauth_payment(
+                    &client_order_id,
+                    timestamp,
+                    side,
+                    amount_payable,
+                    self.zero_threshold,
+                    || host.get_next_payment_id(),
+                )
+                .ok_or_eyre("Math Problem")
+        })?;
 
         self.observer
             .publish_single(CollateralEvent::PreAuthResponse {
@@ -315,22 +338,21 @@ impl CollateralManager {
     ) -> Result<()> {
         tracing::info!(%chain_id, %address, %amount_paid, "Confirm Payment");
 
+        let zero_threshold = self.zero_threshold;
         let funds = self
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;
 
-        let (status, position) = (|funds_write: &mut CollateralPosition| 
-            -> Result<(ConfirmStatus, CollateralPosition)>{
-            Ok((funds_write
-                .confirm_payment(
-                    payment_id,
-                    timestamp,
-                    side,
-                    amount_paid,
-                    self.zero_threshold,
-                ).ok_or_eyre("Math Problem")?, 
-                funds_write.clone()))
-        })(&mut funds.write())?;
+        let (status, position) = funds.safe_update(
+            |funds_write: &mut CollateralPosition| -> eyre::Result<(_, _)> {
+                Ok((
+                    funds_write
+                        .confirm_payment(payment_id, timestamp, side, amount_paid, zero_threshold)
+                        .ok_or_eyre("Math Problem")?,
+                    funds_write.clone(),
+                ))
+            },
+        )?;
 
         self.observer
             .publish_single(CollateralEvent::ConfirmResponse {
@@ -352,22 +374,21 @@ impl CollateralManager {
         chain_id: u32,
         address: Address,
         timestamp: DateTime<Utc>,
-    ) -> Arc<RwLock<CollateralPosition>> {
+    ) -> &ArcSwap<CollateralPosition> {
         self.client_funds
             .entry((chain_id, address))
             .or_insert_with(|| {
-                Arc::new(RwLock::new(CollateralPosition::new(
+                ArcSwap::new(Arc::new(CollateralPosition::new(
                     chain_id, address, timestamp,
                 )))
             })
-            .clone()
     }
 
-    fn get_position(
+    pub fn get_position(
         &self,
         chain_id: u32,
         address: &Address,
-    ) -> Option<&Arc<RwLock<CollateralPosition>>> {
+    ) -> Option<&ArcSwap<CollateralPosition>> {
         self.client_funds.get(&(chain_id, address.clone()))
     }
 
@@ -394,39 +415,39 @@ impl CollateralManager {
                     .get_position(chain_id, &address)
                     .ok_or_eyre("Failed to find position")?;
 
-                let mut funds_write = funds.write();
+                funds.safe_update(|funds_write| -> Result<()> {
+                    // TODO: We need to also support Sell & Withdraw
+                    let side = Side::Buy;
 
-                // TODO: We need to also support Sell & Withdraw
-                let side = Side::Buy;
+                    funds_write
+                        .add_ready(side, amount, timestamp, self.zero_threshold)
+                        .ok_or_eyre("Math Problem")?;
 
-                funds_write
-                    .add_ready(side, amount, timestamp, self.zero_threshold)
-                    .ok_or_eyre("Math Problem")?;
+                    // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
+                    let get_payment_id = || "Charges".into();
+                    let payment_id = get_payment_id();
 
-                // Note: We must charge the collateral routing fee otherwise
-                // we'll have dangling unconfirmed amount, while that amount was
-                // in fact used already when routing collateral.
-                let get_payment_id = || "Charges".into();
-                let payment_id = get_payment_id();
+                    funds_write
+                        .add_ready(side, fee, timestamp, self.zero_threshold)
+                        .ok_or_eyre("Math Problem")?;
 
-                funds_write
-                    .add_ready(side, fee, timestamp, self.zero_threshold)
-                    .ok_or_eyre("Math Problem")?;
+                    funds_write
+                        .preauth_payment(
+                            &client_order_id,
+                            timestamp,
+                            side,
+                            fee,
+                            self.zero_threshold,
+                            get_payment_id,
+                        )
+                        .ok_or_eyre("Math Problem")?;
 
-                funds_write
-                    .preauth_payment(
-                        &client_order_id,
-                        timestamp,
-                        side,
-                        fee,
-                        self.zero_threshold,
-                        get_payment_id,
-                    )
-                    .ok_or_eyre("Math Problem")?;
+                    funds_write
+                        .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
+                        .ok_or_eyre("Math Problem")?;
 
-                funds_write
-                    .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
-                    .ok_or_eyre("Math Problem")?;
+                    Ok(())
+                })?;
 
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {
@@ -440,6 +461,50 @@ impl CollateralManager {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredCollateralManager {
+    client_funds: Vec<((u32, Address), CollateralPosition)>,
+}
+
+impl Persist for CollateralManager {
+    fn load(&mut self) -> Result<()> {
+        if let Some(value) = self.persistence.load_value()? {
+            let loaded_state: StoredCollateralManager = serde_json::from_value(value)
+                .map_err(|err| eyre!("Failed to deserialize CollateralManager state: {:?}", err))?;
+
+            self.client_funds = loaded_state
+                .client_funds
+                .into_iter()
+                .map(|(key, position)| (key, ArcSwap::new(Arc::new(position))))
+                .collect();
+
+            tracing::info!(
+                "Loaded {} client fund positions from persistence",
+                self.client_funds.len()
+            );
+        }
+        Ok(())
+    }
+
+    fn store(&self) -> Result<()> {
+        let client_funds_vec: Vec<((u32, Address), CollateralPosition)> = self
+            .client_funds
+            .iter()
+            .map(|(key, arc_swap)| ((*key).clone(), (**arc_swap.load()).clone()))
+            .collect();
+
+        let store_data = StoredCollateralManager {
+            client_funds: client_funds_vec,
+        };
+
+        let data = serde_json::to_value(&store_data)?;
+
+        self.persistence
+            .store_value(data)
+            .map_err(|err| eyre!("Failed to store CollateralManager state: {:?}", err))
     }
 }
 
@@ -467,9 +532,12 @@ mod test {
         core::{
             bits::{PaymentId, Side},
             functional::IntoObservableSingle,
+            persistence::util::InMemoryPersistence,
             telemetry::TracingData,
             test_util::{
-                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel, get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool
+                flag_mock_atomic_bool, get_mock_address_1, get_mock_asset_name_1,
+                get_mock_asset_name_2, get_mock_atomic_bool_pair, get_mock_defer_channel,
+                get_mock_index_name_1, run_mock_deferred, test_mock_atomic_bool,
             },
         },
     };
@@ -478,7 +546,7 @@ mod test {
         collateral::{collateral_manager::PreAuthStatus, collateral_position::RoutingStatus},
         solver::{
             solver::{CollateralManagement, SetSolverOrderStatus},
-            solver_order::{SolverOrder, SolverOrderStatus},
+            solver_order::solver_order::{SolverOrder, SolverOrderStatus},
             solver_quote::{SolverQuote, SolverQuoteStatus},
         },
     };
@@ -503,7 +571,7 @@ mod test {
             order.status = status;
         }
 
-        fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus) {
+        fn set_quote_status(&self, _order: &mut SolverQuote, _status: SolverQuoteStatus) {
             todo!()
         }
     }
@@ -553,8 +621,10 @@ mod test {
             },
         );
 
+        let persistence = Arc::new(InMemoryPersistence::new());
         let collateral_manager = Arc::new(ComponentLock::new(CollateralManager::new(
             router.clone(),
+            persistence,
             zero_threshold,
         )));
 
@@ -658,7 +728,7 @@ mod test {
         {
             let locked = collateral_manager.write().unwrap();
             let pos = locked.get_position(1, &get_mock_address_1()).unwrap();
-            let pos_read = pos.read();
+            let pos_read = pos.load();
 
             assert_decimal_approx_eq!(
                 pos_read.side_cr.unconfirmed_balance,
@@ -708,7 +778,7 @@ mod test {
         {
             let locked = collateral_manager.write().unwrap();
             let pos = locked.get_position(1, &get_mock_address_1()).unwrap();
-            let pos_read = pos.read();
+            let pos_read = pos.load();
 
             assert_decimal_approx_eq!(
                 pos_read.side_cr.unconfirmed_balance,
@@ -751,7 +821,7 @@ mod test {
         {
             let locked = collateral_manager.write().unwrap();
             let pos = locked.get_position(1, &get_mock_address_1()).unwrap();
-            let pos_read = pos.read();
+            let pos_read = pos.load();
 
             assert_decimal_approx_eq!(
                 pos_read.side_cr.unconfirmed_balance,

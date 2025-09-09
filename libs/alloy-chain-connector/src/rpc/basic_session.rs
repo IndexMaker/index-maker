@@ -45,7 +45,11 @@ where
                 amount,
                 observer,
             } => {
-                tracing::info!("Transferring collateral {} from wallet to {}", amount, receipient);
+                tracing::info!(
+                    "Transferring collateral {} from wallet to {}",
+                    amount,
+                    receipient
+                );
 
                 let signer_address = provider.default_signer_address();
                 let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
@@ -72,11 +76,15 @@ where
                     .await?;
 
                 let gas_amount = compute_gas_used(receipt)?;
-                
-                tracing::info!("💰 Collateral transferred to wallet {} gas used {}", receipient, gas_amount);
+
+                tracing::info!(
+                    "💰 Collateral transferred to wallet {} gas used {}",
+                    receipient,
+                    gas_amount
+                );
 
                 observer.publish_single(gas_amount);
-                
+
                 let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
                 let sender_balance = converter.into_amount(sender_balance_raw)?;
                 let receipient_balance_raw = contract.balanceOf(receipient).call().await?;

@@ -1,16 +1,17 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
-use parking_lot::RwLock;
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
     decimal_ext::DecimalExt,
 };
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexOrderUpdate {
     /// ID of the update assigned by the user (<- FIX)
     pub client_order_id: ClientOrderId,
@@ -41,6 +42,7 @@ pub struct IndexOrderUpdate {
 }
 
 /// An order to buy index
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexOrder {
     /// Chain ID
     pub chain_id: u32,
@@ -81,15 +83,16 @@ pub struct IndexOrder {
     pub fees: Amount,
 
     /// Order updates (may contain partly cancelled, and partly engaged update)
-    pub order_updates: VecDeque<Arc<RwLock<IndexOrderUpdate>>>,
+    pub order_updates: VecDeque<Box<IndexOrderUpdate>>,
 
     /// Fully engaged updates
-    pub engaged_updates: VecDeque<Arc<RwLock<IndexOrderUpdate>>>,
+    pub engaged_updates: VecDeque<Box<IndexOrderUpdate>>,
 
     /// Fully closed order updates
-    pub closed_updates: VecDeque<Arc<RwLock<IndexOrderUpdate>>>,
+    pub closed_updates: VecDeque<Box<IndexOrderUpdate>>,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum UpdateIndexOrderOutcome {
     Push {
         new_collateral_amount: Amount,
@@ -104,6 +107,7 @@ pub enum UpdateIndexOrderOutcome {
     },
 }
 
+#[derive(Clone, Copy)]
 pub enum CancelIndexOrderOutcome {
     Reduce {
         removed_collateral: Amount,
@@ -152,7 +156,7 @@ impl IndexOrder {
         tolerance: Amount,
     ) -> Result<UpdateIndexOrderOutcome> {
         // Allocate new Index order update
-        let index_order_update = Arc::new(RwLock::new(IndexOrderUpdate {
+        let mut index_order_update = Box::new(IndexOrderUpdate {
             client_order_id: client_order_id.clone(),
             side,
             original_collateral_amount: collateral_amount,
@@ -162,7 +166,7 @@ impl IndexOrder {
             filled_quantity: Amount::ZERO,
             update_fee: Amount::ZERO,
             timestamp: timestamp.clone(),
-        }));
+        });
         if self.side.opposite_side() == side {
             // Match against updates when on the opposite side
             if let Some(unmatched_collateral) = self.match_cancel(collateral_amount, tolerance)? {
@@ -177,7 +181,7 @@ impl IndexOrder {
                     })
                 } else {
                     // We consumed all updates and created new on opposite side when flipped the side
-                    index_order_update.write().remaining_collateral = unmatched_collateral;
+                    index_order_update.remaining_collateral = unmatched_collateral;
                     self.order_updates.push_back(index_order_update);
                     // ...and we flipped unmatched quantity to the other side
                     self.remaining_collateral = unmatched_collateral;
@@ -293,7 +297,7 @@ impl IndexOrder {
         let (pos, _) = self
             .engaged_updates
             .iter()
-            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+            .find_position(|x| x.client_order_id.eq(client_order_id))
             .ok_or_else(|| eyre!("Engaged update not found {}", client_order_id))?;
 
         self.closed_updates
@@ -305,10 +309,10 @@ impl IndexOrder {
     pub fn solver_cancel(&mut self, client_order_id: &ClientOrderId, reason: &str) {
         tracing::warn!("Error in Order: {} {}", client_order_id, reason);
         self.order_updates.retain(|o| {
-            if o.read().client_order_id.eq(client_order_id) {
+            if o.client_order_id.eq(client_order_id) {
                 self.closed_updates.push_back(o.clone());
                 self.remaining_collateral =
-                    safe!(self.remaining_collateral - o.read().remaining_collateral).unwrap();
+                    safe!(self.remaining_collateral - o.remaining_collateral).unwrap();
                 false
             } else {
                 true
@@ -317,34 +321,48 @@ impl IndexOrder {
     }
 
     /// Drain
-    pub fn drain_closed_updates(&mut self, cb: impl Fn(Arc<RwLock<IndexOrderUpdate>>)) {
+    pub fn drain_closed_updates(&mut self, cb: impl FnMut(Box<IndexOrderUpdate>)) {
         self.closed_updates.drain(..).for_each(cb);
     }
 
     pub fn find_order_update(
         &self,
         client_order_id: &ClientOrderId,
-    ) -> Option<&Arc<RwLock<IndexOrderUpdate>>> {
+    ) -> Option<&Box<IndexOrderUpdate>> {
         // First update in order_updates can be partly enagaged, and
         // all updates in engaged_updates are always fully engaged.
         self.order_updates
             .iter()
-            .find_position(|x| x.read().client_order_id.eq(client_order_id))
+            .find_position(|x| x.client_order_id.eq(client_order_id))
             .map(|(_, update)| update)
     }
 
     pub fn find_engaged_update(
         &self,
         client_order_id: &ClientOrderId,
-    ) -> Option<&Arc<RwLock<IndexOrderUpdate>>> {
+    ) -> Option<&IndexOrderUpdate> {
         // First update in order_updates can be partly enagaged, and
         // all updates in engaged_updates are always fully engaged.
         self.order_updates
             .iter()
             .take(1)
             .chain(self.engaged_updates.iter())
-            .find_position(|x| x.read().client_order_id.eq(client_order_id))
-            .map(|(_, update)| update)
+            .find_position(|x| x.client_order_id.eq(client_order_id))
+            .map(|(_, update)| update.as_ref())
+    }
+
+    pub fn find_engaged_update_mut(
+        &mut self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<&mut IndexOrderUpdate> {
+        // First update in order_updates can be partly enagaged, and
+        // all updates in engaged_updates are always fully engaged.
+        self.order_updates
+            .iter_mut()
+            .take(1)
+            .chain(self.engaged_updates.iter_mut())
+            .find_position(|x| x.client_order_id.eq(client_order_id))
+            .map(|(_, update)| update.as_mut())
     }
 
     /// Match updates against collateral amount and cancel
@@ -354,9 +372,14 @@ impl IndexOrder {
         mut collateral_amount: Amount,
         tolerance: Amount,
     ) -> Result<Option<Amount>> {
-        while let Some(update) = self.order_updates.back().cloned() {
+        let mut result = Some(collateral_amount);
+        let mut back_order_update = None;
+        let mut order_updates_drain_count = 0;
+        let mut new_closed_updates = VecDeque::new();
+        let mut new_engaged_updates = VecDeque::new();
+
+        for update in self.order_updates.iter().rev() {
             // begin transaction on update
-            let mut update = update.write();
 
             // collateral remaining on the update
             let future_remaining_collateral =
@@ -377,22 +400,28 @@ impl IndexOrder {
                     // in the next iteration Solver will not prepare
                     // any new orders for this update.
                     //
+                    let mut update = update.clone();
                     update.remaining_collateral = Amount::ZERO;
+
                     // This update is fully engaged at this moment
-                    self.engaged_updates
-                        .push_back(self.order_updates.pop_back().unwrap());
-                    return Ok(Some(-future_remaining_collateral));
+                    new_engaged_updates.push_back(update);
+                    order_updates_drain_count += 1;
+
+                    result = Some(-future_remaining_collateral);
+                    break;
                 } else {
                     // We fully closed that update
-                    self.closed_updates
-                        .push_back(self.order_updates.pop_back().unwrap());
+                    let update = update.clone();
+                    new_closed_updates.push_back(update);
+                    order_updates_drain_count += 1;
 
                     if future_remaining_collateral < -tolerance {
                         // there's more collateral on the incoming update left
                         collateral_amount = -future_remaining_collateral;
                     } else {
                         // we consumed whole incoming update
-                        return Ok(None);
+                        result = None;
+                        break;
                     }
                 }
             } else {
@@ -404,11 +433,28 @@ impl IndexOrder {
                 // would be left for next iteration, i.e. no orders were
                 // prepared yet to cover for remaining_collateral. Orders that
                 // were prepared cover engaged_collateral.
+                let mut update = update.clone();
                 update.remaining_collateral = future_remaining_collateral;
-                return Ok(None);
+
+                // keep update in
+                back_order_update = Some(update);
+                result = None;
+                break;
             }
+            result = Some(collateral_amount);
         }
-        Ok(Some(collateral_amount))
+
+        // --==| Commit |==--
+        let drain_start = self.order_updates.len() - order_updates_drain_count;
+        let _ = self.order_updates.drain(drain_start..).count();
+        if let Some(update) = back_order_update {
+            self.order_updates.pop_back();
+            self.order_updates.push_back(update);
+        }
+        self.engaged_updates.extend(new_engaged_updates);
+        self.closed_updates.extend(new_closed_updates);
+
+        Ok(result)
     }
 
     /// Match updates against collateral and engage
@@ -418,9 +464,14 @@ impl IndexOrder {
         mut collateral_amount: Amount,
         tolerance: Amount,
     ) -> Result<Option<Amount>> {
-        while let Some(update) = self.order_updates.front().cloned() {
+        let mut result = Some(collateral_amount);
+        let mut front_order_update = None;
+        let mut order_updates_drain_count = 0;
+        let mut new_engaged_updates = VecDeque::new();
+
+        for update_box in self.order_updates.iter() {
             // begin transaction on update
-            let mut update = update.write();
+            let update = update_box.as_ref();
 
             let future_remaining_collateral =
                 safe!(update.remaining_collateral - collateral_amount)
@@ -430,31 +481,54 @@ impl IndexOrder {
                 // We can engage with whole remaining collateral on this update
                 let remaining_collateral = update.remaining_collateral;
                 tracing::info!("Should update!");
-                safe!(update.engaged_collateral += remaining_collateral)
+
+                let mut update_clone = update_box.clone();
+                safe!(update_clone.engaged_collateral += remaining_collateral)
                     .ok_or_eyre("Math Problem")?;
 
                 // No collateral remaining on this update
-                update.remaining_collateral = Amount::ZERO;
+                update_clone.remaining_collateral = Amount::ZERO;
 
                 // Move that update to fully engaged queue
-                self.engaged_updates
-                    .push_back(self.order_updates.pop_front().unwrap());
+                new_engaged_updates.push_back(update_clone);
+                order_updates_drain_count += 1;
 
                 if future_remaining_collateral < -tolerance {
                     // There is some collateral left for next iteration
                     collateral_amount = -future_remaining_collateral;
                 } else {
                     // We engaged all quantity
-                    return Ok(None);
+                    result = None;
+                    break;
                 }
             } else {
                 // We can engage with whole quantity
-                safe!(update.engaged_collateral += collateral_amount).ok_or_eyre("Math Problem")?;
-                update.remaining_collateral = future_remaining_collateral;
-                return Ok(None);
+                let mut update_clone = update_box.clone();
+                safe!(update_clone.engaged_collateral += collateral_amount)
+                    .ok_or_eyre("Math Problem")?;
+                update_clone.remaining_collateral = future_remaining_collateral;
+
+                // keep
+                front_order_update = Some(update_clone);
+                result = None;
+                break;
             };
+
+            result = Some(collateral_amount);
         }
-        Ok(Some(collateral_amount))
+
+        // --==| Commit |==--
+        let _ = self
+            .order_updates
+            .drain(..order_updates_drain_count)
+            .count();
+        if let Some(update) = front_order_update {
+            self.order_updates.pop_front();
+            self.order_updates.push_front(update);
+        }
+        self.engaged_updates.extend(new_engaged_updates);
+
+        Ok(result)
     }
 
     /// Match only first update against collateral and engage
@@ -472,10 +546,10 @@ impl IndexOrder {
         if let Some(_) = self
             .engaged_updates
             .back()
-            .filter(|x| x.read().client_order_id.eq(client_order_id))
+            .filter(|x| x.client_order_id.eq(client_order_id))
         {
             if collateral_amount < tolerance {
-                // We're just confirming that order was fully engaged, and 
+                // We're just confirming that order was fully engaged, and
                 // that the new engagement amount is zero.
                 return Ok((Amount::ZERO, None));
             } else {
@@ -488,32 +562,30 @@ impl IndexOrder {
         }
 
         let (remaining_collateral, unmatched_collateral) = (|| -> Result<(Amount, Amount)> {
-            let update = self
+            let update_mut = self
                 .order_updates
-                .front()
+                .front_mut()
                 .ok_or_eyre("Front update not found")?;
 
-            let mut update_upread = update.upgradable_read();
-            if !update_upread.client_order_id.eq(client_order_id) {
+            let update = &update_mut;
+            if !update.client_order_id.eq(client_order_id) {
                 Err(eyre!("Can only engage next update in queue"))?;
             }
 
-            let collateral_matched = collateral_amount.min(update_upread.remaining_collateral);
+            let collateral_matched = collateral_amount.min(update.remaining_collateral);
             let unmatched_collateral =
                 safe!(collateral_amount - collateral_matched).ok_or_eyre("Math Problem")?;
 
-            let engaged_collateral = update_upread.engaged_collateral.map_or_else(
+            let engaged_collateral = update.engaged_collateral.map_or_else(
                 || Some(collateral_matched),
                 |x| safe!(x + collateral_matched),
             );
-            let remaining_collateral =
-                safe!(update_upread.remaining_collateral - collateral_matched)
-                    .ok_or_eyre("Math Problem")?;
+            let remaining_collateral = safe!(update.remaining_collateral - collateral_matched)
+                .ok_or_eyre("Math Problem")?;
 
-            update_upread.with_upgraded(|x| {
-                x.engaged_collateral = engaged_collateral;
-                x.remaining_collateral = remaining_collateral;
-            });
+            // --==| Commit |==--
+            update_mut.engaged_collateral = engaged_collateral;
+            update_mut.remaining_collateral = remaining_collateral;
 
             Ok((remaining_collateral, unmatched_collateral))
         })()?;
@@ -745,13 +817,6 @@ mod test {
             let collateral_added =
                 collateral5 - (collateral1 + collateral2 - collateral3 - collateral4);
 
-            assert!(matches!(
-                update_index_order_outcome,
-                UpdateIndexOrderOutcome::Flip {
-                    side: _,
-                    new_collateral_amount: _
-                }
-            ));
             match update_index_order_outcome {
                 UpdateIndexOrderOutcome::Flip {
                     side,
@@ -760,7 +825,9 @@ mod test {
                     assert!(matches!(side, Side::Sell));
                     assert_decimal_approx_eq!(new_collateral, collateral_added, tolerance);
                 }
-                _ => assert!(false),
+                _ => {
+                    assert!(false)
+                }
             }
             assert!(matches!(order.side, Side::Sell));
             assert_decimal_approx_eq!(
@@ -892,7 +959,7 @@ mod test {
 
             let mut iter = order.order_updates.iter();
 
-            let update = iter.next().unwrap().read();
+            let update = iter.next().unwrap();
             assert!(update.engaged_collateral.is_some());
             assert_decimal_approx_eq!(
                 update.engaged_collateral.unwrap(),
@@ -910,7 +977,7 @@ mod test {
                 tolerance
             );
 
-            let update = iter.next().unwrap().read();
+            let update = iter.next().unwrap();
             assert!(update.engaged_collateral.is_none());
         }
 
@@ -932,7 +999,7 @@ mod test {
 
             let mut iter = order.order_updates.iter();
 
-            let update = iter.next().unwrap().read();
+            let update = iter.next().unwrap();
             assert!(update.engaged_collateral.is_some());
             assert_decimal_approx_eq!(
                 update.engaged_collateral.unwrap(),
@@ -946,7 +1013,7 @@ mod test {
             );
 
             let mut iter = order.engaged_updates.iter();
-            let update = iter.next().unwrap().read();
+            let update = iter.next().unwrap();
             assert_decimal_approx_eq!(update.engaged_collateral.unwrap(), collateral1, tolerance);
         }
 
@@ -995,10 +1062,10 @@ mod test {
 
             let mut iter = order.engaged_updates.iter();
 
-            let update = iter.next().unwrap().read();
+            let update = iter.next().unwrap();
             assert_decimal_approx_eq!(update.engaged_collateral.unwrap(), collateral1, tolerance);
 
-            let update = iter.next().unwrap().read();
+            let update = iter.next().unwrap();
             assert!(update.engaged_collateral.is_some());
             assert_decimal_approx_eq!(
                 update.engaged_collateral.unwrap(),

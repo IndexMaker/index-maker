@@ -1,14 +1,17 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
-use crate::{app::solver::ServerConfig, solver::index_order_manager::IndexOrderManager};
+use crate::{
+    app::{mint_invoice_manager::MintInvoiceManagerConfig, solver::ServerConfig},
+    solver::index_order_manager::IndexOrderManager,
+};
 
 use super::config::ConfigBuildError;
 use derive_builder::Builder;
 use eyre::{OptionExt, Result};
 use rust_decimal::dec;
-use symm_core::core::bits::Amount;
+use symm_core::core::{bits::Amount, persistence::util::JsonFilePersistence};
 
-#[derive(Builder)]
+#[derive(Builder, Clone)]
 #[builder(
     pattern = "owned",
     build_fn(name = "try_build", error = "ConfigBuildError")
@@ -19,6 +22,9 @@ pub struct IndexOrderManagerConfig {
 
     #[builder(setter(into, strip_option))]
     pub with_server: Arc<dyn ServerConfig + Send + Sync>,
+
+    #[builder(setter(into, strip_option))]
+    pub with_invoice_manager: Arc<MintInvoiceManagerConfig>,
 
     #[builder(setter(skip))]
     index_order_manager: Option<Arc<ComponentLock<IndexOrderManager>>>,
@@ -55,8 +61,20 @@ impl IndexOrderManagerConfigBuilder {
             .try_get_server_cloned()
             .map_err(|_| ConfigBuildError::UninitializedField("with_server"))?;
 
+        // TODO: Configure me!
+        let persistence = Arc::new(JsonFilePersistence::new(String::from(
+            "./persistence/IndexOrderManager.json",
+        )));
+
+        let invoice_manager = config
+            .with_invoice_manager
+            .try_get_collateral_invoice_manager_cloned()
+            .map_err(|_| ConfigBuildError::UninitializedField("invoice_manager"))?;
+
         let index_order_manager = Arc::new(ComponentLock::new(IndexOrderManager::new(
             server,
+            invoice_manager,
+            persistence,
             config.zero_threshold.unwrap_or(dec!(0.00001)),
         )));
 

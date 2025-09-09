@@ -1,7 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{collateral::collateral_position::CollateralPosition, solver::solver_order::SolverOrderAssetLot};
+use crate::{
+    collateral::collateral_position::CollateralPosition,
+    solver::solver_order::solver_order::SolverOrderAssetLot,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixHeader {

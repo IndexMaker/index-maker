@@ -4,7 +4,6 @@ use std::{
     thread,
 };
 
-use async_trait::async_trait;
 use index_core::{
     blockchain::chain_connector::{ChainConnector, ChainNotification},
     collateral::collateral_router::{CollateralRouterEvent, CollateralTransferEvent},
@@ -24,7 +23,7 @@ use crate::{
         batch_manager::BatchEvent,
         index_order_manager::IndexOrderEvent,
         index_quote_manager::QuoteRequestEvent,
-        solver::{OrderIdProvider, Solver, SolverStrategy},
+        solver::{OrderIdProvider, Solver, SolverStatus, SolverStrategy},
     },
 };
 
@@ -44,6 +43,7 @@ use symm_core::{
             IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
             IntoObservableSingleFun,
         },
+        persistence::{util::JsonFilePersistence, Persist},
         telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
     },
     market_data::{
@@ -658,10 +658,7 @@ impl SolverConfig {
             loop {
                 select! {
                     recv(stop_solver_rx) -> _ => {
-                        if let Err(err) = solver_stopped_tx.send(()) {
-                            tracing::warn!("Failed to send solver stopped event: {:?}", err);
-                        }
-                        break;
+                        solver.initiate_shutdown();
                     },
                     recv(collateral_event_rx) -> res => match res {
                         Ok(event) => {
@@ -735,7 +732,22 @@ impl SolverConfig {
                         }
                     },
                     default(tick_delta) => {
-                        solver.solve(Utc::now());
+                        let status = solver.solve(Utc::now());
+                        match status {
+                            SolverStatus::Stopped => {
+                                if let Err(err) = solver_stopped_tx.send(()) {
+                                    tracing::warn!("Failed to send solver stopped event: {:?}", err);
+                                }
+                                tracing::info!("Solver has stopped - exiting dispatch loop");
+                                break;
+                            }
+                            SolverStatus::ShuttingDown => {
+                                tracing::debug!("Solver is shutting down - waiting for batches to complete");
+                            }
+                            SolverStatus::Running => {
+                                // Continue normal operation
+                            }
+                        }
                     }
                 }
             }
@@ -808,7 +820,22 @@ impl SolverConfig {
                         }
                     },
                     default(tick_delta) => {
-                        solver.solve(Utc::now());
+                        let status = solver.solve(Utc::now());
+                        match status {
+                            SolverStatus::Stopped => {
+                                tracing::info!("Quotes solver has stopped - exiting dispatch loop");
+                                if let Err(err) = solver_stopped_tx.send(()) {
+                                    tracing::warn!("Failed to send solver stopped event: {:?}", err);
+                                }
+                                break;
+                            }
+                            SolverStatus::ShuttingDown => {
+                                tracing::debug!("Quotes solver is shutting down - waiting for batches to complete");
+                            }
+                            SolverStatus::Running => {
+                                // Continue normal operation
+                            }
+                        }
                     }
                 }
             }
@@ -823,9 +850,17 @@ impl SolverConfig {
 
     async fn stop_solver(&mut self) -> Result<()> {
         if let Some((stop_solver_tx, solver_stopped_rx)) = self.stopping_solver.take() {
-            stop_solver_tx.send(()).unwrap();
-            solver_stopped_rx.await.unwrap();
+            stop_solver_tx.send(())?;
+            solver_stopped_rx.await?;
+            Ok(())
+        } else {
+            Err(eyre!("Cannot stop solver: Not started"))
+        }
+    }
 
+    pub async fn check_solver_stopped(&mut self) -> Result<()> {
+        if let Some((_, solver_stopped_rx)) = &mut self.stopping_solver {
+            solver_stopped_rx.await?;
             Ok(())
         } else {
             Err(eyre!("Cannot stop solver: Not started"))
@@ -842,10 +877,38 @@ impl SolverConfig {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
+        // --==| Graceful shutdown |==--
+
+        // 1. Stop receiving Index Orders & Quotes
+        // a. Close server for incoming requests
+        self.with_index_order_manager
+            .with_server
+            .try_get_server_cloned()?
+            .write()
+            .initialize_shutdown();
+
+        // 2. Shutdown Solver
+        // a. Send stop event
+        // b. Solver will initiate its shudown (enter ShuttingDown state)
+        // c. Solver will await any pending batches to complete (returned BatchManagerStatus)
+        // d. Solver will notify about shutdown completion (returned SolverStatus)
+        // e. We will receive stop confirmation event (sent from dispatch loop)
+        self.stop_solver().await?;
+
+        // 3. Stop dispatching server events
         self.stop_orders_backend().await?;
         self.stop_quotes_backend().await?;
-        self.stop_solver().await?;
+
+        // 4. Stop receiving market data
         self.stop_market_data().await?;
+
+        // 5. Persist state
+        self.solver
+            .as_deref()
+            .ok_or_eyre("Failed to access solver for persistence")?
+            .store()?;
+
+        tracing::info!("Graceful solver shutdown completed");
         Ok(())
     }
 
@@ -858,6 +921,24 @@ impl SolverConfig {
     }
 
     pub async fn stop_quotes(&mut self) -> Result<()> {
+        // Similar graceful shutdown for quotes mode
+        if let Some(solver) = self.solver.as_deref() {
+            tracing::info!("Initiating graceful quotes shutdown...");
+            solver.initiate_shutdown();
+
+            // Initialize server shutdown to block new orders
+            self.with_index_order_manager
+                .with_server
+                .try_get_server_cloned()?
+                .write()
+                .initialize_shutdown();
+
+            // Batch completion is now handled by the dispatch loop
+            tracing::info!(
+                "Quotes graceful shutdown initiated - batches will complete via dispatch loop"
+            );
+        }
+
         self.stop_quotes_backend().await?;
         self.stop_solver().await?;
         self.stop_market_data().await?;
@@ -940,7 +1021,12 @@ impl SolverConfigBuilder {
                 ConfigBuildError::UninitializedField("with_chain_connector.chain_connector")
             })?;
 
-        config.solver.replace(Arc::new(Solver::new(
+        // TODO: Configure me!
+        let persistence = Arc::new(JsonFilePersistence::new(String::from(
+            "./persistence/Solver.json",
+        )));
+
+        let mut solver = Arc::new(Solver::new(
             strategy,
             order_id_provider,
             basket_manager,
@@ -949,14 +1035,37 @@ impl SolverConfigBuilder {
             chain_connector,
             batch_manager,
             collateral_manager,
-            index_order_manager,
+            index_order_manager.clone(),
             quote_request_manager,
             inventory_manager,
+            persistence,
             config.max_batch_size,
             config.zero_threshold,
             config.client_order_wait_period,
             config.client_quote_wait_period,
-        )));
+        ));
+
+        // There is a good reason for Persist::load(&mut self) to work on &mut Self and not &Self.
+        // Persist::load() should restore consistent state, and for that the whole object needs
+        // to be locked or otherwise some fields would be deserialized out-of-sync. In case of
+        // Solver there is multiple members that are protected by locks, and when we deserialize
+        // them one after another, they may get out of sync if system is currently running.
+        // We don't keep Solver under lock, so the only way to load its state is in the beginning
+        // when we create it and nothing else has reference to it yet (which is here).
+        // Note that other components can reload their state on-the-go, e.g. to rollback failed
+        // operation, and they can store their stat on-the-go, e.g. to commit stable state.
+        Arc::get_mut(&mut solver)
+            .ok_or_else(|| {
+                ConfigBuildError::Other(String::from(
+                    "Failed to get mutable reference to solver for state loading",
+                ))
+            })?
+            .load()
+            .map_err(|err| {
+                ConfigBuildError::Other(format!("Failed to load solver state: {:?}", err))
+            })?;
+
+        config.solver.replace(solver);
 
         Ok(config)
     }

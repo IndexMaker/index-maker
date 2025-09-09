@@ -1,14 +1,16 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
-use eyre::{eyre, OptionExt, Result};
-use parking_lot::RwLock;
+use eyre::{ensure, eyre, OptionExt, Result};
 use safe_math::safe;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
-        bits::{Amount, BatchOrderId, OrderId, Side, Symbol},
+        bits::{Address, Amount, BatchOrderId, ClientOrderId, OrderId, Side, Symbol},
         decimal_ext::DecimalExt,
     },
     string_id,
@@ -16,6 +18,7 @@ use crate::{
 
 string_id!(LotId);
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LotTransaction {
     /// ID of the closing order that was executed
     pub order_id: OrderId,
@@ -41,6 +44,30 @@ pub struct LotTransaction {
     pub closing_timestamp: DateTime<Utc>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LotAssignment {
+    /// Chain ID
+    pub chain_id: u32,
+
+    /// On-chain wallet address
+    pub address: Address,
+
+    /// ID of the update assigned by the user (<- FIX)
+    pub client_order_id: ClientOrderId,
+
+    /// Side from which lot was assigned
+    pub side: Side,
+
+    /// Quantity allocated to index order
+    pub assigned_quantity: Amount,
+
+    /// Execution fee allocated to index order
+    pub assigned_fee: Amount,
+
+    /// Time when lot was assigned to index order
+    pub assigned_timestamp: DateTime<Utc>,
+}
+
 /// Lot is what you get in a single execution, so Lot Id is same as execution Id and comes from exchange (<- Binance)
 ///
 /// From exchange perspective execution Id is the Id of the *action*, which is to execute an order.
@@ -54,6 +81,7 @@ pub struct LotTransaction {
 /// short-selling.
 ///
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Lot {
     /// ID of the order that was executed, and caused to open this lot
     pub original_order_id: OrderId,
@@ -84,7 +112,10 @@ pub struct Lot {
 
     /// All the transactions that were matched against this lot, and these transactions
     /// closed some portion of this lot.
-    pub lot_transactions: Vec<LotTransaction>,
+    pub lot_transactions: Vec<Arc<LotTransaction>>,
+
+    /// Associates client orders with lots
+    pub lot_assignments: Vec<Arc<LotAssignment>>,
 }
 
 impl Lot {
@@ -96,6 +127,7 @@ impl Lot {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Position {
     /// An asset we received
     pub symbol: Symbol,
@@ -118,10 +150,10 @@ pub struct Position {
     /// We also need to store them in RwLock, because we will be updating them. We're
     /// using cheap parking_lot RwLock, and our updates will not be holding lock for
     /// long, just write few fields and unlock.
-    pub open_lots: VecDeque<Arc<RwLock<Lot>>>,
+    pub open_lots: VecDeque<Box<Lot>>,
 
     /// Lots closed by lot_transactions
-    pub closed_lots: VecDeque<Arc<RwLock<Lot>>>,
+    pub closed_lots: VecDeque<Box<Lot>>,
 }
 
 impl Position {
@@ -152,7 +184,7 @@ impl Position {
         }
         self.last_update_timestamp.replace(fill_timestamp);
         // Store as open lot
-        self.open_lots.push_back(Arc::new(RwLock::new(Lot {
+        self.open_lots.push_back(Box::new(Lot {
             original_order_id: order_id.clone(),
             original_batch_order_id: batch_order_id.clone(),
             lot_id: lot_id.clone(),
@@ -163,7 +195,8 @@ impl Position {
             created_timestamp: fill_timestamp,
             last_update_timestamp: fill_timestamp,
             lot_transactions: Vec::new(),
-        })));
+            lot_assignments: Vec::new(),
+        }));
         // Update balance
         self.balance = match side {
             Side::Buy => safe!(self.balance + quantity_filled),
@@ -190,18 +223,21 @@ impl Position {
             return Ok(Some(quantity_filled));
         }
         self.last_update_timestamp.replace(fill_timestamp);
-        while let Some(lot) = self.open_lots.front().cloned() {
-            let lot_quantity_remaining = lot.read().remaining_quantity;
+        let mut balance = self.balance;
+        let mut front_lot_update = None;
+        let mut open_lots_drain_count = 0;
+        let mut closed_lots = VecDeque::new();
+
+        for lot in self.open_lots.iter() {
+            let lot_quantity_remaining = lot.remaining_quantity;
 
             let remaining_quantity =
                 safe!(lot_quantity_remaining - quantity_filled).ok_or_eyre("Math Problem")?;
 
-            let (matched_lot_quantity, lot_quantity_remaining, finished) =
+            let (matched_lot_quantity, lot_quantity_remaining, finished, was_closed) =
                 if remaining_quantity < tolerance {
-                    // We closed the lotd
-                    let lot = self.open_lots.pop_front().unwrap();
+                    // We closed the lot
                     // ...we move it to closed_lots
-                    self.closed_lots.push_back(lot);
                     (
                         // we matched whole lot
                         lot_quantity_remaining,
@@ -215,12 +251,16 @@ impl Position {
                                 "there is some quantity left to continue matching {}",
                                 quantity_filled
                             );
+                            // finished <- false
                             false
                         } else {
                             // fill was fully matched
                             quantity_filled = Amount::ZERO;
+                            // finished <- true
                             true
                         },
+                        // was_closed <- true
+                        true,
                     )
                 } else {
                     tracing::debug!("We matched whole quantity of fill {}", quantity_filled);
@@ -231,39 +271,49 @@ impl Position {
                     quantity_filled = Amount::ZERO;
 
                     // We partly closed the lot
-                    (matched_lot_quantity, remaining_quantity, true)
+                    // finished <- true, was_closed <- false
+                    (matched_lot_quantity, remaining_quantity, true, false)
                 };
 
-            // Update lot
-            // We do it regardless whether it is still open or closed, as we
-            // have an Arc reference to it.
-            {
-                let mut lot = lot.write();
+            balance = safe!(balance - matched_lot_quantity).ok_or(eyre!("Math overflow"))?;
 
-                lot.lot_transactions.push(LotTransaction {
-                    order_id: order_id.clone(),
-                    batch_order_id: batch_order_id.clone(),
-                    matched_lot_id: lot_id.clone(),
-                    closing_fee: fee_paid,
-                    closing_price: price_filled,
-                    closing_timestamp: fill_timestamp,
-                    quantity_closed: matched_lot_quantity,
-                });
+            let mut lot_mut = lot.clone();
 
-                lot.last_update_timestamp = fill_timestamp;
-                lot.remaining_quantity = lot_quantity_remaining;
+            lot_mut.lot_transactions.push(Arc::new(LotTransaction {
+                order_id: order_id.clone(),
+                batch_order_id: batch_order_id.clone(),
+                matched_lot_id: lot_id.clone(),
+                closing_fee: fee_paid,
+                closing_price: price_filled,
+                closing_timestamp: fill_timestamp,
+                quantity_closed: matched_lot_quantity,
+            }));
 
-                self.balance = match side {
-                    Side::Buy => safe!(self.balance - matched_lot_quantity),
-                    Side::Sell => safe!(self.balance - matched_lot_quantity),
-                }
-                .ok_or(eyre!("Math overflow"))?;
+            lot_mut.last_update_timestamp = fill_timestamp;
+            lot_mut.remaining_quantity = lot_quantity_remaining;
+
+            if was_closed {
+                closed_lots.push_back(lot_mut);
+                open_lots_drain_count += 1;
+            } else {
+                ensure!(finished);
+                front_lot_update = Some(lot_mut)
             }
 
             if finished {
                 break;
             }
         }
+
+        // --==| Commit Transaction |==--
+        // NOTE: If we failed somewhere in the way, we would keep consistend old state
+        let _ = self.open_lots.drain(open_lots_drain_count..).count();
+        if let Some(lot) = front_lot_update {
+            self.open_lots.pop_front();
+            self.open_lots.push_front(lot);
+        }
+        self.closed_lots = closed_lots;
+        self.balance = balance;
 
         if tolerance < quantity_filled {
             // We didn't fully match this fill against open lots, which means we're going Short, and
@@ -277,19 +327,28 @@ impl Position {
     }
 
     /// Drain and call back on closed lots, and call back on updated lot if any
-    pub fn drain_closed_lots_and_callback_on_updated(
-        &mut self,
-        mut cb: impl FnMut(Arc<RwLock<Lot>>),
-    ) {
+    pub fn drain_closed_lots_and_callback_on_updated(&mut self, mut cb: impl FnMut(&Lot)) {
         let ref_cb = &mut cb;
-        self.closed_lots.drain(..).for_each(|lot| ref_cb(lot));
+        self.closed_lots.drain(..).for_each(|lot| ref_cb(&lot));
         self.open_lots.front().iter().for_each(|lot| {
-            let lot_ref = lot.read();
-            if lot_ref.remaining_quantity != lot_ref.original_quantity
-                && Some(lot_ref.last_update_timestamp) == self.last_update_timestamp
+            if lot.remaining_quantity != lot.original_quantity
+                && Some(lot.last_update_timestamp) == self.last_update_timestamp
             {
-                ref_cb((*lot).clone());
+                ref_cb(&lot);
             }
         });
+    }
+
+    pub fn assign_lots(
+        &mut self,
+        mut lot_assignments: HashMap<LotId, Vec<Arc<LotAssignment>>>,
+    ) -> Result<()> {
+        for lot in self.open_lots.iter_mut() {
+            if let Some(lot_assignments) = lot_assignments.remove(&lot.lot_id) {
+                lot.lot_assignments.extend(lot_assignments);
+            }
+        }
+
+        Ok(())
     }
 }

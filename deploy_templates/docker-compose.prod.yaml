@@ -6,10 +6,12 @@ services:
     image: ${DOCKER_IMAGE_NAME}
     ports:
        - "3000:3000"
+       - "8080:8080"
 
     command: ["./index-maker", 
-              "-b", "0.0.0.0:3000",
-              "-c", "configs", 
+              "--bind-address", "0.0.0.0:3000",
+              "--query-bind-address", "0.0.0.0:8080",
+              "--config-path", "configs", 
               "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
               "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
               "--batch-size", "50",
@@ -24,7 +26,9 @@ services:
       otel-collector:
         condition: service_started
 
-    restart: unless-stopped
+    #restart: unless-stopped - we don't want that, if Index Maker stops, it
+    #should not restart, we must investigate as restarting will only repeat
+    #failure!
 
   index-maker-tracker:
     platform: linux/amd64

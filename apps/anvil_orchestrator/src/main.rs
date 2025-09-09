@@ -95,9 +95,8 @@ async fn main() -> Result<()> {
 
     // Wait for RPC to be up
     wait_for_rpc(&rpc_url).await?;
-    
-    temp_foo().await.unwrap();
 
+    temp_foo().await.unwrap();
 
     // ----------------- 2) Build contract with forge -------------
     info!("Building DepositEmitter with forge …");

@@ -51,18 +51,18 @@ impl AmountConverter {
     }
 
     /// Convert U256 value into Amount
-    /// 
+    ///
     /// Function panics when conversion is not possible.
-    /// 
+    ///
     pub fn into_amount_safe(&self, value: U256) -> Amount {
         self.into_amount(value)
             .expect("Programming error: Amount conversion was not expected to fail")
     }
 
     /// Convert Amount into U256
-    /// 
+    ///
     /// Function panics when conversion is not possible.
-    /// 
+    ///
     pub fn from_amount_safe(&self, amount: Amount) -> U256 {
         self.from_amount(amount)
             .expect("Programming error: Amount conversion was not expected to fail")

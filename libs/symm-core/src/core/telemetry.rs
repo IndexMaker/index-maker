@@ -3,7 +3,7 @@ use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry::{Context, KeyValue};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::any::type_name;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -40,7 +40,7 @@ fn extract_baggage(tracing_data: &TracingData) -> Vec<(String, String)> {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct TracingData {
     properties: Option<HashMap<String, String>>,
 }

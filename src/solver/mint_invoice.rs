@@ -1,12 +1,13 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 use itertools::Itertools;
-use parking_lot::RwLock;
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 
-use crate::{collateral::collateral_position::CollateralPosition, solver::solver_order::SolverOrderAssetLot};
+use crate::{
+    collateral::collateral_position::CollateralPosition,
+    solver::solver_order::solver_order::SolverOrderAssetLot,
+};
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, PaymentId, Symbol},
     decimal_ext::DecimalExt,
@@ -29,9 +30,8 @@ impl IndexOrderUpdateReport {
         }
     }
 
-    pub fn report_closed_update(&self, update: Arc<RwLock<IndexOrderUpdate>>) {
+    pub fn report_closed_update(&self, update_read: &IndexOrderUpdate) {
         tracing::info_span!("closed-update").in_scope(|| {
-            let update_read = update.read();
             tracing::debug!(
                 "Closing Index Order [{}:{}] {}",
                 self.chain_id,
@@ -177,7 +177,10 @@ pub fn print_mint_invoice(
                 }
             })
             .collect_vec();
-        let total_amount: Amount = lots.iter().map(|x| x.assigned_quantity * x.price + x.assigned_fee).sum();
+        let total_amount: Amount = lots
+            .iter()
+            .map(|x| x.assigned_quantity * x.price + x.assigned_fee)
+            .sum();
         let sub_totals = lots
             .iter()
             .map(|x| {
@@ -273,7 +276,7 @@ pub fn print_mint_invoice(
     })
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MintInvoice {
     pub client_order_id: ClientOrderId,
     pub payment_id: PaymentId,
@@ -314,12 +317,10 @@ impl MintInvoice {
         let total_amount = update.original_collateral_amount;
         let management_fee = update.update_fee;
 
-        let amount_paid = safe!(amount_paid + management_fee)
-                .ok_or_eyre("Math problem")?;
+        let amount_paid = safe!(amount_paid + management_fee).ok_or_eyre("Math problem")?;
 
-        let amount_remaining =
-            safe!(update.original_collateral_amount - update.collateral_spent)
-                .ok_or_eyre("Math problem")?;
+        let amount_remaining = safe!(update.original_collateral_amount - update.collateral_spent)
+            .ok_or_eyre("Math problem")?;
 
         let fill_rate = safe!(
             safe!(update.collateral_spent - update.update_fee)

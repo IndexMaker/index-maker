@@ -617,7 +617,9 @@ async fn wait_for_data(
             .is_empty();
         let have_books = {
             let book_manager_read = book_manager.read();
-            symbols.iter().any(|symbol| book_manager_read.get_order_book(symbol).is_some())
+            symbols
+                .iter()
+                .any(|symbol| book_manager_read.get_order_book(symbol).is_some())
         };
         tracing::info!("Warm-up: have {} / {} prices", have_prices, symbols.len());
         if have_prices && have_books {
