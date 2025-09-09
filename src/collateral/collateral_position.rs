@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use itertools::FoldWhile::{Continue, Done};
 use itertools::Itertools;
@@ -24,7 +25,7 @@ pub enum PreAuthStatus {
 }
 
 pub enum ConfirmStatus {
-    Authorized,
+    Authorized(Vec<U256>),
     NotEnoughFunds,
 }
 
@@ -51,6 +52,9 @@ pub struct CollateralLot {
     /// Payment ID of this funding (credit/debit)
     pub payment_id: PaymentId,
 
+    /// Deposit sequence number
+    pub seq_num: Option<U256>,
+
     /// Total amount of funding (unconfirmed)
     pub unconfirmed_amount: Amount,
 
@@ -74,9 +78,15 @@ pub struct CollateralLot {
 }
 
 impl CollateralLot {
-    pub fn new(payment_id: PaymentId, amount: Amount, timestamp: DateTime<Utc>) -> Self {
+    pub fn new(
+        payment_id: PaymentId,
+        seq_num: Option<U256>,
+        amount: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
             payment_id,
+            seq_num,
             unconfirmed_amount: amount,
             ready_amount: Amount::ZERO,
             preauth_amount: Amount::ZERO,
@@ -132,11 +142,12 @@ impl CollateralSide {
     pub fn open_lot(
         &mut self,
         payment_id: PaymentId,
+        seq_num: Option<U256>,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         self.open_lots
-            .push(CollateralLot::new(payment_id, amount, timestamp));
+            .push(CollateralLot::new(payment_id, seq_num, amount, timestamp));
 
         self.unconfirmed_balance =
             safe!(self.unconfirmed_balance + amount).ok_or_eyre("Math Problem")?;
@@ -341,6 +352,7 @@ impl CollateralSide {
         let (amount, pos) = res.into_inner()?;
 
         let mut closed_lots = VecDeque::new();
+        let mut seq_nums = Vec::new();
 
         // Fully close spends (not lots!)
         for lot in self.open_lots.iter_mut().take(pos) {
@@ -365,6 +377,12 @@ impl CollateralSide {
             lot.preauth_amount = safe!(lot.preauth_amount - amount)?;
             lot.spent_amount = spent_balance;
             lot.last_update_timestamp = timestamp;
+
+            if zero_threshold < spent_amount {
+                if let Some(seq_num) = lot.seq_num {
+                    seq_nums.push(seq_num);
+                }
+            }
 
             if lot.unconfirmed_amount < zero_threshold
                 && lot.ready_amount < zero_threshold
@@ -429,6 +447,12 @@ impl CollateralSide {
             lot.preauth_amount = preauth_balance;
             lot.spent_amount = spent_balance;
 
+            if zero_threshold < spent_amount {
+                if let Some(seq_num) = lot.seq_num {
+                    seq_nums.push(seq_num);
+                }
+            }
+
             tracing::info!(
                 lot_payment_id = %lot.payment_id,
                 %payment_id,
@@ -456,7 +480,7 @@ impl CollateralSide {
         self.preauth_balance = preauth_balance;
         self.spent_balance = spent_balance;
 
-        Some(ConfirmStatus::Authorized)
+        Some(ConfirmStatus::Authorized(seq_nums))
     }
 }
 
@@ -482,7 +506,11 @@ pub struct CollateralPosition {
 }
 
 impl CollateralPosition {
-    pub fn new(chain_id: u32, address: Address, timestamp: DateTime<Utc>) -> Self {
+    pub fn new(
+        chain_id: u32,
+        address: Address,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
             chain_id,
             address,
@@ -496,10 +524,11 @@ impl CollateralPosition {
     pub fn deposit(
         &mut self,
         payment_id: PaymentId,
+        seq_num: Option<U256>,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.side_cr.open_lot(payment_id, amount, timestamp)?;
+        self.side_cr.open_lot(payment_id, seq_num, amount, timestamp)?;
         self.last_update_timestamp = timestamp;
         Ok(())
     }
@@ -510,7 +539,7 @@ impl CollateralPosition {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.side_dr.open_lot(payment_id, amount, timestamp)?;
+        self.side_dr.open_lot(payment_id, None, amount, timestamp)?;
         self.last_update_timestamp = timestamp;
         Ok(())
     }
@@ -586,6 +615,7 @@ impl CollateralPosition {
 
 #[cfg(test)]
 mod test {
+    use alloy_primitives::U256;
     use chrono::Utc;
     use rust_decimal::dec;
     use test_case::test_case;
@@ -695,7 +725,7 @@ mod test {
         // This operation creates unconfirmed lots of collateral. Normally routing
         // would perform transfer from source chain into final destination, and
         // once transfers are complete, then we move to next state, which is ready.
-        pos.deposit("P-01".into(), deposit, timestamp).unwrap();
+        pos.deposit("P-01".into(), Some(U256::ONE), deposit, timestamp).unwrap();
 
         test_asserts(&pos, post_deposit, false);
 
@@ -745,7 +775,7 @@ mod test {
             )
             .unwrap();
 
-        assert!(matches!(status, ConfirmStatus::Authorized));
+        assert!(matches!(status, ConfirmStatus::Authorized(_)));
 
         test_asserts(&pos, post_confirm, full_spend);
     }

@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -699,6 +700,7 @@ impl IndexOrderManager {
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
         payment_id: &PaymentId,
+        seq_num: U256,
         filled_quantity: Amount,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
@@ -736,6 +738,7 @@ impl IndexOrderManager {
                 index_order,
                 &update,
                 payment_id,
+                seq_num,
                 filled_quantity,
                 amount_paid,
                 lots,

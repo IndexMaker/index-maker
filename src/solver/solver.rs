@@ -814,13 +814,16 @@ impl Solver {
             ChainNotification::Deposit {
                 chain_id,
                 address,
+                seq_num,
+                affiliate1: _,
+                affiliate2: _,
                 amount,
                 timestamp,
             } => self
                 .collateral_manager
                 .write()
                 .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
-                .handle_deposit(self, chain_id, address, amount, timestamp),
+                .handle_deposit(self, chain_id, address, seq_num, amount, timestamp),
             ChainNotification::WithdrawalRequest {
                 chain_id,
                 address,
@@ -1040,7 +1043,7 @@ impl Solver {
                 status,
                 position,
             } => match status {
-                ConfirmStatus::Authorized => {
+                ConfirmStatus::Authorized(seq_nums) => {
                     let order = self.client_orders.read().get_client_order(
                         chain_id,
                         address,
@@ -1050,6 +1053,7 @@ impl Solver {
                     if let Some(order) = order {
                         tracing::info!(%payment_id, "Payment authorized");
                         let mut order_write = order.write();
+                        let last_seq_num = seq_nums.last().cloned().unwrap_or_default();
                         self.chain_connector
                             .write()
                             .map_err(|e| eyre!("Failed to access chain connector {}", e))?
@@ -1058,6 +1062,7 @@ impl Solver {
                                 order_write.symbol.clone(),
                                 order_write.filled_quantity,
                                 order_write.address,
+                                last_seq_num,
                                 amount_paid,
                                 timestamp,
                             );
@@ -1066,7 +1071,7 @@ impl Solver {
                             .compress_lots()
                             .context("Failed to compress lots")?;
 
-                        let lot_assignments = order_write.collect_lot_assignments();
+                        let lot_assignments = order_write.collect_lot_assignments(last_seq_num);
                         self.inventory_manager
                             .write()
                             .assign_lots(lot_assignments)
@@ -1082,6 +1087,7 @@ impl Solver {
                                 &client_order_id,
                                 &order_write.symbol,
                                 &payment_id,
+                                last_seq_num,
                                 order_write.filled_quantity,
                                 amount_paid,
                                 lots,

@@ -1,4 +1,4 @@
-use alloy::primitives::{self, address};
+use alloy::primitives::{self, address, U256};
 use alloy_evm_connector::{
     designation::{self, EvmCollateralDesignation},
     evm_connector::EvmConnector,
@@ -53,6 +53,9 @@ pub fn handle_chain_event(event: &ChainNotification) {
         ChainNotification::Deposit {
             chain_id,
             address,
+            seq_num,
+            affiliate1,
+            affiliate2,
             amount,
             timestamp,
         } => {
@@ -192,7 +195,7 @@ pub async fn main() {
                             );
                             evm_connector_arc.write().solver_weights_set(symbol, basket);
                         }
-                        ChainNotification::Deposit { chain_id: ev_chain_id, address, amount, timestamp } => {
+                        ChainNotification::Deposit { chain_id: ev_chain_id, seq_num, affiliate1, affiliate2, address, amount, timestamp } => {
                             if address == custody_a_watch {
                                 let guard = bridge_for_events.read().unwrap();
                                 match guard.transfer_funds(
@@ -214,6 +217,7 @@ pub async fn main() {
                                     "I1".into(),
                                     dec!(2.0),
                                     address,
+                                    U256::ZERO,
                                     amount,
                                     timestamp,
                                 );

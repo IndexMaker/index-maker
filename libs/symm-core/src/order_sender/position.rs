@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::{ensure, eyre, OptionExt, Result};
 use safe_math::safe;
@@ -51,6 +52,9 @@ pub struct LotAssignment {
 
     /// On-chain wallet address
     pub address: Address,
+
+    /// On-chain sequence number
+    pub seq_num: U256,
 
     /// ID of the update assigned by the user (<- FIX)
     pub client_order_id: ClientOrderId,

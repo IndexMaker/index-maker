@@ -217,12 +217,12 @@ impl ChainOperation {
                                         );
 
                                         let observer = chain_observer.read();
-                                        observer.publish_single(ChainNotification::Deposit {
-                                            chain_id,
-                                            address: sender,
-                                            amount,
-                                            timestamp: Utc::now(),
-                                        });
+                                        //observer.publish_single(ChainNotification::Deposit {
+                                        //    chain_id,
+                                        //    address: sender,
+                                        //    amount,
+                                        //    timestamp: Utc::now(),
+                                        //});
 
                                     } else if *topic0 == withdraw_sig {
                                         tracing::info!("Withdrawal event received: {:?}", data);

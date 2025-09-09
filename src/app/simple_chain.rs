@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 
@@ -52,6 +53,7 @@ impl ChainConnector for SimpleChainConnector {
         symbol: Symbol,
         quantity: Amount,
         receipient: Address,
+        seq_num: U256,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {
