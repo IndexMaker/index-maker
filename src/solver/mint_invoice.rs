@@ -1,3 +1,4 @@
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 use itertools::Itertools;
@@ -280,6 +281,7 @@ pub fn print_mint_invoice(
 pub struct MintInvoice {
     pub client_order_id: ClientOrderId,
     pub payment_id: PaymentId,
+    pub seq_num: U256,
     pub symbol: Symbol,
     pub filled_quantity: Amount,
     pub total_amount: Amount,
@@ -299,6 +301,7 @@ impl MintInvoice {
         index_order: &IndexOrder,
         update: &IndexOrderUpdate,
         payment_id: &PaymentId,
+        seq_num: U256,
         filled_quantity: Amount,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
@@ -346,6 +349,7 @@ impl MintInvoice {
         Ok(Self {
             client_order_id: update.client_order_id.clone(),
             payment_id: payment_id.clone(),
+            seq_num,
             symbol: index_order.symbol.clone(),
             filled_quantity,
             total_amount,

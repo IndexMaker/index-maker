@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock as ComponentLock},
 };
 
+use alloy_primitives::U256;
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use itertools::{Either, Itertools};
@@ -235,6 +236,7 @@ impl CollateralManager {
         host: &dyn CollateralManagerHost,
         chain_id: u32,
         address: Address,
+        seq_num: U256,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
@@ -244,7 +246,7 @@ impl CollateralManager {
             .safe_update(|funds_write| {
                 funds_write
                     .side_cr
-                    .open_lot(host.get_next_payment_id(), amount, timestamp)?;
+                    .open_lot(host.get_next_payment_id(), Some(seq_num), amount, timestamp)?;
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
@@ -265,7 +267,7 @@ impl CollateralManager {
             .safe_update(|funds_write| {
                 funds_write
                     .side_dr
-                    .open_lot(host.get_next_payment_id(), amount, timestamp)?;
+                    .open_lot(host.get_next_payment_id(), None, amount, timestamp)?;
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
@@ -524,6 +526,7 @@ mod test {
         },
     };
 
+    use alloy_primitives::U256;
     use chrono::Utc;
     use rust_decimal::dec;
 
@@ -682,7 +685,7 @@ mod test {
                     }
                 },
                 CollateralEvent::ConfirmResponse { status, .. } => match status {
-                    ConfirmStatus::Authorized => {
+                    ConfirmStatus::Authorized(_) => {
                         tracing::info!("ConfirmRespnse Event: Authorized");
                         flag_mock_atomic_bool(&confirm_auth_set);
                     }
@@ -709,7 +712,7 @@ mod test {
         collateral_manager
             .write()
             .unwrap()
-            .handle_deposit(&host, 1, get_mock_address_1(), dec!(1000.0), timestamp)
+            .handle_deposit(&host, 1, get_mock_address_1(), U256::ZERO, dec!(1000.0), timestamp)
             .unwrap();
 
         collateral_manager

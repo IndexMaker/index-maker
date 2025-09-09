@@ -26,6 +26,7 @@ use axum_fix_server::{
 };
 use chrono::Utc;
 use eyre::{eyre, Result};
+use itertools::Itertools;
 use k256::elliptic_curve::generic_array::GenericArray;
 use k256::{
     ecdsa::{signature::DigestSigner, Signature, SigningKey},
@@ -465,6 +466,7 @@ impl ServerPlugin {
                     ResponseBody::MintInvoiceBody {
                         client_order_id: mi.client_order_id.to_string(),
                         payment_id: mi.payment_id.to_string(),
+                        seq_num: mi.seq_num.to_string(),
                         symbol: mi.symbol.to_string(),
                         filled_quantity: mi.filled_quantity.to_string(),
                         total_amount: mi.total_amount.to_string(),

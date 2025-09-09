@@ -1,3 +1,4 @@
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use index_core::blockchain::chain_connector::{ChainConnector, ChainNotification};
@@ -270,6 +271,7 @@ impl ChainConnector for EvmConnector {
         symbol: Symbol,
         quantity: Amount,
         recipient: Address,
+        seq_num: U256,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {

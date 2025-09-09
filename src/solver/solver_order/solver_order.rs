@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::U256;
 use chrono::{DateTime, TimeDelta, Utc};
 use eyre::{ensure, eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -145,7 +146,7 @@ impl SolverOrder {
     }
 
     // Collect lot assignments for Inventory Manager
-    pub fn collect_lot_assignments(&self) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
+    pub fn collect_lot_assignments(&self, seq_num: U256) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
         self.lots
             .iter()
             .map(|lot| {
@@ -154,6 +155,7 @@ impl SolverOrder {
                     Arc::new(LotAssignment {
                         chain_id: self.chain_id,
                         address: self.address,
+                        seq_num,
                         client_order_id: self.client_order_id.clone(),
                         side: self.side,
                         assigned_quantity: lot.assigned_quantity,

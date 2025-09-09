@@ -222,6 +222,7 @@ impl ChainConnector for RealChainConnector {
         symbol: Symbol,
         quantity: Amount,
         receipient: Address,
+        seq_num: U256,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {
@@ -234,7 +235,7 @@ impl ChainConnector for RealChainConnector {
         let command = IssuerCommand::MintIndex {
             receipient,
             amount: quantity,
-            seq_num_execution_report: U256::ZERO,
+            seq_num_execution_report: seq_num,
             observer: SingleObserver::new_with_fn(move |gas_used| {
                 let gas_amount_usdc = match gas_fee_calculator.compute_amount(gas_used) {
                     Ok(x) => x,

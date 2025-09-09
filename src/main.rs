@@ -2,6 +2,7 @@ use alloy::primitives::address;
 use alloy_chain_connector::{
     chain_connector::GasFeeCalculator, credentials::Credentials as AlloyCredentials,
 };
+use alloy_primitives::U256;
 use binance_order_sending::{
     binance_order_sending::BinanceFeeCalculator, credentials::Credentials as BinanceCredentials,
 };
@@ -645,7 +646,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .publish_event(ChainNotification::Deposit {
                         chain_id: 1,
                         address: get_mock_address_1(),
+                        seq_num: U256::ONE,
                         amount: *collateral_amount,
+                        affiliate1: None,
+                        affiliate2: None,
                         timestamp: Utc::now(),
                     });
 
@@ -697,6 +701,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .publish_event(ChainNotification::Deposit {
                             chain_id,
                             address,
+                            seq_num: U256::ONE,
+                            affiliate1: None,
+                            affiliate2: None,
                             amount: *collateral_amount,
                             timestamp: Utc::now(),
                         });

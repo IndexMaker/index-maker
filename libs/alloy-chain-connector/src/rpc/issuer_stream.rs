@@ -107,6 +107,9 @@ where
                         observer.read().publish_single(ChainNotification::Deposit {
                             chain_id,
                             address: deposit_data.from,
+                            seq_num: deposit_data.seqNumNewOrderSingle,
+                            affiliate1: Some(deposit_data.affiliate1),
+                            affiliate2: Some(deposit_data.affiliate2),
                             amount,
                             timestamp: Utc::now(),
                         });

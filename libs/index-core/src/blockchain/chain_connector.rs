@@ -1,5 +1,7 @@
+use std::ops::Add;
 use std::sync::Arc;
 
+use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
 
 use derive_with_baggage::WithBaggage;
@@ -25,6 +27,11 @@ pub enum ChainNotification {
 
         #[baggage]
         address: Address,
+
+        seq_num: U256,
+
+        affiliate1: Option<Address>,
+        affiliate2: Option<Address>,
 
         amount: Amount,
         timestamp: DateTime<Utc>,
@@ -59,6 +66,7 @@ pub trait ChainConnector: IntoObservableSingleVTable<ChainNotification> {
         symbol: Symbol,
         quantity: Amount,
         receipient: Address,
+        seq_num: U256,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     );
@@ -77,6 +85,7 @@ pub trait ChainConnector: IntoObservableSingleVTable<ChainNotification> {
 pub mod test_util {
     use std::sync::Arc;
 
+    use alloy::primitives::U256;
     use chrono::{DateTime, Utc};
 
     use symm_core::core::{
@@ -168,6 +177,9 @@ pub mod test_util {
             self.observer.publish_single(ChainNotification::Deposit {
                 chain_id,
                 address,
+                seq_num: U256::ZERO,
+                affiliate1: None,
+                affiliate2: None,
                 amount,
                 timestamp,
             });
@@ -228,6 +240,7 @@ pub mod test_util {
             symbol: Symbol,
             quantity: Amount,
             receipient: Address,
+            seq_num: U256,
             execution_price: Amount,
             execution_time: DateTime<Utc>,
         ) {
@@ -276,6 +289,7 @@ pub mod test_util {
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use alloy::primitives::U256;
     use chrono::Utc;
     use parking_lot::RwLock;
     use rust_decimal::dec;
@@ -434,6 +448,7 @@ mod tests {
             get_mock_index_name_1(),
             dec!(0.5),
             get_mock_address_1(),
+            U256::ZERO,
             dec!(0.5),
             Utc::now(),
         );
