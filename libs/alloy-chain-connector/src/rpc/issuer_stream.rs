@@ -18,7 +18,10 @@ use symm_core::core::{
 
 use crate::util::amount_converter::AmountConverter;
 use otc_custody::{
-    contracts::{IOTCIndex::Deposit, ERC20},
+    contracts::{
+        IOTCIndex::{Deposit, Withdraw},
+        ERC20,
+    },
     custody_client::CustodyClientMethods,
     index::index::IndexInstance,
 };
@@ -64,9 +67,13 @@ where
         let provider = self.provider.take().ok_or_eyre("Already subscribed")?;
         let provider_clone = provider.clone();
 
-        let event_filter = Filter::new();
-        let poll_interval = std::time::Duration::from_secs(1);
-        let max_failure_count = 3;
+        let event_filter = Filter::new().events(vec![
+            b"Deposit(uint256,address,uint256,address,address)" as &[u8],
+            b"Withdraw(uint256,address,bytes)" as &[u8],
+        ]);
+
+        let poll_interval = std::time::Duration::from_secs(10);
+        let max_failure_count = 10;
 
         let mut last_block_from = provider.get_block_number().await?;
 
@@ -80,6 +87,11 @@ where
                 .context("Failed to obtain most recent block number")?;
 
             if most_recent_block > last_block_from {
+                tracing::info!(
+                    account_name = %account_name_clone,
+                    %last_block_from,
+                    %most_recent_block, "⏱ Polling events");
+
                 let range = event_filter.clone().select(FilterBlockOption::Range {
                     from_block: Some(BlockNumberOrTag::Number(last_block_from + 1)),
                     to_block: Some(BlockNumberOrTag::Number(most_recent_block)),
@@ -120,6 +132,8 @@ where
                             amount,
                             timestamp: Utc::now(),
                         });
+                    } else if let Ok(_) = log_event.log_decode::<Withdraw>() {
+                        tracing::info!("Withdraw event");
                     }
                 }
             }
