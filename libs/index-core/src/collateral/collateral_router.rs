@@ -17,6 +17,12 @@ use symm_core::core::{
     functional::{IntoObservableSingle, IntoObservableSingleVTable, PublishSingle, SingleObserver},
 };
 
+#[derive(Debug)]
+pub enum CollateralRoutingStatus {
+    Success,
+    Failure { reason: String },
+}
+
 #[derive(WithBaggage)]
 pub enum CollateralTransferEvent {
     TransferComplete {
@@ -34,6 +40,25 @@ pub enum CollateralTransferEvent {
         transfer_to: Symbol,
         amount: Amount,
         fee: Amount,
+    },
+    TransferFailed {
+        #[baggage]
+        chain_id: u32,
+
+        #[baggage]
+        address: Address,
+
+        #[baggage]
+        client_order_id: ClientOrderId,
+
+        timestamp: DateTime<Utc>,
+        transfer_from: Symbol,
+        transfer_to: Symbol,
+        amount: Amount,
+        fee: Amount,
+
+        colleteral_at: Symbol,
+        reason: String,
     },
 }
 
@@ -56,6 +81,8 @@ pub enum CollateralRouterEvent {
         route_to: Symbol,
         amount: Amount,
         fee: Amount,
+
+        status: CollateralRoutingStatus,
     },
 }
 
@@ -275,6 +302,12 @@ impl CollateralRouter {
         Ok(next_hop)
     }
 
+    pub fn process_routing(&mut self, timestamp: DateTime<Utc>) -> Result<()> {
+        let _ = timestamp;
+        // TODO: Opportunity to implement retry logic for failed routes
+        Ok(())
+    }
+
     pub fn handle_collateral_router_event(&mut self, event: CollateralRouterEvent) -> Result<()> {
         match event {
             CollateralRouterEvent::HopComplete {
@@ -288,8 +321,31 @@ impl CollateralRouter {
                 route_to,
                 amount,
                 fee,
+                status,
             } => {
-                if route_to.eq(&destination) {
+                if let CollateralRoutingStatus::Failure { reason } = status {
+                    tracing::info!(%chain_id, %address, %client_order_id, %route_from, %route_to,
+                        %amount, %fee, %reason,
+                        "Route Failed");
+
+                    // TODO: We could first retry same hop again
+                    // let next_hop = self.next_hop(&source, &route_from, &route_to)?;
+
+                    self.observer
+                        .publish_single(CollateralTransferEvent::TransferFailed {
+                            chain_id,
+                            address,
+                            client_order_id,
+                            timestamp,
+                            transfer_from: route_from,
+                            transfer_to: route_to,
+                            amount,
+                            fee,
+                            colleteral_at: source,
+                            reason,
+                        });
+                    Ok(())
+                } else if route_to.eq(&destination) {
                     tracing::info!(%chain_id, %address, %client_order_id, %route_from, %route_to,
                         %amount, %fee,
                         "Route Complete");
@@ -360,7 +416,10 @@ pub mod test_util {
         test_util::{get_mock_index_name_1, get_mock_index_name_2, get_mock_index_name_3},
     };
 
-    use super::{CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent};
+    use super::{
+        CollateralBridge, CollateralDesignation, CollateralRouter, CollateralRouterEvent,
+        CollateralRoutingStatus,
+    };
 
     pub struct MockCollateralDesignation {
         pub type_: Symbol,
@@ -443,6 +502,7 @@ pub mod test_util {
                     route_to,
                     amount,
                     fee,
+                    status: CollateralRoutingStatus::Success,
                 });
         }
     }
@@ -728,19 +788,27 @@ mod test {
                     fee,
                 } => {
                     let tolerance = dec!(0.01);
-
                     assert_eq!(chain_id, expected_chain_id);
                     assert_eq!(address, get_mock_address_1());
                     assert_eq!(client_order_id, "C-1".into());
-
                     assert_eq!(transfer_from, expected_from.to_owned());
                     assert_eq!(transfer_to, "T4:N4:C4".to_owned());
-
                     assert_decimal_approx_eq!(amount, dec!(999.0), tolerance);
                     assert_decimal_approx_eq!(fee, dec!(1.0), tolerance);
-
                     flag_mock_atomic_bool(&event_set);
                 }
+                CollateralTransferEvent::TransferFailed {
+                    chain_id: _,
+                    address: _,
+                    client_order_id: _,
+                    timestamp: _,
+                    transfer_from: _,
+                    transfer_to: _,
+                    amount: _,
+                    fee: _,
+                    colleteral_at: _,
+                    reason: _,
+                } => assert!(false),
             });
 
         // Make test transfer

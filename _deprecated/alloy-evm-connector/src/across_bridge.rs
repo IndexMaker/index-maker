@@ -107,7 +107,7 @@ impl CollateralBridge for AcrossCollateralBridge {
             callback: Arc::new(move |total_routed, fee_deducted| {
                 let timestamp = Utc::now();
                 // Callback receives the original routing amounts passed through from chain operation
-                observer
+                /*observer
                     .read()
                     .publish_single(CollateralRouterEvent::HopComplete {
                         chain_id,
@@ -120,7 +120,7 @@ impl CollateralBridge for AcrossCollateralBridge {
                         route_to: route_to.clone(),
                         amount: total_routed, // Now receives original_amount from chain operation
                         fee: fee_deducted, // Now receives original_cumulative_fee from chain operation
-                    });
+                    });*/
                 Ok(())
             }),
         };

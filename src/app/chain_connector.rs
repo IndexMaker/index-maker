@@ -1,7 +1,11 @@
-use std::sync::{Arc, RwLock as ComponentLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock as ComponentLock},
+};
 
 use alloy_chain_connector::{
     chain_connector::{GasFeeCalculator, RealChainConnector},
+    chain_connector_sender::RealChainConnectorSender,
     collateral::{
         otc_custody_designation::OTCCustodyCollateralDesignation,
         otc_custody_to_wallet_bridge::OTCCustodyToWalletCollateralBridge,
@@ -10,6 +14,7 @@ use alloy_chain_connector::{
     credentials::Credentials,
 };
 use eyre::{eyre, Context, OptionExt, Result};
+use itertools::Itertools;
 use otc_custody::{
     custody_authority::CustodyAuthority,
     custody_client::{CustodyClient, CustodyClientMethods},
@@ -37,7 +42,10 @@ pub struct RealChainConnectorConfig {
     pub with_router: Option<CollateralRouterConfig>,
 
     #[builder(setter(into))]
-    pub with_credentials: Option<Credentials>,
+    pub with_credentials: Vec<Credentials>,
+
+    #[builder(setter(into))]
+    pub with_main_quote_currency: Symbol,
 
     #[builder(setter(into))]
     pub with_custody_authority: Option<CustodyAuthority>,
@@ -74,10 +82,7 @@ impl RealChainConnectorConfig {
     pub async fn start(&self) -> eyre::Result<()> {
         match &self.chain_connector {
             Some(chain_connector) => {
-                let credentials = self
-                    .with_credentials
-                    .clone()
-                    .ok_or_eyre("Credentials missing")?;
+                let credentials = self.with_credentials.clone();
 
                 chain_connector
                     .write()
@@ -87,7 +92,7 @@ impl RealChainConnectorConfig {
                 chain_connector
                     .write()
                     .map_err(|e| eyre!("Failed to access chain connector: {:?}", e))?
-                    .logon([credentials])?;
+                    .logon(credentials)?;
 
                 Ok(())
             }
@@ -132,10 +137,9 @@ impl RealChainConnectorConfigBuilder {
 
         let mut config = self.try_build()?;
 
-        let credentials = config
-            .with_credentials
-            .as_ref()
-            .ok_or_else(|| ConfigBuildError::UninitializedField("with_credentials"))?;
+        if config.with_credentials.is_empty() {
+            Err(ConfigBuildError::UninitializedField("with_credentials"))?;
+        }
 
         let index_operator = config
             .with_custody_authority
@@ -152,15 +156,29 @@ impl RealChainConnectorConfigBuilder {
         )));
         config.chain_connector.replace(chain_connector.clone());
 
-        // Configure mapping { chain_id => Credentials }
-        // This will set default RPC session for each chain.
-        for credentials in config.with_credentials.iter() {
-            let chain_id = credentials.get_chain_id();
-            let account_name = credentials.get_account_name();
+        let sender_by_chain_id = config
+            .with_credentials
+            .iter()
+            .into_group_map_by(|c| c.get_chain_id())
+            .into_iter()
+            .map(|(chain_id, credentials)| {
+                let sender = chain_connector.read().unwrap().create_sender(
+                    credentials
+                        .iter()
+                        .map(|c| c.get_account_name())
+                        .collect_vec(),
+                );
+                (chain_id, sender)
+            })
+            .collect::<HashMap<_, _>>();
+
+        for (&chain_id, sender) in &sender_by_chain_id {
+            // Configure mapping { chain_id => Credentials }
+            // This will set default sender for each chain.
             chain_connector
                 .write()
-                .map_err(|e| eyre!("Failed to access chain connector: {:?}", e))?
-                .set_issuer(chain_id, account_name.clone())?;
+                .unwrap()
+                .set_issuer(chain_id, sender.clone())?;
         }
 
         tracing::info!("✅ Operator credentials loaded successfully");
@@ -176,8 +194,11 @@ impl RealChainConnectorConfigBuilder {
             let chain_id = index_maker_data.deployment_builder_data.chain_id;
             let custody_address = index_maker_data.deployment_builder_data.custody_address;
             let trade_route = index_maker_data.deployment_builder_data.trade_route;
-            let usdc_symbol = Symbol::from("USDC");
-            let account_name = credentials.get_account_name();
+            let main_quote_currency = config.with_main_quote_currency.clone();
+
+            let sender = sender_by_chain_id
+                .get(&chain_id)
+                .ok_or_else(|| eyre!("No sender configured for chain_id: {:?}", chain_id))?;
 
             let collateral_token = index_maker_data
                 .indexes
@@ -188,7 +209,7 @@ impl RealChainConnectorConfigBuilder {
             let trading_custody = Arc::new(ComponentLock::new(WalletCollateralDesignation::new(
                 Symbol::from("TradeRoute"),
                 Symbol::from(trade_route.to_string()),
-                usdc_symbol.clone(),
+                main_quote_currency.clone(),
                 chain_id,
                 trade_route,
                 collateral_token,
@@ -246,11 +267,10 @@ impl RealChainConnectorConfigBuilder {
 
                 let index_custody =
                     Arc::new(ComponentLock::new(OTCCustodyCollateralDesignation::new(
+                        sender.clone(),
                         Symbol::from("OTCCustody"),
                         Symbol::from(index_address.to_string()),
-                        usdc_symbol.clone(),
-                        chain_connector.clone(),
-                        account_name.clone(),
+                        main_quote_currency.clone(),
                         chain_id,
                         custody_address,
                         collateral_token,

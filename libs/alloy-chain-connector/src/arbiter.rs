@@ -1,14 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use alloy_primitives::B256;
 use eyre::Report;
 use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Either;
-use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
-    bits::{Address, Symbol},
     functional::SingleObserver,
 };
 use tokio::{select, sync::mpsc::UnboundedReceiver, task::JoinError};

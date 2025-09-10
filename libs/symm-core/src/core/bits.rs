@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{core::decimal_ext::DecimalExt, string_id};
 use chrono::{DateTime, Utc};
 use safe_math::safe;
@@ -82,12 +84,12 @@ impl Side {
     }
 }
 
-impl<T> From<T> for Side
-where
-    T: AsRef<str>,
-{
-    fn from(value: T) -> Self {
-        match value.as_ref() {
+impl FromStr for Side {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let side = match s {
+            "1" => Side::Buy,
             "buy" => Side::Buy,
             "Buy" => Side::Buy,
             "BUY" => Side::Buy,
@@ -96,6 +98,7 @@ where
             "BID" => Side::Buy,
             "B" => Side::Buy,
             "b" => Side::Buy,
+            "2" => Side::Sell,
             "sell" => Side::Sell,
             "Sell" => Side::Sell,
             "SELL" => Side::Sell,
@@ -106,8 +109,9 @@ where
             "ASK" => Side::Sell,
             "A" => Side::Sell,
             "a" => Side::Sell,
-            _ => panic!("Invalid side"),
-        }
+            _ => Err(eyre::eyre!("Invalid side"))?,
+        };
+        Ok(side)
     }
 }
 

@@ -7,13 +7,10 @@ use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Either;
 use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::{
-    core::{
-        async_loop::AsyncLoop,
-        bits::{Address, Symbol},
-        functional::{PublishSingle, SingleObserver},
-    },
-    market_data::exchange_rates::ExchangeRates,
+use symm_core::core::{
+    async_loop::AsyncLoop,
+    bits::{Address, Symbol},
+    functional::{OneShotPublishSingle, PublishSingle, SingleObserver},
 };
 use tokio::task::JoinError;
 use tokio::{
@@ -67,6 +64,7 @@ impl Session {
         credentials: Credentials,
         baggage: SessionBaggage,
     ) -> Result<()> {
+        let account_name = credentials.get_account_name();
         let chain_id = credentials.get_chain_id();
         let signer_address = credentials.get_signer_address()?;
 
@@ -82,7 +80,7 @@ impl Session {
                     });
             };
 
-            tracing::info!(%chain_id, %signer_address, "Session loop started");
+            tracing::info!(%account_name, %chain_id, %signer_address, "Session loop started");
 
             let provider = match credentials.connect().await {
                 Ok(ok) => ok,
@@ -100,12 +98,12 @@ impl Session {
                 }
             };
 
-            let rpc_basic_session = RpcBasicSession::new(provider.clone());
+            let rpc_basic_session = RpcBasicSession::new(account_name.clone(), provider.clone());
 
-            let rpc_issuer_session = RpcIssuerSession::new(provider.clone());
-            let rpc_custody_session = RpcCustodySession::new(provider.clone());
+            let rpc_issuer_session = RpcIssuerSession::new(account_name.clone(), provider.clone());
+            let rpc_custody_session = RpcCustodySession::new(account_name.clone(), provider.clone());
 
-            let mut rpc_issuer_stream = RpcIssuerStream::new(public_provider);
+            let mut rpc_issuer_stream = RpcIssuerStream::new(account_name.clone(), public_provider);
 
             observer
                 .read()
@@ -114,8 +112,7 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
-            if let Err(err) = rpc_issuer_stream
-                .subscribe(chain_id, baggage.indexes_by_address, observer.clone())
+            if let Err(err) = rpc_issuer_stream.subscribe(chain_id, baggage.indexes_by_address, observer.clone())
                 .await
             {
                 on_error(format!("Failed to subscribe to RPC events: {:?}", err));
@@ -150,8 +147,8 @@ impl Session {
                                 }
                             }
                         } {
-                            tracing::warn!("Command failed: {:?}", err);
-                            command.error_observer.publish_single(err);
+                            tracing::warn!(%account_name, "Command failed: {:?}", err);
+                            command.error_observer.one_shot_publish_single(err);
                         }
                     },
                 }
@@ -169,7 +166,7 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
-            tracing::info!(%chain_id, %signer_address, "Session loop exited");
+            tracing::info!(%account_name, %chain_id, %signer_address, "Session loop exited");
             credentials
         });
 

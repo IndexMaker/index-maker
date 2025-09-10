@@ -121,6 +121,7 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
+            .gas(9_900_000)
             .send()
             .await?
             .get_receipt()
@@ -181,6 +182,7 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
+            .gas(9_900_000)
             .send()
             .await?
             .get_receipt()
@@ -223,8 +225,17 @@ impl IndexInstance {
         let verification_data =
             self.get_verification_data(OTC_INDEX_MINT_CURATOR_STATE, timestamp, &proof, &message)?;
 
+        tracing::info!(
+            collateral_token = %self.index_deploy_data.collateral_token,
+            %nonce,
+            %from_address,
+            %mint_to,
+            %amount,
+            %sequence_number,
+            "✉️ Sending OTCIndex.mint()");
+
         let otc = OTCCustody::new(self.custody_address, provider);
-        let receipt = otc
+        let request = otc
             .callConnector(
                 String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
@@ -233,11 +244,13 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
+            .gas(9_900_000)
             .nonce(nonce)
             .send()
-            .await?
-            .get_receipt()
             .await?;
+
+        tracing::info!("⏱️ Awaiting receipt for OTCIndex.mint()");
+        let receipt = request.get_receipt().await?;
 
         if !receipt.status() {
             Err(eyre!("Failed to mint index: {:?}", receipt))?;
@@ -272,8 +285,15 @@ impl IndexInstance {
         let verification_data =
             self.get_verification_data(custody_state, timestamp, proof, &message)?;
 
+        tracing::info!(
+            collateral_token = %self.index_deploy_data.collateral_token,
+            %nonce,
+            %route_to,
+            %amount,
+            "✉️ Sending OTCCustody.custodyToAddress()");
+
         let otc = OTCCustody::new(self.custody_address, provider);
-        let receipt = otc
+        let request = otc
             .custodyToAddress(
                 self.index_deploy_data.collateral_token,
                 route_to,
@@ -281,11 +301,13 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
+            .gas(9_900_000)
             .nonce(nonce)
             .send()
-            .await?
-            .get_receipt()
             .await?;
+
+        tracing::info!("⏱️ Awaiting receipt for OTCCustody.custodyToAddress()");
+        let receipt = request.get_receipt().await?;
 
         if !receipt.status() {
             Err(eyre!("Failed to deploy index: {:?}", receipt))?;
@@ -300,6 +322,8 @@ impl IndexInstance {
         from_address: Address,
         amount: U256,
     ) -> eyre::Result<TransactionReceipt> {
+        tracing::info!(%from_address, %amount, "Routing collateral for trading");
+
         self.route_collateral_from(
             provider,
             from_address,
@@ -318,6 +342,8 @@ impl IndexInstance {
         from_address: Address,
         amount: U256,
     ) -> eyre::Result<TransactionReceipt> {
+        tracing::info!(%from_address, %amount, "Routing collateral for withdrawal");
+
         self.route_collateral_from(
             provider,
             from_address,

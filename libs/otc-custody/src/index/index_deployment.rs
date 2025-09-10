@@ -164,6 +164,7 @@ impl IndexDeployment {
                 verification_data,
             )
             .from(from_address)
+            .gas(9_900_000)
             .send()
             .await?
             .get_receipt()

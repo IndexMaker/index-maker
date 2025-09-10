@@ -36,7 +36,7 @@ use index_maker::{
     server::server::ServerEvent,
     solver::mint_invoice_manager,
 };
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use otc_custody::custody_authority::CustodyAuthority;
 use parking_lot::RwLock;
 use rust_decimal::dec;
@@ -80,8 +80,8 @@ struct Cli {
     #[arg(long, short)]
     query_bind_address: Option<String>,
 
-    #[arg(long)]
-    rpc_url: Option<String>,
+    #[arg(short, long, value_delimiter = ',')]
+    rpc_urls: Option<Vec<String>>,
 
     #[arg(long, short)]
     log_path: Option<String>,
@@ -244,7 +244,7 @@ enum ChainMode {
 impl ChainMode {
     async fn new_with_router(
         simulate_chain: bool,
-        rpc_url: Option<String>,
+        rpc_urls: Option<Vec<String>>,
         main_quote_currency: Symbol,
         index_symbols: Vec<Symbol>,
         market_data: &MarketDataConfig,
@@ -270,17 +270,23 @@ impl ChainMode {
             }
         } else {
             let chain_id = 8453;
-            let rpc_url = rpc_url.unwrap_or_else(|| String::from("http://127.0.0.1:8545"));
+            let rpc_urls = rpc_urls.unwrap_or_else(|| vec![String::from("http://127.0.0.1:8545")]);
 
-            let index_operator_credentials = AlloyCredentials::new(
-                String::from("Chain-1"),
-                chain_id,
-                rpc_url,
-                Arc::new(|| {
-                    env::var("INDEX_MAKER_PRIVATE_KEY")
-                        .expect("INDEX_MAKER_PRIVATE_KEY environment variable must be defined")
-                }),
-            );
+            let index_operator_credentials = rpc_urls
+                .into_iter()
+                .map(|rpc_url| {
+                    AlloyCredentials::new(
+                        format!("{}:{}", chain_id, rpc_url),
+                        chain_id,
+                        rpc_url,
+                        Arc::new(|| {
+                            env::var("INDEX_MAKER_PRIVATE_KEY").expect(
+                                "INDEX_MAKER_PRIVATE_KEY environment variable must be defined",
+                            )
+                        }),
+                    )
+                })
+                .collect_vec();
 
             let index_operator_custody_auth = CustodyAuthority::new(|| {
                 env::var("CUSTODY_AUTHORITY_PRIVATE_KEY")
@@ -289,12 +295,13 @@ impl ChainMode {
 
             let gas_fee_calculator = GasFeeCalculator::new(
                 market_data.expect_price_tracker_exchange_rates_cloned(),
-                main_quote_currency,
+                main_quote_currency.clone(),
             );
 
             let chain_connector_config = RealChainConnectorConfig::builder()
                 .with_router(router_config.clone())
                 .with_credentials(index_operator_credentials)
+                .with_main_quote_currency(main_quote_currency)
                 .with_custody_authority(index_operator_custody_auth)
                 .with_config_file(config_file)
                 .with_gas_fee_calculator(gas_fee_calculator)
@@ -479,7 +486,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let chain_mode = ChainMode::new_with_router(
         cli.simulate_chain,
-        cli.rpc_url,
+        cli.rpc_urls,
         main_quote_currency,
         index_symbols,
         &market_data_config,

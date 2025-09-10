@@ -13,11 +13,13 @@ use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
-    assets::asset::get_base_asset_symbol_workaround, core::{
+    assets::asset::get_base_asset_symbol_workaround,
+    core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingData},
-    }, order_sender::position::{LotAssignment, LotId}
+    },
+    order_sender::position::{LotAssignment, LotId},
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -102,10 +104,10 @@ impl SolverOrder {
             // want it to be the value after the assignment.
             lot.remaining_quantity =
                 safe!(lot.remaining_quantity - lot.assigned_quantity).ok_or_eyre("Math problem")?;
-            
+
             // W/a remove quote currency from symbol, keep only base
             lot.symbol = get_base_asset_symbol_workaround(&lot.symbol);
-            
+
             // We want to compress multiple assignments of each lot, to single
             // assigment per lot
             match map.entry((lot.symbol.clone(), lot.lot_id.clone())) {
@@ -119,7 +121,7 @@ impl SolverOrder {
                     current.assigned_quantity =
                         safe!(current.assigned_quantity + lot.assigned_quantity)
                             .ok_or_eyre("Math problem")?;
-                    
+
                     // Sum assigned fees
                     current.assigned_fee = safe!(current.assigned_fee + lot.assigned_fee)
                         .ok_or_eyre("Math problem")?;
@@ -146,7 +148,10 @@ impl SolverOrder {
     }
 
     // Collect lot assignments for Inventory Manager
-    pub fn collect_lot_assignments(&self, seq_num: U256) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
+    pub fn collect_lot_assignments(
+        &self,
+        seq_num: U256,
+    ) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
         self.lots
             .iter()
             .map(|lot| {
@@ -292,13 +297,18 @@ impl SolverClientOrders {
         None
     }
 
-    pub fn put_back(&mut self, solver_order: Arc<RwLock<SolverOrder>>, timestamp: DateTime<Utc>) {
+    pub fn put_back(
+        &mut self,
+        solver_order: Arc<RwLock<SolverOrder>>,
+        status: SolverOrderStatus,
+        timestamp: DateTime<Utc>,
+    ) {
         let mut order_upread = solver_order.upgradable_read();
         let chain_id = order_upread.chain_id;
         let address = order_upread.address;
 
         order_upread.with_upgraded(|order_write| {
-            order_write.status = SolverOrderStatus::Ready;
+            order_write.status = status;
             order_write.timestamp = timestamp;
         });
 
@@ -561,6 +571,8 @@ mod test {
         test_util::{get_mock_address_1, get_mock_asset_name_1},
     };
 
+    use crate::solver::solver_order::solver_order::SolverOrderStatus;
+
     use super::SolverClientOrders;
 
     /// Test SolverClientOrders - A Solver side IndexOrder manager
@@ -650,7 +662,7 @@ mod test {
         assert!(matches!(order, Some(..)));
 
         // Put order back into the queue
-        solver_orders.put_back(order.unwrap(), timestamp);
+        solver_orders.put_back(order.unwrap(), SolverOrderStatus::Ready, timestamp);
         timestamp += client_wait_period;
 
         // Should give an order of second user back

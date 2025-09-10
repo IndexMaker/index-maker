@@ -170,6 +170,7 @@ async fn main() {
                 route_to: _,
                 amount,
                 fee,
+                status
             } => {
                 tracing::info!(
                     "Bridge complete: {} USDC -> {} (fee: {})",

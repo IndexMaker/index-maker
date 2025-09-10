@@ -3,17 +3,14 @@ use std::{
     sync::Arc,
 };
 
-use alloy_primitives::B256;
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
 use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Itertools;
-use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::core::{
-    bits::{Address, Symbol},
-    functional::SingleObserver,
-};
+use symm_core::core::
+    functional::SingleObserver
+;
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
