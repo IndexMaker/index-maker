@@ -13,7 +13,6 @@ use eyre::{eyre, OptionExt, Result};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use symm_core::core::{
     persistence::{Persist, Persistence},
     telemetry::{TracingData, WithBaggage, WithTracingContext},
@@ -118,6 +117,11 @@ impl CollateralManager {
     ) -> Result<()> {
         let process_collateral_span = span!(Level::TRACE, "process-collateral");
         let _guard = process_collateral_span.enter();
+
+        self.router
+            .write()
+            .map_err(|e| eyre!("Failed to access router {}", e))
+            .and_then(|mut x| x.process_routing(timestamp))?;
 
         let requests = VecDeque::from_iter(self.collateral_management_requests.drain(..));
 
@@ -244,9 +248,12 @@ impl CollateralManager {
 
         self.add_position(chain_id, address, timestamp)
             .safe_update(|funds_write| {
-                funds_write
-                    .side_cr
-                    .open_lot(host.get_next_payment_id(), Some(seq_num), amount, timestamp)?;
+                funds_write.side_cr.open_lot(
+                    host.get_next_payment_id(),
+                    Some(seq_num),
+                    amount,
+                    timestamp,
+                )?;
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
@@ -265,9 +272,12 @@ impl CollateralManager {
 
         self.add_position(chain_id, address, timestamp)
             .safe_update(|funds_write| {
-                funds_write
-                    .side_dr
-                    .open_lot(host.get_next_payment_id(), None, amount, timestamp)?;
+                funds_write.side_dr.open_lot(
+                    host.get_next_payment_id(),
+                    None,
+                    amount,
+                    timestamp,
+                )?;
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
@@ -413,43 +423,18 @@ impl CollateralManager {
                     %transfer_from, %transfer_to, %amount, %fee,
                     "Transfer Complete"
                 );
-                let funds = self
-                    .get_position(chain_id, &address)
-                    .ok_or_eyre("Failed to find position")?;
 
-                funds.safe_update(|funds_write| -> Result<()> {
-                    // TODO: We need to also support Sell & Withdraw
-                    let side = Side::Buy;
+                let side = Side::Buy;
 
-                    funds_write
-                        .add_ready(side, amount, timestamp, self.zero_threshold)
-                        .ok_or_eyre("Math Problem")?;
-
-                    // TODO: Charge fee otherwise we'll have dangling unconfirmed amount
-                    let get_payment_id = || "Charges".into();
-                    let payment_id = get_payment_id();
-
-                    funds_write
-                        .add_ready(side, fee, timestamp, self.zero_threshold)
-                        .ok_or_eyre("Math Problem")?;
-
-                    funds_write
-                        .preauth_payment(
-                            &client_order_id,
-                            timestamp,
-                            side,
-                            fee,
-                            self.zero_threshold,
-                            get_payment_id,
-                        )
-                        .ok_or_eyre("Math Problem")?;
-
-                    funds_write
-                        .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
-                        .ok_or_eyre("Math Problem")?;
-
-                    Ok(())
-                })?;
+                self.book_records(
+                    chain_id,
+                    address,
+                    &client_order_id,
+                    side,
+                    Some(amount),
+                    fee,
+                    timestamp,
+                )?;
 
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {
@@ -461,8 +446,112 @@ impl CollateralManager {
                         status: RoutingStatus::Ready { fee },
                     });
             }
+            CollateralTransferEvent::TransferFailed {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+                transfer_from,
+                transfer_to,
+                amount,
+                fee,
+                colleteral_at,
+                reason,
+            } => {
+                tracing::warn!(
+                    %chain_id,
+                    %address,
+                    %client_order_id,
+                    %timestamp,
+                    %transfer_from,
+                    %transfer_to,
+                    %amount,
+                    %fee,
+                    %colleteral_at,
+                    %reason,
+                    "Collateral Transfer failed");
+
+                // In the scenario that router failed to get collateral into
+                // destination we should inform Solver (observer) so about that
+                // so that it won't be waiting forever. Order will be cancelled,
+                // and manual intervention would be required. We still need to
+                // book deposit for fees that we paid.
+
+                let side = Side::Buy;
+
+                self.book_records(
+                    chain_id,
+                    address,
+                    &client_order_id,
+                    side,
+                    None,
+                    fee,
+                    timestamp,
+                )?;
+
+                self.observer
+                    .publish_single(CollateralEvent::CollateralReady {
+                        chain_id,
+                        address,
+                        client_order_id,
+                        timestamp,
+                        collateral_amount: amount,
+                        status: RoutingStatus::NotReady,
+                    });
+            }
         }
         Ok(())
+    }
+
+    /// Book records for collateral ready if any and management fees
+    /// 
+    /// After collateral routing to final destination we need to book fees that
+    /// were deducted, as otherwise we'll have dangling unconfirmed amount
+    fn book_records(
+        &mut self,
+        chain_id: u32,
+        address: Address,
+        client_order_id: &ClientOrderId,
+        side: Side,
+        amount_ready: Option<Amount>,
+        fee: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        let funds = self
+            .get_position(chain_id, &address)
+            .ok_or_eyre("Failed to find position")?;
+
+        funds.safe_update(|funds_write| -> Result<()> {
+            if let Some(amount) = amount_ready {
+                funds_write
+                    .add_ready(side, amount, timestamp, self.zero_threshold)
+                    .ok_or_eyre("Math Problem")?;
+            }
+
+            let get_payment_id = || "Charges".into();
+            let payment_id = get_payment_id();
+
+            funds_write
+                .add_ready(side, fee, timestamp, self.zero_threshold)
+                .ok_or_eyre("Math Problem")?;
+
+            funds_write
+                .preauth_payment(
+                    client_order_id,
+                    timestamp,
+                    side,
+                    fee,
+                    self.zero_threshold,
+                    get_payment_id,
+                )
+                .ok_or_eyre("Math Problem")?;
+
+            funds_write
+                .confirm_payment(&payment_id, timestamp, side, fee, self.zero_threshold)
+                .ok_or_eyre("Math Problem")?;
+
+            Ok(())
+        })
     }
 }
 
@@ -712,7 +801,14 @@ mod test {
         collateral_manager
             .write()
             .unwrap()
-            .handle_deposit(&host, 1, get_mock_address_1(), U256::ZERO, dec!(1000.0), timestamp)
+            .handle_deposit(
+                &host,
+                1,
+                get_mock_address_1(),
+                U256::ZERO,
+                dec!(1000.0),
+                timestamp,
+            )
             .unwrap();
 
         collateral_manager

@@ -326,7 +326,7 @@ impl Solver {
                     })(&failed_order.read());
                     self.client_orders
                         .write()
-                        .put_back(failed_order.clone(), timestamp);
+                        .put_back(failed_order.clone(), SolverOrderStatus::Ready, timestamp);
                 }
                 _ => {
                     let o = failed_order.read();
@@ -378,7 +378,7 @@ impl Solver {
             match self.strategy.solve_engagements(self, order_batch.clone()) {
                 Err(err) => {
                     order_batch.iter().for_each(|x| {
-                        self.client_orders.write().put_back(x.clone(), timestamp);
+                        self.client_orders.write().put_back(x.clone(), SolverOrderStatus::Ready, timestamp);
                     });
                     return Err(err);
                 }
@@ -706,7 +706,7 @@ impl Solver {
                 }
 
                 tracing::trace!("* Process batches");
-                let batch_status = match self
+                let _ = match self
                     .batch_manager
                     .write()
                     .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))

@@ -28,6 +28,7 @@ where
     P: Provider + Clone + 'static,
 {
     provider: Option<P>,
+    account_name: String,
     subscription_loop: AsyncLoop<eyre::Result<P>>,
 }
 
@@ -35,9 +36,10 @@ impl<P> RpcIssuerStream<P>
 where
     P: Provider + Clone + 'static,
 {
-    pub fn new(provider: P) -> Self {
+    pub fn new(account_name: String, provider: P) -> Self {
         Self {
             provider: Some(provider),
+            account_name,
             subscription_loop: AsyncLoop::new(),
         }
     }
@@ -63,9 +65,13 @@ where
         let provider_clone = provider.clone();
 
         let event_filter = Filter::new();
-        let poll_interval = std::time::Duration::from_secs(3);
+        let poll_interval = std::time::Duration::from_secs(1);
+        let max_failure_count = 3;
 
         let mut last_block_from = provider.get_block_number().await?;
+
+        let account_name = self.account_name.clone();
+        let account_name_clone = account_name.clone();
 
         let mut poll_log_events_fn = async move || -> eyre::Result<()> {
             let most_recent_block = provider
@@ -85,6 +91,7 @@ where
                     if let Ok(deposit_event) = log_event.log_decode::<Deposit>() {
                         let deposit_data = deposit_event.inner;
                         tracing::info!(
+                            account_name = %account_name_clone,
                             "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
                             deposit_data.amount,
                             deposit_data.from,
@@ -121,7 +128,8 @@ where
 
         self.subscription_loop
             .start(async move |cancel_token| -> eyre::Result<P> {
-                tracing::info!("Issuer stream polling loop started");
+                tracing::info!(%account_name, "Issuer stream polling loop started");
+                let mut failure_count = 0;
                 loop {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
@@ -129,12 +137,16 @@ where
                         },
                         _ = tokio::time::sleep(poll_interval) => {
                             if let Err(err) = poll_log_events_fn().await {
-                                tracing::warn!("Polling log events failed: {:?}", err);
+                                tracing::warn!(%account_name, "Polling log events failed: {:?}", err);
+                                failure_count += 1;
+                                if failure_count > max_failure_count {
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-                tracing::info!("Issuer stream polling loop exited");
+                tracing::info!(%account_name, "⚠️ Issuer stream polling loop exited");
                 Ok(provider_clone)
             });
 

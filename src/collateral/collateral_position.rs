@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use alloy_primitives::U256;
+use axum_fix_server::plugins::seq_num_plugin;
 use chrono::{DateTime, Utc};
 use itertools::FoldWhile::{Continue, Done};
 use itertools::Itertools;
@@ -146,6 +147,16 @@ impl CollateralSide {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        if let Some(seq_num) = seq_num {
+            if self
+                .open_lots
+                .iter()
+                .any(|l| l.seq_num.map_or(false, |s| s.eq(&seq_num)))
+            {
+                tracing::warn!(%seq_num, "⚠️ Collateral lot with this sequence nubmer already booked");
+                return Ok(());
+            }
+        }
         self.open_lots
             .push(CollateralLot::new(payment_id, seq_num, amount, timestamp));
 
@@ -506,11 +517,7 @@ pub struct CollateralPosition {
 }
 
 impl CollateralPosition {
-    pub fn new(
-        chain_id: u32,
-        address: Address,
-        timestamp: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(chain_id: u32, address: Address, timestamp: DateTime<Utc>) -> Self {
         Self {
             chain_id,
             address,
@@ -528,7 +535,8 @@ impl CollateralPosition {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.side_cr.open_lot(payment_id, seq_num, amount, timestamp)?;
+        self.side_cr
+            .open_lot(payment_id, seq_num, amount, timestamp)?;
         self.last_update_timestamp = timestamp;
         Ok(())
     }
@@ -725,7 +733,8 @@ mod test {
         // This operation creates unconfirmed lots of collateral. Normally routing
         // would perform transfer from source chain into final destination, and
         // once transfers are complete, then we move to next state, which is ready.
-        pos.deposit("P-01".into(), Some(U256::ONE), deposit, timestamp).unwrap();
+        pos.deposit("P-01".into(), Some(U256::ONE), deposit, timestamp)
+            .unwrap();
 
         test_asserts(&pos, post_deposit, false);
 

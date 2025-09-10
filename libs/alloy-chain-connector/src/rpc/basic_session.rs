@@ -1,6 +1,6 @@
 use alloy::providers::{Provider, WalletProvider};
 use alloy_primitives::Address;
-use symm_core::core::functional::PublishSingle;
+use symm_core::core::functional::OneShotPublishSingle;
 
 use otc_custody::contracts::ERC20;
 
@@ -14,14 +14,18 @@ where
     P: Provider + WalletProvider,
 {
     provider: P,
+    account_name: String,
 }
 
 impl<P> RpcBasicSession<P>
 where
     P: Provider + WalletProvider,
 {
-    pub fn new(provider: P) -> Self {
-        Self { provider }
+    pub fn new(account_name: String, provider: P) -> Self {
+        Self {
+            account_name,
+            provider,
+        }
     }
 
     pub async fn send_basic_command(
@@ -38,7 +42,7 @@ where
             BasicCommand::BalanceOf { account, observer } => {
                 let balance = contract.balanceOf(account).call().await?;
                 let balance = converter.into_amount(balance)?;
-                observer.publish_single(balance);
+                observer.one_shot_publish_single(balance);
             }
             BasicCommand::Transfer {
                 receipient,
@@ -46,6 +50,7 @@ where
                 observer,
             } => {
                 tracing::info!(
+                    account_name = %self.account_name,
                     "Transferring collateral {} from wallet to {}",
                     amount,
                     receipient
@@ -57,6 +62,7 @@ where
                 let receipient_balance_raw = contract.balanceOf(receipient).call().await?;
                 let receipient_balance = converter.into_amount(receipient_balance_raw)?;
                 tracing::info!(
+                    account_name = %self.account_name,
                     %contract_address,
                     %signer_address,
                     %receipient,
@@ -75,21 +81,25 @@ where
                     .get_receipt()
                     .await?;
 
+                let tx = receipt.transaction_hash;
                 let gas_amount = compute_gas_used(receipt)?;
 
                 tracing::info!(
-                    "💰 Collateral transferred to wallet {} gas used {}",
+                    account_name = %self.account_name,
+                    "💰 Collateral transferred to wallet {} gas used {} tx {}",
                     receipient,
-                    gas_amount
+                    gas_amount,
+                    tx
                 );
 
-                observer.publish_single(gas_amount);
+                observer.one_shot_publish_single(gas_amount);
 
                 let sender_balance_raw = contract.balanceOf(signer_address).call().await?;
                 let sender_balance = converter.into_amount(sender_balance_raw)?;
                 let receipient_balance_raw = contract.balanceOf(receipient).call().await?;
                 let receipient_balance = converter.into_amount(receipient_balance_raw)?;
                 tracing::info!(
+                    account_name = %self.account_name,
                     %contract_address,
                     %signer_address,
                     %receipient,

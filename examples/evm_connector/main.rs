@@ -155,6 +155,7 @@ pub async fn main() {
                 route_to: _,
                 amount,
                 fee,
+                status,
             } => {
                 tracing::info!(%chain_id, %address, %amount, %source, %destination, %fee,
                     "Collateral routing hop complete");

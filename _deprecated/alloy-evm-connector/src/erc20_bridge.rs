@@ -92,7 +92,7 @@ impl CollateralBridge for Erc20CollateralBridge {
             callback: Arc::new(move |total_transferred, fee_deducted| {
                 let timestamp = Utc::now();
                 // Callback receives the original routing amounts passed through from chain operation
-                observer
+                /*observer
                     .read()
                     .publish_single(CollateralRouterEvent::HopComplete {
                         chain_id,
@@ -105,7 +105,7 @@ impl CollateralBridge for Erc20CollateralBridge {
                         route_to: route_to.clone(),
                         amount: total_transferred, // Now receives original_amount from chain operation
                         fee: fee_deducted, // Now receives original_cumulative_fee from chain operation
-                    });
+                    });*/
                 Ok(())
             }),
         };

@@ -1,8 +1,12 @@
+use core::num;
+use std::time::Duration;
+
 use alloy::providers::{DynProvider, Provider, WalletProvider};
 use alloy_primitives::Address;
-use symm_core::core::functional::PublishSingle;
 
 use otc_custody::{contracts::OTCCustody, custody_client::CustodyClient};
+use symm_core::core::{bits::Amount, functional::OneShotPublishSingle};
+use tokio::time::sleep;
 
 use crate::{
     command::CustodyCommand,
@@ -14,14 +18,18 @@ where
     P: Provider + WalletProvider + Clone + 'static,
 {
     provider: P,
+    account_name: String,
 }
 
 impl<P> RpcCustodySession<P>
 where
     P: Provider + WalletProvider + Clone + 'static,
 {
-    pub fn new(provider: P) -> Self {
-        Self { provider }
+    pub fn new(account_name: String, provider: P) -> Self {
+        Self {
+            account_name,
+            provider,
+        }
     }
 
     pub async fn send_custody_command(
@@ -42,6 +50,7 @@ where
                 observer,
             } => {
                 tracing::info!(
+                    account_name = %self.account_name,
                     "Routing {} collateral from custody to {}",
                     amount,
                     destination
@@ -50,25 +59,50 @@ where
                 let amount = converter.from_amount(amount)?;
                 let provider = DynProvider::new(provider.clone());
 
-                let receipt = custody_client
-                    .route_collateral_to_from(
-                        &provider,
-                        &from_address,
-                        &destination,
-                        &token_address,
-                        amount,
-                    )
-                    .await?;
+                let mut total_gas_amount = Amount::ZERO;
+                let num_retries = 3;
+                let backoff_seconds = 2;
 
-                let gas_amount = compute_gas_used(receipt)?;
+                // TODO: Design better retry mechanism
+                for i in 0..num_retries {
+                    let receipt = match custody_client
+                        .route_collateral_to_from(
+                            &provider,
+                            &from_address,
+                            &destination,
+                            &token_address,
+                            amount,
+                        )
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            if i == num_retries - 1 {
+                                Err(e)?
+                            } else {
+                                sleep(Duration::from_secs(backoff_seconds)).await;
+                                tracing::warn!(account_name= %self.account_name, "⚠️ Retrying route collateral");
+                                continue;
+                            }
+                        }
+                    };
 
-                tracing::info!(
-                    "🏦 Collateral routed to {} gas used {}",
-                    destination,
-                    gas_amount
-                );
+                    let tx = receipt.transaction_hash;
+                    let gas_amount = compute_gas_used(receipt)?;
 
-                observer.publish_single(gas_amount);
+                    total_gas_amount += gas_amount;
+
+                    tracing::info!(
+                        account_name = %self.account_name,
+                        "🏦 Collateral routed to {} gas used {} tx {}",
+                        destination,
+                        total_gas_amount,
+                        tx
+                    );
+
+                    observer.one_shot_publish_single(total_gas_amount);
+                    break;
+                }
             }
             CustodyCommand::AddressToCustody { amount, observer } => {
                 let amount = converter.from_amount(amount)?;
@@ -85,7 +119,7 @@ where
                     .await?;
 
                 let gas_amount = compute_gas_used(receipt)?;
-                observer.publish_single(gas_amount);
+                observer.one_shot_publish_single(gas_amount);
             }
             CustodyCommand::GetCustodyBalances { observer } => {
                 let custody_id = custody_client.get_custody_id();
@@ -99,7 +133,7 @@ where
                     .await?;
 
                 let balance = converter.into_amount(balance)?;
-                observer.publish_single(balance);
+                observer.one_shot_publish_single(balance);
             }
         }
 

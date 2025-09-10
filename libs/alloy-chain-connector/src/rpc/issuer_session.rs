@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, WalletProvider};
-use symm_core::core::functional::PublishSingle;
 
 use otc_custody::{custody_client::CustodyClientMethods, index::index::IndexInstance};
+use symm_core::core::{bits::Amount, functional::OneShotPublishSingle};
+use tokio::time::sleep;
 
 use crate::{
     command::IssuerCommand,
@@ -18,14 +19,18 @@ where
     P: Provider + WalletProvider,
 {
     provider: P,
+    account_name: String,
 }
 
 impl<P> RpcIssuerSession<P>
 where
     P: Provider + WalletProvider,
 {
-    pub fn new(provider: P) -> Self {
-        Self { provider }
+    pub fn new(account_name: String, provider: P) -> Self {
+        Self {
+            account_name,
+            provider,
+        }
     }
 
     pub async fn send_issuer_command(
@@ -53,7 +58,7 @@ where
                     .await?;
 
                 let gas_amount = compute_gas_used(receipt)?;
-                observer.publish_single(gas_amount);
+                observer.one_shot_publish_single(gas_amount);
             }
             IssuerCommand::MintIndex {
                 receipient,
@@ -61,26 +66,53 @@ where
                 seq_num_execution_report,
                 observer,
             } => {
-                tracing::info!("Minting {} of Index for {}", amount, receipient);
+                tracing::info!(
+                    account_name = %self.account_name,
+                    "Minting {} of Index for {}", amount, receipient);
 
                 let index_token_converter = AmountConverter::new(index.get_index_token_precision());
                 let amount = index_token_converter.from_amount(amount)?;
 
-                let receipt = index
-                    .mint_index_from(
-                        provider,
-                        from_address,
-                        receipient,
-                        amount,
-                        seq_num_execution_report,
-                    )
-                    .await?;
+                let mut total_gas_amount = Amount::ZERO;
+                let num_retries = 3;
+                let backoff_seconds = 2;
 
-                let gas_amount = compute_gas_used(receipt)?;
+                // TODO: Design better retry mechanism
+                for i in 0..num_retries {
+                    let receipt = match index
+                        .mint_index_from(
+                            provider,
+                            from_address,
+                            receipient,
+                            amount,
+                            seq_num_execution_report,
+                        )
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            if i == num_retries - 1 {
+                                Err(e)?
+                            } else {
+                                sleep(Duration::from_secs(backoff_seconds)).await;
+                                tracing::warn!(account_name= %self.account_name, "⚠️ Retrying mint index");
+                                continue;
+                            }
+                        }
+                    };
 
-                tracing::info!("💳 Minted Index for {} gas used {}", receipient, gas_amount);
+                    let tx = receipt.transaction_hash;
+                    let gas_amount = compute_gas_used(receipt)?;
 
-                observer.publish_single(gas_amount);
+                    total_gas_amount += gas_amount;
+
+                    tracing::info!(
+                        account_name = %self.account_name,
+                        "💳 Minted Index for {} gas used {} tx: {}", receipient, gas_amount, tx);
+
+                    observer.one_shot_publish_single(gas_amount);
+                    break;
+                }
             }
             IssuerCommand::BurnIndex { .. } => {
                 todo!();

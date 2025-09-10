@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use alloy_primitives::{bytes, B256, U256};
+use alloy_primitives::{bytes, U256};
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use index_core::{
@@ -16,7 +16,7 @@ use symm_core::{
         decimal_ext::DecimalExt,
         functional::{
             IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
-            SingleObserver,
+            OneShotSingleObserver, SingleObserver,
         },
     },
     market_data::exchange_rates::ExchangeRates,
@@ -25,6 +25,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{
     arbiter::Arbiter,
+    chain_connector_sender::RealChainConnectorSender,
     command::{Command, CommandVariant, IssuerCommand},
     credentials::Credentials,
     session::SessionBaggage,
@@ -71,7 +72,7 @@ pub struct RealChainConnector {
     baggage: SessionBaggage,
     gas_fee_calculator: GasFeeCalculator,
     arbiter: Arbiter,
-    issuers: HashMap<u32, String>,
+    issuers: HashMap<u32, Arc<RealChainConnectorSender>>,
 }
 
 impl RealChainConnector {
@@ -162,25 +163,26 @@ impl RealChainConnector {
             .ok_or_eyre("Duplicate index")
     }
 
-    pub fn set_issuer(&mut self, chain_id: u32, account_name: String) -> Result<()> {
+    pub fn create_sender(
+        &self,
+        accounts: impl IntoIterator<Item = String>,
+    ) -> Arc<RealChainConnectorSender> {
+        Arc::new(RealChainConnectorSender::new(
+            self.sessions.clone(),
+            accounts,
+        ))
+    }
+
+    pub fn set_issuer(
+        &mut self,
+        chain_id: u32,
+        sender: Arc<RealChainConnectorSender>,
+    ) -> Result<()> {
         self.issuers
-            .insert(chain_id, account_name)
+            .insert(chain_id, sender)
             .is_none()
             .then_some(())
             .ok_or_eyre("Duplicate issuer entry")
-    }
-
-    pub(crate) fn send_command_to_session(
-        &self,
-        account_name: &str,
-        command: Command,
-    ) -> Result<()> {
-        let sessions_read = self.sessions.read();
-        let issuer = sessions_read
-            .get_session(account_name)
-            .ok_or_eyre("Session not found")?;
-
-        issuer.send_command(command)
     }
 
     pub(crate) fn send_command_to_issuer(
@@ -188,16 +190,13 @@ impl RealChainConnector {
         chain_id: u32,
         symbol: Symbol,
         command: IssuerCommand,
+        error_observer: OneShotSingleObserver<eyre::Report>,
     ) -> Result<()> {
-        let account_name = self.issuers.get(&chain_id).ok_or_eyre("Issuer not found")?;
-
-        self.send_command_to_session(
-            account_name,
-            Command {
-                command: CommandVariant::Issuer { symbol, command },
-                error_observer: SingleObserver::new(),
-            },
-        )
+        let sender = self.issuers.get(&chain_id).ok_or_eyre("Issuer not found")?;
+        sender.send_command(Command {
+            command: CommandVariant::Issuer { symbol, command },
+            error_observer,
+        })
     }
 }
 
@@ -208,10 +207,14 @@ impl ChainConnector for RealChainConnector {
         let command = IssuerCommand::SetSolverWeights {
             basket,
             price: Amount::ZERO,
-            observer: SingleObserver::new(),
+            observer: OneShotSingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
+        let error_observer = OneShotSingleObserver::new_with_fn(move |err| {
+            tracing::warn!("Failed to call solver weights set: {:?}", err);
+        });
+
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command, error_observer) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }
@@ -232,11 +235,15 @@ impl ChainConnector for RealChainConnector {
         let symbol_clone = symbol.clone();
         let gas_fee_calculator = self.gas_fee_calculator.clone();
 
+        let error_observer = OneShotSingleObserver::new_with_fn(move |err| {
+            tracing::warn!("Failed to mint index: {:?}", err);
+        });
+
         let command = IssuerCommand::MintIndex {
             receipient,
             amount: quantity,
             seq_num_execution_report: seq_num,
-            observer: SingleObserver::new_with_fn(move |gas_used| {
+            observer: OneShotSingleObserver::new_with_fn(move |gas_used| {
                 let gas_amount_usdc = match gas_fee_calculator.compute_amount(gas_used) {
                     Ok(x) => x,
                     Err(err) => {
@@ -256,7 +263,7 @@ impl ChainConnector for RealChainConnector {
             }),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command, error_observer) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }
@@ -268,10 +275,14 @@ impl ChainConnector for RealChainConnector {
             amount: quantity,
             sender,
             seq_num_new_order_single: U256::ZERO,
-            observer: SingleObserver::new(),
+            observer: OneShotSingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
+        let error_observer = OneShotSingleObserver::new_with_fn(move |err| {
+            tracing::warn!("Failed to burn index: {:?}", err);
+        });
+
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command, error_observer) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }
@@ -288,14 +299,18 @@ impl ChainConnector for RealChainConnector {
         let _ = execution_time;
         let symbol = Symbol::from("");
 
+        let error_observer = OneShotSingleObserver::new_with_fn(move |err| {
+            tracing::warn!("Failed to withdraw: {:?}", err);
+        });
+
         let command = IssuerCommand::Withdraw {
             amount,
             receipient,
             execution_report: bytes!("0x0000"),
-            observer: SingleObserver::new(),
+            observer: OneShotSingleObserver::new(),
         };
 
-        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command) {
+        if let Err(err) = self.send_command_to_issuer(chain_id, symbol, command, error_observer) {
             tracing::warn!("Failed to send command to issuer: {:?}", err);
         }
     }

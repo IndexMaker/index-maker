@@ -1,25 +1,22 @@
-use std::sync::{RwLock, Weak};
-
-use eyre::{eyre, OptionExt};
+use std::sync::Arc;
 
 use index_core::collateral::collateral_router::CollateralDesignation;
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
-    functional::SingleObserver,
+    functional::OneShotSingleObserver,
 };
 
 use crate::{
-    chain_connector::RealChainConnector,
+    chain_connector_sender::RealChainConnectorSender,
     command::{BasicCommand, Command, CommandVariant},
 };
 
 pub struct SignerWalletCollateralDesignation {
+    sender: Arc<RealChainConnectorSender>,
     designation_type: Symbol,
     name: Symbol,
     collateral_symbol: Symbol,
     full_name: Symbol,
-    chain_connector_weak: Weak<RwLock<RealChainConnector>>,
-    account_name: String,
     chain_id: u32,
     address: Address,
     token_address: Address,
@@ -27,10 +24,9 @@ pub struct SignerWalletCollateralDesignation {
 
 impl SignerWalletCollateralDesignation {
     pub fn new(
+        sender: Arc<RealChainConnectorSender>,
         designation_type: Symbol,
         name: Symbol,
-        chain_connector_weak: Weak<RwLock<RealChainConnector>>,
-        account_name: String,
         collateral_symbol: Symbol,
         chain_id: u32,
         address: Address,
@@ -41,12 +37,11 @@ impl SignerWalletCollateralDesignation {
             designation_type, name, collateral_symbol
         ));
         Self {
+            sender,
             designation_type,
             name,
             collateral_symbol,
             full_name,
-            chain_connector_weak,
-            account_name,
             chain_id,
             address,
             token_address,
@@ -69,18 +64,9 @@ impl SignerWalletCollateralDesignation {
         &self,
         receipient: Address,
         amount: Amount,
-        observer: SingleObserver<Amount>,
-        error_observer: SingleObserver<eyre::Report>,
+        observer: OneShotSingleObserver<Amount>,
+        error_observer: OneShotSingleObserver<eyre::Report>,
     ) -> eyre::Result<()> {
-        let chain_connector = self
-            .chain_connector_weak
-            .upgrade()
-            .ok_or_eyre("Chain connector is gone")?;
-
-        let chain_connector = chain_connector
-            .read()
-            .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
-
         let _ = amount;
         let command = Command {
             command: CommandVariant::Basic {
@@ -94,9 +80,7 @@ impl SignerWalletCollateralDesignation {
             error_observer,
         };
 
-        chain_connector.send_command_to_session(&self.account_name, command)?;
-
-        Ok(())
+        self.sender.send_command(command)
     }
 }
 
