@@ -63,7 +63,7 @@ no_deploy: \
 
 check_env: \
 	check_ssh_env \
-	check_image_version_env \
+	check_image_version_env
 	@echo "Env OK."
 
 build: \

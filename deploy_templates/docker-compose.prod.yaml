@@ -25,6 +25,9 @@ services:
       INDEX_MAKER_PRIVATE_KEY: ${INDEX_MAKER_PRIVATE_KEY}
       CUSTODY_AUTHORITY_PRIVATE_KEY: ${CUSTODY_AUTHORITY_PRIVATE_KEY}
     
+    volumes:
+      - ./persistence:/app/persistence
+    
     #depends_on:
     #  otel-collector:
     #    condition: service_started
