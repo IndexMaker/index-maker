@@ -26,7 +26,6 @@ DOCKER_BUILD_FLAGS?=
 .PHONY: \
 	check_ssh_env \
 	check_image_version_env \
-	check_elastic_env \
 	build_docker_image \
 	save_docker_image \
 	docker_compose_yaml \
@@ -38,6 +37,7 @@ DOCKER_BUILD_FLAGS?=
 	run_build_service \
 	run_stop_service \
 	all \
+	no_deploy \
 	check_env \
 	build \
 	prepare \
@@ -55,10 +55,15 @@ all: \
 	deploy
 
 
+no_deploy: \
+	check_env \
+	build \
+	prepare \
+
+
 check_env: \
 	check_ssh_env \
 	check_image_version_env \
-	check_elastic_env
 	@echo "Env OK."
 
 build: \
@@ -79,7 +84,7 @@ prepare_scripts: \
 	otel_collector_config_yaml \
 	build_service_sh \
 	stop_service_sh \
-	service_logs_sh \
+	service_control_sh \
 	dockerfile_oltp
 	@echo "Scripts copied to ${DEPLOY_DIR}."
 
@@ -105,11 +110,6 @@ ifndef IMAGE_VERSION
 	$(error IMAGE_VERSION is undefined)
 endif
 
-check_elastic_env:
-ifndef ELASTIC_API_KEY
-	$(error ELASTIC_API_KEY is undefined)
-endif
-
 
 deploy_dir: check_image_version_env
 	@mkdir -p $(DEPLOY_DIR)
@@ -124,7 +124,7 @@ docker_compose_yaml: deploy_dir
 	@cp $(TEMPLATES_DIR)/docker-compose.prod.yaml \
 	$(DEPLOY_DIR)/docker-compose.prod.yaml
 
-otel_collector_config_yaml: deploy_dir check_elastic_env
+otel_collector_config_yaml: deploy_dir
 	@cp $(TEMPLATES_DIR)/otel-collector-config.prod.yaml \
 	$(DEPLOY_DIR)/otel-collector-config.prod.yaml
 
@@ -142,11 +142,11 @@ stop_service_sh: deploy_dir
 	> $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
 	@chmod a+x $(DEPLOY_DIR)/stop-service-$(IMAGE_VERSION).sh
 
-service_logs_sh: deploy_dir
-	@cat $(TEMPLATES_DIR)/service-logs.sh.template \
+service_control_sh: deploy_dir
+	@cat $(TEMPLATES_DIR)/service-control.sh.template \
 	| sed -e "s/<DOCKER_IMAGE_NAME>/$(DOCKER_IMAGE_NAME)/g" \
-	> $(DEPLOY_DIR)/service-logs-$(IMAGE_VERSION).sh
-	@chmod a+x $(DEPLOY_DIR)/service-logs-$(IMAGE_VERSION).sh
+	> $(DEPLOY_DIR)/service-control-$(IMAGE_VERSION).sh
+	@chmod a+x $(DEPLOY_DIR)/service-control-$(IMAGE_VERSION).sh
 
 dockerfile_oltp: deploy_dir
 	@cp $(TEMPLATES_DIR)/Dockerfile.otlp.prod $(DEPLOY_DIR)

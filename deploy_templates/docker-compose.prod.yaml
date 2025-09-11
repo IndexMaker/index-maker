@@ -9,51 +9,54 @@ services:
        - "8080:8080"
 
     command: ["./index-maker", 
+              "--rpc-urls", "https://0xrpc.io/base,https://rpc.poolz.finance/base",
               "--bind-address", "0.0.0.0:3000",
               "--query-bind-address", "0.0.0.0:8080",
               "--config-path", "configs", 
-              "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
-              "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
-              "--batch-size", "50",
+              #"--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
+              #"--otlp-log-url", "http://otel-collector:4318/v1/logs", 
+              #"--batch-size", "50",
               "--simulate-sender",
-              "fix-server", "1000000"]
+              "fix-server", "0"]
 
     environment:
       RUST_LOG: ${RUST_LOG}
       SERVER_PRIVATE_KEY: ${SERVER_PRIVATE_KEY}
+      INDEX_MAKER_PRIVATE_KEY: ${INDEX_MAKER_PRIVATE_KEY}
+      CUSTODY_AUTHORITY_PRIVATE_KEY: ${CUSTODY_AUTHORITY_PRIVATE_KEY}
     
-    depends_on:
-      otel-collector:
-        condition: service_started
+    #depends_on:
+    #  otel-collector:
+    #    condition: service_started
 
     #restart: unless-stopped - we don't want that, if Index Maker stops, it
     #should not restart, we must investigate as restarting will only repeat
     #failure!
 
-  index-maker-tracker:
-    platform: linux/amd64
-    image: ${DOCKER_IMAGE_NAME}
-    ports: []
-
-    command: ["./tracker", "-i", "300", "-d", "1440", "-m", "flat" ]
-
-    environment:
-      RUST_LOG: ${RUST_LOG}
-    
-    volumes:
-      - ./hourly_batches:/app/hourly_batches
-    
-    depends_on:
-      otel-collector:
-        condition: service_started
-
-  otel-collector:
-    build:
-      context: .
-      dockerfile: Dockerfile.otlp.prod
-    container_name: otel-collector
-    ports:
-      - "4318:4318"
-    command:
-      - --config=/etc/otelcol-contrib/config.yaml
-    restart: unless-stopped
+#  index-maker-tracker:
+#    platform: linux/amd64
+#    image: ${DOCKER_IMAGE_NAME}
+#    ports: []
+#
+#    command: ["./tracker", "-i", "300", "-d", "1440", "-m", "flat" ]
+#
+#    environment:
+#      RUST_LOG: ${RUST_LOG}
+#    
+#    volumes:
+#      - ./hourly_batches:/app/hourly_batches
+#    
+#    depends_on:
+#      otel-collector:
+#        condition: service_started
+#
+#  otel-collector:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.otlp.prod
+#    container_name: otel-collector
+#    ports:
+#      - "4318:4318"
+#    command:
+#      - --config=/etc/otelcol-contrib/config.yaml
+#    restart: unless-stopped

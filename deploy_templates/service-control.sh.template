@@ -3,4 +3,4 @@
 . ~/.index_maker
 export DOCKER_IMAGE_NAME="<DOCKER_IMAGE_NAME>"
 
-docker-compose -f docker-compose.prod.yaml logs -f $@
+docker-compose -f docker-compose.prod.yaml $@
