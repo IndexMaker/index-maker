@@ -15,6 +15,7 @@ use symm_core::core::{
     bits::Address,
     functional::{PublishSingle, SingleObserver},
 };
+use tokio::time::sleep;
 
 use crate::util::amount_converter::AmountConverter;
 use otc_custody::{
@@ -73,6 +74,7 @@ where
         ]);
 
         let poll_interval = std::time::Duration::from_secs(10);
+        let backoff_period = std::time::Duration::from_secs(300);
         let max_failure_count = 10;
 
         let mut last_block_from = provider.get_block_number().await?;
@@ -154,7 +156,8 @@ where
                                 tracing::warn!(%account_name, "Polling log events failed: {:?}", err);
                                 failure_count += 1;
                                 if failure_count > max_failure_count {
-                                    break;
+                                    sleep(backoff_period).await;
+                                    failure_count = 0;
                                 }
                             }
                         }
