@@ -18,7 +18,7 @@ pub trait CustodyClientMethods {
 
     async fn route_collateral_to_from(
         &self,
-        provider: &DynProvider,
+        providers: &[&DynProvider],
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,
@@ -56,14 +56,14 @@ impl CustodyClient {
 
     pub async fn route_collateral_to_from(
         &self,
-        provider: &DynProvider,
+        providers: &[&DynProvider],
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,
         amount: U256,
     ) -> eyre::Result<TransactionReceipt> {
         self.0
-            .route_collateral_to_from(provider, from_address, to_address, token_address, amount)
+            .route_collateral_to_from(providers, from_address, to_address, token_address, amount)
             .await
     }
 }

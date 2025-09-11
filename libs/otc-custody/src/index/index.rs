@@ -5,6 +5,8 @@ use alloy::{
 };
 use async_trait::async_trait;
 use eyre::eyre;
+use futures_util::future::{join_all, select_all};
+use itertools::Itertools;
 
 use crate::{
     connector_util::{call_connector_message, custody_to_address_message, encode_with_selector},
@@ -197,12 +199,13 @@ impl IndexInstance {
 
     pub async fn mint_index_from(
         &self,
-        provider: impl Provider,
+        providers: &[impl Provider],
         from_address: Address,
         mint_to: Address,
         amount: U256,
         sequence_number: U256,
     ) -> eyre::Result<TransactionReceipt> {
+        let provider = &providers[0];
         let timestamp = get_last_block_timestamp(&provider)
             .await
             .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
@@ -232,42 +235,60 @@ impl IndexInstance {
             %mint_to,
             %amount,
             %sequence_number,
-            "✉️ Sending OTCIndex.mint()");
+            "✉️ Sending OTCIndex.mint() using {} RPC connections", providers.len());
 
-        let otc = OTCCustody::new(self.custody_address, provider);
-        let request = otc
-            .callConnector(
-                String::from(OTC_INDEX_CONNECTOR_NAME),
-                self.index_address,
-                inner_message,
-                tail_call_data,
-                verification_data,
-            )
-            .from(from_address)
-            .gas(9_900_000)
-            .nonce(nonce)
-            .send()
-            .await?;
+        let otcs = providers
+            .iter()
+            .map(|provider| OTCCustody::new(self.custody_address, provider))
+            .collect_vec();
+
+        let mut requests = Vec::new();
+        for otc in otcs {
+            let request = otc
+                .callConnector(
+                    String::from(OTC_INDEX_CONNECTOR_NAME),
+                    self.index_address,
+                    inner_message.clone(),
+                    tail_call_data.clone(),
+                    verification_data.clone(),
+                )
+                .from(from_address)
+                .gas(9_900_000)
+                .nonce(nonce)
+                .send()
+                .await?;
+
+            requests.push(request);
+        }
 
         tracing::info!("⏱️ Awaiting receipt for OTCIndex.mint()");
-        let receipt = request.get_receipt().await?;
+
+        let receipts = requests
+            .into_iter()
+            .map(|request| request.get_receipt())
+            .map(Box::pin);
+
+        let (receipt, ..) = select_all(receipts).await;
+        let receipt = receipt?;
 
         if !receipt.status() {
             Err(eyre!("Failed to mint index: {:?}", receipt))?;
         }
 
+        tracing::info!("Received confirmations of mint()");
         Ok(receipt)
     }
 
     async fn route_collateral_from(
         &self,
-        provider: impl Provider,
+        providers: &[impl Provider],
         from_address: Address,
         route_to: Address,
         amount: U256,
         custody_state: u8,
         proof: &Vec<B256>,
     ) -> eyre::Result<TransactionReceipt> {
+        let provider = &providers[0];
         let timestamp = get_last_block_timestamp(&provider)
             .await
             .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
@@ -290,42 +311,59 @@ impl IndexInstance {
             %nonce,
             %route_to,
             %amount,
-            "✉️ Sending OTCCustody.custodyToAddress()");
+            "✉️ Sending OTCCustody.custodyToAddress() using {} RPC connections", providers.len());
 
-        let otc = OTCCustody::new(self.custody_address, provider);
-        let request = otc
-            .custodyToAddress(
-                self.index_deploy_data.collateral_token,
-                route_to,
-                amount,
-                verification_data,
-            )
-            .from(from_address)
-            .gas(9_900_000)
-            .nonce(nonce)
-            .send()
-            .await?;
+        let otcs = providers
+            .iter()
+            .map(|provider| OTCCustody::new(self.custody_address, provider))
+            .collect_vec();
+
+        let mut requests = Vec::new();
+        for otc in otcs {
+            let request = otc
+                .custodyToAddress(
+                    self.index_deploy_data.collateral_token,
+                    route_to,
+                    amount,
+                    verification_data.clone(),
+                )
+                .from(from_address)
+                .gas(9_900_000)
+                .nonce(nonce)
+                .send()
+                .await?;
+
+            requests.push(request);
+        }
 
         tracing::info!("⏱️ Awaiting receipt for OTCCustody.custodyToAddress()");
-        let receipt = request.get_receipt().await?;
+
+        let receipts = requests
+            .into_iter()
+            .map(|request| request.get_receipt())
+            .map(Box::pin);
+
+        let (receipt, ..) = select_all(receipts).await;
+        let receipt = receipt?;
 
         if !receipt.status() {
             Err(eyre!("Failed to deploy index: {:?}", receipt))?;
         }
 
+        tracing::info!("Received confirmations of OTCCustody.custodyToAddress()");
         Ok(receipt)
     }
 
     pub async fn route_collateral_for_trading_from(
         &self,
-        provider: impl Provider,
+        providers: &[impl Provider],
         from_address: Address,
         amount: U256,
     ) -> eyre::Result<TransactionReceipt> {
         tracing::info!(%from_address, %amount, "Routing collateral for trading");
 
         self.route_collateral_from(
-            provider,
+            providers,
             from_address,
             self.trade_route,
             amount,
@@ -338,14 +376,14 @@ impl IndexInstance {
 
     pub async fn withdraw_collateral_from(
         &self,
-        provider: impl Provider,
+        providers: &[impl Provider],
         from_address: Address,
         amount: U256,
     ) -> eyre::Result<TransactionReceipt> {
         tracing::info!(%from_address, %amount, "Routing collateral for withdrawal");
 
         self.route_collateral_from(
-            provider,
+            providers,
             from_address,
             self.withdraw_route,
             amount,
@@ -384,7 +422,7 @@ impl CustodyClientMethods for IndexInstance {
 
     async fn route_collateral_to_from(
         &self,
-        provider: &DynProvider,
+        providers: &[&DynProvider],
         from_address: &Address,
         to_address: &Address,
         token_address: &Address,
@@ -398,10 +436,10 @@ impl CustodyClientMethods for IndexInstance {
         }
 
         if self.trade_route.eq(to_address) {
-            self.route_collateral_for_trading_from(provider, *from_address, amount)
+            self.route_collateral_for_trading_from(providers, *from_address, amount)
                 .await
         } else if self.withdraw_route.eq(to_address) {
-            self.withdraw_collateral_from(provider, *from_address, amount)
+            self.withdraw_collateral_from(providers, *from_address, amount)
                 .await
         } else {
             Err(eyre!(

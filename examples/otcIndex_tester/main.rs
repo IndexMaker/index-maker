@@ -250,7 +250,7 @@ async fn main() -> Result<()> {
         eyre::ensure!(rc_dep.status(), "addressToCustody failed: {:?}", rc_dep);
 
         let res = index_instance
-            .route_collateral_for_trading_from(&provider, trade_route, collateral_amount_units)
+            .route_collateral_for_trading_from(&[&provider], trade_route, collateral_amount_units)
             .await?;
 
         eyre::ensure!(res.status(), "custodyToAddress reverted: {:?}", res);
@@ -387,7 +387,7 @@ async fn wait_for_deposit_and_mint(
 
                     let res = index_instance
                         .route_collateral_to_from(
-                            &provider,
+                            &[&provider],
                             &custody_owner,
                             trade_route,
                             &usdc_address,

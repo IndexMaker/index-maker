@@ -4,6 +4,7 @@ use alloy::providers::{DynProvider, Provider, WalletProvider};
 use alloy_primitives::Address;
 
 use eyre::OptionExt;
+use itertools::Itertools;
 use otc_custody::{contracts::OTCCustody, custody_client::CustodyClient};
 use symm_core::core::{bits::Amount, functional::OneShotPublishSingle};
 use tokio::time::sleep;
@@ -43,14 +44,10 @@ where
             .providers
             .with_shared_date(|s| (s.max_retries, s.retry_backoff));
 
-        let mut current = self
-            .providers
-            .next_provider()
-            .await
-            .current()
-            .ok_or_eyre("No provider")?;
+        let mut current_n = self.providers.next_n_providers(2).await.current_n(2);
+        let mut current = current_n.first().ok_or_eyre("No provider")?;
 
-        let (mut provider, mut rpc_url) = (&current.0, &current.1);
+        let (provider, mut rpc_url) = (&current.0, &current.1);
 
         let from_address = provider.default_signer_address();
         let decimals = custody_client.get_collateral_token_precision();
@@ -75,11 +72,15 @@ where
                 let mut total_gas_amount = Amount::ZERO;
 
                 for i in 0..num_retries {
-                    let dyn_provider = DynProvider::new(provider.clone());
+                    let dyn_providers = current_n
+                        .iter()
+                        .map(|(p, _)| DynProvider::new(p.clone()))
+                        .collect_vec();
+                    let dyn_providers = dyn_providers.iter().map(|x| x).collect_vec();
 
                     let receipt = match custody_client
                         .route_collateral_to_from(
-                            &dyn_provider,
+                            &dyn_providers,
                             &from_address,
                             &destination,
                             &token_address,
@@ -89,14 +90,8 @@ where
                     {
                         Ok(r) => r,
                         Err(e) => {
-                            current = self
-                                .providers
-                                .next_provider()
-                                .await
-                                .current()
-                                .ok_or_eyre("No provider")?;
-
-                            provider = &current.0;
+                            current_n = self.providers.next_n_providers(2).await.current_n(2);
+                            current = current_n.first().ok_or_eyre("No provider")?;
                             rpc_url = &current.1;
 
                             if i == num_retries - 1 {

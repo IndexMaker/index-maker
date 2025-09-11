@@ -9,6 +9,8 @@ alloy = { workspace = true }
 async-trait = { workspace = true }
 ethers = { workspace = true }
 eyre = { workspace = true }
+futures-util = { workspace = true }
+itertools = { workspace = true }
 k256 = { workspace = true }
 merkle-tree-rs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

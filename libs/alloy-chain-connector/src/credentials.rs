@@ -92,6 +92,15 @@ where
     pub fn current(&self) -> Option<&(T, String)> {
         self.providers.front()
     }
+    
+    pub async fn next_n_providers(&mut self, n: usize) -> &Self {
+        self.providers.rotate_left(n);
+        self
+    }
+
+    pub fn current_n(&self, n: usize) -> Vec<&(T, String)> {
+        self.providers.iter().take(n).collect_vec()
+    }
 }
 
 #[derive(Clone)]

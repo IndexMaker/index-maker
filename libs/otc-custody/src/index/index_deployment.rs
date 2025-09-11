@@ -367,7 +367,7 @@ pub mod test {
             .expect("Failed to set solver weights");
 
         index
-            .route_collateral_for_trading_from(&provider, from_address, U256::ZERO)
+            .route_collateral_for_trading_from(&[&provider], from_address, U256::ZERO)
             .await
             .expect("Failed to route collateral");
 
@@ -432,7 +432,7 @@ pub mod test {
         let from_address = address!("0x1111111111111111111122222222222222222222");
 
         index
-            .withdraw_collateral_from(&provider, from_address, U256::ZERO)
+            .withdraw_collateral_from(&[&provider], from_address, U256::ZERO)
             .await
             .expect("Failed to withdraw collateral");
     }
