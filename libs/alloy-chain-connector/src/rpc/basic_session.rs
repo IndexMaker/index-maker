@@ -1,39 +1,47 @@
 use alloy::providers::{Provider, WalletProvider};
 use alloy_primitives::Address;
+use eyre::OptionExt;
 use symm_core::core::functional::OneShotPublishSingle;
 
 use otc_custody::contracts::ERC20;
 
 use crate::{
     command::BasicCommand,
+    credentials::MultiProvider,
     util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
 };
 
 pub struct RpcBasicSession<P>
 where
-    P: Provider + WalletProvider,
+    P: Provider + WalletProvider + Clone + 'static,
 {
-    provider: P,
+    providers: MultiProvider<P>,
     account_name: String,
 }
 
 impl<P> RpcBasicSession<P>
 where
-    P: Provider + WalletProvider,
+    P: Provider + WalletProvider + Clone + 'static,
 {
-    pub fn new(account_name: String, provider: P) -> Self {
+    pub fn new(account_name: String, providers: MultiProvider<P>) -> Self {
         Self {
             account_name,
-            provider,
+            providers,
         }
     }
 
     pub async fn send_basic_command(
-        &self,
+        &mut self,
         contract_address: Address,
         command: BasicCommand,
     ) -> eyre::Result<()> {
-        let provider = &self.provider;
+        let (provider, rpc_url) = self
+            .providers
+            .next_provider()
+            .await
+            .current()
+            .ok_or_eyre("No provider")?;
+
         let contract = ERC20::new(contract_address, provider);
         let decimals = contract.decimals().call().await?;
         let converter = AmountConverter::new(decimals);
@@ -51,6 +59,7 @@ where
             } => {
                 tracing::info!(
                     account_name = %self.account_name,
+                    %rpc_url,
                     "Transferring collateral {} from wallet to {}",
                     amount,
                     receipient
@@ -63,6 +72,7 @@ where
                 let receipient_balance = converter.into_amount(receipient_balance_raw)?;
                 tracing::info!(
                     account_name = %self.account_name,
+                    %rpc_url,
                     %contract_address,
                     %signer_address,
                     %receipient,
@@ -86,6 +96,7 @@ where
 
                 tracing::info!(
                     account_name = %self.account_name,
+                    %rpc_url,
                     "💰 Collateral transferred to wallet {} gas used {} tx {}",
                     receipient,
                     gas_amount,
@@ -100,6 +111,7 @@ where
                 let receipient_balance = converter.into_amount(receipient_balance_raw)?;
                 tracing::info!(
                     account_name = %self.account_name,
+                    %rpc_url,
                     %contract_address,
                     %signer_address,
                     %receipient,

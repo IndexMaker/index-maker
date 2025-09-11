@@ -67,6 +67,7 @@ impl Session {
         let account_name = credentials.get_account_name();
         let chain_id = credentials.get_chain_id();
         let signer_address = credentials.get_signer_address()?;
+        let shared_data = credentials.get_shared_data();
 
         self.session_loop.start(async move |cancel_token| {
             let on_error = |reason| {
@@ -82,7 +83,7 @@ impl Session {
 
             tracing::info!(%account_name, %chain_id, %signer_address, "Session loop started");
 
-            let provider = match credentials.connect().await {
+            let providers = match credentials.connect_any().await {
                 Ok(ok) => ok,
                 Err(err) => {
                     on_error(format!("Failed to connect session: {:?}", err));
@@ -90,7 +91,7 @@ impl Session {
                 }
             };
 
-            let public_provider = match credentials.connect_public().await {
+            let public_providers = match credentials.connect_any_public().await {
                 Ok(ok) => ok,
                 Err(err) => {
                     on_error(format!("Failed to connect public session: {:?}", err));
@@ -98,12 +99,12 @@ impl Session {
                 }
             };
 
-            let rpc_basic_session = RpcBasicSession::new(account_name.clone(), provider.clone());
+            let mut rpc_basic_session = RpcBasicSession::new(account_name.clone(), providers.clone());
 
-            let rpc_issuer_session = RpcIssuerSession::new(account_name.clone(), provider.clone());
-            let rpc_custody_session = RpcCustodySession::new(account_name.clone(), provider.clone());
+            let mut rpc_issuer_session = RpcIssuerSession::new(account_name.clone(), providers.clone());
+            let mut rpc_custody_session = RpcCustodySession::new(account_name.clone(), providers.clone());
 
-            let mut rpc_issuer_stream = RpcIssuerStream::new(account_name.clone(), public_provider);
+            let mut rpc_issuer_stream = RpcIssuerStream::new(account_name.clone(), public_providers);
 
             observer
                 .read()

@@ -1,14 +1,16 @@
 use std::{
     collections::{HashMap, HashSet},
+    f32::MIN,
     sync::Arc,
 };
 
-use alloy::providers::Provider;
+use alloy::{providers::Provider, sol_types::SolEvent};
 use alloy_primitives::{keccak256, U256};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption};
 use chrono::Utc;
 use eyre::{eyre, Context, OptionExt};
 use index_core::blockchain::chain_connector::ChainNotification;
+use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
@@ -17,12 +19,9 @@ use symm_core::core::{
 };
 use tokio::time::sleep;
 
-use crate::util::amount_converter::AmountConverter;
+use crate::{credentials::MultiProvider, util::amount_converter::AmountConverter};
 use otc_custody::{
-    contracts::{
-        IOTCIndex::{Deposit, Withdraw},
-        ERC20,
-    },
+    contracts::IOTCIndex::{Deposit, Mint, Withdraw},
     custody_client::CustodyClientMethods,
     index::index::IndexInstance,
 };
@@ -31,31 +30,31 @@ pub struct RpcIssuerStream<P>
 where
     P: Provider + Clone + 'static,
 {
-    provider: Option<P>,
+    providers: Option<MultiProvider<P>>,
     account_name: String,
-    subscription_loop: AsyncLoop<eyre::Result<P>>,
+    subscription_loop: AsyncLoop<eyre::Result<MultiProvider<P>>>,
 }
 
 impl<P> RpcIssuerStream<P>
 where
     P: Provider + Clone + 'static,
 {
-    pub fn new(account_name: String, provider: P) -> Self {
+    pub fn new(account_name: String, providers: MultiProvider<P>) -> Self {
         Self {
-            provider: Some(provider),
+            providers: Some(providers),
             account_name,
             subscription_loop: AsyncLoop::new(),
         }
     }
 
     pub async fn unsubscribe(&mut self) -> eyre::Result<()> {
-        let provider = self
+        let providers = self
             .subscription_loop
             .stop()
             .await
             .map_err(|err| eyre!("Failed to unsubscribe: {:?}", err))??;
 
-        self.provider.replace(provider);
+        self.providers.replace(providers);
         Ok(())
     }
 
@@ -65,24 +64,31 @@ where
         indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> eyre::Result<()> {
-        let provider = self.provider.take().ok_or_eyre("Already subscribed")?;
-        let provider_clone = provider.clone();
+        let providers = self.providers.take().ok_or_eyre("Already subscribed")?;
+        let mut providers_clone = providers.clone();
 
-        let event_filter = Filter::new().events(vec![
-            b"Deposit(uint256,address,uint256,address,address)" as &[u8],
-            b"Withdraw(uint256,address,bytes)" as &[u8],
-        ]);
+        let event_filter = Filter::new()
+            .address(indexes_by_address.read().keys().cloned().collect_vec())
+            .events(vec![
+                Deposit::SIGNATURE,
+                Withdraw::SIGNATURE,
+                Mint::SIGNATURE,
+            ]);
 
-        let poll_interval = std::time::Duration::from_secs(10);
-        let backoff_period = std::time::Duration::from_secs(300);
-        let max_failure_count = 10;
+        let (poll_interval, backoff_period, max_failure_count) = providers
+            .with_shared_date(|s| (s.poll_interval, s.poll_backoff_period, s.max_poll_failures));
 
-        let mut last_block_from = provider.get_block_number().await?;
+        let (provider, rpc_url) = providers.current().ok_or_eyre("No providers")?;
+
+        let mut last_block_from = provider
+            .get_block_number()
+            .await
+            .map_err(|err| eyre!("Failed to fetch last block via: {:?}", rpc_url))?;
 
         let account_name = self.account_name.clone();
         let account_name_clone = account_name.clone();
 
-        let mut poll_log_events_fn = async move || -> eyre::Result<()> {
+        let mut poll_log_events_fn = async move |provider: &P, rpc_url: &String| -> eyre::Result<()> {
             let most_recent_block = provider
                 .get_block_number()
                 .await
@@ -91,6 +97,7 @@ where
             if most_recent_block > last_block_from {
                 tracing::info!(
                     account_name = %account_name_clone,
+                    %rpc_url,
                     %last_block_from,
                     %most_recent_block, "⏱ Polling events");
 
@@ -106,6 +113,7 @@ where
                         let deposit_data = deposit_event.inner;
                         tracing::info!(
                             account_name = %account_name_clone,
+                            %rpc_url,
                             "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
                             deposit_data.amount,
                             deposit_data.from,
@@ -143,7 +151,7 @@ where
         };
 
         self.subscription_loop
-            .start(async move |cancel_token| -> eyre::Result<P> {
+            .start(async move |cancel_token| -> eyre::Result<MultiProvider<P>> {
                 tracing::info!(%account_name, "Issuer stream polling loop started");
                 let mut failure_count = 0;
                 loop {
@@ -152,8 +160,14 @@ where
                             break;
                         },
                         _ = tokio::time::sleep(poll_interval) => {
-                            if let Err(err) = poll_log_events_fn().await {
-                                tracing::warn!(%account_name, "Polling log events failed: {:?}", err);
+                            let (provider, rpc_url) = providers_clone
+                                .next_provider()
+                                .await
+                                .current()
+                                .ok_or_eyre("No provider")?;
+
+                            if let Err(err) = poll_log_events_fn(provider, rpc_url).await {
+                                tracing::warn!(%account_name, %rpc_url, "Polling log events failed: {:?}", err);
                                 failure_count += 1;
                                 if failure_count > max_failure_count {
                                     sleep(backoff_period).await;
@@ -164,7 +178,7 @@ where
                     }
                 }
                 tracing::info!(%account_name, "⚠️ Issuer stream polling loop exited");
-                Ok(provider_clone)
+                Ok(providers_clone)
             });
 
         Ok(())

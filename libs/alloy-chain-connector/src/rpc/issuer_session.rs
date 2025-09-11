@@ -2,12 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, WalletProvider};
 
+use eyre::OptionExt;
 use otc_custody::{custody_client::CustodyClientMethods, index::index::IndexInstance};
 use symm_core::core::{bits::Amount, functional::OneShotPublishSingle};
 use tokio::time::sleep;
 
 use crate::{
     command::IssuerCommand,
+    credentials::MultiProvider,
     util::{
         amount_converter::AmountConverter, gas_util::compute_gas_used,
         weights_util::bytes_from_weights,
@@ -16,29 +18,41 @@ use crate::{
 
 pub struct RpcIssuerSession<P>
 where
-    P: Provider + WalletProvider,
+    P: Provider + WalletProvider + Clone + 'static,
 {
-    provider: P,
+    providers: MultiProvider<P>,
     account_name: String,
 }
 
 impl<P> RpcIssuerSession<P>
 where
-    P: Provider + WalletProvider,
+    P: Provider + WalletProvider + Clone + 'static,
 {
-    pub fn new(account_name: String, provider: P) -> Self {
+    pub fn new(account_name: String, providers: MultiProvider<P>) -> Self {
         Self {
             account_name,
-            provider,
+            providers,
         }
     }
 
     pub async fn send_issuer_command(
-        &self,
+        &mut self,
         index: Arc<IndexInstance>,
         command: IssuerCommand,
     ) -> eyre::Result<()> {
-        let provider = &self.provider;
+        let (num_retries, backoff_period) = self
+            .providers
+            .with_shared_date(|s| (s.max_retries, s.retry_backoff));
+
+        let mut current = self
+            .providers
+            .next_provider()
+            .await
+            .current()
+            .ok_or_eyre("No provider")?;
+        
+        let (mut provider, mut rpc_url) = (&current.0, &current.1);
+
         let from_address = provider.default_signer_address();
 
         match command {
@@ -68,16 +82,14 @@ where
             } => {
                 tracing::info!(
                     account_name = %self.account_name,
+                    %rpc_url,
                     "Minting {} of Index for {}", amount, receipient);
 
                 let index_token_converter = AmountConverter::new(index.get_index_token_precision());
                 let amount = index_token_converter.from_amount(amount)?;
 
                 let mut total_gas_amount = Amount::ZERO;
-                let num_retries = 3;
-                let backoff_seconds = 2;
 
-                // TODO: Design better retry mechanism
                 for i in 0..num_retries {
                     let receipt = match index
                         .mint_index_from(
@@ -91,11 +103,24 @@ where
                     {
                         Ok(r) => r,
                         Err(e) => {
+                            current = self
+                                .providers
+                                .next_provider()
+                                .await
+                                .current()
+                                .ok_or_eyre("No provider")?;
+
+                            provider = &current.0;
+                            rpc_url = &current.1;
+
                             if i == num_retries - 1 {
                                 Err(e)?
                             } else {
-                                sleep(Duration::from_secs(backoff_seconds)).await;
-                                tracing::warn!(account_name= %self.account_name, "⚠️ Retrying mint index");
+                                sleep(backoff_period).await;
+                                tracing::warn!(
+                                    account_name= %self.account_name, 
+                                    %rpc_url,
+                                    "⚠️ Retrying mint index");
                                 continue;
                             }
                         }
@@ -108,6 +133,7 @@ where
 
                     tracing::info!(
                         account_name = %self.account_name,
+                        %rpc_url,
                         "💳 Minted Index for {} gas used {} tx: {}", receipient, gas_amount, tx);
 
                     observer.one_shot_publish_single(gas_amount);
