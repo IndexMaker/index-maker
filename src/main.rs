@@ -1,8 +1,9 @@
 use alloy::primitives::address;
 use alloy_chain_connector::{
-    chain_connector::GasFeeCalculator, credentials::Credentials as AlloyCredentials,
+    chain_connector::GasFeeCalculator,
+    credentials::{Credentials as AlloyCredentials, SharedSessionData},
 };
-use alloy_primitives::U256;
+use alloy_primitives::{map::foldhash::SharedSeed, U256};
 use binance_order_sending::{
     binance_order_sending::BinanceFeeCalculator, credentials::Credentials as BinanceCredentials,
 };
@@ -40,7 +41,7 @@ use itertools::{Either, Itertools};
 use otc_custody::custody_authority::CustodyAuthority;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{env, sync::Arc};
+use std::{collections::VecDeque, env, process, sync::Arc};
 
 use symm_core::{
     core::{
@@ -271,22 +272,23 @@ impl ChainMode {
         } else {
             let chain_id = 8453;
             let rpc_urls = rpc_urls.unwrap_or_else(|| vec![String::from("http://127.0.0.1:8545")]);
+            let mut rpc_urls = VecDeque::from(rpc_urls);
+            let concurrent_session_count = 2.min(rpc_urls.len());
+            let rotation_step = (rpc_urls.len() + 1) / concurrent_session_count;
 
-            let index_operator_credentials = rpc_urls
-                .into_iter()
-                .map(|rpc_url| {
-                    AlloyCredentials::new(
-                        format!("{}:{}", chain_id, rpc_url),
-                        chain_id,
-                        rpc_url,
-                        Arc::new(|| {
-                            env::var("INDEX_MAKER_PRIVATE_KEY").expect(
-                                "INDEX_MAKER_PRIVATE_KEY environment variable must be defined",
-                            )
-                        }),
-                    )
-                })
-                .collect_vec();
+            let mut index_operator_credentials = Vec::new();
+
+            for i in 0..concurrent_session_count {
+                index_operator_credentials.push(AlloyCredentials::new(
+                    format!("{}:{}", chain_id, i),
+                    Arc::new(SharedSessionData::new(chain_id, rpc_urls.clone())),
+                    Arc::new(|| {
+                        env::var("INDEX_MAKER_PRIVATE_KEY")
+                            .expect("INDEX_MAKER_PRIVATE_KEY environment variable must be defined")
+                    }),
+                ));
+                rpc_urls.rotate_left(rotation_step);
+            }
 
             let index_operator_custody_auth = CustodyAuthority::new(|| {
                 env::var("CUSTODY_AUTHORITY_PRIVATE_KEY")
