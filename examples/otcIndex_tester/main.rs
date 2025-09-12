@@ -419,7 +419,7 @@ async fn wait_for_deposit_and_mint(
 
                     let rc = index_instance
                         .mint_index_from(
-                            &provider,
+                            &[&provider],
                             custody_owner,
                             deposit_data.from,
                             mint_amount,
