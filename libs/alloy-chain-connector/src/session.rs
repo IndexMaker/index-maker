@@ -91,7 +91,7 @@ impl Session {
                 }
             };
 
-            let public_providers = match credentials.connect_any_public().await {
+            let ws_providers = match credentials.connect_any_ws().await {
                 Ok(ok) => ok,
                 Err(err) => {
                     on_error(format!("Failed to connect public session: {:?}", err));
@@ -99,12 +99,22 @@ impl Session {
                 }
             };
 
+            let public_providers = if ws_providers.is_empty() {
+                match credentials.connect_any_public().await {
+                    Ok(ok) => Some(ok),
+                    Err(err) => {
+                        on_error(format!("Failed to connect public session: {:?}", err));
+                        return credentials;
+                    }
+                }
+            } else {
+                None
+            };
+
             let mut rpc_basic_session = RpcBasicSession::new(account_name.clone(), providers.clone());
 
             let mut rpc_issuer_session = RpcIssuerSession::new(account_name.clone(), providers.clone());
             let mut rpc_custody_session = RpcCustodySession::new(account_name.clone(), providers.clone());
-
-            let mut rpc_issuer_stream = RpcIssuerStream::new(account_name.clone(), public_providers);
 
             observer
                 .read()
@@ -113,12 +123,35 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
-            if let Err(err) = rpc_issuer_stream.subscribe(chain_id, baggage.indexes_by_address, observer.clone())
-                .await
-            {
-                on_error(format!("Failed to subscribe to RPC events: {:?}", err));
-                return credentials;
-            }
+            let rpc_issuer_stream = if !ws_providers.is_empty() {
+                let mut s = RpcIssuerStream::new(account_name.clone(), ws_providers);
+
+                if let Err(err) = s.subscribe_streaming(
+                        chain_id, baggage.indexes_by_address.clone(), observer.clone()
+                    ).await
+                {
+                    on_error(format!("Failed to subscribe to RPC events: {:?}", err));
+                    return credentials;
+                }
+                Some(s)
+            } else {
+                None
+            };
+
+            let rpc_issuer_stream1 = if let Some(public_providers) = public_providers {
+                let mut s = RpcIssuerStream::new(account_name.clone(), public_providers);
+
+                if let Err(err) = s.subscribe_polling(
+                        chain_id, baggage.indexes_by_address, observer.clone()
+                    ).await
+                {
+                    on_error(format!("Failed to subscribe to RPC events: {:?}", err));
+                    return credentials;
+                }
+                Some(s)
+            } else {
+                None
+            };
 
             loop {
                 select! {
@@ -155,8 +188,15 @@ impl Session {
                 }
             }
 
-            if let Err(err) = rpc_issuer_stream.unsubscribe().await {
-                tracing::warn!("Failed to unsubscribe from RPC events: {:?}", err);
+            if let Some(mut rpc_issuer_stream) = rpc_issuer_stream {
+                if let Err(err) = rpc_issuer_stream.unsubscribe().await {
+                    tracing::warn!("Failed to unsubscribe from RPC events: {:?}", err);
+                }
+            }
+            if let Some(mut rpc_issuer_stream) = rpc_issuer_stream1 {
+                if let Err(err) = rpc_issuer_stream.unsubscribe().await {
+                    tracing::warn!("Failed to unsubscribe from RPC events: {:?}", err);
+                }
             }
 
             observer

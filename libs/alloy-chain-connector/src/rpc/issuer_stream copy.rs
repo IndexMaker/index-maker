@@ -9,7 +9,6 @@ use alloy_primitives::{keccak256, U256};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, Log};
 use chrono::Utc;
 use eyre::{eyre, Context, OptionExt};
-use futures::{future::join_all, stream::select_all};
 use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
@@ -185,43 +184,21 @@ where
                 let subs = providers
                     .get_providers()
                     .iter()
-                    .map(async |(p, u)| (p.subscribe_logs(&event_filter).await, u))
-                    .collect_vec();
+                    .map(|(p, u)| p.subscribe_logs(&event_filter));
 
-                let (subs, errors): (Vec<_>, Vec<_>) = join_all(subs)
-                    .await
-                    .into_iter()
-                    .map(|(s, u)| s.map(|s| (s, u)))
-                    .partition_result();
 
-                if !errors.is_empty() {
-                    tracing::warn!(
-                        "⚠️ Failed to subscribe to stream(s): {}",
-                        errors.into_iter().map(|e| format!("{:?}", e)).join("; ")
-                    );
-                }
-
-                if subs.is_empty() {
-                    tracing::warn!("⚠️ No subscriptions");
-                    return Ok(providers);
-                }
-
-                let rpc_urls = subs.iter().map(|(_, u)| u).join(",");
-                tracing::info!(%rpc_urls, "✅ Subscriptions started");
-
-                let streams = subs.into_iter().map(|(s, _)| s.into_stream()).collect_vec();
-                let mut sel = select_all(streams);
+                let mut stream = sub.into_stream();
 
                 loop {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
                             break;
                         },
-                        Some(log) = sel.next() => {
+                        Some(log) = stream.next() => {
                             Self::handle_log(
                                 &account_name,
                                 chain_id,
-                                "?",
+                                &rpc_url,
                                 log,
                                 &indexes_by_address,
                                 &observer,
@@ -239,9 +216,9 @@ where
     }
 
     fn handle_log(
-        account_name: &str,
+        account_name: &String,
         chain_id: u32,
-        rpc_url: &str,
+        rpc_url: &String,
         log: Log,
         indexes_by_address: &Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
         observer: &Arc<AtomicLock<SingleObserver<ChainNotification>>>,

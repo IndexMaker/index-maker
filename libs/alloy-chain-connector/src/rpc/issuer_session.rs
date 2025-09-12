@@ -47,7 +47,6 @@ where
         let mut current = self
             .providers
             .next_provider()
-            .await
             .current()
             .ok_or_eyre("No provider")?;
         
@@ -106,7 +105,6 @@ where
                             current = self
                                 .providers
                                 .next_provider()
-                                .await
                                 .current()
                                 .ok_or_eyre("No provider")?;
 

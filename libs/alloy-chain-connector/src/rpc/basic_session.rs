@@ -38,7 +38,6 @@ where
         let (provider, rpc_url) = self
             .providers
             .next_provider()
-            .await
             .current()
             .ok_or_eyre("No provider")?;
 
