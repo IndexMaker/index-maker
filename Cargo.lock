@@ -4622,6 +4622,8 @@ dependencies = [
  "async-trait",
  "ethers",
  "eyre",
+ "futures-util",
+ "itertools 0.14.0",
  "k256 0.13.4",
  "merkle-tree-rs",
  "serde",

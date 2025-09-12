@@ -274,21 +274,16 @@ impl ChainMode {
             let rpc_urls = rpc_urls.unwrap_or_else(|| vec![String::from("http://127.0.0.1:8545")]);
             let mut rpc_urls = VecDeque::from(rpc_urls);
             let concurrent_session_count = 2.min(rpc_urls.len());
-            let rotation_step = (rpc_urls.len() + 1) / concurrent_session_count;
+            let shared_data = Arc::new(SharedSessionData::new(chain_id, rpc_urls.clone()));
 
-            let mut index_operator_credentials = Vec::new();
-
-            for i in 0..concurrent_session_count {
-                index_operator_credentials.push(AlloyCredentials::new(
-                    format!("{}:{}", chain_id, i),
-                    Arc::new(SharedSessionData::new(chain_id, rpc_urls.clone())),
-                    Arc::new(|| {
-                        env::var("INDEX_MAKER_PRIVATE_KEY")
-                            .expect("INDEX_MAKER_PRIVATE_KEY environment variable must be defined")
-                    }),
-                ));
-                rpc_urls.rotate_left(rotation_step);
-            }
+            let index_operator_credentials = vec![AlloyCredentials::new(
+                format!("{}", chain_id),
+                shared_data.clone(),
+                Arc::new(|| {
+                    env::var("INDEX_MAKER_PRIVATE_KEY")
+                        .expect("INDEX_MAKER_PRIVATE_KEY environment variable must be defined")
+                }),
+            )];
 
             let index_operator_custody_auth = CustodyAuthority::new(|| {
                 env::var("CUSTODY_AUTHORITY_PRIVATE_KEY")

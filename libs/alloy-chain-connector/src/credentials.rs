@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use alloy::{
-    providers::{Provider, ProviderBuilder, WalletProvider},
+    providers::{Provider, ProviderBuilder, WalletProvider, WsConnect},
     signers::local::PrivateKeySigner,
 };
 use chrono::{DateTime, Utc};
@@ -84,13 +84,34 @@ where
         cb(&self.shared_data)
     }
 
-    pub async fn next_provider(&mut self) -> &Self {
+    pub fn is_empty(&self) -> bool {
+        self.providers.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.providers.len()
+    }
+
+    pub fn next_provider(&mut self) -> &Self {
         self.providers.rotate_left(1);
         self
     }
 
     pub fn current(&self) -> Option<&(T, String)> {
         self.providers.front()
+    }
+
+    pub fn next_n_providers(&mut self, n: usize) -> &Self {
+        self.providers.rotate_left(n);
+        self
+    }
+
+    pub fn current_n(&self, n: usize) -> Vec<&(T, String)> {
+        self.providers.iter().take(n).collect_vec()
+    }
+
+    pub fn get_providers(&self) -> &VecDeque<(T, String)> {
+        &self.providers
     }
 }
 
@@ -175,6 +196,39 @@ impl Credentials {
             .rpc_urls
             .iter()
             .map(|rpc_url| ProviderBuilder::new().connect(rpc_url));
+
+        let (providers, errors): (Vec<_>, Vec<_>) = join_all(providers)
+            .await
+            .into_iter()
+            .zip(self.shared_data.rpc_urls.iter())
+            .map(|(x, y)| x.map(|x| (x, y.clone())))
+            .partition_result();
+
+        if providers.is_empty() {
+            Err(eyre!(
+                "Failed to connect RPC: {:?}",
+                errors
+                    .into_iter()
+                    .map(|err| format!("{:?}", err))
+                    .join("; ")
+            ))?;
+        }
+
+        Ok(MultiProvider::new(self.shared_data.clone(), providers))
+    }
+
+    pub async fn connect_any_ws(&self) -> eyre::Result<MultiProvider<impl Provider + Clone>> {
+        let signer = self.get_signer()?;
+
+        let providers = self.shared_data.rpc_urls.iter().filter_map(|rpc_url| {
+            if rpc_url.starts_with("wss://") {
+                tracing::info!(%rpc_url, "WsConnect");
+                let ws = WsConnect::new(rpc_url);
+                Some(ProviderBuilder::new().wallet(signer.clone()).connect_ws(ws))
+            } else {
+                None
+            }
+        });
 
         let (providers, errors): (Vec<_>, Vec<_>) = join_all(providers)
             .await
