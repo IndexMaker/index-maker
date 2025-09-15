@@ -247,7 +247,7 @@ impl CollateralManager {
         tracing::info!(%chain_id, %address, %amount, "Deposit");
 
         self.add_position(chain_id, address, timestamp)
-            .safe_update(|funds_write| {
+            .safe_update(|funds_write| -> Result<()> {
                 funds_write.side_cr.open_lot(
                     host.get_next_payment_id(),
                     Some(seq_num),
@@ -257,7 +257,13 @@ impl CollateralManager {
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
-            })
+            })?;
+
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
+        }
+
+        Ok(())
     }
 
     pub fn handle_withdrawal(
@@ -271,7 +277,7 @@ impl CollateralManager {
         tracing::info!(%chain_id, %address, %amount, "Withdrawal");
 
         self.add_position(chain_id, address, timestamp)
-            .safe_update(|funds_write| {
+            .safe_update(|funds_write| -> Result<()> {
                 funds_write.side_dr.open_lot(
                     host.get_next_payment_id(),
                     None,
@@ -281,7 +287,13 @@ impl CollateralManager {
 
                 funds_write.last_update_timestamp = timestamp;
                 Ok(())
-            })
+            })?;
+
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
+        }
+
+        Ok(())
     }
 
     /// Pre-Authorize Payment
@@ -445,6 +457,10 @@ impl CollateralManager {
                         collateral_amount: amount,
                         status: RoutingStatus::Ready { fee },
                     });
+
+                if let Err(err) = self.store() {
+                    tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
+                }
             }
             CollateralTransferEvent::TransferFailed {
                 chain_id,
@@ -498,13 +514,17 @@ impl CollateralManager {
                         collateral_amount: amount,
                         status: RoutingStatus::NotReady,
                     });
+
+                if let Err(err) = self.store() {
+                    tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
+                }
             }
         }
         Ok(())
     }
 
     /// Book records for collateral ready if any and management fees
-    /// 
+    ///
     /// After collateral routing to final destination we need to book fees that
     /// were deducted, as otherwise we'll have dangling unconfirmed amount
     fn book_records(

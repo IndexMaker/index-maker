@@ -4,7 +4,7 @@ use alloy_primitives::U256;
 use axum_fix_server::plugins::seq_num_plugin;
 use chrono::{DateTime, Utc};
 use itertools::FoldWhile::{Continue, Done};
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 
 use eyre::{OptionExt, Result};
 use safe_math::safe;
@@ -148,9 +148,7 @@ impl CollateralSide {
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
         if let Some(seq_num) = seq_num {
-            if self
-                .open_lots
-                .iter()
+            if chain!(self.open_lots.iter(), self.closed_lots.iter())
                 .any(|l| l.seq_num.map_or(false, |s| s.eq(&seq_num)))
             {
                 tracing::warn!(%seq_num, "⚠️ Collateral lot with this sequence nubmer already booked");

@@ -451,6 +451,10 @@ impl InventoryManager {
             position.assign_lots(map)?;
         }
 
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store inventory manager: {:?}", err);
+        }
+
         Ok(())
     }
 
