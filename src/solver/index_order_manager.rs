@@ -1029,6 +1029,10 @@ impl IndexOrderManager {
                 timestamp: Utc::now(),
             });
 
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store index order manager: {:?}", err);
+        }
+
         Ok(())
     }
 }

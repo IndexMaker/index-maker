@@ -1025,6 +1025,8 @@ impl BatchManager {
             .map(|engaged_orders| self.send_batch(host, &engaged_orders.read(), timestamp))
             .partition_result();
 
+        let new_batches_count = new_batches.len();
+
         tracing::info_span!("internal-fill").in_scope(|| {
             let (_, err): ((), Vec<_>) = new_batches
                 .into_iter()
@@ -1051,6 +1053,12 @@ impl BatchManager {
                 "Failed to send or fill internally batches: {}",
                 failures.into_iter().map(|e| format!("{:?}", e)).join(";")
             ))?;
+        }
+
+        if 0 < new_batches_count {
+            if let Err(err) = self.store() {
+                tracing::warn!("❗️ Failed to store batch manager: {:?}", err);
+            }
         }
 
         Ok(())
