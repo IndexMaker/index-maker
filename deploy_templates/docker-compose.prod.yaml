@@ -9,24 +9,28 @@ services:
        - "8080:8080"
 
     command: ["./index-maker", 
-              "--rpc-urls", "https://0xrpc.io/base,https://rpc.poolz.finance/base",
+              "--rpc-urls", "wss://0xrpc.io/base,wss://base-rpc.publicnode.com,https://1rpc.io/base,https://mainnet.base.org",
               "--bind-address", "0.0.0.0:3000",
               "--query-bind-address", "0.0.0.0:8080",
               "--config-path", "configs", 
               #"--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
               #"--otlp-log-url", "http://otel-collector:4318/v1/logs", 
               #"--batch-size", "50",
-              "--simulate-sender",
+              #"--simulate-sender",
               "fix-server", "0"]
 
     environment:
       RUST_LOG: ${RUST_LOG}
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_PRIVATE_KEY_FILE: ${BINANCE_PRIVATE_KEY_FILE}
+      BINANCE_TRADING_ENABLED: ${BINANCE_TRADING_ENABLED}
       SERVER_PRIVATE_KEY: ${SERVER_PRIVATE_KEY}
       INDEX_MAKER_PRIVATE_KEY: ${INDEX_MAKER_PRIVATE_KEY}
       CUSTODY_AUTHORITY_PRIVATE_KEY: ${CUSTODY_AUTHORITY_PRIVATE_KEY}
     
     volumes:
       - ./persistence:/app/persistence
+      - ./pk:/app/pk
     
     #depends_on:
     #  otel-collector:
