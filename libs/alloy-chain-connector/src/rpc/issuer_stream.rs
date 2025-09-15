@@ -1,11 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    f32::MIN,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{providers::Provider, sol_types::SolEvent};
-use alloy_primitives::{keccak256, U256};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, Log};
 use chrono::Utc;
 use eyre::{eyre, Context, OptionExt};
@@ -23,10 +18,7 @@ use tokio_stream::StreamExt;
 
 use crate::{credentials::MultiProvider, util::amount_converter::AmountConverter};
 use otc_custody::{
-    contracts::{
-        IOTCIndex::{self, Deposit, Mint, Withdraw},
-        OTCIndex,
-    },
+    contracts::IOTCIndex::{self, Deposit, Mint, Withdraw},
     custody_client::CustodyClientMethods,
     index::index::IndexInstance,
 };
@@ -167,7 +159,7 @@ where
         indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> eyre::Result<()> {
-        let mut providers = self.providers.take().ok_or_eyre("Already subscribed")?;
+        let providers = self.providers.take().ok_or_eyre("Already subscribed")?;
         let account_name = self.account_name.clone();
 
         let event_filter = Filter::new()
@@ -217,16 +209,23 @@ where
                         _ = cancel_token.cancelled() => {
                             break;
                         },
-                        Some(log) = sel.next() => {
-                            Self::handle_log(
-                                &account_name,
-                                chain_id,
-                                "?",
-                                log,
-                                &indexes_by_address,
-                                &observer,
-                            )?;
-                        }
+                        maybe_log = sel.next() => {
+                            match maybe_log {
+                                Some(log) => {
+                                    Self::handle_log(
+                                        &account_name,
+                                        chain_id,
+                                        "?",
+                                        log,
+                                        &indexes_by_address,
+                                        &observer,
+                                    )?;
+                                },
+                                None => {
+                                    break;
+                                }
+                            }
+                        },
                     }
                 }
 

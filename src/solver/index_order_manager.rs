@@ -762,15 +762,21 @@ impl IndexOrderManager {
         };
 
         match maybe_removed_index_order {
-            Some(mut index_order) => process(&mut index_order),
+            Some(mut index_order) => process(&mut index_order)?,
             None => {
                 let index_order = self
                     .find_index_order_mut(chain_id, address, symbol)
                     .ok_or_eyre("cannot find index order")?;
 
-                process(index_order)
+                process(index_order)?;
             }
         }
+
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store index order manager: {:?}", err);
+        }
+
+        Ok(())
     }
 
     /// provide a method to fill index order request
