@@ -340,6 +340,10 @@ impl CollateralManager {
                 status,
             });
 
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
+        }
+
         Ok(())
     }
 
@@ -389,6 +393,10 @@ impl CollateralManager {
                 status,
                 position,
             });
+
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
+        }
 
         Ok(())
     }
