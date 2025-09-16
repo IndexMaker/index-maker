@@ -391,20 +391,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_levels = 5usize;
     let fee_factor = dec!(1.002);
     let max_order_volley_size = dec!(20.0);
-    let max_volley_size = dec!(100.0);
+    let max_volley_size = dec!(500.0);
     let min_asset_volley_size = dec!(5.0);
     let asset_volley_step_size = dec!(0.1);
     let max_total_volley_size = dec!(1000.0);
-    let min_total_volley_available = dec!(100.0);
+    let min_total_volley_available = dec!(200.0);
 
     let fill_threshold = dec!(0.9999);
     let mint_threshold = dec!(0.99);
     let mint_wait_period = TimeDelta::seconds(10);
 
-    let max_batch_size = 4usize;
-    let zero_threshold = dec!(0.000000000000000001);
-    let client_order_wait_period = TimeDelta::seconds(10);
-    let client_quote_wait_period = TimeDelta::seconds(1);
+    let max_batch_size = 16usize;
+    let collateral_zero_threshold = dec!(0.000_001);
+    let assets_zero_threshold = dec!(0.000_000_000_000_000_001);
+    let client_order_wait_period = TimeDelta::seconds(5);
+    let client_quote_wait_period = TimeDelta::milliseconds(500);
 
     let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
         .map(|s| {
@@ -452,7 +453,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let asset_symbols = basket_manager_config.get_underlying_asset_symbols();
 
     let market_data_config = MarketDataConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(assets_zero_threshold)
         .subscriptions(
             asset_symbols
                 .iter()
@@ -497,7 +498,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build mint invoice manager config");
 
     let index_order_manager_config = IndexOrderManagerConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(collateral_zero_threshold)
         .with_server(app_mode.get_server_config())
         .with_invoice_manager(mint_invoice_manager_config.clone())
         .build()
@@ -509,7 +510,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build quote request manager");
 
     let batch_manager_config = BatchManagerConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(assets_zero_threshold)
         .fill_threshold(fill_threshold)
         .mint_threshold(mint_threshold)
         .mint_wait_period(mint_wait_period)
@@ -518,7 +519,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build batch manager");
 
     let collateral_manager_config = CollateralManagerConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(collateral_zero_threshold)
         .with_router(router_config)
         .build()
         .expect("Failed to build collateral manager");
@@ -550,7 +551,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build simple solver");
 
     let mut solver_config = SolverConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(collateral_zero_threshold)
         .max_batch_size(max_batch_size)
         .solver_tick_interval(Duration::milliseconds(100))
         .quotes_tick_interval(Duration::milliseconds(10))

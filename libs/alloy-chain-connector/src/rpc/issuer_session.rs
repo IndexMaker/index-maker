@@ -118,7 +118,7 @@ where
                                 tracing::warn!(
                                     account_name= %self.account_name, 
                                     %rpc_url,
-                                    "⚠️ Retrying mint index");
+                                    "⚠️ Retrying mint index: {:?}", e);
                                 continue;
                             }
                         }

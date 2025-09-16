@@ -104,7 +104,7 @@ where
                                 tracing::warn!(
                                     account_name= %self.account_name,
                                     %rpc_url,
-                                    "⚠️ Retrying route collateral");
+                                    "⚠️ Retrying route collateral, {:?}", e);
                                 continue;
                             }
                         }
