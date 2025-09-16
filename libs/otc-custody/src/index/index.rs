@@ -92,6 +92,7 @@ impl IndexInstance {
         let max_fee_per_gas = base_fee * 2u128;
 
         let gas_estimate = provider.estimate_gas(tx.clone()).await?;
+        let gas_limit = gas_estimate * 2u64;
 
         tracing::info!(
             %base_fee,
@@ -101,12 +102,13 @@ impl IndexInstance {
             "ℹ️ Gas prices for: {}", transaction_name);
 
         let tx = tx
-            .gas_limit(gas_estimate)
+            .gas_limit(gas_limit)
             .max_priority_fee_per_gas(max_priority_fee_per_gas)
             .max_fee_per_gas(max_fee_per_gas);
 
         let request_builder = provider.send_transaction(tx).await?;
 
+        tracing::info!("🔎 Watching for: {}", transaction_name);
         let pending_request = request_builder
             .with_required_confirmations(1)
             .with_timeout(Some(Duration::from_secs(60)))

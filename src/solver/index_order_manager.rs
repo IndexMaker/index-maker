@@ -228,6 +228,16 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
+        // Allow up to 6 decimal places for collateral
+        let collateral_amount = collateral_amount.normalize();
+        if collateral_amount.scale() > 6 {
+            return Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::OtherReason {
+                    detail: "Too much precision".to_string(),
+                },
+            ));
+        }
+
         // Temporary sell side block
         if side == Side::Sell {
             return Err(ServerResponseReason::User(
