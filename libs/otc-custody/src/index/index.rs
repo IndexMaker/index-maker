@@ -3,7 +3,7 @@ use std::time::Duration;
 use alloy::{
     primitives::{Address, Bytes, B256, U256},
     providers::{DynProvider, Provider},
-    rpc::types::TransactionReceipt,
+    rpc::types::{TransactionReceipt, TransactionRequest},
 };
 use async_trait::async_trait;
 use eyre::eyre;
@@ -19,7 +19,10 @@ use crate::{
         OTC_INDEX_SOLVER_WEIGHTS_SET_STATE, OTC_INDEX_TOKEN_PRECISION,
         OTC_TRADE_ROUTE_CUSTODY_STATE, OTC_WITHDRAW_ROUTE_CUSTODY_STATE,
     },
-    util::{get_last_block_timestamp, pending_nonce, with_last_block},
+    util::{
+        get_last_block_timestamp, get_last_block_timestamp_and_base_gas_fee, pending_nonce,
+        with_last_block,
+    },
 };
 
 pub struct IndexInstance {
@@ -75,6 +78,63 @@ impl IndexInstance {
         &self.withdraw_route
     }
 
+    async fn send_transaction(
+        &self,
+        transaction_name: &str,
+        provider: impl Provider,
+        base_gas_fee: Option<u64>,
+        tx: TransactionRequest,
+    ) -> eyre::Result<TransactionReceipt> {
+        // Max Priority = 20% * Base
+        // Max = 200% * Base
+        let base_fee = base_gas_fee.unwrap_or(10_000_000) as u128;
+        let max_priority_fee_per_gas = base_fee / 5u128;
+        let max_fee_per_gas = base_fee * 2u128;
+
+        let gas_estimate = provider.estimate_gas(tx.clone()).await?;
+
+        tracing::info!(
+            %base_fee,
+            %max_fee_per_gas,
+            %max_priority_fee_per_gas,
+            %gas_estimate,
+            "ℹ️ Gas prices for: {}", transaction_name);
+
+        let tx = tx
+            .gas_limit(gas_estimate)
+            .max_priority_fee_per_gas(max_priority_fee_per_gas)
+            .max_fee_per_gas(max_fee_per_gas);
+
+        let request_builder = provider.send_transaction(tx).await?;
+
+        let pending_request = request_builder
+            .with_required_confirmations(1)
+            .with_timeout(Some(Duration::from_secs(60)))
+            .register()
+            .await?;
+
+        tracing::info!("⏱️ Awaiting receipt for: {}", transaction_name);
+        let transaction_hash = pending_request.await?;
+
+        if let Some(receipt) = provider.get_transaction_receipt(transaction_hash).await? {
+            if !receipt.status() {
+                Err(eyre!(
+                    "Transaction {} failed: {:?}",
+                    transaction_name,
+                    receipt
+                ))?;
+            }
+
+            tracing::info!("✅ Got receipt for: {}", transaction_name);
+            Ok(receipt)
+        } else {
+            Err(eyre!(
+                "Transaction {} failed: Failed to get receipt",
+                transaction_name
+            ))
+        }
+    }
+
     pub async fn set_currator_weights_from(
         &self,
         provider: impl Provider,
@@ -82,7 +142,7 @@ impl IndexInstance {
         weights: &Bytes,
         price: U256,
     ) -> eyre::Result<TransactionReceipt> {
-        let timestamp = get_last_block_timestamp(&provider)
+        let (timestamp, base_gas_fee) = get_last_block_timestamp_and_base_gas_fee(&provider)
             .await
             .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
 
@@ -113,8 +173,8 @@ impl IndexInstance {
             &message,
         )?;
 
-        let otc = OTCCustody::new(self.custody_address, provider);
-        let receipt = otc
+        let otc = OTCCustody::new(self.custody_address, &provider);
+        let tx = otc
             .callConnector(
                 String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
@@ -123,17 +183,10 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
-            .gas(9_900_000)
-            .send()
-            .await?
-            .get_receipt()
-            .await?;
+            .into_transaction_request();
 
-        if !receipt.status() {
-            Err(eyre!("Failed to set curator weights: {:?}", receipt))?;
-        }
-
-        Ok(receipt)
+        self.send_transaction("OTCIndex.setCuratorWeights()", provider, base_gas_fee, tx)
+            .await
     }
 
     pub async fn solver_weights_set_from(
@@ -143,7 +196,7 @@ impl IndexInstance {
         weights: &Bytes,
         price: U256,
     ) -> eyre::Result<TransactionReceipt> {
-        let timestamp = get_last_block_timestamp(&provider)
+        let (timestamp, base_gas_fee) = get_last_block_timestamp_and_base_gas_fee(&provider)
             .await
             .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
 
@@ -174,8 +227,8 @@ impl IndexInstance {
             &message,
         )?;
 
-        let otc = OTCCustody::new(self.custody_address, provider);
-        let receipt = otc
+        let otc = OTCCustody::new(self.custody_address, &provider);
+        let tx = otc
             .callConnector(
                 String::from(OTC_INDEX_CONNECTOR_NAME),
                 self.index_address,
@@ -184,17 +237,10 @@ impl IndexInstance {
                 verification_data,
             )
             .from(from_address)
-            .gas(9_900_000)
-            .send()
-            .await?
-            .get_receipt()
-            .await?;
+            .into_transaction_request();
 
-        if !receipt.status() {
-            Err(eyre!("Failed to set curator weights: {:?}", receipt))?;
-        }
-
-        Ok(receipt)
+        self.send_transaction("OTCIndex.solverWeightsSet()", provider, base_gas_fee, tx)
+            .await
     }
 
     pub async fn mint_index_from(
@@ -205,11 +251,9 @@ impl IndexInstance {
         amount: U256,
         sequence_number: U256,
     ) -> eyre::Result<TransactionReceipt> {
-        let (timestamp, base_gas_fee) = with_last_block(&provider, |b| {
-            (U256::from(b.header.timestamp), b.header.base_fee_per_gas)
-        })
-        .await
-        .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
+        let (timestamp, base_gas_fee) = get_last_block_timestamp_and_base_gas_fee(&provider)
+            .await
+            .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
 
         let inner_message = encode_mint_call(mint_to, amount, sequence_number);
         let tail_call_data = Bytes::default();
@@ -238,13 +282,6 @@ impl IndexInstance {
             %sequence_number,
             "✉️ Sending OTCIndex.mint()");
 
-        // 1 Gwei by default
-        // 2 Gwei for high priority
-        // Cap to avoid overpay
-        let base_fee = base_gas_fee.unwrap_or(1_000_000_000) as u128;
-        let max_priority_fee_per_gas = 2_000_000_000 as u128;
-        let max_fee_per_gas = base_fee * 2 + max_priority_fee_per_gas;
-
         let otc = OTCCustody::new(self.custody_address, &provider);
         let tx = otc
             .callConnector(
@@ -254,44 +291,12 @@ impl IndexInstance {
                 tail_call_data,
                 verification_data,
             )
+            .from(from_address)
+            .nonce(nonce)
             .into_transaction_request();
 
-        let gas_estimate = provider.estimate_gas(tx.clone()).await?;
-
-        tracing::info!(
-            %base_fee,
-            %max_fee_per_gas,
-            %max_priority_fee_per_gas,
-            %gas_estimate,
-            "ℹ️ Mint index: Gas fees");
-
-        let tx = tx
-            .from(from_address)
-            .gas_limit(gas_estimate)
-            .max_priority_fee_per_gas(max_priority_fee_per_gas)
-            .max_fee_per_gas(max_fee_per_gas)
-            .nonce(nonce);
-
-        let request_builder = provider.send_transaction(tx).await?;
-
-        let pending_request = request_builder
-            .with_required_confirmations(1)
-            .with_timeout(Some(Duration::from_secs(600)))
-            .register()
-            .await?;
-
-        tracing::info!("⏱️ Awaiting receipt for OTCIndex.mint()");
-        let transaction_hash = pending_request.await?;
-
-        if let Some(receipt) = provider.get_transaction_receipt(transaction_hash).await? {
-            if !receipt.status() {
-                Err(eyre!("Failed to mint index: {:?}", receipt))?;
-            }
-
-            Ok(receipt)
-        } else {
-            Err(eyre!("Failed to mint index: Failed to get receipt"))
-        }
+        self.send_transaction("OTCIndex.mint()", provider, base_gas_fee, tx)
+            .await
     }
 
     async fn route_collateral_from(
@@ -303,11 +308,9 @@ impl IndexInstance {
         custody_state: u8,
         proof: &Vec<B256>,
     ) -> eyre::Result<TransactionReceipt> {
-        let (timestamp, base_gas_fee) = with_last_block(&provider, |b| {
-            (U256::from(b.header.timestamp), b.header.base_fee_per_gas)
-        })
-        .await
-        .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
+        let (timestamp, base_gas_fee) = get_last_block_timestamp_and_base_gas_fee(&provider)
+            .await
+            .map_err(|err| eyre!("Failed to query current time: {:?}", err))?;
 
         let nonce: u64 = pending_nonce(&provider, from_address).await?;
 
@@ -329,13 +332,6 @@ impl IndexInstance {
             %amount,
             "✉️ Sending OTCCustody.custodyToAddress()");
 
-        // 1 Gwei by default
-        // 2 Gwei for high priority
-        // Cap to avoid overpay
-        let base_fee = base_gas_fee.unwrap_or(1_000_000_000) as u128;
-        let max_priority_fee_per_gas = 2_000_000_000 as u128;
-        let max_fee_per_gas = base_fee * 2 + max_priority_fee_per_gas;
-
         let otc = OTCCustody::new(self.custody_address, &provider);
         let tx = otc
             .custodyToAddress(
@@ -344,44 +340,12 @@ impl IndexInstance {
                 amount,
                 verification_data,
             )
+            .from(from_address)
+            .nonce(nonce)
             .into_transaction_request();
 
-        let gas_estimate = provider.estimate_gas(tx.clone()).await?;
-
-        tracing::info!(
-            %base_fee,
-            %max_fee_per_gas,
-            %max_priority_fee_per_gas,
-            %gas_estimate,
-            "ℹ️ Route collateral: Gas fees");
-
-        let tx = tx
-            .from(from_address)
-            .gas_limit(gas_estimate)
-            .max_priority_fee_per_gas(max_priority_fee_per_gas)
-            .max_fee_per_gas(max_fee_per_gas)
-            .nonce(nonce);
-
-        let request_builder = provider.send_transaction(tx).await?;
-
-        let pending_request = request_builder
-            .with_required_confirmations(1)
-            .with_timeout(Some(Duration::from_secs(600)))
-            .register()
-            .await?;
-
-        tracing::info!("⏱️ Awaiting receipt for OTCCustody.custodyToAddress()");
-        let transaction_hash = pending_request.await?;
-
-        if let Some(receipt) = provider.get_transaction_receipt(transaction_hash).await? {
-            if !receipt.status() {
-                Err(eyre!("Failed to deploy index: {:?}", receipt))?;
-            }
-
-            Ok(receipt)
-        } else {
-            Err(eyre!("Failed to mint index: Failed to get receipt"))
-        }
+        self.send_transaction("OTCCustody.custodyToAddress()", provider, base_gas_fee, tx)
+            .await
     }
 
     pub async fn route_collateral_for_trading_from(

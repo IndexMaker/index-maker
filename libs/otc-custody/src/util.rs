@@ -21,6 +21,17 @@ pub async fn with_last_block<R>(
     Ok(ret)
 }
 
+pub async fn get_last_block_timestamp_and_base_gas_fee(
+    provider: &impl Provider,
+) -> eyre::Result<(U256, Option<u64>)> {
+    let (timestamp, base_gas_fee) = with_last_block(&provider, |b| {
+        (U256::from(b.header.timestamp), b.header.base_fee_per_gas)
+    })
+    .await?;
+
+    Ok((timestamp, base_gas_fee))
+}
+
 pub async fn get_last_block_timestamp(provider: &impl Provider) -> eyre::Result<U256> {
     let timestamp = provider
         .get_block_by_number(BlockNumberOrTag::Latest)
