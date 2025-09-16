@@ -324,9 +324,11 @@ impl Solver {
                             "Missing prices for order",
                         );
                     })(&failed_order.read());
-                    self.client_orders
-                        .write()
-                        .put_back(failed_order.clone(), SolverOrderStatus::Ready, timestamp);
+                    self.client_orders.write().put_back(
+                        failed_order.clone(),
+                        SolverOrderStatus::Ready,
+                        timestamp,
+                    );
                 }
                 _ => {
                     let o = failed_order.read();
@@ -378,7 +380,11 @@ impl Solver {
             match self.strategy.solve_engagements(self, order_batch.clone()) {
                 Err(err) => {
                     order_batch.iter().for_each(|x| {
-                        self.client_orders.write().put_back(x.clone(), SolverOrderStatus::Ready, timestamp);
+                        self.client_orders.write().put_back(
+                            x.clone(),
+                            SolverOrderStatus::Ready,
+                            timestamp,
+                        );
                     });
                     return Err(err);
                 }
@@ -441,21 +447,22 @@ impl Solver {
                     .write()
                     .map(|mut manager| {
                         for order in unusable_orders {
-                            let o_upread = order.read();
+                            let o_read = order.read();
                             tracing::warn!(
-                                chain_id = %o_upread.chain_id,
-                                address = %o_upread.address,
-                                client_order_id = %o_upread.client_order_id,
-                                engaged_collateral = %o_upread.engaged_collateral,
-                                "Unusable order");
+                                chain_id = %o_read.chain_id,
+                                address = %o_read.address,
+                                client_order_id = %o_read.client_order_id,
+                                engaged_collateral = %o_read.engaged_collateral,
+                                status = ?o_read.status,
+                                "⚠️ Unusable order");
 
                             let _ = manager
                                 .order_failed(
-                                    o_upread.chain_id,
-                                    &o_upread.address,
-                                    &o_upread.client_order_id,
-                                    &o_upread.symbol,
-                                    o_upread.status,
+                                    o_read.chain_id,
+                                    &o_read.address,
+                                    &o_read.client_order_id,
+                                    &o_read.symbol,
+                                    o_read.status,
                                     timestamp,
                                 )
                                 .inspect_err(|err| {

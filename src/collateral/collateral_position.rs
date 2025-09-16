@@ -195,6 +195,12 @@ impl CollateralSide {
             let lot = &mut self.open_lots[pos];
             let ready_balance = safe!(lot.ready_amount + amount)?;
             let unconfirmed_balance = safe!(lot.unconfirmed_amount - amount)?;
+            if ready_balance < -zero_threshold || unconfirmed_balance < -zero_threshold {
+                tracing::warn!(
+                    "Failed to add ready collateral: Operation would result in negative balance"
+                );
+                None?;
+            }
             lot.unconfirmed_amount = unconfirmed_balance;
             lot.ready_amount = ready_balance;
             tracing::info!(
@@ -226,6 +232,12 @@ impl CollateralSide {
         let ready_balance = safe!(self.ready_balance + amount_deliverable)?;
         let unconfirmed_balance = safe!(self.unconfirmed_balance - amount_deliverable)?;
 
+        if ready_balance < -zero_threshold || unconfirmed_balance < -zero_threshold {
+            tracing::warn!(
+                "Failed to add ready collateral: Operation would result in negative balance"
+            );
+            None?;
+        }
         self.ready_balance = ready_balance;
         self.unconfirmed_balance = unconfirmed_balance;
         self.last_update_timestamp = timestamp;
@@ -264,6 +276,12 @@ impl CollateralSide {
             let lot = &mut self.open_lots[pos];
             let preauth_balance = safe!(lot.preauth_amount + amount)?;
             let ready_balance = safe!(lot.ready_amount - amount)?;
+            if ready_balance < -zero_threshold || preauth_balance < -zero_threshold {
+                tracing::warn!(
+                    "Failed to preauth collateral: Operation would result in negative balance"
+                );
+                None?;
+            }
             lot.ready_amount = ready_balance;
             lot.preauth_amount = preauth_balance;
             let spend = CollateralSpend {
@@ -317,6 +335,12 @@ impl CollateralSide {
         let ready_balance = safe!(self.ready_balance - amount_payable)?;
         let preauth_balance = safe!(self.preauth_balance + amount_payable)?;
 
+        if ready_balance < -zero_threshold || preauth_balance < -zero_threshold {
+            tracing::warn!(
+                "Failed to preauth collateral: Operation would result in negative balance"
+            );
+            None?;
+        }
         self.ready_balance = ready_balance;
         self.preauth_balance = preauth_balance;
 
@@ -486,6 +510,12 @@ impl CollateralSide {
         let preauth_balance = safe!(self.preauth_balance - amount_paid)?;
         let spent_balance = safe!(self.spent_balance + amount_paid)?;
 
+        if spent_balance < -zero_threshold || preauth_balance < -zero_threshold {
+            tracing::warn!(
+                "Failed to spend collateral: Operation would result in negative balance"
+            );
+            None?;
+        }
         self.preauth_balance = preauth_balance;
         self.spent_balance = spent_balance;
 

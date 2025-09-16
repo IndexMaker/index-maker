@@ -4,9 +4,22 @@ use alloy::{
     network::BlockResponse,
     primitives::{Address, U256},
     providers::Provider,
-    rpc::types::BlockNumberOrTag,
+    rpc::types::{Block, BlockNumberOrTag},
 };
 use eyre::OptionExt;
+
+pub async fn with_last_block<R>(
+    provider: &impl Provider,
+    cb: impl Fn(Block) -> R,
+) -> eyre::Result<R> {
+    let ret = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await?
+        .map(cb)
+        .ok_or_eyre("Block not found")?;
+
+    Ok(ret)
+}
 
 pub async fn get_last_block_timestamp(provider: &impl Provider) -> eyre::Result<U256> {
     let timestamp = provider
