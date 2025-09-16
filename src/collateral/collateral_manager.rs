@@ -446,7 +446,7 @@ impl CollateralManager {
 
                 let side = Side::Buy;
 
-                self.book_records(
+                match self.book_records(
                     chain_id,
                     address,
                     &client_order_id,
@@ -454,17 +454,32 @@ impl CollateralManager {
                     Some(amount),
                     fee,
                     timestamp,
-                )?;
+                ) {
+                    Ok(()) => {
+                        self.observer
+                            .publish_single(CollateralEvent::CollateralReady {
+                                chain_id,
+                                address,
+                                client_order_id,
+                                timestamp,
+                                collateral_amount: amount,
+                                status: RoutingStatus::Ready { fee },
+                            });
+                    }
+                    Err(err) => {
+                        self.observer
+                            .publish_single(CollateralEvent::CollateralReady {
+                                chain_id,
+                                address,
+                                client_order_id,
+                                timestamp,
+                                collateral_amount: amount,
+                                status: RoutingStatus::NotReady,
+                            });
 
-                self.observer
-                    .publish_single(CollateralEvent::CollateralReady {
-                        chain_id,
-                        address,
-                        client_order_id,
-                        timestamp,
-                        collateral_amount: amount,
-                        status: RoutingStatus::Ready { fee },
-                    });
+                        tracing::warn!("❗️ Collateral booking failed {:?}", err);
+                    }
+                }
 
                 if let Err(err) = self.store() {
                     tracing::warn!("❗️ Failed to store collateral position: {:?}", err);
@@ -503,7 +518,7 @@ impl CollateralManager {
 
                 let side = Side::Buy;
 
-                self.book_records(
+                if let Err(err) = self.book_records(
                     chain_id,
                     address,
                     &client_order_id,
@@ -511,7 +526,9 @@ impl CollateralManager {
                     None,
                     fee,
                     timestamp,
-                )?;
+                ) {
+                    tracing::warn!("❗️ Collateral booking failed {:?}", err);
+                }
 
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {
@@ -545,6 +562,15 @@ impl CollateralManager {
         fee: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        tracing::info!(
+            %chain_id,
+            %address,
+            %client_order_id,
+            ?side,
+            ?amount_ready,
+            %fee,
+            "ℹ️ Booking collateral");
+
         let funds = self
             .get_position(chain_id, &address)
             .ok_or_eyre("Failed to find position")?;

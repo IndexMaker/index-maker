@@ -6,6 +6,7 @@ use index_core::collateral::{self, collateral_router::{
     self, CollateralBridge, CollateralDesignation, CollateralRouterEvent, CollateralRoutingStatus
 }};
 use parking_lot::RwLock as AtomicLock;
+use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::core::{
     self,
@@ -101,15 +102,26 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
         let gas_fee_calculator = self.gas_fee_calculator.clone();
         
         let client_order_id_clone = client_order_id.clone();
+        let client_order_id_clone_2 = client_order_id.clone();
         let source_clone = custody_name.clone();
         let destination_clone = wallet_name.clone();
         let route_from_clone = route_from.clone();
         let route_to_clone = route_to.clone();
+ 
+        // Charge at most 10%, we'll take the hit
+        // TODO: Configure me
+        let max_fee_rate = dec!(0.1);
+        let max_fee = safe!(amount * max_fee_rate).ok_or_eyre("Math problem")?;
 
         let compute_fee = move |gas_amount_eth| -> eyre::Result<(Amount, Amount)> {
             let gas_fee = gas_fee_calculator.compute_amount(gas_amount_eth)?;
-            let cumulative_fee = safe!(cumulative_fee + gas_fee).ok_or_eyre("Math problem")?;
-            let amount = safe!(amount - gas_fee).ok_or_eyre("Math problem")?;
+            let chargeable_fee = gas_fee.min(max_fee);
+            tracing::info!(
+                %chain_id, %address, %client_order_id, %chargeable_fee, %gas_fee,
+                "Computing gas fee"
+            );
+            let cumulative_fee = safe!(cumulative_fee + chargeable_fee).ok_or_eyre("Math problem")?;
+            let amount = safe!(amount - chargeable_fee).ok_or_eyre("Math problem")?;
             Ok((amount, cumulative_fee))
         };
 
@@ -133,7 +145,7 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                 .publish_single(CollateralRouterEvent::HopComplete {
                     chain_id,
                     address,
-                    client_order_id,
+                    client_order_id: client_order_id_clone,
                     timestamp: Utc::now(),
                     source: custody_name.clone(),
                     destination: wallet_name.clone(),
@@ -152,7 +164,7 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                 .publish_single(CollateralRouterEvent::HopComplete {
                     chain_id,
                     address,
-                    client_order_id: client_order_id_clone,
+                    client_order_id: client_order_id_clone_2,
                     timestamp: Utc::now(),
                     source: source_clone,
                     destination: destination_clone,
