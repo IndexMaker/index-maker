@@ -580,6 +580,13 @@ impl CollateralPosition {
         Ok(())
     }
 
+    pub fn get_side_mut(&mut self, side: Side) -> &mut CollateralSide {
+        match side {
+            Side::Buy => &mut self.side_cr,
+            Side::Sell => &mut self.side_dr,
+        }
+    }
+
     pub fn add_ready(
         &mut self,
         side: Side,
@@ -587,13 +594,7 @@ impl CollateralPosition {
         timestamp: DateTime<Utc>,
         zero_threshold: Amount,
     ) -> Option<()> {
-        // Swap cr/dr for Sell - maybe it will work :)
-        let side_cr = match side {
-            Side::Buy => &mut self.side_cr,
-            Side::Sell => &mut self.side_dr,
-        };
-
-        side_cr.add_ready(amount, timestamp, zero_threshold)
+        self.get_side_mut(side).add_ready(amount, timestamp, zero_threshold)
     }
 
     pub fn preauth_payment(
@@ -605,18 +606,13 @@ impl CollateralPosition {
         zero_threshold: Amount,
         next_payment_id: impl Fn() -> PaymentId,
     ) -> Option<PreAuthStatus> {
-        // Swap cr/dr for Sell - maybe it will work :)
-        let side_cr = match side {
-            Side::Buy => &mut self.side_cr,
-            Side::Sell => &mut self.side_dr,
-        };
-
-        let balance_remaining = safe!(side_cr.ready_balance - amount_payable)?;
+        let side_mut = self.get_side_mut(side);
+        let balance_remaining = safe!(side_mut.ready_balance - amount_payable)?;
 
         if balance_remaining < -zero_threshold {
             Some(PreAuthStatus::NotEnoughFunds)
         } else {
-            side_cr.preauth_payment(
+            side_mut.preauth_payment(
                 client_order_id,
                 next_payment_id(),
                 timestamp,
@@ -634,17 +630,13 @@ impl CollateralPosition {
         amount_paid: Amount,
         zero_threshold: Amount,
     ) -> Option<ConfirmStatus> {
-        // Swap cr/dr for Sell - maybe it will work :)
-        let side_cr = match side {
-            Side::Buy => &mut self.side_cr,
-            Side::Sell => &mut self.side_dr,
-        };
-        let balance_remaining = safe!(side_cr.preauth_balance - amount_paid)?;
+        let side_mut = self.get_side_mut(side);
+        let balance_remaining = safe!(side_mut.preauth_balance - amount_paid)?;
 
         if balance_remaining < -zero_threshold {
             Some(ConfirmStatus::NotEnoughFunds)
         } else {
-            side_cr.confirm_payment(payment_id, timestamp, amount_paid, zero_threshold)
+            side_mut.confirm_payment(payment_id, timestamp, amount_paid, zero_threshold)
         }
     }
 }

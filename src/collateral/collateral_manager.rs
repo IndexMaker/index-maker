@@ -467,6 +467,18 @@ impl CollateralManager {
                             });
                     }
                     Err(err) => {
+                        tracing::warn!("❗️ Collateral booking failed {:?}", err);
+
+                        if let Err(err) = self.close_all_lots(
+                            chain_id,
+                            address,
+                            &client_order_id,
+                            side,
+                            timestamp,
+                        ) {
+                            tracing::warn!("❗️ Closing lots failed {:?}", err);
+                        }
+
                         self.observer
                             .publish_single(CollateralEvent::CollateralReady {
                                 chain_id,
@@ -476,8 +488,6 @@ impl CollateralManager {
                                 collateral_amount: amount,
                                 status: RoutingStatus::NotReady,
                             });
-
-                        tracing::warn!("❗️ Collateral booking failed {:?}", err);
                     }
                 }
 
@@ -530,6 +540,12 @@ impl CollateralManager {
                     tracing::warn!("❗️ Collateral booking failed {:?}", err);
                 }
 
+                if let Err(err) =
+                    self.close_all_lots(chain_id, address, &client_order_id, side, timestamp)
+                {
+                    tracing::warn!("❗️ Closing lots failed {:?}", err);
+                }
+
                 self.observer
                     .publish_single(CollateralEvent::CollateralReady {
                         chain_id,
@@ -546,6 +562,50 @@ impl CollateralManager {
             }
         }
         Ok(())
+    }
+
+    fn close_all_lots(
+        &mut self,
+        chain_id: u32,
+        address: Address,
+        client_order_id: &ClientOrderId,
+        side: Side,
+        timestamp: DateTime<Utc>,
+    ) -> Result<()> {
+        tracing::info!(
+            %chain_id,
+            %address,
+            %client_order_id,
+            ?side,
+            "Closing all lots for further inspection");
+
+        let funds = self
+            .get_position(chain_id, &address)
+            .ok_or_eyre("Failed to find position")?;
+
+        funds.safe_update(|funds_write| -> Result<()> {
+            let payment_id = PaymentId::from("System");
+            let unconfirmed_amount = funds_write.get_side_mut(side).unconfirmed_balance;
+
+            funds_write.add_ready(side, unconfirmed_amount, timestamp, self.zero_threshold);
+            funds_write.preauth_payment(
+                client_order_id,
+                timestamp,
+                side,
+                unconfirmed_amount,
+                self.zero_threshold,
+                || payment_id.clone(),
+            );
+            funds_write.confirm_payment(
+                &payment_id,
+                timestamp,
+                side,
+                unconfirmed_amount,
+                self.zero_threshold,
+            );
+
+            Ok(())
+        })
     }
 
     /// Book records for collateral ready if any and management fees

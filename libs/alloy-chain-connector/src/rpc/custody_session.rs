@@ -3,6 +3,7 @@ use std::time::Duration;
 use alloy::providers::{DynProvider, Provider, WalletProvider};
 use alloy_primitives::Address;
 
+use alloy_rpc_types_eth::TransactionReceipt;
 use eyre::OptionExt;
 use otc_custody::{contracts::OTCCustody, custody_client::CustodyClient};
 use symm_core::core::{bits::Amount, functional::OneShotPublishSingle};
@@ -76,17 +77,44 @@ where
                 for i in 0..num_retries {
                     let dyn_provider = DynProvider::new(provider.clone());
 
-                    let receipt = match custody_client
-                        .route_collateral_to_from(
-                            &dyn_provider,
-                            &from_address,
-                            &destination,
-                            &token_address,
-                            amount,
-                        )
-                        .await
-                    {
-                        Ok(r) => r,
+                    let steps = async || -> eyre::Result<Option<TransactionReceipt>> {
+                        let balance = custody_client
+                            .get_collateral_token_balance(&dyn_provider)
+                            .await?;
+
+                        if balance < amount {
+                            tracing::warn!(
+                                account_name= %self.account_name,
+                                %rpc_url,
+                                %balance,
+                                %amount,
+                                "❗️ Insufficient collateral balance in custody");
+
+                            return Ok(None);
+                        } else {
+                            tracing::info!(
+                                account_name= %self.account_name,
+                                %rpc_url,
+                                %balance,
+                                %amount,
+                                "Collateral balance in custody");
+                        }
+
+                        let receipt = custody_client
+                            .route_collateral_to_from(
+                                &dyn_provider,
+                                &from_address,
+                                &destination,
+                                &token_address,
+                                amount,
+                            )
+                            .await?;
+
+                        Ok(Some(receipt))
+                    };
+
+                    let receipt = match steps().await {
+                        Ok(r) => r.ok_or_eyre("Insuficient collateral balance")?,
                         Err(e) => {
                             current = self
                                 .providers
@@ -98,6 +126,10 @@ where
                             rpc_url = &current.1;
 
                             if i == num_retries - 1 {
+                                tracing::warn!(
+                                    account_name= %self.account_name,
+                                    %rpc_url,
+                                    "❗️ Collateral routing failed, {:?}", e);
                                 Err(e)?
                             } else {
                                 sleep(backoff_period).await;

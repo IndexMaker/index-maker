@@ -380,9 +380,45 @@ impl IndexOrderManager {
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
-        collateral_amount: Amount,
+        _collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<CancelIndexOrderNakReason>> {
+        let index_order = self
+            .index_orders
+            .get_mut(&(chain_id, address))
+            .and_then(|map| map.get_mut(&symbol))
+            .ok_or_else(|| {
+                ServerResponseReason::Server(ServerError::OtherReason {
+                    detail: String::from("Cannot find index order"),
+                })
+            })?;
+
+        index_order.solver_cancel(&client_order_id, &format!("Cancelled by the user"));
+
+        tracing::info!(
+            remaining_collateral = %index_order.remaining_collateral,
+            collateral_spent = %index_order.collateral_spent,
+            orders = %json!(
+                index_order.order_updates.iter()
+                    .map(|u| (
+                        json!(u.client_order_id),
+                        u.collateral_spent,
+                        u.remaining_collateral,
+                        u.filled_quantity))
+                    .collect_vec()
+            ),
+            "User Index Orders"
+        );
+
+        self.observer
+            .publish_single(IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+            });
+
+        /*
         let user_orders = self
             .index_orders
             .get_mut(&(chain_id, address))
@@ -431,6 +467,7 @@ impl IndexOrderManager {
                     });
             }
         }
+        */
         Ok(())
     }
 
