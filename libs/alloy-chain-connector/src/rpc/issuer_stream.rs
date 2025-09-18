@@ -16,7 +16,7 @@ use symm_core::core::{
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
 
-use crate::{credentials::MultiProvider, util::amount_converter::AmountConverter};
+use crate::{multiprovider::MultiProvider, util::amount_converter::AmountConverter};
 use otc_custody::{
     contracts::IOTCIndex::{self, Deposit, Mint, Withdraw},
     custody_client::CustodyClientMethods,
@@ -73,7 +73,7 @@ where
             ]);
 
         let (poll_interval, backoff_period, max_failure_count) = providers
-            .with_shared_date(|s| (s.poll_interval, s.poll_backoff_period, s.max_poll_failures));
+            .with_shared_data(|s| (s.poll_interval, s.poll_backoff_period, s.max_poll_failures));
 
         let (provider, rpc_url) = providers.current().ok_or_eyre("No providers")?;
 

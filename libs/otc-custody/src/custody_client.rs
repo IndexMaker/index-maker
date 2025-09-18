@@ -14,6 +14,8 @@ pub trait CustodyClientMethods {
     fn get_collateral_token_address(&self) -> &Address;
     fn get_collateral_token_precision(&self) -> u8;
 
+    async fn get_collateral_token_balance(&self, provider: &DynProvider) -> eyre::Result<U256>;
+
     async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address>;
 
     async fn route_collateral_to_from(
@@ -48,6 +50,10 @@ impl CustodyClient {
 
     pub fn get_collateral_token_precision(&self) -> u8 {
         self.0.get_collateral_token_precision()
+    }
+
+    pub async fn get_collateral_token_balance(&self, provider: &DynProvider) -> eyre::Result<U256> {
+        self.0.get_collateral_token_balance(provider).await
     }
 
     pub async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address> {

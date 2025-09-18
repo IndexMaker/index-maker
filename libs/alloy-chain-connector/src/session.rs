@@ -67,7 +67,6 @@ impl Session {
         let account_name = credentials.get_account_name();
         let chain_id = credentials.get_chain_id();
         let signer_address = credentials.get_signer_address()?;
-        let shared_data = credentials.get_shared_data();
 
         self.session_loop.start(async move |cancel_token| {
             let on_error = |reason| {

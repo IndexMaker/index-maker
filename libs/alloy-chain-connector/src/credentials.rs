@@ -1,119 +1,15 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     providers::{Provider, ProviderBuilder, WalletProvider, WsConnect},
     signers::local::PrivateKeySigner,
 };
-use chrono::{DateTime, Utc};
 use eyre::eyre;
 use futures::future::join_all;
 use itertools::Itertools;
-use parking_lot::Mutex;
 use symm_core::core::bits::Address;
-use tokio::sync::mpsc::{unbounded_channel, Receiver, Sender};
 
-pub struct SharedSessionDataInner {
-    pub last_block_number: u64,
-    pub update_timestamp: DateTime<Utc>,
-}
-
-impl SharedSessionDataInner {
-    pub fn new() -> Self {
-        Self {
-            last_block_number: 0,
-            update_timestamp: DateTime::default(),
-        }
-    }
-}
-
-pub struct SharedSessionData {
-    pub chain_id: u32,
-    pub rpc_urls: Vec<String>,
-    pub poll_interval: std::time::Duration,
-    pub poll_backoff_period: std::time::Duration,
-    pub retry_backoff: std::time::Duration,
-    pub max_poll_failures: usize,
-    pub max_retries: usize,
-    pub inner: Mutex<SharedSessionDataInner>,
-}
-
-impl SharedSessionData {
-    pub fn new(chain_id: u32, rpc_urls: impl IntoIterator<Item = String>) -> Self {
-        Self {
-            chain_id,
-            rpc_urls: rpc_urls.into_iter().collect(),
-            // TOOD: Configure me
-            poll_interval: std::time::Duration::from_secs(10),
-            poll_backoff_period: std::time::Duration::from_secs(10),
-            retry_backoff: std::time::Duration::from_secs(2),
-            max_poll_failures: 10,
-            max_retries: 3,
-            inner: Mutex::new(SharedSessionDataInner::new()),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct MultiProvider<T>
-where
-    T: Provider + Clone + 'static,
-{
-    shared_data: Arc<SharedSessionData>,
-    providers: VecDeque<(T, String)>,
-}
-
-impl<T> MultiProvider<T>
-where
-    T: Provider + Clone + 'static,
-{
-    pub fn new(
-        shared_data: Arc<SharedSessionData>,
-        providers: impl IntoIterator<Item = (T, String)>,
-    ) -> Self {
-        Self {
-            shared_data,
-            providers: providers.into_iter().collect(),
-        }
-    }
-
-    pub fn get_shared_data(&self) -> &Arc<SharedSessionData> {
-        &self.shared_data
-    }
-
-    pub fn with_shared_date<R>(&self, cb: impl Fn(&SharedSessionData) -> R) -> R {
-        cb(&self.shared_data)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.providers.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.providers.len()
-    }
-
-    pub fn next_provider(&mut self) -> &Self {
-        self.providers.rotate_left(1);
-        self
-    }
-
-    pub fn current(&self) -> Option<&(T, String)> {
-        self.providers.front()
-    }
-
-    pub fn next_n_providers(&mut self, n: usize) -> &Self {
-        self.providers.rotate_left(n);
-        self
-    }
-
-    pub fn current_n(&self, n: usize) -> Vec<&(T, String)> {
-        self.providers.iter().take(n).collect_vec()
-    }
-
-    pub fn get_providers(&self) -> &VecDeque<(T, String)> {
-        &self.providers
-    }
-}
+use crate::multiprovider::{MultiProvider, SharedSessionData};
 
 #[derive(Clone)]
 pub struct Credentials {

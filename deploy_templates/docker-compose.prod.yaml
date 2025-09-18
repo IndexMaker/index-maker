@@ -1,16 +1,71 @@
 version: '3.8'
 
 services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:3000"
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    networks:
+      - proxy
+
+
+  index-maker-quotes:
+    platform: linux/amd64
+    image: ${DOCKER_IMAGE_NAME}
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.quotes-ws.rule=PathPrefix(`/ws/quotes`)
+      - traefik.http.middlewares.quotes-strip.stripprefix.prefixes=/ws/quotes
+      - traefik.http.routers.quotes-ws.middlewares=quotes-strip
+      - traefik.http.services.index-maker-quotes.loadbalancer.server.port=3001
+
+
+    command: ["./index-maker", 
+              "--bind-address", "0.0.0.0:3001",
+              "--config-path", "configs", 
+              #"--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
+              #"--otlp-log-url", "http://otel-collector:4318/v1/logs", 
+              #"--batch-size", "50",
+              "quote-server"]
+
+    environment:
+      RUST_LOG: ${RUST_LOG}
+      SERVER_PRIVATE_KEY: ${SERVER_PRIVATE_KEY}
+
+    networks:
+      - proxy
+    
+    
   index-maker-issuer:
     platform: linux/amd64
     image: ${DOCKER_IMAGE_NAME}
+
     ports:
-       - "3000:3000"
-       - "8080:8080"
+      - "8080:8080"
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.orders-ws.rule=PathPrefix(`/ws/orders`)
+      - traefik.http.middlewares.orders-strip.stripprefix.prefixes=/ws/orders
+      - traefik.http.routers.orders-ws.middlewares=orders-strip
+      - traefik.http.services.index-maker-issuer-orders-ws.loadbalancer.server.port=3002
 
     command: ["./index-maker", 
               "--rpc-urls", "wss://0xrpc.io/base,wss://base-rpc.publicnode.com,https://1rpc.io/base,https://mainnet.base.org",
-              "--bind-address", "0.0.0.0:3000",
+              "--bind-address", "0.0.0.0:3002",
               "--query-bind-address", "0.0.0.0:8080",
               "--config-path", "configs", 
               #"--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
@@ -31,6 +86,9 @@ services:
     volumes:
       - ./persistence:/app/persistence
       - ./pk:/app/pk
+
+    networks:
+      - proxy
     
     #depends_on:
     #  otel-collector:
@@ -67,3 +125,8 @@ services:
 #    command:
 #      - --config=/etc/otelcol-contrib/config.yaml
 #    restart: unless-stopped
+
+networks:
+  proxy:
+    driver: bridge
+

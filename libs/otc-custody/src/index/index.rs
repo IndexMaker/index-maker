@@ -409,6 +409,16 @@ impl CustodyClientMethods for IndexInstance {
         self.index_deploy_data.collateral_token_precision.to::<u8>()
     }
 
+    async fn get_collateral_token_balance(&self, provider: &DynProvider) -> eyre::Result<U256> {
+        let otc = OTCCustody::new(self.custody_address, provider);
+        let balance: U256 = otc
+            .getCustodyBalances(self.custody_id, self.index_deploy_data.collateral_token)
+            .call()
+            .await?;
+
+        Ok(balance)
+    }
+
     async fn get_custody_owner(&self, provider: &DynProvider) -> eyre::Result<Address> {
         let otc = OTCCustody::new(self.custody_address, provider);
         let custody_owner: Address = otc.getCustodyOwner(self.custody_id).call().await?;
