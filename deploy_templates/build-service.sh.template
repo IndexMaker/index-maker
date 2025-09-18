@@ -9,8 +9,9 @@ fi
 export DOCKER_IMAGE_NAME="<DOCKER_IMAGE_NAME>"
 
 # Save *current* version of service scripts
+cp build-service-<IMAGE_VERSION>.sh build-service.sh
 cp stop-service-<IMAGE_VERSION>.sh stop-service.sh
-cp service-logs-<IMAGE_VERSION>.sh service-logs.sh
+cp service-control-<IMAGE_VERSION>.sh service-control.sh
 
 docker load -i <TAR_ARCHIVE_NAME> && \
 docker-compose -f docker-compose.prod.yaml up -d --build
