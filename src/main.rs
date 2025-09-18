@@ -1,9 +1,9 @@
 use alloy::primitives::address;
 use alloy_chain_connector::{
-    chain_connector::GasFeeCalculator,
-    credentials::{Credentials as AlloyCredentials, SharedSessionData},
+    chain_connector::GasFeeCalculator, credentials::Credentials as AlloyCredentials,
+    multiprovider::SharedSessionData,
 };
-use alloy_primitives::{map::foldhash::SharedSeed, U256};
+use alloy_primitives::U256;
 use binance_order_sending::{
     binance_order_sending::BinanceFeeCalculator, credentials::Credentials as BinanceCredentials,
 };
@@ -270,14 +270,20 @@ impl ChainMode {
                 chain_config: simple_chain_connector_config,
             }
         } else {
-            let chain_id = 8453;
-            let rpc_urls = rpc_urls.unwrap_or_else(|| vec![String::from("http://127.0.0.1:8545")]);
-            let mut rpc_urls = VecDeque::from(rpc_urls);
-            let concurrent_session_count = 2.min(rpc_urls.len());
-            let shared_data = Arc::new(SharedSessionData::new(chain_id, rpc_urls.clone()));
+            let shared_data = Arc::new(SharedSessionData {
+                chain_id: 8453,
+                rpc_urls: rpc_urls.unwrap_or_else(|| vec![String::from("http://127.0.0.1:8545")]),
+                poll_interval: std::time::Duration::from_secs(10),
+                poll_backoff_period: std::time::Duration::from_secs(10),
+                retry_backoff: vec![1, 2, 3, 5, 8, 13]
+                    .into_iter()
+                    .map(std::time::Duration::from_secs)
+                    .collect_vec(),
+                max_poll_failures: 10,
+            });
 
             let index_operator_credentials = vec![AlloyCredentials::new(
-                format!("{}", chain_id),
+                format!("{}", shared_data.chain_id),
                 shared_data.clone(),
                 Arc::new(|| {
                     env::var("INDEX_MAKER_PRIVATE_KEY")

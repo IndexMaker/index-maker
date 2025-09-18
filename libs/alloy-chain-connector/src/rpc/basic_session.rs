@@ -7,7 +7,7 @@ use otc_custody::contracts::ERC20;
 
 use crate::{
     command::BasicCommand,
-    credentials::MultiProvider,
+    multiprovider::MultiProvider,
     util::{amount_converter::AmountConverter, gas_util::compute_gas_used},
 };
 

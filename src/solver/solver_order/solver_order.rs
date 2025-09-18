@@ -5,7 +5,7 @@ use std::{
 
 use alloy_primitives::U256;
 use chrono::{DateTime, TimeDelta, Utc};
-use eyre::{ensure, eyre, OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;

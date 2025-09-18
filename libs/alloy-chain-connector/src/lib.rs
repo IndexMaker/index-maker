@@ -10,6 +10,7 @@ pub mod collateral {
 pub mod chain_connector;
 pub mod chain_connector_sender;
 pub mod command;
+pub mod multiprovider;
 pub mod rpc {
     pub mod basic_session;
     pub mod custody_session;
