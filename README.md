@@ -69,7 +69,7 @@ from Arbitrum to Binance via Base. The routing between Arbitrum and Base is to b
 the routing from Base to Binance should happend between two EVM wallets. The wallet address for Binance account
 need to be obtained via Binance API call.
 
-### Phase 3. (In-Progress) Going Live
+### Phase 3. (Complate) Going Live
 
 The goal is to go live. We need to ensure that we have persistence of state of Index Maker components, and that
 we have data and service to serve Mint Invoices. We need to test performance of the system, improve configuration,
