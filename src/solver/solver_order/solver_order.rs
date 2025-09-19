@@ -269,6 +269,34 @@ impl SolverClientOrders {
         self.client_orders.len()
     }
 
+    pub fn peek_next_client_order(
+        &self,
+        chain_id: u32,
+        address: Address,
+        timestamp: DateTime<Utc>,
+    ) -> Option<Arc<RwLock<SolverOrder>>> {
+        let ready_timestamp = timestamp - self.client_wait_period;
+        let check_ready = move |x: &SolverOrder| x.timestamp <= ready_timestamp;
+
+        if let Some(queue) = self.client_order_queues.get(&(chain_id, address)) {
+            let mut i = queue.iter();
+            let _ = i.next();
+            if let Some(client_order_id) = i.next().cloned() {
+                if let Some(solver_order) = self
+                    .client_orders
+                    .get(&(chain_id, address, client_order_id))
+                    .cloned()
+                {
+                    if check_ready(&solver_order.read()) {
+                        return Some(solver_order)
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn get_next_client_order(
         &mut self,
         timestamp: DateTime<Utc>,
