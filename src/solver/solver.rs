@@ -976,7 +976,14 @@ impl Solver {
                                 &order.read(),
                             );
 
-                        if timestamp - created_timestamp < self.order_expiry_after {
+                        let pending_order = self
+                            .client_orders
+                            .read()
+                            .peek_next_client_order(chain_id, address, timestamp);
+
+                        if matches!(pending_order, None)
+                            && (timestamp - created_timestamp < self.order_expiry_after)
+                        {
                             self.client_orders.write().put_back(
                                 order,
                                 SolverOrderStatus::Open,
