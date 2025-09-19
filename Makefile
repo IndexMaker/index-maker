@@ -37,6 +37,7 @@ DOCKER_BUILD_FLAGS?=
 	run_build_service \
 	run_stop_service \
 	all \
+	no_build \
 	no_deploy \
 	check_env \
 	build \
@@ -51,6 +52,12 @@ DOCKER_BUILD_FLAGS?=
 all: \
 	check_env \
 	build \
+	prepare \
+	deploy
+
+
+no_build: \
+	check_env \
 	prepare \
 	deploy
 
