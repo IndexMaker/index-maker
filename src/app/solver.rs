@@ -134,6 +134,9 @@ pub struct SolverConfig {
 
     #[builder(setter(into, strip_option))]
     pub zero_threshold: Amount,
+    
+    #[builder(setter(into, strip_option))]
+    pub order_expiry_after: chrono::Duration,
 
     #[builder(setter(into, strip_option))]
     pub client_order_wait_period: TimeDelta,
@@ -1041,6 +1044,7 @@ impl SolverConfigBuilder {
             persistence,
             config.max_batch_size,
             config.zero_threshold,
+            config.order_expiry_after,
             config.client_order_wait_period,
             config.client_quote_wait_period,
         ));

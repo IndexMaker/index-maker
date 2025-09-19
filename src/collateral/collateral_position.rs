@@ -18,6 +18,7 @@ use symm_core::core::{
 pub enum RoutingStatus {
     Ready { fee: Amount },
     NotReady,
+    CheckLater,
 }
 
 pub enum PreAuthStatus {

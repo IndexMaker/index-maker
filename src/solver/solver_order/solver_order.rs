@@ -77,6 +77,9 @@ pub struct SolverOrder {
     /// Quantity filled by subsequent batch order fills
     pub filled_quantity: Amount,
 
+    /// Time when order created
+    pub created_timestamp: DateTime<Utc>,
+
     /// Time when last updated
     pub timestamp: DateTime<Utc>,
 
@@ -351,6 +354,7 @@ impl SolverClientOrders {
                     collateral_routed: Amount::ZERO,
                     collateral_spent: Amount::ZERO,
                     filled_quantity: Amount::ZERO,
+                    created_timestamp: timestamp,
                     timestamp,
                     status: SolverOrderStatus::Open,
                     lots: Vec::new(),
@@ -391,48 +395,10 @@ impl SolverClientOrders {
             // will pick order from the queue above at next tick.
             self.client_notify_queue.push_back((chain_id, address));
         }
-        tracing::info!(
-            %chain_id,
-            %address,
-            %client_order_id,
-            %symbol,
-            client_order_queue = %json!(
-                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
-            ),
-            client_notify_queue = %json!(
-                self.client_notify_queue
-            ),
-            "Client Orders");
+
+        self.write_trace_single_queue(chain_id, address, &client_order_id, "Add Order");
 
         Ok(())
-    }
-
-    pub fn write_trace_all_queues(&self, message: &str) {
-        for ((chain_id, address, ..), x) in self.client_orders.iter() {
-            tracing::info!(
-            %message,
-            client_order_queue = %json!(
-                self.client_order_queues.get(&(*chain_id, *address)).iter().map(|x| x).collect_vec()
-            ),
-            client_notify_queue = %json!(
-                self.client_notify_queue
-            ),
-            "Client Orders");
-        }
-    }
-
-    pub fn write_trace_one_queue(&self, chain_id: u32, address: Address, message: &str) {
-        tracing::info!(
-            %chain_id,
-            %address,
-            %message,
-            client_order_queue = %json!(
-                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
-            ),
-            client_notify_queue = %json!(
-                self.client_notify_queue
-            ),
-            "Client Orders");
     }
 
     pub fn cancel_client_order(
@@ -491,6 +457,8 @@ impl SolverClientOrders {
         if notify {
             self.client_notify_queue.push_back((chain_id, address));
         }
+
+        self.write_trace_single_queue(chain_id, address, &client_order_id, "Cancel Order");
         Ok(())
     }
 
@@ -505,7 +473,7 @@ impl SolverClientOrders {
         let mut cleanup = false;
         if let Some(order) = self
             .client_orders
-            .get(&(chain_id, address, client_order_id))
+            .get(&(chain_id, address, client_order_id.clone()))
         {
             let mut order_write = order.write();
 
@@ -557,7 +525,44 @@ impl SolverClientOrders {
                 }
             }
         }
+
+        self.write_trace_single_queue(chain_id, address, &client_order_id, "Update Order");
         Ok(())
+    }
+
+    pub fn write_trace_single_queue(
+        &self,
+        chain_id: u32,
+        address: Address,
+        client_order_id: &ClientOrderId,
+        message: &str,
+    ) {
+        tracing::info!(
+            %message,
+            %chain_id,
+            %address,
+            %client_order_id,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+    }
+
+    pub fn write_trace_all_queues(&self, message: &str) {
+        for (chain_id, address, ..) in self.client_orders.keys() {
+            tracing::info!(
+            %message,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(*chain_id, *address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+        }
     }
 }
 

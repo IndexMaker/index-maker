@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Duration, TimeDelta, Utc};
 use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -228,6 +228,7 @@ pub struct Solver {
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
+    order_expiry_after: Duration,
     // status management
     status: Arc<AtomicU8>, // 0=Running, 1=ShuttingDown, 2=Stopped
 }
@@ -247,6 +248,7 @@ impl Solver {
         persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         max_batch_size: usize,
         zero_threshold: Amount,
+        order_expiry_after: Duration,
         client_order_wait_period: TimeDelta,
         client_quote_wait_period: TimeDelta,
     ) -> Self {
@@ -273,6 +275,7 @@ impl Solver {
             // parameters
             max_batch_size,
             zero_threshold,
+            order_expiry_after,
             // status management
             status: Arc::new(AtomicU8::new(0)), // Start as Running
         }
@@ -926,7 +929,7 @@ impl Solver {
 
                 match status {
                     RoutingStatus::Ready { fee } => {
-                        tracing::info!(%chain_id, %address, %collateral_amount, %fee, "CollateralReady");
+                        tracing::info!(%chain_id, %address, %collateral_amount, %fee, "✅ CollateralReady: Ready");
 
                         // TODO: Figure out: should collateral manager have already paid for the order?
                         // or CollateralEvent is only to tell us that collateral reached sub-accounts?
@@ -965,8 +968,43 @@ impl Solver {
                                 timestamp,
                             )?;
                     }
+                    RoutingStatus::CheckLater => {
+                        tracing::info!(%chain_id, %address, %collateral_amount, "⏱️ CollateralReady CheckLater");
+
+                        let (symbol, status, created_timestamp) =
+                            (|o: &SolverOrder| (o.symbol.clone(), o.status, o.created_timestamp))(
+                                &order.read(),
+                            );
+
+                        if timestamp - created_timestamp < self.order_expiry_after {
+                            self.client_orders.write().put_back(
+                                order,
+                                SolverOrderStatus::Open,
+                                timestamp,
+                            );
+                        } else {
+                            tracing::warn!(%chain_id, %address, %collateral_amount, "⚠️ Order Expired");
+
+                            self.set_order_status(
+                                &mut order.write(),
+                                SolverOrderStatus::InvalidCollateral,
+                            );
+
+                            self.index_order_manager
+                                .write()
+                                .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                                .order_failed(
+                                    chain_id,
+                                    &address,
+                                    &client_order_id,
+                                    &symbol,
+                                    status,
+                                    timestamp,
+                                )?;
+                        }
+                    }
                     RoutingStatus::NotReady => {
-                        tracing::warn!(%chain_id, %address, %collateral_amount, "CollateralReady NotReady");
+                        tracing::warn!(%chain_id, %address, %collateral_amount, "⚠️ CollateralReady NotReady");
 
                         self.set_order_status(
                             &mut order.write(),
@@ -1815,6 +1853,10 @@ impl Persist for Solver {
 
         self.inventory_manager.write().store()?;
 
+        self.client_orders
+            .read()
+            .write_trace_all_queues("Before Store");
+
         // Create solver state snapshot
         let solver_state = self.create_solver_state_snapshot()?;
 
@@ -1962,6 +2004,7 @@ mod test {
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let mint_wait_period = TimeDelta::new(10, 0).unwrap();
+        let order_expiry = chrono::Duration::seconds(60);
         let client_order_wait_period = TimeDelta::new(10, 0).unwrap();
         let client_quote_wait_period = TimeDelta::new(1, 0).unwrap();
 
@@ -2188,6 +2231,7 @@ mod test {
             solver_persistence.clone(),
             max_batch_size,
             tolerance,
+            order_expiry,
             client_order_wait_period,
             client_quote_wait_period,
         ));
