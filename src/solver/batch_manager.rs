@@ -1486,7 +1486,7 @@ mod test {
 
     use index_core::index::basket::{AssetWeight, Basket, BasketDefinition};
 
-    use crate::solver::{
+    use crate::{app::timestamp_ids, solver::{
         batch_manager::BatchEvent,
         index_order_manager::EngagedIndexOrder,
         solver::{
@@ -1495,7 +1495,7 @@ mod test {
         },
         solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
-    };
+    }};
 
     use super::{BatchAssetLot, BatchAssetPosition, BatchManager, BatchManagerHost};
 
@@ -1596,6 +1596,7 @@ mod test {
             collateral_routed: engaged_collateral + remaining_collateral,
             collateral_spent: dec!(0.0),
             filled_quantity: dec!(0.0),
+            created_timestamp: timestamp,
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),
@@ -1879,6 +1880,7 @@ mod test {
             collateral_routed: dec!(3200.0),
             collateral_spent: dec!(0.0),
             filled_quantity: dec!(0.0),
+            created_timestamp: timestamp,
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),

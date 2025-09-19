@@ -1863,6 +1863,7 @@ mod test {
             collateral_routed: collateral_amount,
             collateral_spent: Amount::ZERO,
             filled_quantity: Amount::ZERO,
+            created_timestamp: timestamp,
             timestamp,
             status: SolverOrderStatus::Open,
             lots: Vec::new(),

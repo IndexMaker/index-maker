@@ -410,6 +410,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_batch_size = 16usize;
     let collateral_zero_threshold = dec!(0.000_001);
     let assets_zero_threshold = dec!(0.000_000_000_000_000_001);
+    let order_expiry_after = chrono::Duration::seconds(40);
     let client_order_wait_period = TimeDelta::seconds(5);
     let client_quote_wait_period = TimeDelta::milliseconds(500);
 
@@ -559,6 +560,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut solver_config = SolverConfig::builder()
         .zero_threshold(collateral_zero_threshold)
         .max_batch_size(max_batch_size)
+        .order_expiry_after(order_expiry_after)
         .solver_tick_interval(Duration::milliseconds(100))
         .quotes_tick_interval(Duration::milliseconds(10))
         .client_order_wait_period(client_order_wait_period)

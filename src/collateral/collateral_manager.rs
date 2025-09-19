@@ -166,7 +166,17 @@ impl CollateralManager {
                 }
             });
 
-        self.collateral_management_requests.extend(check_later);
+        for request in check_later {
+            self.observer
+                .publish_single(CollateralEvent::CollateralReady {
+                    chain_id: request.chain_id,
+                    address: request.address,
+                    client_order_id: request.client_order_id,
+                    timestamp,
+                    collateral_amount: Amount::ZERO,
+                    status: RoutingStatus::CheckLater,
+                });
+        }
 
         let failures = ready_to_route
             .into_iter()
@@ -874,6 +884,12 @@ mod test {
                     RoutingStatus::NotReady => {
                         tracing::warn!(
                             "Collateral Ready Event {:0.5} NotReady",
+                            collateral_amount,
+                        );
+                    }
+                    RoutingStatus::CheckLater => {
+                        tracing::warn!(
+                            "Collateral Ready Event {:0.5} CheckLater",
                             collateral_amount,
                         );
                     }
