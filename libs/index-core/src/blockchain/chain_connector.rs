@@ -59,6 +59,7 @@ pub enum ChainNotification {
 
 /// Connects to some Blockchain
 pub trait ChainConnector: IntoObservableSingleVTable<ChainNotification> {
+    fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol);
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>);
     fn mint_index(
         &self,
@@ -227,6 +228,8 @@ pub mod test_util {
     }
 
     impl ChainConnector for MockChainConnector {
+        fn poll_once(&self, _chain_id: u32, _address: Address, _symbol: Symbol) {}
+
         fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
             self.implementor
                 .publish_single(MockChainInternalNotification::SolverWeightsSet(
@@ -240,7 +243,7 @@ pub mod test_util {
             symbol: Symbol,
             quantity: Amount,
             receipient: Address,
-            seq_num: U256,
+            _seq_num: U256,
             execution_price: Amount,
             execution_time: DateTime<Utc>,
         ) {

@@ -1,22 +1,7 @@
 {
     "index_files": [
         {
-            "SY100": "configs/indexes/SY100.json"
-        },
-        {
-            "SYAI": "configs/indexes/SYAI.json"
-        },
-        {
-            "SYAZ": "configs/indexes/SYAZ.json"
-        },
-        {
-            "SYDF": "configs/indexes/SYDF.json"
-        },
-        {
-            "SYL2": "configs/indexes/SYL2.json"
-        },
-        {
-            "SYME": "configs/indexes/SYME.json"
+            "SY100": "configs/dev/indexes/SY100.json"
         }
     ]
 }

@@ -4,17 +4,17 @@ use alloy::{providers::Provider, sol_types::SolEvent};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, Log};
 use chrono::Utc;
 use eyre::{eyre, Context, OptionExt};
-use futures::{future::join_all, stream::select_all};
+use futures::{future::join_all, stream::select_all, StreamExt};
 use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
-    bits::Address,
+    bits::{Address, Symbol},
     functional::{PublishSingle, SingleObserver},
 };
-use tokio::time::sleep;
-use tokio_stream::StreamExt;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio_util::time::FutureExt;
 
 use crate::{multiprovider::MultiProvider, util::amount_converter::AmountConverter};
 use otc_custody::{
@@ -58,10 +58,11 @@ where
     pub async fn subscribe_polling(
         &mut self,
         chain_id: u32,
+        mut poll_rx: UnboundedReceiver<(u32, Address, Symbol)>,
         indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> eyre::Result<()> {
-        let providers = self.providers.take().ok_or_eyre("Already subscribed")?;
+        let mut providers = self.providers.take().ok_or_eyre("Already subscribed")?;
         let mut providers_clone = providers.clone();
 
         let event_filter = Filter::new()
@@ -72,15 +73,21 @@ where
                 Mint::SIGNATURE,
             ]);
 
-        let (poll_interval, backoff_period, max_failure_count) = providers
-            .with_shared_data(|s| (s.poll_interval, s.poll_backoff_period, s.max_poll_failures));
+        let timeout_period = std::time::Duration::from_secs(3);
 
-        let (provider, rpc_url) = providers.current().ok_or_eyre("No providers")?;
+        let mut last_block_from = providers
+            .try_execute(async move |provider, rpc_url| -> eyre::Result<u64> {
+                tracing::info!(%rpc_url, "Getting last block number...");
+                provider
+                    .get_block_number()
+                    .timeout(timeout_period)
+                    .await
+                    .context("Failed to obtain most recent block number")?
+                    .context("Failed to obtain most recent block number: Timeout")
+            })
+            .await?;
 
-        let mut last_block_from = provider
-            .get_block_number()
-            .await
-            .map_err(|err| eyre!("Failed to fetch last block via: {}: {:?}", rpc_url, err))?;
+        tracing::info!("Last block number {}", last_block_from);
 
         let account_name = self.account_name.clone();
         let account_name_clone = account_name.clone();
@@ -89,8 +96,13 @@ where
             async move |provider: &P, rpc_url: &String| -> eyre::Result<()> {
                 let most_recent_block = provider
                     .get_block_number()
+                    .timeout(timeout_period)
                     .await
-                    .context("Failed to obtain most recent block number")?;
+                    .context("Failed to obtain most recent block number")?
+                    .context("Failed to obtain most recent block number: Timeout")?;
+
+                // limit the range
+                last_block_from = last_block_from.max(most_recent_block - 10_000);
 
                 if most_recent_block > last_block_from {
                     tracing::info!(
@@ -105,7 +117,13 @@ where
                     });
                     last_block_from = most_recent_block;
 
-                    let logs = provider.get_logs(&range).await?;
+                    let logs = provider
+                        .get_logs(&range)
+                        .timeout(timeout_period)
+                        .await
+                        .context("Failed to obtain logs")?
+                        .context("Failed to obtain logs: Timeout")?;
+
                     for log in logs {
                         Self::handle_log(
                             &account_name_clone,
@@ -123,30 +141,25 @@ where
         self.subscription_loop
             .start(async move |cancel_token| -> eyre::Result<MultiProvider<P>> {
                 tracing::info!(%account_name, "Issuer stream polling loop started");
-                let mut failure_count = 0;
                 loop {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
                             break;
                         },
-                        _ = tokio::time::sleep(poll_interval) => {
+                        Some(_) = poll_rx.recv() => {
                             let (provider, rpc_url) = providers_clone
                                 .next_provider()
                                 .current()
                                 .ok_or_eyre("No provider")?;
 
+                            tracing::info!("Polling next events");
                             if let Err(err) = poll_log_events_fn(provider, rpc_url).await {
-                                tracing::warn!(%account_name, %rpc_url, "Polling log events failed: {:?}", err);
-                                failure_count += 1;
-                                if failure_count > max_failure_count {
-                                    sleep(backoff_period).await;
-                                    failure_count = 0;
-                                }
+                                tracing::warn!(%account_name, %rpc_url, "⚠️ Polling log events failed: {:?}", err);
                             }
                         }
                     }
                 }
-                tracing::info!(%account_name, "⚠️ Issuer stream polling loop exited");
+                tracing::info!(%account_name, "Issuer stream polling loop exited");
                 Ok(providers_clone)
             });
 
@@ -170,39 +183,45 @@ where
                 Mint::SIGNATURE,
             ]);
 
+        let subs = providers
+            .get_providers()
+            .iter()
+            .map(async |(p, u)| (p.subscribe_logs(&event_filter).await, u))
+            .collect_vec();
+
+        let (subs, errors): (Vec<_>, Vec<_>) = join_all(subs)
+            .await
+            .into_iter()
+            .map(|(s, u)| s.map(|s| (s, u)))
+            .partition_result();
+
+        if !errors.is_empty() {
+            tracing::warn!(
+                "⚠️ Failed to subscribe to stream(s): {}",
+                errors.into_iter().map(|e| format!("{:?}", e)).join("; ")
+            );
+        }
+
+        if subs.is_empty() {
+            Err(eyre!("No subscriptions"))?
+        }
+
+        let rpc_urls = subs.iter().map(|(_, u)| u).join(",");
+
+        let streams = subs
+            .into_iter()
+            .map(|(s, u)| {
+                let u = u.clone();
+                s.into_stream().map(move |x| (x, u.clone())).fuse()
+            })
+            .collect_vec();
+
+        let mut sel = select_all(streams);
+        tracing::info!(%rpc_urls, "✅ Subscriptions created");
+
         self.subscription_loop.start(
             async move |cancel_token| -> eyre::Result<MultiProvider<P>> {
                 tracing::info!(%account_name, "🏎️ Issuer streaming loop started");
-
-                let subs = providers
-                    .get_providers()
-                    .iter()
-                    .map(async |(p, u)| (p.subscribe_logs(&event_filter).await, u))
-                    .collect_vec();
-
-                let (subs, errors): (Vec<_>, Vec<_>) = join_all(subs)
-                    .await
-                    .into_iter()
-                    .map(|(s, u)| s.map(|s| (s, u)))
-                    .partition_result();
-
-                if !errors.is_empty() {
-                    tracing::warn!(
-                        "⚠️ Failed to subscribe to stream(s): {}",
-                        errors.into_iter().map(|e| format!("{:?}", e)).join("; ")
-                    );
-                }
-
-                if subs.is_empty() {
-                    tracing::warn!("⚠️ No subscriptions");
-                    return Ok(providers);
-                }
-
-                let rpc_urls = subs.iter().map(|(_, u)| u).join(",");
-                tracing::info!(%rpc_urls, "✅ Subscriptions started");
-
-                let streams = subs.into_iter().map(|(s, _)| s.into_stream()).collect_vec();
-                let mut sel = select_all(streams);
 
                 loop {
                     tokio::select! {
@@ -211,17 +230,23 @@ where
                         },
                         maybe_log = sel.next() => {
                             match maybe_log {
-                                Some(log) => {
-                                    Self::handle_log(
+                                Some((log, rpc_url)) => {
+                                    if let Err(err) = Self::handle_log(
                                         &account_name,
                                         chain_id,
-                                        "?",
+                                        &rpc_url,
                                         log,
                                         &indexes_by_address,
                                         &observer,
-                                    )?;
+                                    ) {
+                                        tracing::info!(
+                                            %account_name,
+                                            %rpc_url,
+                                            "⚠️ Failed to handle log: {:?}", err);
+                                    }
                                 },
                                 None => {
+                                    tracing::warn!(%account_name, "⚠️ All streams closed");
                                     break;
                                 }
                             }
@@ -229,7 +254,7 @@ where
                     }
                 }
 
-                tracing::info!(%account_name, "⚠️ Issuer streaming loop exited");
+                tracing::info!(%account_name, "Issuer streaming loop exited");
                 Ok(providers)
             },
         );
