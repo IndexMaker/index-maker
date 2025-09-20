@@ -201,6 +201,32 @@ impl RealChainConnector {
 }
 
 impl ChainConnector for RealChainConnector {
+    fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol) {
+        let command = CommandVariant::PollIssuerEvent {
+            chain_id,
+            address,
+            symbol,
+        };
+
+        let error_observer = OneShotSingleObserver::new_with_fn(move |err| {
+            tracing::warn!("Failed to poll once: {:?}", err);
+        });
+
+        if let Some(sender) = self.issuers.get(&chain_id) {
+            if let Err(err) = sender.send_command(Command {
+                command,
+                error_observer,
+            }) {
+                tracing::warn!("Failed to send poll request: {:?}", err);
+            }
+        } else {
+            tracing::warn!(
+                "Failed to send poll request: No sender available for chain: {}",
+                chain_id
+            );
+        }
+    }
+
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
         let chain_id = 0;
 

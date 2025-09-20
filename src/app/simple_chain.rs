@@ -43,6 +43,9 @@ impl IntoObservableSingleVTable<ChainNotification> for SimpleChainConnector {
 }
 
 impl ChainConnector for SimpleChainConnector {
+    fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol) {
+    }
+
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
         tracing::info!("SolverWeightsSet: {}", symbol);
     }

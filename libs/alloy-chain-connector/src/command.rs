@@ -74,6 +74,11 @@ pub enum CommandVariant {
         token: Address,
         command: CustodyCommand,
     },
+    PollIssuerEvent {
+        chain_id: u32,
+        address: Address,
+        symbol: Symbol,
+    },
 }
 
 pub struct Command {

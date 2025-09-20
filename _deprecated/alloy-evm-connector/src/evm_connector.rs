@@ -322,4 +322,8 @@ impl ChainConnector for EvmConnector {
             tracing::error!("Failed to send withdraw command: {}", e);
         }
     }
+    
+    fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol) {
+        todo!()
+    }
 }

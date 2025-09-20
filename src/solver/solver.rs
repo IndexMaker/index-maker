@@ -989,6 +989,12 @@ impl Solver {
                                 SolverOrderStatus::Open,
                                 timestamp,
                             );
+                            
+                            self.chain_connector
+                                .write()
+                                .map_err(|e| eyre!("Failed to access chain connector {}", e))?
+                                .poll_once(chain_id, address, symbol);
+
                         } else {
                             tracing::warn!(%chain_id, %address, %collateral_amount, "⚠️ Order Expired");
 
