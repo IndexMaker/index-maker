@@ -1,0 +1,122 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
+  <diagram name="Page-1" id="yJDUe8JdftnQUV99fM7-">
+    <mxGraphModel dx="2153" dy="1460" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="acGK86W74Pha8hfMKejU-4" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;startArrow=block;" parent="1" source="acGK86W74Pha8hfMKejU-29" target="acGK86W74Pha8hfMKejU-3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-8" value="&lt;div&gt;&lt;span style=&quot;font-size: 12px; background-color: rgb(251, 251, 251);&quot;&gt;Route&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;font-size: 12px; background-color: rgb(251, 251, 251);&quot;&gt;Collateral 💰&lt;/span&gt;&lt;/div&gt;" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="acGK86W74Pha8hfMKejU-4" vertex="1" connectable="0">
+          <mxGeometry x="-0.0294" y="3" relative="1" as="geometry">
+            <mxPoint x="57" y="-4" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-1" value="Collateral&lt;div&gt;Manager 🏦&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="340" y="70" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-2" value="Inventory&amp;nbsp;&lt;div&gt;Manager 💱&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="480" y="380" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-3" value="Trading&lt;div&gt;Venue(s)&lt;/div&gt;" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" parent="1" vertex="1">
+          <mxGeometry x="710" y="200" width="220" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-5" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;startArrow=block;" parent="1" source="acGK86W74Pha8hfMKejU-2" target="acGK86W74Pha8hfMKejU-3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-9" value="Orders &amp;amp; Fills 🚚" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="acGK86W74Pha8hfMKejU-5" vertex="1" connectable="0">
+          <mxGeometry x="-0.1153" y="2" relative="1" as="geometry">
+            <mxPoint x="-29" y="-20" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-12" value="Synchronise&lt;div&gt;Index Orders 🔄&lt;/div&gt;" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;startArrow=block;fillColor=#fa6800;strokeColor=#C73500;" parent="1" source="acGK86W74Pha8hfMKejU-11" target="acGK86W74Pha8hfMKejU-1" edge="1">
+          <mxGeometry x="-0.2345" y="65" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-13" value="Synchronise&lt;div&gt;Underlying Asset&lt;/div&gt;&lt;div&gt;Orders 🔄&lt;/div&gt;" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;startArrow=block;fillColor=#fa6800;strokeColor=#C73500;" parent="1" source="acGK86W74Pha8hfMKejU-11" target="acGK86W74Pha8hfMKejU-2" edge="1">
+          <mxGeometry x="-0.1422" y="-47" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-11" value="Solver" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="250" y="260" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-15" value="Synchronise&lt;div&gt;Index Orders 🔄&lt;/div&gt;" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;startArrow=block;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;fillColor=#fa6800;strokeColor=#C73500;" parent="1" source="acGK86W74Pha8hfMKejU-14" target="acGK86W74Pha8hfMKejU-11" edge="1">
+          <mxGeometry y="30" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-14" value="Index Order&lt;div&gt;Manager 👩‍💼&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry y="260" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-16" value="&lt;div&gt;Index Maker&lt;/div&gt;Client(s)&lt;div&gt;who want to Buy/Sell&lt;/div&gt;&lt;div&gt;Index Token(s)&lt;/div&gt;" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" parent="1" vertex="1">
+          <mxGeometry x="-350" y="190" width="220" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-17" value="Synchronise&lt;div&gt;Index Orders 🔄&lt;/div&gt;" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;startArrow=block;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;" parent="1" source="acGK86W74Pha8hfMKejU-16" target="acGK86W74Pha8hfMKejU-14" edge="1">
+          <mxGeometry y="30" relative="1" as="geometry">
+            <mxPoint x="-90" y="389.33" as="sourcePoint" />
+            <mxPoint x="10" y="389.33" as="targetPoint" />
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-19" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="acGK86W74Pha8hfMKejU-18" target="acGK86W74Pha8hfMKejU-11" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-18" value="&lt;u&gt;&lt;b&gt;Solver Role:&lt;/b&gt;&lt;/u&gt;&lt;div&gt;&lt;ul&gt;&lt;li&gt;Orchestrate Index buy/sell orders and rebalance&lt;/li&gt;&lt;li&gt;Control flow of activities:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Manage Collateral&lt;/li&gt;&lt;li&gt;Process Index Orders&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Create &amp;amp; Process Batches&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Mint Index Tokens&lt;/li&gt;&lt;/ul&gt;&lt;/ul&gt;&lt;div&gt;&lt;i&gt;&lt;b&gt;Note&lt;/b&gt; Batch creation and processing is a complex operation involving mathematical tools.&lt;/i&gt;&lt;/div&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;align=left;" parent="1" vertex="1">
+          <mxGeometry x="-70" y="440" width="350" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-20" value="&lt;u&gt;&lt;b&gt;Collateral Manager Role:&lt;/b&gt;&lt;/u&gt;&lt;div&gt;&lt;ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Control flow of activities:&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Receive &amp;amp; process collateral management requests&lt;/li&gt;&lt;li&gt;Authorise Solver to spend collateral on:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Buying underlying assets&lt;/li&gt;&lt;li&gt;Minting Index tokens&lt;/li&gt;&lt;/ul&gt;&lt;/ul&gt;&lt;/ul&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;align=left;" parent="1" vertex="1">
+          <mxGeometry x="120" y="-200" width="400" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-21" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="acGK86W74Pha8hfMKejU-20" target="acGK86W74Pha8hfMKejU-1" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="280" y="130" as="sourcePoint" />
+            <mxPoint x="307" y="-30" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-22" value="&lt;u&gt;&lt;b&gt;Index Order Manager Role:&lt;/b&gt;&lt;/u&gt;&lt;div&gt;&lt;ul&gt;&lt;li&gt;Acts as Client&#39;s representative, and:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Keeps records of Index orders&lt;/li&gt;&lt;li&gt;Notifies Client of Index order status changes&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Order placed and accepted (New)&lt;/li&gt;&lt;li&gt;Order filled (Fill)&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Creates &amp;amp; sends to the Client an invoice for minted Index token&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;/ul&gt;&lt;/ul&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;align=left;" parent="1" vertex="1">
+          <mxGeometry x="-200" width="400" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-23" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="acGK86W74Pha8hfMKejU-22" target="acGK86W74Pha8hfMKejU-14" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-270" y="140" as="sourcePoint" />
+            <mxPoint x="-1" y="150" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-25" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="acGK86W74Pha8hfMKejU-24" target="acGK86W74Pha8hfMKejU-2" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-24" value="&lt;u&gt;&lt;b&gt;Inventory Manager Role:&lt;/b&gt;&lt;/u&gt;&lt;div&gt;&lt;ul&gt;&lt;li&gt;Manages inventory of assets:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Keeps records of all opened positions and all created lots, and all transactions on those lots.&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Orchestrates resupply of assets:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Sends orders to trading venue(s) to acquire new assets, or to dispose assets held in custody.&lt;/li&gt;&lt;/ul&gt;&lt;/ul&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;align=left;" parent="1" vertex="1">
+          <mxGeometry x="400" y="520" width="400" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-28" value="&lt;u&gt;&lt;b&gt;Peripheral Components Roles (Not Shown):&lt;/b&gt;&lt;/u&gt;&lt;div&gt;&lt;ul&gt;&lt;li&gt;FIX Server:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Communicate with Client facing web application&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Chain Connector:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Invoke smart-contract methods&lt;/li&gt;&lt;li&gt;Receive on-chain events&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Market Data Connector:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Receive market data from trading venue(s)&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Order Connector:&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Send orders to trading venue(s),&lt;/li&gt;&lt;li&gt;Receive order status updates (Fills, Cancels)&lt;/li&gt;&lt;/ul&gt;&lt;/ul&gt;&lt;div&gt;&lt;i&gt;&lt;b&gt;Note&lt;/b&gt; Role of these components is purely technical.&lt;/i&gt;&lt;/div&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;align=left;" parent="1" vertex="1">
+          <mxGeometry x="960" y="240" width="400" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-29" value="Collateral&lt;div&gt;Router 🔄&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="600" y="70" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-32" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;shape=flexArrow;targetPerimeterSpacing=10;sourcePerimeterSpacing=10;startArrow=block;fillColor=#fa6800;strokeColor=#C73500;" parent="1" source="acGK86W74Pha8hfMKejU-29" target="acGK86W74Pha8hfMKejU-1" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="650" y="120" as="sourcePoint" />
+            <mxPoint x="698" y="235" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-33" value="&lt;div&gt;&lt;span style=&quot;font-size: 12px; background-color: rgb(251, 251, 251);&quot;&gt;Synchonise&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;font-size: 12px; background-color: rgb(251, 251, 251);&quot;&gt;Collateral&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;font-size: 12px; background-color: rgb(251, 251, 251);&quot;&gt;Routing 🔄&lt;/span&gt;&lt;/div&gt;" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="acGK86W74Pha8hfMKejU-32" vertex="1" connectable="0">
+          <mxGeometry x="-0.0294" y="3" relative="1" as="geometry">
+            <mxPoint x="-7" y="-42" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-36" value="&lt;u&gt;&lt;b&gt;Collateral Router Role:&lt;/b&gt;&lt;/u&gt;&lt;div&gt;&lt;ul&gt;&lt;li&gt;Orchestrate collateral routing&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;spacingLeft=10;spacingBottom=10;spacingRight=10;spacingTop=10;align=left;" parent="1" vertex="1">
+          <mxGeometry x="600" y="-110" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="acGK86W74Pha8hfMKejU-37" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;" parent="1" source="acGK86W74Pha8hfMKejU-36" target="acGK86W74Pha8hfMKejU-29" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="700" y="120" as="sourcePoint" />
+            <mxPoint x="807" y="60" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
