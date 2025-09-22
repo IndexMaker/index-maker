@@ -294,9 +294,10 @@ impl FixRequest {
         // Only verify if it's not a Quote request
         let msg_type = &self.standard_header.msg_type;
         if msg_type.contains("Quote") {
-            return Ok(()); // No signature check for Quotes
+            return Ok(());
         }
 
+        // 1) Extract trailer fields
         let trailer = self
             .standard_trailer
             .as_ref()
@@ -314,34 +315,19 @@ impl FixRequest {
             .ok_or_else(|| eyre!("Missing signature"))?
             .trim_start_matches("0x");
 
+        // 2) Parse public key (must be uncompressed SEC1, 65 bytes, 0x04 prefix)
         let pub_key_bytes = hex::decode(pub_key_hex)?;
         if pub_key_bytes.len() != 65 || pub_key_bytes[0] != 0x04 {
             return Err(eyre!("Invalid uncompressed SEC1 public key format"));
         }
-        let expected_address = Address::from_raw_public_key(&pub_key_bytes[1..]);
-        let self_address = self.address.to_string();
-        println!("{self_address}, {expected_address}");
+
+        // 3) The address must match the key in the trailer
+        let expected_address = Address::from_raw_public_key(&pub_key_bytes[1..]); // your helper
         if expected_address.to_string().to_lowercase() != self.address.to_string().to_lowercase() {
             return Err(eyre!("Invalid address"));
         }
 
-        // Decode signature
-        let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))?;
-        if sig_bytes.len() != 64 {
-            return Err(eyre!(
-                "Signature must be exactly 64 bytes, got {}",
-                sig_bytes.len()
-            ));
-        }
-        let sig_array: &GenericArray<u8, _> = GenericArray::from_slice(&sig_bytes);
-        let signature =
-            Signature::from_bytes(sig_array).map_err(|e| eyre!("Invalid signature: {}", e))?;
-
-        // Parse verifying key
-        let verifying_key = VerifyingKey::from_sec1_bytes(&pub_key_bytes)
-            .map_err(|e| eyre!("Invalid public key: {}", e))?;
-
-        let msg_type = &self.standard_header.msg_type;
+        // 4) Build the exact signable string (no spaces, fixed field order)
         let id = match &self.body {
             RequestBody::NewIndexOrderBody {
                 client_order_id, ..
@@ -357,17 +343,27 @@ impl FixRequest {
             } => client_quote_id,
             _ => return Err(eyre!("Unsupported msg_type")),
         };
+        let signable = format!("{{\"msg_type\":\"{}\",\"id\":\"{}\"}}", msg_type, id);
 
-        let payload_str = format!("{{\"msg_type\":\"{}\",\"id\":\"{}\"}}", msg_type, id);
+        // 5) Parse 64-byte r||s signature (no DER, no v)
+        let sig_bytes = hex::decode(sig_hex)?;
+        if sig_bytes.len() != 64 {
+            return Err(eyre!("Signature must be exactly 64 bytes (r||s)"));
+        }
+        let signature =
+            Signature::try_from(&sig_bytes[..]).map_err(|e| eyre!("Invalid signature: {}", e))?;
 
-        let mut hasher = Sha256::new();
-        hasher.update(payload_str.as_bytes());
-        let hash = hasher.finalize();
+        // 6) Verify EIP-191: keccak256("\x19Ethereum Signed Message:\n" + len + signable || signable)
+        let prefix = format!("\x19Ethereum Signed Message:\n{}", signable.len());
+        let mut keccak = Keccak256::new();
+        keccak.update(prefix.as_bytes());
+        keccak.update(signable.as_bytes());
 
-        let mut hasher = Sha256::new();
-        hasher.update(payload_str.as_bytes());
+        let verifying_key = VerifyingKey::from_sec1_bytes(&pub_key_bytes)
+            .map_err(|e| eyre!("Invalid public key: {}", e))?;
+
         verifying_key
-            .verify_digest(hasher, &signature)
+            .verify_digest(keccak, &signature)
             .map_err(|_| eyre!("Signature verification failed"))?;
 
         Ok(())
