@@ -12,6 +12,7 @@ use axum_fix_server::{
 };
 use eyre::{eyre, Result};
 use k256::ecdsa::signature::DigestVerifier;
+use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{Signature, VerifyingKey};
 use k256::elliptic_curve::generic_array::GenericArray;
 use serde::{
@@ -354,17 +355,19 @@ impl FixRequest {
         let signature =
             Signature::try_from(&sig_bytes[..]).map_err(|e| eyre!("Invalid signature: {}", e))?;
 
-        // 6) Verify EIP-191: keccak256("\x19Ethereum Signed Message:\n" + len + signable || signable)
+        // 6) EIP-191: keccak256("\x19Ethereum Signed Message:\n" + len + signable)
         let prefix = format!("\x19Ethereum Signed Message:\n{}", signable.len());
-        let mut keccak = Keccak256::new();
-        keccak.update(prefix.as_bytes());
-        keccak.update(signable.as_bytes());
+        let mut hasher = Keccak256::new();
+        hasher.update(prefix.as_bytes());
+        hasher.update(signable.as_bytes());
+        let digest = hasher.finalize();
 
+        // 7) Verify against pubkey
         let verifying_key = VerifyingKey::from_sec1_bytes(&pub_key_bytes)
             .map_err(|e| eyre!("Invalid public key: {}", e))?;
 
         verifying_key
-            .verify_digest(keccak, &signature)
+            .verify(digest.as_ref(), &signature)
             .map_err(|_| eyre!("Signature verification failed"))?;
 
         Ok(())
