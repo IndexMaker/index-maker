@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::server::fix::messages::*;
+use alloy_primitives::Keccak256;
 use axum_fix_server::{
     messages::{FixMessage, ServerRequest as AxumServerRequest, SessionId},
     plugins::{
@@ -9,15 +10,15 @@ use axum_fix_server::{
         user_plugin::WithUserPlugin,
     },
 };
+use ethers::utils::hash_message;
 use eyre::{eyre, Result};
-use k256::ecdsa::signature::DigestVerifier;
+use k256::ecdsa::signature::hazmat::PrehashVerifier;
+
 use k256::ecdsa::{Signature, VerifyingKey};
-use k256::elliptic_curve::generic_array::GenericArray;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
 };
-use sha2::{Digest, Sha256};
 use symm_core::core::bits::Address;
 
 #[derive(Serialize, Debug)]
@@ -291,12 +292,13 @@ impl AxumServerRequest for FixRequest {
 
 impl FixRequest {
     pub fn verify_signature(&self) -> Result<()> {
-        // Only verify if it's not a Quote request
+        // Skip quote messages
         let msg_type = &self.standard_header.msg_type;
         if msg_type.contains("Quote") {
-            return Ok(()); // No signature check for Quotes
+            return Ok(());
         }
 
+        // 1) Trailer
         let trailer = self
             .standard_trailer
             .as_ref()
@@ -314,34 +316,33 @@ impl FixRequest {
             .ok_or_else(|| eyre!("Missing signature"))?
             .trim_start_matches("0x");
 
+        // 2) Parse uncompressed SEC1 pubkey (65B, 0x04 + X + Y)
         let pub_key_bytes = hex::decode(pub_key_hex)?;
         if pub_key_bytes.len() != 65 || pub_key_bytes[0] != 0x04 {
             return Err(eyre!("Invalid uncompressed SEC1 public key format"));
         }
-        let expected_address = Address::from_raw_public_key(&pub_key_bytes[1..]);
-        let self_address = self.address.to_string();
-        println!("{self_address}, {expected_address}");
-        if expected_address.to_string().to_lowercase() != self.address.to_string().to_lowercase() {
-            return Err(eyre!("Invalid address"));
-        }
 
-        // Decode signature
-        let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))?;
-        if sig_bytes.len() != 64 {
+        // 3) Derived address must match provided address
+        let mut hasher = Keccak256::new();
+        hasher.update(&pub_key_bytes[1..]); // drop 0x04 prefix
+        let pubhash: [u8; 32] = hasher.finalize().into();
+        let derived_addr = &pubhash[12..]; // last 20 bytes
+
+        let provided_addr: [u8; 20] = self.address.into();
+
+        println!(
+            "[BE] derived_addr: 0x{}, provided_addr: 0x{}",
+            hex::encode(derived_addr),
+            hex::encode(provided_addr)
+        );
+
+        if derived_addr != provided_addr {
             return Err(eyre!(
-                "Signature must be exactly 64 bytes, got {}",
-                sig_bytes.len()
+                "Invalid address (pubkey does not match address field)"
             ));
         }
-        let sig_array: &GenericArray<u8, _> = GenericArray::from_slice(&sig_bytes);
-        let signature =
-            Signature::from_bytes(sig_array).map_err(|e| eyre!("Invalid signature: {}", e))?;
 
-        // Parse verifying key
-        let verifying_key = VerifyingKey::from_sec1_bytes(&pub_key_bytes)
-            .map_err(|e| eyre!("Invalid public key: {}", e))?;
-
-        let msg_type = &self.standard_header.msg_type;
+        // 4) Build the exact FE signable string
         let id = match &self.body {
             RequestBody::NewIndexOrderBody {
                 client_order_id, ..
@@ -357,17 +358,31 @@ impl FixRequest {
             } => client_quote_id,
             _ => return Err(eyre!("Unsupported msg_type")),
         };
+        let signable = format!(r#"{{"msg_type":"{}","id":"{}"}}"#, msg_type, id);
 
-        let payload_str = format!("{{\"msg_type\":\"{}\",\"id\":\"{}\"}}", msg_type, id);
+        // 5) Compute digest (EIP-191)
+        let digest: [u8; 32] = hash_message(&signable).into();
 
-        let mut hasher = Sha256::new();
-        hasher.update(payload_str.as_bytes());
-        let hash = hasher.finalize();
+        // 6) Parse signature: accept 64B (r||s) or 65B (r||s||v)
+        let mut sig_bytes = hex::decode(sig_hex)?;
+        if sig_bytes.len() == 65 {
+            sig_bytes.truncate(64); // drop v
+        }
+        if sig_bytes.len() != 64 {
+            return Err(eyre!(
+                "Signature must be 64 bytes (r||s) or 65 bytes (r||s||v)"
+            ));
+        }
 
-        let mut hasher = Sha256::new();
-        hasher.update(payload_str.as_bytes());
+        let mut signature = Signature::try_from(sig_bytes.as_slice())
+            .map_err(|e| eyre!("Invalid signature: {}", e))?;
+
+        let signature = signature.normalize_s().unwrap_or(signature);
+        // 7) Verify
+        let verifying_key = VerifyingKey::from_sec1_bytes(&pub_key_bytes)
+            .map_err(|e| eyre!("Invalid public key: {}", e))?;
         verifying_key
-            .verify_digest(hasher, &signature)
+            .verify_prehash(digest.as_ref(), &signature)
             .map_err(|_| eyre!("Signature verification failed"))?;
 
         Ok(())
@@ -382,45 +397,42 @@ mod tests {
 
     #[test]
     fn test_signature_verification_with_static_data() {
-        let pubkey_hex = "0x048318535b54105d4a7aae60c08fc45f9687181b4fdfc625bd1a753fa7397fed753547f11ca8696646f2f3acb08e31016afac23e630c5d11f59f61fef57b0d2aa5";
-        let signature_hex = "0xbf169e19c6cc1762ddeb0c8fbcd46d9e7b3131b8e277bc1e55aa841c6d81ab10540c2b77b7818c300a9aca691e5e1918d958d7b3fcf80bd7724a9cbb4705cb11";
+        use serde_json::json;
+
+        // values captured from FE logs
+        let pubkey_hex = "0x04f5507523649a16a3db67d295f3a5145a917c6a007193e3710ef04783332bdaa05ab2ad9d312f32e92c1ac96129535e02ca65ead06e1e0d638beda24660354401";
+        let signature_hex = "0xd5572e67c0b39f6c8353a4cf2f690aa157715a5d23a4f171bd1f22033b810778792660e441f10eff811b8020caf3faad3ee176e5fa9e820fe5539933a9c0e40a";
 
         let payload = json!({
           "standard_header": {
             "msg_type": "NewIndexOrder",
-            "sender_comp_id": "C",
-            "target_comp_id": "S",
-            "seq_num": 2,
-            "timestamp": "2025-08-22T15:55:01.593Z"
+            "sender_comp_id": "FE",
+            "target_comp_id": "SERVER",
+            "seq_num": 1,
+            "timestamp": "2025-09-22T16:24:53.613Z"
           },
-          "chain_id": 1,
-          "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-          "client_order_id": "Q-1755874673593",
+          "chain_id": 8453,
+          "address": "0x73E18f4d1bEaD416624ebF3DB192f14641721048",
+          "client_order_id": "VJV-TLL-BEQ-8403",
           "symbol": "SY100",
           "side": "1",
-          "amount": "1000"
+          "amount": "0",
+          "standard_trailer": {
+            "public_key": [pubkey_hex],
+            "signature": [signature_hex]
+          }
         });
 
-        let payload_bytes = serde_json::to_vec(&payload).unwrap();
-        let hash: [u8; 32] = keccak256(payload_bytes);
-        let mut full_msg = payload.as_object().unwrap().clone();
-        full_msg.insert(
-            "standard_trailer".to_string(),
-            json!({
-                "public_key": [pubkey_hex],
-                "signature": [signature_hex]
-            }),
-        );
-
-        let full_json = serde_json::Value::Object(full_msg);
-        let mut fix: FixRequest = serde_json::from_value(full_json).unwrap();
+        // Deserialize into your FixRequest type
+        let mut fix: FixRequest = serde_json::from_value(payload).unwrap();
         fix.session_id = SessionId::from("S-1");
 
+        // Run verification
         let result = fix.verify_signature();
         assert!(
             result.is_ok(),
             "Signature verification failed: {:?}",
-            result.unwrap_err()
+            result.err()
         );
     }
     #[test]
