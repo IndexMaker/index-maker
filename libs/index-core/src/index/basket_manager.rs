@@ -1,9 +1,13 @@
 use eyre::{eyre, Result};
+use itertools::Itertools;
 use std::{collections::HashMap, sync::Arc};
 
-use symm_core::core::{
-    bits::{Amount, Symbol},
-    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+use symm_core::{
+    assets::asset::Asset,
+    core::{
+        bits::{Amount, Symbol},
+        functional::{IntoObservableSingle, PublishSingle, SingleObserver},
+    },
 };
 
 use super::basket::{Basket, BasketDefinition};
@@ -30,6 +34,17 @@ impl BasketManager {
 
     pub fn get_basket(&self, symbol: &Symbol) -> Option<&Arc<Basket>> {
         self.baskets.get(symbol)
+    }
+
+    pub fn get_all_assets(&self) -> Vec<Arc<Asset>> {
+        self.baskets
+            .values()
+            .flat_map(|b| &b.basket_assets)
+            .map(|a| &a.weight.asset)
+            .sorted_by_key(|a| a.ticker.clone())
+            .dedup_by(|a, b| a.ticker == b.ticker)
+            .cloned()
+            .collect_vec()
     }
 
     pub fn notify_baskets(&self) -> Result<()> {

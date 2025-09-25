@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    isize,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, RwLock as ComponentLock,
@@ -9,6 +10,7 @@ use std::{
 use chrono::{DateTime, Duration, TimeDelta, Utc};
 use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use parking_lot::{Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
@@ -131,11 +133,14 @@ pub trait OrderIdProvider {
 }
 
 /// Status of the Solver
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
 pub enum SolverStatus {
-    Running,
-    ShuttingDown,
-    Stopped,
+    Created = 0,
+    WarmingUp = 1,
+    Running = 2,
+    ShuttingDown = 3,
+    Stopped = 4,
 }
 
 /// Status of the BatchManager
@@ -230,7 +235,7 @@ pub struct Solver {
     zero_threshold: Amount,
     order_expiry_after: Duration,
     // status management
-    status: Arc<AtomicU8>, // 0=Running, 1=ShuttingDown, 2=Stopped
+    status: AtomicU8,
 }
 impl Solver {
     pub fn new(
@@ -277,25 +282,76 @@ impl Solver {
             zero_threshold,
             order_expiry_after,
             // status management
-            status: Arc::new(AtomicU8::new(0)), // Start as Running
+            status: AtomicU8::new(SolverStatus::Created.into()),
         }
     }
 
     /// Initiate graceful shutdown by blocking new orders and engagement
     /// Get current solver status
     pub fn get_status(&self) -> SolverStatus {
-        match self.status.load(Ordering::SeqCst) {
-            0 => SolverStatus::Running,
-            1 => SolverStatus::ShuttingDown,
-            2 => SolverStatus::Stopped,
-            _ => SolverStatus::Running, // Default fallback
+        let current_status = self.status.load(Ordering::SeqCst);
+        current_status
+            .try_into()
+            .expect("Programming error: Invalid Solver status")
+    }
+
+    fn begin_warming_up(&self) -> Result<()> {
+        tracing::info!("☑️ Solver started.");
+
+        self.status
+            .store(SolverStatus::WarmingUp.into(), Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn complete_warming_up(&self) -> Result<()> {
+        let assets = self.basket_manager.read().get_all_assets();
+        let symbols = assets.into_iter().map(|a| a.ticker.clone()).collect_vec();
+        let prices = self
+            .price_tracker
+            .read()
+            .get_prices(PriceType::MidPoint, &symbols);
+
+        if prices.missing_symbols.is_empty() {
+            tracing::info!("✅ Solver is running");
+            self.status
+                .store(SolverStatus::Running.into(), Ordering::SeqCst);
         }
+
+        Ok(())
     }
 
     /// Initiate graceful shutdown by setting status to ShuttingDown
     pub fn initiate_shutdown(&self) {
-        self.status.store(1, Ordering::SeqCst); // ShuttingDown
+        self.status.store(SolverStatus::ShuttingDown.into(), Ordering::SeqCst);
         tracing::info!("Solver shutdown initiated - status set to ShuttingDown");
+    }
+
+    fn complete_shutdown(&self, timestamp: DateTime<Utc>) {
+        // During shutdown, only process batches to completion
+        let batch_status = match self
+            .batch_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
+            .and_then(|mut x| x.process_batches(self, timestamp))
+        {
+            Ok(status) => status,
+            Err(err) => {
+                tracing::warn!("Error while processing batches during shutdown: {:?}", err);
+                BatchManagerStatus::Idle // Assume idle on error
+            }
+        };
+
+        // Check if we can transition to Stopped
+        match batch_status {
+            BatchManagerStatus::Idle => {
+                tracing::info!("All batches completed - transitioning to Stopped");
+            }
+            BatchManagerStatus::ActiveBatches(count) => {
+                tracing::trace!("Still waiting for {} active batches to complete", count);
+            }
+        }
+        self.status
+            .store(SolverStatus::Stopped.into(), Ordering::SeqCst);
     }
 
     /// Check if the solver is accepting new orders
@@ -555,14 +611,14 @@ impl Solver {
     fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
         while let Some(solver_order) = self.client_orders.write().get_next_client_order(timestamp) {
             let (chain_id, address, client_order_id, symbol, timestamp, status) = {
-                let order_upread = solver_order.read();
+                let order_read = solver_order.read();
                 (
-                    order_upread.chain_id,
-                    order_upread.address.clone(),
-                    order_upread.client_order_id.clone(),
-                    order_upread.symbol.clone(),
-                    order_upread.timestamp,
-                    order_upread.status,
+                    order_read.chain_id,
+                    order_read.address.clone(),
+                    order_read.client_order_id.clone(),
+                    order_read.symbol.clone(),
+                    order_read.timestamp,
+                    order_read.status,
                 )
             };
             tracing::info!(
@@ -580,10 +636,10 @@ impl Solver {
                     self.ready_orders.lock().push_back(solver_order.clone());
                     Ok(())
                 }
-                _ => Err(eyre!(
-                    "Programming error: Expected either Open | Ready order status"
-                ))
-                .unwrap(),
+                s => Err(eyre!(
+                    "Programming error: Expected either Open | Ready order status, got: {:?}",
+                    s
+                )),
             };
 
             if let Err(err) = result {
@@ -687,6 +743,22 @@ impl Solver {
         let current_status = self.get_status();
 
         match current_status {
+            SolverStatus::Created => {
+                tracing::trace!("\nBegin warming up...");
+
+                if let Err(err) = self.begin_warming_up() {
+                    tracing::error!("Failed to begin warming up Solver: {:?}", err);
+                    self.initiate_shutdown();
+                }
+            }
+            SolverStatus::WarmingUp => {
+                tracing::trace!("\nWarming up...");
+
+                if let Err(err) = self.complete_warming_up() {
+                    tracing::error!("Failed to complete warming up Solver: {:?}", err);
+                    self.initiate_shutdown();
+                }
+            }
             SolverStatus::Running => {
                 tracing::trace!("\nBegin solve");
 
@@ -735,43 +807,16 @@ impl Solver {
                 }
 
                 tracing::trace!("End solve\n");
-                SolverStatus::Running
             }
             SolverStatus::ShuttingDown => {
                 tracing::trace!("Solver shutting down - processing batches only");
-
-                // During shutdown, only process batches to completion
-                let batch_status = match self
-                    .batch_manager
-                    .write()
-                    .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
-                    .and_then(|mut x| x.process_batches(self, timestamp))
-                {
-                    Ok(status) => status,
-                    Err(err) => {
-                        tracing::warn!("Error while processing batches during shutdown: {:?}", err);
-                        BatchManagerStatus::Idle // Assume idle on error
-                    }
-                };
-
-                // Check if we can transition to Stopped
-                match batch_status {
-                    BatchManagerStatus::Idle => {
-                        tracing::info!("All batches completed - transitioning to Stopped");
-                        self.status.store(2, Ordering::SeqCst); // Stopped
-                        SolverStatus::Stopped
-                    }
-                    BatchManagerStatus::ActiveBatches(count) => {
-                        tracing::debug!("Still waiting for {} active batches to complete", count);
-                        SolverStatus::ShuttingDown
-                    }
-                }
+                self.complete_shutdown(timestamp);
             }
             SolverStatus::Stopped => {
                 tracing::trace!("Solver stopped - no processing");
-                SolverStatus::Stopped
             }
         }
+        current_status
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
@@ -989,12 +1034,11 @@ impl Solver {
                                 SolverOrderStatus::Open,
                                 timestamp,
                             );
-                            
+
                             self.chain_connector
                                 .write()
                                 .map_err(|e| eyre!("Failed to access chain connector {}", e))?
                                 .poll_once(chain_id, address, symbol);
-
                         } else {
                             tracing::warn!(%chain_id, %address, %collateral_amount, "⚠️ Order Expired");
 
@@ -2774,6 +2818,10 @@ mod test {
 
         let mut timestamp = Utc::now();
 
+        solver_tick(timestamp);
+        flush_events();
+        heading("Solver initiated");
+
         // connect to exchange
         order_connector.write().connect();
         order_connector
@@ -2878,6 +2926,10 @@ mod test {
         // necessary to wait until all market data events are ingested
         flush_events();
         heading("Market data sent");
+
+        solver_tick(timestamp);
+        flush_events();
+        heading("Solver received market data");
 
         // define basket
         let basket_definition = BasketDefinition::try_new(vec![

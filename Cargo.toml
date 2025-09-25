@@ -64,6 +64,7 @@ intrusive-collections = { workspace = true }
 itertools = { workspace = true }
 k256 = { workspace = true }
 market-data = { workspace = true }
+num_enum = { workspace = true }
 openssl = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
@@ -136,6 +137,7 @@ itertools = "0.14.0"
 k256 = { version = "0.13.3", features = ["ecdsa", "arithmetic"] }
 market-data = { path = "libs/market-data" }
 merkle-tree-rs = "0.1.0"
+num_enum = "0.7.4"
 openssl = { version = "^0.10" }
 opentelemetry = { version = "0.30", features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = "0.30.1"
