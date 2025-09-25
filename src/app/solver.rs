@@ -134,7 +134,7 @@ pub struct SolverConfig {
 
     #[builder(setter(into, strip_option))]
     pub zero_threshold: Amount,
-    
+
     #[builder(setter(into, strip_option))]
     pub order_expiry_after: chrono::Duration,
 
@@ -747,7 +747,7 @@ impl SolverConfig {
                             SolverStatus::ShuttingDown => {
                                 tracing::debug!("Solver is shutting down - waiting for batches to complete");
                             }
-                            SolverStatus::Running => {
+                            _ => {
                                 // Continue normal operation
                             }
                         }
@@ -835,7 +835,7 @@ impl SolverConfig {
                             SolverStatus::ShuttingDown => {
                                 tracing::debug!("Quotes solver is shutting down - waiting for batches to complete");
                             }
-                            SolverStatus::Running => {
+                            _ => {
                                 // Continue normal operation
                             }
                         }
