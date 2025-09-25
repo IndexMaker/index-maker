@@ -64,14 +64,14 @@ services:
       - traefik.http.services.index-maker-issuer-orders-ws.loadbalancer.server.port=3002
 
     command: ["./index-maker", 
-              "--rpc-urls", "wss://0xrpc.io/base,wss://base-rpc.publicnode.com,https://1rpc.io/base,https://mainnet.base.org",
+              #"--rpc-urls", "wss://0xrpc.io/base,wss://base-rpc.publicnode.com,https://1rpc.io/base,https://mainnet.base.org",
+              "--rpc-urls", "wss://base-rpc.publicnode.com,https://1rpc.io/base,https://mainnet.base.org",
               "--bind-address", "0.0.0.0:3002",
               "--query-bind-address", "0.0.0.0:8080",
               "--config-path", "configs", 
-              #"--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
-              #"--otlp-log-url", "http://otel-collector:4318/v1/logs", 
-              #"--batch-size", "50",
-              #"--simulate-sender",
+              "--otlp-trace-url", "http://otel-collector:4318/v1/traces", 
+              "--otlp-log-url", "http://otel-collector:4318/v1/logs", 
+              "--batch-size", "50",
               "fix-server", "0"]
 
     environment:
@@ -90,13 +90,11 @@ services:
     networks:
       - proxy
     
-    #depends_on:
-    #  otel-collector:
-    #    condition: service_started
+    depends_on:
+      otel-collector:
+        condition: service_started
 
-    #restart: unless-stopped - we don't want that, if Index Maker stops, it
-    #should not restart, we must investigate as restarting will only repeat
-    #failure!
+    restart: unless-stopped 
 
 #  index-maker-tracker:
 #    platform: linux/amd64
@@ -115,16 +113,23 @@ services:
 #      otel-collector:
 #        condition: service_started
 #
-#  otel-collector:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile.otlp.prod
-#    container_name: otel-collector
-#    ports:
-#      - "4318:4318"
-#    command:
-#      - --config=/etc/otelcol-contrib/config.yaml
-#    restart: unless-stopped
+  otel-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.otlp.prod
+    container_name: otel-collector
+    ports:
+      - "4318:4318"
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+
+    environment:
+      ELASTIC_API_KEY: ${ELASTIC_API_KEY}
+
+    networks:
+      - proxy
+    
+    restart: unless-stopped
 
 networks:
   proxy:
