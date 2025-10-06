@@ -1,0 +1,60 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
+  <diagram name="Page-1" id="jkrMYomALNcL1CacTlP_">
+    <mxGraphModel dx="1158" dy="1569" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-13" value="&lt;font style=&quot;font-size: 36px;&quot;&gt;Phase 4. Batch Sending&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="365" y="-550" width="410" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-47" value="2. Send Batch Order" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="33bVk8CLxwGrdhBgpoj8-19" target="33bVk8CLxwGrdhBgpoj8-44">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-58" value="1. Internal fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="33bVk8CLxwGrdhBgpoj8-19" target="33bVk8CLxwGrdhBgpoj8-56">
+          <mxGeometry x="0.6667" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-19" value="Batch&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="60" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-51" value="3. For each asset: Send order" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;align=left;" edge="1" parent="1" source="33bVk8CLxwGrdhBgpoj8-44" target="33bVk8CLxwGrdhBgpoj8-48">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-44" value="Inventory&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="-100" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-50" value="4. Add order&lt;div&gt;status&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="33bVk8CLxwGrdhBgpoj8-48" target="33bVk8CLxwGrdhBgpoj8-49">
+          <mxGeometry x="0.6667" y="-20" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-53" value="5. Send order to CEX" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="33bVk8CLxwGrdhBgpoj8-48" target="33bVk8CLxwGrdhBgpoj8-52">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-48" value="Order Tracker" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="-250" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-49" value="CEX Order&lt;div&gt;Status&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="-250" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-55" value="6. Send order" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="33bVk8CLxwGrdhBgpoj8-52" target="33bVk8CLxwGrdhBgpoj8-54">
+          <mxGeometry x="-0.6667" y="10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-52" value="Order Connector" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="-400" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-54" value="CEX" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="800" y="-400" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="33bVk8CLxwGrdhBgpoj8-56" value="Batch&amp;nbsp;&lt;span style=&quot;background-color: initial;&quot;&gt;Position&lt;/span&gt;&lt;div&gt;Records&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="60" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
