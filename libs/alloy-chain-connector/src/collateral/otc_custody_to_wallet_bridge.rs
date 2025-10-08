@@ -1,10 +1,13 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use chrono::Utc;
-use eyre::{eyre, OptionExt};
-use index_core::collateral::{self, collateral_router::{
-    self, CollateralBridge, CollateralDesignation, CollateralRouterEvent, CollateralRoutingStatus
-}};
+use eyre::OptionExt;
+use index_core::collateral::
+    collateral_router::{
+        CollateralBridge, CollateralDesignation, CollateralRouterEvent,
+        CollateralRoutingStatus,
+    }
+;
 use parking_lot::RwLock as AtomicLock;
 use rust_decimal::dec;
 use safe_math::safe;
@@ -13,7 +16,7 @@ use symm_core::core::{
     bits::{Address, Amount, Symbol},
     decimal_ext::DecimalExt,
     functional::{
-        IntoObservableSingleVTable, NotificationHandlerOnce, OneShotSingleObserver, PublishSingle, SingleObserver
+        IntoObservableSingleVTableRef, NotificationHandlerOnce, OneShotSingleObserver, PublishSingle, SingleObserver
     },
 };
 
@@ -27,15 +30,15 @@ use crate::{
 
 pub struct OTCCustodyToWalletCollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,
-    custody: Arc<RwLock<OTCCustodyCollateralDesignation>>,
-    wallet: Arc<RwLock<WalletCollateralDesignation>>,
+    custody: Arc<OTCCustodyCollateralDesignation>,
+    wallet: Arc<WalletCollateralDesignation>,
     gas_fee_calculator: GasFeeCalculator,
 }
 
 impl OTCCustodyToWalletCollateralBridge {
     pub fn new(
-        custody: Arc<RwLock<OTCCustodyCollateralDesignation>>,
-        wallet: Arc<RwLock<WalletCollateralDesignation>>,
+        custody: Arc<OTCCustodyCollateralDesignation>,
+        wallet: Arc<WalletCollateralDesignation>,
         gas_fee_calculator: GasFeeCalculator,
     ) -> Self {
         Self {
@@ -48,12 +51,12 @@ impl OTCCustodyToWalletCollateralBridge {
 }
 
 impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
-    fn get_source(&self) -> Arc<RwLock<dyn CollateralDesignation>> {
-        self.custody.clone() as Arc<RwLock<dyn CollateralDesignation>>
+    fn get_source(&self) -> Arc<dyn CollateralDesignation> {
+        self.custody.clone() as Arc<dyn CollateralDesignation>
     }
 
-    fn get_destination(&self) -> Arc<RwLock<dyn CollateralDesignation>> {
-        self.wallet.clone() as Arc<RwLock<dyn CollateralDesignation>>
+    fn get_destination(&self) -> Arc<dyn CollateralDesignation> {
+        self.wallet.clone() as Arc<dyn CollateralDesignation>
     }
 
     fn transfer_funds(
@@ -66,48 +69,37 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
         amount: Amount,
         cumulative_fee: Amount,
     ) -> eyre::Result<()> {
-        let (wallet_chain_id, wallet_address, wallet_token_address, wallet_name) = {
-            let wallet = self
-                .wallet
-                .read()
-                .map_err(|err| eyre!("Failed to obtain lock on wallet: {:?}", err))?;
-            (
-                wallet.get_chain_id(),
-                wallet.get_address(),
-                wallet.get_token_address(),
-                wallet.get_full_name(),
-            )
-        };
+        let (wallet_chain_id, wallet_address, wallet_token_address, wallet_name) = (
+            self.wallet.get_chain_id(),
+            self.wallet.get_address(),
+            self.wallet.get_token_address(),
+            self.wallet.get_full_name(),
+        );
 
         (wallet_chain_id == chain_id)
             .then_some(())
             .ok_or_eyre("Incorrect chain ID")?;
 
-        let custody = self
-            .custody
-            .read()
-            .map_err(|err| eyre!("Failed to obtain lock on custody: {:?}", err))?;
-
-        (wallet_chain_id == custody.get_chain_id())
+        (wallet_chain_id == self.custody.get_chain_id())
             .then_some(())
             .ok_or_eyre("Incorrect chain ID")?;
 
-        (wallet_token_address == custody.get_token_address())
+        (wallet_token_address == self.custody.get_token_address())
             .then_some(())
             .ok_or_eyre("Incorrect token address")?;
 
-        let custody_name = custody.get_full_name();
+        let custody_name = self.custody.get_full_name();
         let outer_observer = self.observer.clone();
         let outer_observer_clone = self.observer.clone();
         let gas_fee_calculator = self.gas_fee_calculator.clone();
-        
+
         let client_order_id_clone = client_order_id.clone();
         let client_order_id_clone_2 = client_order_id.clone();
         let source_clone = custody_name.clone();
         let destination_clone = wallet_name.clone();
         let route_from_clone = route_from.clone();
         let route_to_clone = route_to.clone();
- 
+
         // Charge at most 10%, we'll take the hit
         // TODO: Configure me
         let max_fee_rate = dec!(0.1);
@@ -120,7 +112,8 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                 %chain_id, %address, %client_order_id, %chargeable_fee, %gas_fee,
                 "Computing gas fee"
             );
-            let cumulative_fee = safe!(cumulative_fee + chargeable_fee).ok_or_eyre("Math problem")?;
+            let cumulative_fee =
+                safe!(cumulative_fee + chargeable_fee).ok_or_eyre("Math problem")?;
             let amount = safe!(amount - chargeable_fee).ok_or_eyre("Math problem")?;
             Ok((amount, cumulative_fee))
         };
@@ -153,7 +146,7 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                     route_to,
                     amount,
                     fee: cumulative_fee,
-                    status: CollateralRoutingStatus::Success
+                    status: CollateralRoutingStatus::Success,
                 });
         });
 
@@ -178,15 +171,14 @@ impl CollateralBridge for OTCCustodyToWalletCollateralBridge {
                 });
         });
 
-
-        custody.custody_to_address(wallet_address, amount, observer, error_observer)?;
+        self.custody.custody_to_address(wallet_address, amount, observer, error_observer)?;
 
         Ok(())
     }
 }
 
-impl IntoObservableSingleVTable<CollateralRouterEvent> for OTCCustodyToWalletCollateralBridge {
-    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
+impl IntoObservableSingleVTableRef<CollateralRouterEvent> for OTCCustodyToWalletCollateralBridge {
+    fn set_observer(&self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
         self.observer.write().set_observer(observer);
     }
 }

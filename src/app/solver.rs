@@ -41,7 +41,7 @@ use symm_core::{
         bits::Amount,
         functional::{
             IntoObservableManyArc, IntoObservableManyFun, IntoObservableSingle,
-            IntoObservableSingleFun,
+            IntoObservableSingleFun, IntoObservableSingleFunRef,
         },
         persistence::{util::JsonFilePersistence, Persist},
         telemetry::{crossbeam::unbounded_traceable, TraceableEvent},
@@ -321,26 +321,10 @@ impl SolverConfig {
             .with_router
             .try_get_collateral_router_cloned()?;
 
-        let collateral_bridges = collateral_router
-            .read()
-            .map_err(|err| {
-                eyre!(
-                    "Failed to obtain lock on collateral router manager: {:?}",
-                    err
-                )
-            })?
-            .get_bridges();
+        let collateral_bridges = collateral_router.read().get_bridges();
 
         for bridge in collateral_bridges {
-            bridge
-                .write()
-                .map_err(|err| {
-                    eyre!(
-                        "Failed to obtain lock on collateral bridge manager: {:?}",
-                        err
-                    )
-                })?
-                .set_observer_from(router_event_tx.clone());
+            bridge.set_observer_from(router_event_tx.clone());
         }
 
         order_sender.write().set_observer_from(order_event_tx);
@@ -369,7 +353,6 @@ impl SolverConfig {
 
         collateral_router
             .write()
-            .map_err(|err| eyre!("Failed to obtain lock on collateral router: {:?}", err))?
             .get_single_observer_mut()
             .set_observer_from(transfer_event_tx);
 
@@ -416,13 +399,10 @@ impl SolverConfig {
                         Ok(event) => {
                             event.with_tracing(|notification| {
                                 tracing::trace!("Router event");
-                                match collateral_router.write() {
-                                    Ok(mut router) => if let Err(err) = router.handle_collateral_router_event(notification) {
-                                        tracing::warn!("Failed to handle collateral router event: {:?}", err);
-                                    }
-                                    Err(err) => {
-                                        tracing::warn!("Failed to obtain lock on collateral router: {:?}", err);
-                                    }
+                                if let Err(err) = collateral_router
+                                    .read()
+                                    .handle_collateral_router_event(notification) {
+                                    tracing::warn!("Failed to handle collateral router event: {:?}", err);
                                 }
                             })
                         }

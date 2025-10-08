@@ -24,7 +24,7 @@ use symm_core::{
     core::{
         self,
         bits::{self, Amount, ClientOrderId},
-        functional::{IntoObservableSingleFun, IntoObservableSingleVTable},
+        functional::{IntoObservableSingleFun, IntoObservableSingleFunRef, IntoObservableSingleVTable},
         logging::log_init,
     },
     init_log,
@@ -120,15 +120,15 @@ pub async fn main() {
 
     // === Create the bridge IMMEDIATELY after connector is up (bridges aren't dynamic) ===
     // Use std::sync::RwLock for designations (as in the bridge sample)
-    let src_custody = Arc::new(std::sync::RwLock::new(
+    let src_custody = Arc::new(
         EvmCollateralDesignation::arbitrum_usdc_with_name(custody_a, "CUSTODY_A"),
-    ));
-    let dst_custody = Arc::new(std::sync::RwLock::new(
+    );
+    let dst_custody = Arc::new(
         EvmCollateralDesignation::arbitrum_usdc_with_name(custody_b, "CUSTODY_B"),
-    ));
+    );
 
-    let src_custody_name = src_custody.read().unwrap().get_full_name();
-    let dst_custody_name = dst_custody.read().unwrap().get_full_name();
+    let src_custody_name = src_custody.get_full_name();
+    let dst_custody_name = dst_custody.get_full_name();
 
     let bridge = evm_connector
         .write()
@@ -140,27 +140,24 @@ pub async fn main() {
         custody_b
     );
 
-    bridge
-        .write()
-        .unwrap()
-        .set_observer_fn(|e: CollateralRouterEvent| match e {
-            CollateralRouterEvent::HopComplete {
-                chain_id,
-                address,
-                client_order_id: _,
-                timestamp: _,
-                source,
-                destination,
-                route_from: _,
-                route_to: _,
-                amount,
-                fee,
-                status,
-            } => {
-                tracing::info!(%chain_id, %address, %amount, %source, %destination, %fee,
+    bridge.set_observer_fn(|e: CollateralRouterEvent| match e {
+        CollateralRouterEvent::HopComplete {
+            chain_id,
+            address,
+            client_order_id: _,
+            timestamp: _,
+            source,
+            destination,
+            route_from: _,
+            route_to: _,
+            amount,
+            fee,
+            status,
+        } => {
+            tracing::info!(%chain_id, %address, %amount, %source, %destination, %fee,
                     "Collateral routing hop complete");
-            }
-        });
+        }
+    });
 
     // Capture for event loop
     let bridge_for_events = bridge.clone();
@@ -198,8 +195,7 @@ pub async fn main() {
                         }
                         ChainNotification::Deposit { chain_id: ev_chain_id, seq_num, affiliate1, affiliate2, address, amount, timestamp } => {
                             if address == custody_a_watch {
-                                let guard = bridge_for_events.read().unwrap();
-                                match guard.transfer_funds(
+                                match bridge_for_events.transfer_funds(
                                     chain_id,
                                     address,
                                     client_order_id.clone(),

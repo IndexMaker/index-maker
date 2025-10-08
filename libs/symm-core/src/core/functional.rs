@@ -175,6 +175,28 @@ where
     }
 }
 
+pub trait IntoObservableSingleVTableRef<T>: Send + Sync {
+    fn set_observer(&self, observer: Box<dyn NotificationHandlerOnce<T>>);
+}
+
+pub trait IntoObservableSingleFunRef<T>: Send + Sync {
+    fn set_observer_fn(&self, observer: impl NotificationHandlerOnce<T> + 'static);
+    fn set_observer_from(&self, observer: impl IntoNotificationHandlerOnceBox<T>);
+}
+
+impl<A, T> IntoObservableSingleFunRef<T> for A
+where
+    A: IntoObservableSingleVTableRef<T> + ?Sized,
+{
+    fn set_observer_fn(&self, observer: impl NotificationHandlerOnce<T> + 'static) {
+        self.set_observer(Box::new(observer));
+    }
+
+    fn set_observer_from(&self, observer: impl IntoNotificationHandlerOnceBox<T>) {
+        self.set_observer(observer.into_notification_handler_once_box());
+    }
+}
+
 /// Notifications can be handled by multiple handler, and so they must be passed
 /// by reference
 pub trait NotificationHandler<T>: Send + Sync {

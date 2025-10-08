@@ -322,7 +322,8 @@ impl Solver {
 
     /// Initiate graceful shutdown by setting status to ShuttingDown
     pub fn initiate_shutdown(&self) {
-        self.status.store(SolverStatus::ShuttingDown.into(), Ordering::SeqCst);
+        self.status
+            .store(SolverStatus::ShuttingDown.into(), Ordering::SeqCst);
         tracing::info!("Solver shutdown initiated - status set to ShuttingDown");
     }
 
@@ -1954,7 +1955,7 @@ mod test {
         assert_decimal_approx_eq,
         core::{
             bits::{PricePointEntry, SingleOrder},
-            functional::{IntoObservableMany, IntoObservableSingle},
+            functional::{IntoObservableMany, IntoObservableSingle, IntoObservableSingleFunRef},
             logging::log_init,
             persistence::util::InMemoryPersistence,
             test_util::{
@@ -2112,99 +2113,72 @@ mod test {
         let chain_connector = Arc::new(ComponentLock::new(MockChainConnector::new()));
         let fix_server = Arc::new(RwLock::new(MockServer::new()));
 
-        let collateral_designation_1 = Arc::new(ComponentLock::new(MockCollateralDesignation {
+        let collateral_designation_1 = Arc::new(MockCollateralDesignation {
             type_: "T1".into(),
             name: "D1".into(),
             collateral_symbol: "C1".into(),
             full_name: "T1:D1:C1".into(),
             balance: dec!(0.0),
-        }));
+        });
 
-        let collateral_designation_2 = Arc::new(ComponentLock::new(MockCollateralDesignation {
+        let collateral_designation_2 = Arc::new(MockCollateralDesignation {
             type_: "T2".into(),
             name: "D2".into(),
             collateral_symbol: "C2".into(),
             full_name: "T2:D2:C2".into(),
             balance: dec!(0.0),
-        }));
+        });
 
-        let collateral_designation_3 = Arc::new(ComponentLock::new(MockCollateralDesignation {
+        let collateral_designation_3 = Arc::new(MockCollateralDesignation {
             type_: "T3".into(),
             name: "D3".into(),
             collateral_symbol: "C3".into(),
             full_name: "T3:D3:C3".into(),
             balance: dec!(0.0),
-        }));
+        });
 
-        let collateral_bridge_1 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
+        let collateral_bridge_1 = Arc::new(MockCollateralBridge::new(
             collateral_designation_1.clone(),
             collateral_designation_2.clone(),
-        )));
+        ));
 
-        let collateral_bridge_2 = Arc::new(ComponentLock::new(MockCollateralBridge::new(
+        let collateral_bridge_2 = Arc::new(MockCollateralBridge::new(
             collateral_designation_2.clone(),
             collateral_designation_3.clone(),
-        )));
+        ));
 
-        let collateral_router = Arc::new(ComponentLock::new(CollateralRouter::new()));
+        let collateral_router = Arc::new(RwLock::new(CollateralRouter::new()));
 
         collateral_router
             .write()
-            .unwrap()
             .add_bridge(collateral_bridge_1.clone())
             .expect("Failed to add bridge");
 
         collateral_router
             .write()
-            .unwrap()
             .add_bridge(collateral_bridge_2.clone())
             .expect("Failed to add bridge");
 
         collateral_router
             .write()
-            .unwrap()
             .add_chain_source(
                 chain_id,
                 get_mock_index_name_1(),
-                collateral_designation_1
-                    .read()
-                    .unwrap()
-                    .get_full_name()
-                    .clone(),
+                collateral_designation_1.get_full_name().clone(),
             )
             .expect("Failed to add chain source");
 
         collateral_router
             .write()
-            .unwrap()
-            .set_default_destination(
-                collateral_designation_3
-                    .read()
-                    .unwrap()
-                    .get_full_name()
-                    .clone(),
-            )
+            .set_default_destination(collateral_designation_3.get_full_name().clone())
             .expect("Failed to set default destination");
 
         collateral_router
             .write()
-            .unwrap()
             .add_route(&[
-                collateral_designation_1
-                    .read()
-                    .unwrap()
-                    .get_full_name()
-                    .clone(),
-                collateral_designation_2
-                    .read()
-                    .unwrap()
-                    .get_full_name()
-                    .clone(),
-                collateral_designation_3
-                    .read()
-                    .unwrap()
-                    .get_full_name()
-                    .clone(),
+                collateral_designation_1.get_full_name().clone(),
+                collateral_designation_2.get_full_name().clone(),
+                collateral_designation_3.get_full_name().clone(),
             ])
             .expect("Failed to add route");
 
@@ -2317,21 +2291,12 @@ mod test {
             .get_single_observer_mut()
             .set_observer_from(collateral_sender);
 
-        collateral_bridge_1
-            .write()
-            .unwrap()
-            .get_single_observer_mut()
-            .set_observer_from(collateral_router_sender.clone());
+        collateral_bridge_1.set_observer_from(collateral_router_sender.clone());
 
-        collateral_bridge_2
-            .write()
-            .unwrap()
-            .get_single_observer_mut()
-            .set_observer_from(collateral_router_sender);
+        collateral_bridge_2.set_observer_from(collateral_router_sender);
 
         collateral_router
             .write()
-            .unwrap()
             .get_single_observer_mut()
             .set_observer_from(collateral_transfer_sender);
 
@@ -2635,14 +2600,13 @@ mod test {
             });
 
         let impl_collateral_bridge =
-            move |collateral_bridge: &Arc<ComponentLock<MockCollateralBridge>>,
+            move |collateral_bridge: &Arc<MockCollateralBridge>,
                   mock_bridge_sender: Sender<MockCollateralBridgeInternalEvent>,
                   defer_2: Sender<Box<dyn FnOnce() + Send + Sync>>| {
                 let collateral_bridge_weak = Arc::downgrade(collateral_bridge);
                 collateral_bridge
-                    .write()
-                    .unwrap()
                     .implementor
+                    .write()
                     .set_observer_fn(move |event| {
                         let collateral_bridge = collateral_bridge_weak.upgrade().unwrap();
                         match &event {
@@ -2673,19 +2637,16 @@ mod test {
                                 let timestamp = Utc::now();
                                 defer_2
                                     .send(Box::new(move || {
-                                        collateral_bridge
-                                            .write()
-                                            .unwrap()
-                                            .notify_collateral_router_event(
-                                                chain_id,
-                                                address,
-                                                client_order_id,
-                                                timestamp,
-                                                route_from,
-                                                route_to,
-                                                amount - fee,
-                                                cumulative_fee,
-                                            );
+                                        collateral_bridge.notify_collateral_router_event(
+                                            chain_id,
+                                            address,
+                                            client_order_id,
+                                            timestamp,
+                                            route_from,
+                                            route_to,
+                                            amount - fee,
+                                            cumulative_fee,
+                                        );
                                     }))
                                     .expect("Failed to send");
                             }
@@ -2741,7 +2702,6 @@ mod test {
                         .expect("Failed to handle bridge event"),
 
                     recv(collateral_router_receiver) -> res => collateral_router.write()
-                        .unwrap()
                         .handle_collateral_router_event(res.unwrap())
                         .map_err(|e| eyre!("{:?}", e))
                         .expect("Failed to handle router event"),

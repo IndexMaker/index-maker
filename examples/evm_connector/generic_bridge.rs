@@ -35,13 +35,9 @@ async fn main() {
     tracing::info!("Test Case 1: Cross-chain transfer (ARBITRUM -> BASE)");
 
     let wallet_address = address!("0xC0D3CB2E7452b8F4e7710bebd7529811868a85dd");
-    let arbitrum_usdc = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
-        wallet_address,
-    )));
+    let arbitrum_usdc = Arc::new(EvmCollateralDesignation::arbitrum_usdc(wallet_address));
 
-    let base_usdc = Arc::new(ComponentLock::new(EvmCollateralDesignation::base_usdc(
-        wallet_address,
-    )));
+    let base_usdc = Arc::new(EvmCollateralDesignation::base_usdc(wallet_address));
 
     let cross_chain_bridge = connector.create_bridge(arbitrum_usdc.clone(), base_usdc.clone());
     tracing::info!("Created bridge for cross-chain transfer");
@@ -50,9 +46,9 @@ async fn main() {
     tracing::info!("Test Case 2: Same-chain transfer (BASE -> BASE)");
 
     let different_wallet_address = address!("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
-    let base_usdc_2 = Arc::new(ComponentLock::new(EvmCollateralDesignation::base_usdc(
+    let base_usdc_2 = Arc::new(EvmCollateralDesignation::base_usdc(
         different_wallet_address, // Different wallet address for demo
-    )));
+    ));
 
     let same_chain_bridge = connector.create_bridge(base_usdc.clone(), base_usdc_2.clone());
     tracing::info!("Created bridge for same-chain transfer");

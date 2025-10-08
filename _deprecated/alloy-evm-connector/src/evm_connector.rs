@@ -153,17 +153,14 @@ impl EvmConnector {
     /// Generic bridge creation method - automatically selects bridge type based on designations
     pub fn create_bridge(
         &self,
-        source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-        destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-    ) -> Arc<std::sync::RwLock<dyn CollateralBridge>> {
-        let source_name = source.read().unwrap().get_name();
-        let destination_name = destination.read().unwrap().get_name();
+        source: Arc<EvmCollateralDesignation>,
+        destination: Arc<EvmCollateralDesignation>,
+    ) -> Arc<dyn CollateralBridge> {
+        let source_name = source.get_name();
+        let destination_name = destination.get_name();
 
         // Determine bridge type based on cross-chain check
-        let is_cross_chain = source
-            .read()
-            .unwrap()
-            .is_cross_chain(&*destination.read().unwrap());
+        let is_cross_chain = source.is_cross_chain(&destination);
 
         if is_cross_chain {
             // Cross-chain transfer - use Across bridge
@@ -179,7 +176,7 @@ impl EvmConnector {
                 self.chain_operations.clone(),
             );
 
-            bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
+            bridge as Arc<dyn CollateralBridge>
         } else {
             // Same-chain transfer - use ERC20 bridge
             let bridge = Erc20CollateralBridge::new_with_shared_operations(
@@ -188,16 +185,16 @@ impl EvmConnector {
                 self.chain_operations.clone(),
             );
 
-            bridge as Arc<std::sync::RwLock<dyn CollateralBridge>>
+            bridge as Arc<dyn CollateralBridge>
         }
     }
 
     /// Create a new AcrossCollateralBridge with shared chain_operations (legacy method)
     pub fn create_across_bridge(
         &self,
-        source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-        destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-    ) -> Arc<std::sync::RwLock<AcrossCollateralBridge>> {
+        source: Arc<EvmCollateralDesignation>,
+        destination: Arc<EvmCollateralDesignation>,
+    ) -> Arc<AcrossCollateralBridge> {
         AcrossCollateralBridge::new_with_shared_operations(
             source,
             destination,
@@ -208,9 +205,9 @@ impl EvmConnector {
     /// Create a new Erc20CollateralBridge with shared chain_operations (legacy method)
     pub fn create_erc20_bridge(
         &self,
-        source: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-        destination: Arc<std::sync::RwLock<EvmCollateralDesignation>>,
-    ) -> Arc<std::sync::RwLock<Erc20CollateralBridge>> {
+        source: Arc<EvmCollateralDesignation>,
+        destination: Arc<EvmCollateralDesignation>,
+    ) -> Arc<Erc20CollateralBridge> {
         Erc20CollateralBridge::new_with_shared_operations(
             source,
             destination,
@@ -322,7 +319,7 @@ impl ChainConnector for EvmConnector {
             tracing::error!("Failed to send withdraw command: {}", e);
         }
     }
-    
+
     fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol) {
         todo!()
     }

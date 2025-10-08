@@ -11,7 +11,7 @@ use alloy_evm_connector::utils::{IntoAmount, IntoEvmAmount};
 use index_core::collateral::collateral_router::CollateralRouterEvent;
 use rust_decimal::dec;
 use symm_core::core::bits::Amount;
-use symm_core::core::functional::IntoObservableSingleFun;
+use symm_core::core::functional::{IntoObservableSingleFun, IntoObservableSingleFunRef};
 use tokio::sync::watch;
 use tracing_subscriber;
 
@@ -135,13 +135,9 @@ async fn main() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Create designations with admin address
-    let source = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
-        admin_address,
-    )));
+    let source = Arc::new(EvmCollateralDesignation::arbitrum_usdc(admin_address));
 
-    let destination = Arc::new(ComponentLock::new(EvmCollateralDesignation::base_usdc(
-        admin_address,
-    )));
+    let destination = Arc::new(EvmCollateralDesignation::base_usdc(admin_address));
 
     // Create bridge using the generic method (it will automatically select Across bridge for cross-chain)
     let bridge = connector.create_bridge(source, destination);
@@ -155,38 +151,33 @@ async fn main() {
 
     let (end_tx, mut end_rx) = watch::channel(false);
 
-    bridge
-        .write()
-        .unwrap()
-        .set_observer_fn(move |event: CollateralRouterEvent| match event {
-            CollateralRouterEvent::HopComplete {
-                chain_id: _,
-                address: _,
-                client_order_id: _,
-                timestamp: _,
-                source: _,
-                destination,
-                route_from: _,
-                route_to: _,
+    bridge.set_observer_fn(move |event: CollateralRouterEvent| match event {
+        CollateralRouterEvent::HopComplete {
+            chain_id: _,
+            address: _,
+            client_order_id: _,
+            timestamp: _,
+            source: _,
+            destination,
+            route_from: _,
+            route_to: _,
+            amount,
+            fee,
+            status,
+        } => {
+            tracing::info!(
+                "Bridge complete: {} USDC -> {} (fee: {})",
                 amount,
+                destination,
                 fee,
-                status
-            } => {
-                tracing::info!(
-                    "Bridge complete: {} USDC -> {} (fee: {})",
-                    amount,
-                    destination,
-                    fee,
-                );
-                end_tx.send(true).expect("Failed to send ok");
-            }
-        });
+            );
+            end_tx.send(true).expect("Failed to send ok");
+        }
+    });
 
     tracing::info!("Initiating cross-chain transfer: 10 USDC Arbitrum -> Base");
 
     bridge
-        .write()
-        .unwrap()
         .transfer_funds(
             chain_id,
             admin_address,

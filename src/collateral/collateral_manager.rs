@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, RwLock as ComponentLock},
+    sync::Arc,
 };
 
 use alloy_primitives::U256;
@@ -12,6 +12,7 @@ use eyre::{eyre, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use symm_core::core::{
     persistence::{Persist, Persistence},
@@ -87,7 +88,7 @@ pub trait CollateralManagerHost: SetSolverOrderStatus {
 
 pub struct CollateralManager {
     observer: SingleObserver<CollateralEvent>,
-    router: Arc<ComponentLock<CollateralRouter>>,
+    router: Arc<RwLock<CollateralRouter>>,
     persistence: Arc<dyn Persistence + Send + Sync + 'static>,
     client_funds: HashMap<(u32, Address), ArcSwap<CollateralPosition>>,
     collateral_management_requests: VecDeque<CollateralManagement>,
@@ -96,7 +97,7 @@ pub struct CollateralManager {
 
 impl CollateralManager {
     pub fn new(
-        router: Arc<ComponentLock<CollateralRouter>>,
+        router: Arc<RwLock<CollateralRouter>>,
         persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         zero_threshold: Amount,
     ) -> Self {
@@ -118,10 +119,7 @@ impl CollateralManager {
         let process_collateral_span = span!(Level::TRACE, "process-collateral");
         let _guard = process_collateral_span.enter();
 
-        self.router
-            .write()
-            .map_err(|e| eyre!("Failed to access router {}", e))
-            .and_then(|mut x| x.process_routing(timestamp))?;
+        self.router.read().process_routing(timestamp)?;
 
         let requests = VecDeque::from_iter(self.collateral_management_requests.drain(..));
 
@@ -182,20 +180,14 @@ impl CollateralManager {
             .into_iter()
             .filter_map(|request| {
                 request.add_span_context_link();
-                match self
-                    .router
-                    .write()
-                    .map_err(|e| eyre!("Failed to access router {}", e))
-                    .and_then(|x| {
-                        x.transfer_collateral(
-                            request.chain_id,
-                            request.address,
-                            request.client_order_id.clone(),
-                            request.symbol.clone(),
-                            request.side,
-                            request.collateral_amount,
-                        )
-                    }) {
+                match self.router.read().transfer_collateral(
+                    request.chain_id,
+                    request.address,
+                    request.client_order_id.clone(),
+                    request.symbol.clone(),
+                    request.side,
+                    request.collateral_amount,
+                ) {
                     Ok(()) => None,
                     Err(err) => Some((err, request)),
                 }
@@ -847,7 +839,6 @@ mod test {
         let collateral_manager_weak = Arc::downgrade(&collateral_manager);
         router
             .write()
-            .unwrap()
             .get_single_observer_mut()
             .set_observer_fn(move |e| {
                 let collateral_manager = collateral_manager_weak.upgrade().unwrap();

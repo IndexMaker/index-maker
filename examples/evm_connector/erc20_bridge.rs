@@ -238,12 +238,8 @@ async fn main() {
         .expect("Failed to connect to Arbitrum");
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    let source_designation = Arc::new(ComponentLock::new(EvmCollateralDesignation::arbitrum_usdc(
-        address1,
-    )));
-    let destination_designation = Arc::new(ComponentLock::new(
-        EvmCollateralDesignation::arbitrum_usdc(address2),
-    ));
+    let source_designation = Arc::new(EvmCollateralDesignation::arbitrum_usdc(address1));
+    let destination_designation = Arc::new(EvmCollateralDesignation::arbitrum_usdc(address2));
     let erc20_bridge =
         connector.create_bridge(source_designation.clone(), destination_designation.clone());
 
@@ -279,8 +275,7 @@ async fn main() {
             .unwrap();
         tracing::info!(%allowance, %address1, %address2, "Allowance");
 
-        let bridge = erc20_bridge.read().unwrap();
-        bridge.transfer_funds(
+        erc20_bridge.transfer_funds(
             chain_id,
             from_address,
             client_order_id,
