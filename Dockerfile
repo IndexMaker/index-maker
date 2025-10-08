@@ -27,7 +27,6 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/index-maker ./
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/tracker ./
 COPY --from=builder /app/configs ./configs
-COPY --from=builder /app/indexes ./indexes
 
 CMD ["./index-maker", "-b", "0.0.0.0:3000", "-c", "configs", "quote-server"]
 

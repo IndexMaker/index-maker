@@ -1,0 +1,16 @@
+#!/bin/bash
+
+#####################################################################
+##                                                                 ##
+## THIS IS COMPLEMENTARY LOCAL CONFIGURATION FOR DEPLOYMENT        ##
+## THE ACTUAL CONFIGURATION IS STORED SAFE IN SECURE LOCATION      ##
+##                                                                 ##
+#####################################################################
+
+# Run local SSH agent in background
+eval `ssh-agent -s`
+ssh-add
+
+# Set user for remote SSH commands
+export SSH_USER=
+

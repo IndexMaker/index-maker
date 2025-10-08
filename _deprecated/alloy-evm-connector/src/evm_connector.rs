@@ -1,3 +1,4 @@
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use index_core::blockchain::chain_connector::{ChainConnector, ChainNotification};
@@ -270,6 +271,7 @@ impl ChainConnector for EvmConnector {
         symbol: Symbol,
         quantity: Amount,
         recipient: Address,
+        seq_num: U256,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {
@@ -319,5 +321,9 @@ impl ChainConnector for EvmConnector {
         if let Err(e) = self.send_command(chain_id, command) {
             tracing::error!("Failed to send withdraw command: {}", e);
         }
+    }
+    
+    fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol) {
+        todo!()
     }
 }

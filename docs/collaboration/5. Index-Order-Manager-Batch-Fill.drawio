@@ -1,0 +1,102 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
+  <diagram name="Page-1" id="7mb0r4nt96dzi734ky6D">
+    <mxGraphModel dx="2327" dy="1569" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="80JRJonDnm49HlkENDq_-1" value="&lt;font style=&quot;font-size: 36px;&quot;&gt;Phase 5. Batch Fill&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="410" y="-550" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-3" value="7. External fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-4" target="80JRJonDnm49HlkENDq_-14">
+          <mxGeometry x="0.6667" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-26" value="7. Fill Index Order" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-4" target="80JRJonDnm49HlkENDq_-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-4" value="Batch&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="60" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-19" value="5. Open lots" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-6" target="80JRJonDnm49HlkENDq_-18">
+          <mxGeometry x="0.6667" y="-20" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-20" value="6. Publish: Open Lot" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-6" target="80JRJonDnm49HlkENDq_-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-6" value="Inventory&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="-100" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-7" value="3. Update status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-9" target="80JRJonDnm49HlkENDq_-10">
+          <mxGeometry x="0.6667" y="-20" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-17" value="4. Fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-9" target="80JRJonDnm49HlkENDq_-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-9" value="Order Tracker" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="-250" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-10" value="CEX Order&lt;div&gt;Status&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="-250" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-16" value="2. Fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-12" target="80JRJonDnm49HlkENDq_-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-12" value="Order Connector" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="-400" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-15" value="1. Fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-13" target="80JRJonDnm49HlkENDq_-12">
+          <mxGeometry x="0.3333" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-13" value="CEX" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="800" y="-400" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-14" value="Batch&amp;nbsp;&lt;span style=&quot;background-color: initial;&quot;&gt;Position&lt;/span&gt;&lt;div&gt;Records&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="60" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-18" value="Inventory Position&lt;div&gt;Records&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="-100" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-28" value="9. Update records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-21" target="80JRJonDnm49HlkENDq_-25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-29" value="10. Fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-21" target="80JRJonDnm49HlkENDq_-24">
+          <mxGeometry x="0.1667" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-21" value="Index Order&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="320" y="240" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-22" value="User" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" vertex="1" parent="1">
+          <mxGeometry x="-70" y="240" width="30" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-27" value="8. Fill" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-23" target="80JRJonDnm49HlkENDq_-21">
+          <mxGeometry x="0.3333" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-23" value="Solver" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="240" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-30" value="11. Fill report" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="80JRJonDnm49HlkENDq_-24" target="80JRJonDnm49HlkENDq_-22">
+          <mxGeometry x="0.3333" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-24" value="FIX JSON" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="240" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="80JRJonDnm49HlkENDq_-25" value="Index Order&lt;div&gt;Records&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="390" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

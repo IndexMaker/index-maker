@@ -595,30 +595,33 @@ impl BatchManager {
     ) -> Result<()> {
         for asset_order in batch.asset_orders.iter_mut() {
             let position_key = (asset_order.symbol.clone(), asset_order.side);
-            if let Some(&carried_quantity) = carried_positions.get(&position_key) {
-                let remainng_quantity =
-                    safe!(asset_order.quantity - carried_quantity).ok_or_eyre("Math Problem")?;
+            if carried_positions.contains_key(&position_key) {
+                // NOTE: Order sizes are padded, and we would like to avoid
+                // sending orders to exchange in unpadded quantity. Here we've
+                // got some carry-over, meaning that we woudl reduce the amount
+                // we wanted to send to exchange by carried amount, and that
+                // would result in us sending unpadded quantity to exchange as
+                // well as we would very likely end up accumulating excess of
+                // carried over quantity. Better to leave this asset for next
+                // iteration, if we really need to send order to exchange we
+                // will do it in next iteration (next batch).
 
-                if self.zero_threshold < remainng_quantity {
-                    asset_order.quantity = remainng_quantity;
-                } else {
-                    asset_order.quantity = Amount::ZERO;
+                asset_order.quantity = Amount::ZERO;
 
-                    let batch_asset_position = batch_order_status
-                        .positions
-                        .get_mut(&position_key)
-                        .ok_or_eyre("Missing batch order status side")?;
+                let batch_asset_position = batch_order_status
+                    .positions
+                    .get_mut(&position_key)
+                    .ok_or_eyre("Missing batch order status side")?;
 
-                    batch_asset_position.is_cancelled = true;
-                    batch_asset_position.quantity_cancelled = Amount::ZERO;
+                batch_asset_position.is_cancelled = true;
+                batch_asset_position.quantity_cancelled = Amount::ZERO;
 
-                    tracing::debug!(
-                        batch_order_id = %batch_order_status.batch_order_id,
-                        side = ?batch_asset_position.side,
-                        asset_symbol = %batch_asset_position.symbol,
-                        order_quantity = %batch_asset_position.order_quantity,
-                        "Internal Batch Cancel");
-                }
+                tracing::debug!(
+                    batch_order_id = %batch_order_status.batch_order_id,
+                    side = ?batch_asset_position.side,
+                    asset_symbol = %batch_asset_position.symbol,
+                    order_quantity = %batch_asset_position.order_quantity,
+                    "Internal Batch Cancel");
             }
         }
         if batch_order_status
@@ -779,10 +782,16 @@ impl BatchManager {
                 .get(asset_symbol)
                 .ok_or_eyre("Asset contribution fraction not found")?;
 
+            let quantity_contribution = *engaged_order
+                .asset_quantity_contributions
+                .get(asset_symbol)
+                .ok_or_eyre("Asset quantity contribution not found")?;
+
             // = Current available position from this Batch
             //  * Index Order contribution fraction in this batch
-            let available_quantity =
-                safe!(position.position * contribution_fraction).ok_or_eyre("Math Problem")?;
+            let available_quantity = safe!(position.position * contribution_fraction)
+                .ok_or_eyre("Math Problem")?
+                .min(quantity_contribution);
 
             // = Quantity available in this batch for this Index Order
             //  / Quantity required to fully fill the fraction of the whole Index Order requested in this batch
@@ -1016,6 +1025,8 @@ impl BatchManager {
             .map(|engaged_orders| self.send_batch(host, &engaged_orders.read(), timestamp))
             .partition_result();
 
+        let new_batches_count = new_batches.len();
+
         tracing::info_span!("internal-fill").in_scope(|| {
             let (_, err): ((), Vec<_>) = new_batches
                 .into_iter()
@@ -1042,6 +1053,12 @@ impl BatchManager {
                 "Failed to send or fill internally batches: {}",
                 failures.into_iter().map(|e| format!("{:?}", e)).join(";")
             ))?;
+        }
+
+        if 0 < new_batches_count {
+            if let Err(err) = self.store() {
+                tracing::warn!("❗️ Failed to store batch manager: {:?}", err);
+            }
         }
 
         Ok(())
@@ -1469,7 +1486,7 @@ mod test {
 
     use index_core::index::basket::{AssetWeight, Basket, BasketDefinition};
 
-    use crate::solver::{
+    use crate::{app::timestamp_ids, solver::{
         batch_manager::BatchEvent,
         index_order_manager::EngagedIndexOrder,
         solver::{
@@ -1478,7 +1495,7 @@ mod test {
         },
         solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
-    };
+    }};
 
     use super::{BatchAssetLot, BatchAssetPosition, BatchManager, BatchManagerHost};
 
@@ -1579,6 +1596,7 @@ mod test {
             collateral_routed: engaged_collateral + remaining_collateral,
             collateral_spent: dec!(0.0),
             filled_quantity: dec!(0.0),
+            created_timestamp: timestamp,
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),
@@ -1862,6 +1880,7 @@ mod test {
             collateral_routed: dec!(3200.0),
             collateral_spent: dec!(0.0),
             filled_quantity: dec!(0.0),
+            created_timestamp: timestamp,
             timestamp,
             status: SolverOrderStatus::Engaged,
             lots: Vec::new(),

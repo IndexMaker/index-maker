@@ -145,6 +145,7 @@ pub enum ResponseBody {
     MintInvoiceBody {
         client_order_id: String,
         payment_id: String,
+        seq_num: String,
         symbol: String,
         filled_quantity: String,
         total_amount: String,

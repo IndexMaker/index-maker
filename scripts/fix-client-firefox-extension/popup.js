@@ -2,6 +2,7 @@ import { toUtf8Bytes } from "https://esm.sh/ethers@6.13.0";
 import * as secp from "https://esm.sh/@noble/secp256k1@1.7.1";
 import { sha256 } from "https://esm.sh/@noble/hashes@1.3.3/sha256";
 import { hmac } from "https://esm.sh/@noble/hashes@1.3.3/hmac";
+import { ethers } from "https://esm.sh/ethers@6.13.0";
 
 // Polyfill for secp to ensure compatibility
 secp.utils.hmacSha256Sync = (key, msg) => hmac(sha256, key, msg);
@@ -754,13 +755,21 @@ document.addEventListener("DOMContentLoaded", () => {
           log("Unsupported msg_type for signature verification", true);
           return;
         }
+        const buildSignable = (payload) =>
+        `{"msg_type":"${payload.msg_type}","id":"${payload.id}"}`
+        const signable = buildSignable(signPayload);
 
-        const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
-        const sigBytes = secp.utils.hexToBytes(signature[0].slice(2));
-        const pubKeyBytes = secp.utils.hexToBytes(public_key[0].slice(2));
+        // same EIP-191 digest
+        const digestHex = ethers.hashMessage(signable);
+        const digestBytes = secp.utils.hexToBytes(digestHex.slice(2));
 
-        const verified = secp.verify(sigBytes, hash, pubKeyBytes);
-        log(verified ? "✅ Signature verified!" : "❌ Signature verification failed!", !verified);
+        // r||s and uncompressed pubkey
+        const sigBytes = secp.utils.hexToBytes(signature[0].slice(2));   // 64B
+        const pubKeyBytes = secp.utils.hexToBytes(public_key[0].slice(2)); // 65B 0x04…
+
+        // verify
+        const verified = secp.verify(sigBytes, digestBytes, pubKeyBytes);
+        log("✅ Signature verified!")
 
         updateOrder(msg);
       }
@@ -771,8 +780,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (ws) ws.close();
   };
 
+  
   signBtn.onclick = async () => {
     try {
+      const buildSignable = (payload) =>
+      `{"msg_type":"${payload.msg_type}","id":"${payload.id}"}`
       const rawText = fixMessageJsonTextarea.value.trim();
       const msgObj = JSON.parse(rawText);
       const mode = modeSelect.value;
@@ -791,9 +803,18 @@ document.addEventListener("DOMContentLoaded", () => {
           throw new Error("Unsupported msg_type for signing");
         }
 
-        const hash = sha256(toUtf8Bytes(JSON.stringify(signPayload)));
-        const sig = secp.signSync(hash, privateKey, { canonical: true, der: false });
-        const signatureHex = "0x" + secp.utils.bytesToHex(sig.slice(0, 64));
+        // 1) Build exact signable string
+        const signable = buildSignable(signPayload);
+
+        // 2) Compute digest per EIP-191
+        const digestHex = ethers.hashMessage(signable);
+        const digestBytes = secp.utils.hexToBytes(digestHex.slice(2));
+
+        const sig = secp.signSync(digestBytes, privateKey, { canonical: true, der: false });
+        // store only r||s (64 bytes)
+        const signatureHex = "0x" + secp.utils.bytesToHex(sig.subarray(0, 64));
+
+        // uncompressed SEC1 public key (0x04… 65 bytes)
         const pubKey = secp.getPublicKey(privateKey, false);
         const pubKeyHex = "0x" + secp.utils.bytesToHex(pubKey);
 

@@ -1,24 +1,24 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
-use alloy::providers::Provider;
-use alloy_primitives::{keccak256, U256};
-use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption};
+use alloy::{providers::Provider, sol_types::SolEvent};
+use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, Log};
 use chrono::Utc;
 use eyre::{eyre, Context, OptionExt};
+use futures::{future::join_all, stream::select_all, StreamExt};
 use index_core::blockchain::chain_connector::ChainNotification;
+use itertools::Itertools;
 use parking_lot::RwLock as AtomicLock;
 use symm_core::core::{
     async_loop::AsyncLoop,
-    bits::Address,
+    bits::{Address, Symbol},
     functional::{PublishSingle, SingleObserver},
 };
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio_util::time::FutureExt;
 
-use crate::util::amount_converter::AmountConverter;
+use crate::{multiprovider::MultiProvider, util::amount_converter::AmountConverter};
 use otc_custody::{
-    contracts::{IOTCIndex::Deposit, ERC20},
+    contracts::IOTCIndex::{self, Deposit, Mint, Withdraw},
     custody_client::CustodyClientMethods,
     index::index::IndexInstance,
 };
@@ -27,114 +27,292 @@ pub struct RpcIssuerStream<P>
 where
     P: Provider + Clone + 'static,
 {
-    provider: Option<P>,
-    subscription_loop: AsyncLoop<eyre::Result<P>>,
+    providers: Option<MultiProvider<P>>,
+    account_name: String,
+    subscription_loop: AsyncLoop<eyre::Result<MultiProvider<P>>>,
 }
 
 impl<P> RpcIssuerStream<P>
 where
     P: Provider + Clone + 'static,
 {
-    pub fn new(provider: P) -> Self {
+    pub fn new(account_name: String, providers: MultiProvider<P>) -> Self {
         Self {
-            provider: Some(provider),
+            providers: Some(providers),
+            account_name,
             subscription_loop: AsyncLoop::new(),
         }
     }
 
     pub async fn unsubscribe(&mut self) -> eyre::Result<()> {
-        let provider = self
+        let providers = self
             .subscription_loop
             .stop()
             .await
             .map_err(|err| eyre!("Failed to unsubscribe: {:?}", err))??;
 
-        self.provider.replace(provider);
+        self.providers.replace(providers);
         Ok(())
     }
 
-    pub async fn subscribe(
+    pub async fn subscribe_polling(
         &mut self,
         chain_id: u32,
+        mut poll_rx: UnboundedReceiver<(u32, Address, Symbol)>,
         indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
         observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
     ) -> eyre::Result<()> {
-        let provider = self.provider.take().ok_or_eyre("Already subscribed")?;
-        let provider_clone = provider.clone();
+        let mut providers = self.providers.take().ok_or_eyre("Already subscribed")?;
+        let mut providers_clone = providers.clone();
 
-        let event_filter = Filter::new();
-        let poll_interval = std::time::Duration::from_secs(3);
+        let event_filter = Filter::new()
+            .address(indexes_by_address.read().keys().cloned().collect_vec())
+            .events(vec![
+                Deposit::SIGNATURE,
+                Withdraw::SIGNATURE,
+                Mint::SIGNATURE,
+            ]);
 
-        let mut last_block_from = provider.get_block_number().await?;
+        let timeout_period = std::time::Duration::from_secs(3);
 
-        let mut poll_log_events_fn = async move || -> eyre::Result<()> {
-            let most_recent_block = provider
-                .get_block_number()
-                .await
-                .context("Failed to obtain most recent block number")?;
+        let mut last_block_from = providers
+            .try_execute(async move |provider, rpc_url| -> eyre::Result<u64> {
+                tracing::info!(%rpc_url, "Getting last block number...");
+                provider
+                    .get_block_number()
+                    .timeout(timeout_period)
+                    .await
+                    .context("Failed to obtain most recent block number")?
+                    .context("Failed to obtain most recent block number: Timeout")
+            })
+            .await?;
 
-            if most_recent_block > last_block_from {
-                let range = event_filter.clone().select(FilterBlockOption::Range {
-                    from_block: Some(BlockNumberOrTag::Number(last_block_from + 1)),
-                    to_block: Some(BlockNumberOrTag::Number(most_recent_block)),
-                });
-                last_block_from = most_recent_block;
+        tracing::info!("Last block number {}", last_block_from);
 
-                let logs = provider.get_logs(&range).await?;
-                for log_event in logs {
-                    if let Ok(deposit_event) = log_event.log_decode::<Deposit>() {
-                        let deposit_data = deposit_event.inner;
-                        tracing::info!(
-                            "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
-                            deposit_data.amount,
-                            deposit_data.from,
-                            deposit_data.seqNumNewOrderSingle,
-                            deposit_data.affiliate1,
-                            deposit_data.affiliate2
-                        );
+        let account_name = self.account_name.clone();
+        let account_name_clone = account_name.clone();
 
-                        let decimals = indexes_by_address
-                            .read()
-                            .get(&deposit_data.address)
-                            .ok_or_else(|| {
-                                eyre!("Failed to find index by address: {}", deposit_data.address)
-                            })?
-                            .get_collateral_token_precision();
+        let mut poll_log_events_fn =
+            async move |provider: &P, rpc_url: &String| -> eyre::Result<()> {
+                let most_recent_block = provider
+                    .get_block_number()
+                    .timeout(timeout_period)
+                    .await
+                    .context("Failed to obtain most recent block number")?
+                    .context("Failed to obtain most recent block number: Timeout")?;
 
-                        let converter = AmountConverter::new(decimals);
-                        let amount = converter.into_amount(deposit_data.amount)?;
+                // limit the range
+                last_block_from = last_block_from.max(most_recent_block - 10_000);
 
-                        observer.read().publish_single(ChainNotification::Deposit {
+                if most_recent_block > last_block_from {
+                    tracing::info!(
+                    account_name = %account_name_clone,
+                    %rpc_url,
+                    %last_block_from,
+                    %most_recent_block, "⏱ Polling events");
+
+                    let range = event_filter.clone().select(FilterBlockOption::Range {
+                        from_block: Some(BlockNumberOrTag::Number(last_block_from + 1)),
+                        to_block: Some(BlockNumberOrTag::Number(most_recent_block)),
+                    });
+                    last_block_from = most_recent_block;
+
+                    let logs = provider
+                        .get_logs(&range)
+                        .timeout(timeout_period)
+                        .await
+                        .context("Failed to obtain logs")?
+                        .context("Failed to obtain logs: Timeout")?;
+
+                    for log in logs {
+                        Self::handle_log(
+                            &account_name_clone,
                             chain_id,
-                            address: deposit_data.from,
-                            amount,
-                            timestamp: Utc::now(),
-                        });
+                            &rpc_url,
+                            log,
+                            &indexes_by_address,
+                            &observer,
+                        )?;
                     }
                 }
-            }
-            Ok(())
-        };
+                Ok(())
+            };
 
         self.subscription_loop
-            .start(async move |cancel_token| -> eyre::Result<P> {
-                tracing::info!("Issuer stream polling loop started");
+            .start(async move |cancel_token| -> eyre::Result<MultiProvider<P>> {
+                tracing::info!(%account_name, "Issuer stream polling loop started");
                 loop {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
                             break;
                         },
-                        _ = tokio::time::sleep(poll_interval) => {
-                            if let Err(err) = poll_log_events_fn().await {
-                                tracing::warn!("Polling log events failed: {:?}", err);
+                        Some(_) = poll_rx.recv() => {
+                            let (provider, rpc_url) = providers_clone
+                                .next_provider()
+                                .current()
+                                .ok_or_eyre("No provider")?;
+
+                            tracing::info!("Polling next events");
+                            if let Err(err) = poll_log_events_fn(provider, rpc_url).await {
+                                tracing::warn!(%account_name, %rpc_url, "⚠️ Polling log events failed: {:?}", err);
                             }
                         }
                     }
                 }
-                tracing::info!("Issuer stream polling loop exited");
-                Ok(provider_clone)
+                tracing::info!(%account_name, "Issuer stream polling loop exited");
+                Ok(providers_clone)
             });
 
+        Ok(())
+    }
+
+    pub async fn subscribe_streaming(
+        &mut self,
+        chain_id: u32,
+        indexes_by_address: Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
+        observer: Arc<AtomicLock<SingleObserver<ChainNotification>>>,
+    ) -> eyre::Result<()> {
+        let providers = self.providers.take().ok_or_eyre("Already subscribed")?;
+        let account_name = self.account_name.clone();
+
+        let event_filter = Filter::new()
+            .address(indexes_by_address.read().keys().cloned().collect_vec())
+            .events(vec![
+                Deposit::SIGNATURE,
+                Withdraw::SIGNATURE,
+                Mint::SIGNATURE,
+            ]);
+
+        let subs = providers
+            .get_providers()
+            .iter()
+            .map(async |(p, u)| (p.subscribe_logs(&event_filter).await, u))
+            .collect_vec();
+
+        let (subs, errors): (Vec<_>, Vec<_>) = join_all(subs)
+            .await
+            .into_iter()
+            .map(|(s, u)| s.map(|s| (s, u)))
+            .partition_result();
+
+        if !errors.is_empty() {
+            tracing::warn!(
+                "⚠️ Failed to subscribe to stream(s): {}",
+                errors.into_iter().map(|e| format!("{:?}", e)).join("; ")
+            );
+        }
+
+        if subs.is_empty() {
+            Err(eyre!("No subscriptions"))?
+        }
+
+        let rpc_urls = subs.iter().map(|(_, u)| u).join(",");
+
+        let streams = subs
+            .into_iter()
+            .map(|(s, u)| {
+                let u = u.clone();
+                s.into_stream().map(move |x| (x, u.clone())).fuse()
+            })
+            .collect_vec();
+
+        let mut sel = select_all(streams);
+        tracing::info!(%rpc_urls, "✅ Subscriptions created");
+
+        self.subscription_loop.start(
+            async move |cancel_token| -> eyre::Result<MultiProvider<P>> {
+                tracing::info!(%account_name, "🏎️ Issuer streaming loop started");
+
+                loop {
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            break;
+                        },
+                        maybe_log = sel.next() => {
+                            match maybe_log {
+                                Some((log, rpc_url)) => {
+                                    if let Err(err) = Self::handle_log(
+                                        &account_name,
+                                        chain_id,
+                                        &rpc_url,
+                                        log,
+                                        &indexes_by_address,
+                                        &observer,
+                                    ) {
+                                        tracing::info!(
+                                            %account_name,
+                                            %rpc_url,
+                                            "⚠️ Failed to handle log: {:?}", err);
+                                    }
+                                },
+                                None => {
+                                    tracing::warn!(%account_name, "⚠️ All streams closed");
+                                    break;
+                                }
+                            }
+                        },
+                    }
+                }
+
+                tracing::info!(%account_name, "Issuer streaming loop exited");
+                Ok(providers)
+            },
+        );
+
+        Ok(())
+    }
+
+    fn handle_log(
+        account_name: &str,
+        chain_id: u32,
+        rpc_url: &str,
+        log: Log,
+        indexes_by_address: &Arc<AtomicLock<HashMap<Address, Arc<IndexInstance>>>>,
+        observer: &Arc<AtomicLock<SingleObserver<ChainNotification>>>,
+    ) -> eyre::Result<()> {
+        match log.topic0() {
+            Some(&IOTCIndex::Deposit::SIGNATURE_HASH) => {
+                if let Ok(deposit_event) = log.log_decode::<Deposit>() {
+                    let deposit_data = deposit_event.inner;
+                    tracing::info!(
+                        account_name = %account_name,
+                        %rpc_url,
+                        "📥 Deposit: amount={} from={:#x} seq={} aff1={:#x} aff2={:#x}",
+                        deposit_data.amount,
+                        deposit_data.from,
+                        deposit_data.seqNumNewOrderSingle,
+                        deposit_data.affiliate1,
+                        deposit_data.affiliate2
+                    );
+
+                    let decimals = indexes_by_address
+                        .read()
+                        .get(&deposit_data.address)
+                        .ok_or_else(|| {
+                            eyre!("Failed to find index by address: {}", deposit_data.address)
+                        })?
+                        .get_collateral_token_precision();
+
+                    let converter = AmountConverter::new(decimals);
+                    let amount = converter.into_amount(deposit_data.amount)?;
+
+                    observer.read().publish_single(ChainNotification::Deposit {
+                        chain_id,
+                        address: deposit_data.from,
+                        seq_num: deposit_data.seqNumNewOrderSingle,
+                        affiliate1: Some(deposit_data.affiliate1),
+                        affiliate2: Some(deposit_data.affiliate2),
+                        amount,
+                        timestamp: Utc::now(),
+                    });
+                } else {
+                    tracing::warn!("Failed to parse Deposit event");
+                }
+            }
+            Some(&IOTCIndex::Withdraw::SIGNATURE_HASH) => {}
+            Some(&IOTCIndex::Mint::SIGNATURE_HASH) => {}
+            _ => (),
+        }
         Ok(())
     }
 }

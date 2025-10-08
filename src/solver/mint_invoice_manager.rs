@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ pub struct GetInvoicesData {
     pub address: Address,
     pub client_order_id: ClientOrderId,
     pub payment_id: PaymentId,
+    pub seq_num: U256,
     pub symbol: Symbol,
     pub filled_quantity: Amount,
     pub total_amount: Amount,
@@ -117,6 +119,7 @@ impl MintInvoiceManager {
                 client_order_id: invoice.client_order_id.clone(),
                 symbol: invoice.symbol.clone(),
                 payment_id: invoice.payment_id.clone(),
+                seq_num: invoice.seq_num,
                 filled_quantity: invoice.filled_quantity.clone(),
                 total_amount: invoice.total_amount,
                 amount_paid: invoice.amount_paid,

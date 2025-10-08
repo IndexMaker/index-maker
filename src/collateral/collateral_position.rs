@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 
+use alloy_primitives::U256;
+use axum_fix_server::plugins::seq_num_plugin;
 use chrono::{DateTime, Utc};
 use itertools::FoldWhile::{Continue, Done};
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 
 use eyre::{OptionExt, Result};
 use safe_math::safe;
@@ -16,6 +18,7 @@ use symm_core::core::{
 pub enum RoutingStatus {
     Ready { fee: Amount },
     NotReady,
+    CheckLater,
 }
 
 pub enum PreAuthStatus {
@@ -24,7 +27,7 @@ pub enum PreAuthStatus {
 }
 
 pub enum ConfirmStatus {
-    Authorized,
+    Authorized(Vec<U256>),
     NotEnoughFunds,
 }
 
@@ -51,6 +54,9 @@ pub struct CollateralLot {
     /// Payment ID of this funding (credit/debit)
     pub payment_id: PaymentId,
 
+    /// Deposit sequence number
+    pub seq_num: Option<U256>,
+
     /// Total amount of funding (unconfirmed)
     pub unconfirmed_amount: Amount,
 
@@ -74,9 +80,15 @@ pub struct CollateralLot {
 }
 
 impl CollateralLot {
-    pub fn new(payment_id: PaymentId, amount: Amount, timestamp: DateTime<Utc>) -> Self {
+    pub fn new(
+        payment_id: PaymentId,
+        seq_num: Option<U256>,
+        amount: Amount,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
             payment_id,
+            seq_num,
             unconfirmed_amount: amount,
             ready_amount: Amount::ZERO,
             preauth_amount: Amount::ZERO,
@@ -132,11 +144,20 @@ impl CollateralSide {
     pub fn open_lot(
         &mut self,
         payment_id: PaymentId,
+        seq_num: Option<U256>,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
+        if let Some(seq_num) = seq_num {
+            if chain!(self.open_lots.iter(), self.closed_lots.iter())
+                .any(|l| l.seq_num.map_or(false, |s| s.eq(&seq_num)))
+            {
+                tracing::warn!(%seq_num, "⚠️ Collateral lot with this sequence nubmer already booked");
+                return Ok(());
+            }
+        }
         self.open_lots
-            .push(CollateralLot::new(payment_id, amount, timestamp));
+            .push(CollateralLot::new(payment_id, seq_num, amount, timestamp));
 
         self.unconfirmed_balance =
             safe!(self.unconfirmed_balance + amount).ok_or_eyre("Math Problem")?;
@@ -175,6 +196,12 @@ impl CollateralSide {
             let lot = &mut self.open_lots[pos];
             let ready_balance = safe!(lot.ready_amount + amount)?;
             let unconfirmed_balance = safe!(lot.unconfirmed_amount - amount)?;
+            if ready_balance < -zero_threshold || unconfirmed_balance < -zero_threshold {
+                tracing::warn!(
+                    "Failed to add ready collateral: Operation would result in negative balance"
+                );
+                None?;
+            }
             lot.unconfirmed_amount = unconfirmed_balance;
             lot.ready_amount = ready_balance;
             tracing::info!(
@@ -206,6 +233,12 @@ impl CollateralSide {
         let ready_balance = safe!(self.ready_balance + amount_deliverable)?;
         let unconfirmed_balance = safe!(self.unconfirmed_balance - amount_deliverable)?;
 
+        if ready_balance < -zero_threshold || unconfirmed_balance < -zero_threshold {
+            tracing::warn!(
+                "Failed to add ready collateral: Operation would result in negative balance"
+            );
+            None?;
+        }
         self.ready_balance = ready_balance;
         self.unconfirmed_balance = unconfirmed_balance;
         self.last_update_timestamp = timestamp;
@@ -244,6 +277,12 @@ impl CollateralSide {
             let lot = &mut self.open_lots[pos];
             let preauth_balance = safe!(lot.preauth_amount + amount)?;
             let ready_balance = safe!(lot.ready_amount - amount)?;
+            if ready_balance < -zero_threshold || preauth_balance < -zero_threshold {
+                tracing::warn!(
+                    "Failed to preauth collateral: Operation would result in negative balance"
+                );
+                None?;
+            }
             lot.ready_amount = ready_balance;
             lot.preauth_amount = preauth_balance;
             let spend = CollateralSpend {
@@ -297,6 +336,12 @@ impl CollateralSide {
         let ready_balance = safe!(self.ready_balance - amount_payable)?;
         let preauth_balance = safe!(self.preauth_balance + amount_payable)?;
 
+        if ready_balance < -zero_threshold || preauth_balance < -zero_threshold {
+            tracing::warn!(
+                "Failed to preauth collateral: Operation would result in negative balance"
+            );
+            None?;
+        }
         self.ready_balance = ready_balance;
         self.preauth_balance = preauth_balance;
 
@@ -341,6 +386,7 @@ impl CollateralSide {
         let (amount, pos) = res.into_inner()?;
 
         let mut closed_lots = VecDeque::new();
+        let mut seq_nums = Vec::new();
 
         // Fully close spends (not lots!)
         for lot in self.open_lots.iter_mut().take(pos) {
@@ -365,6 +411,12 @@ impl CollateralSide {
             lot.preauth_amount = safe!(lot.preauth_amount - amount)?;
             lot.spent_amount = spent_balance;
             lot.last_update_timestamp = timestamp;
+
+            if zero_threshold < spent_amount {
+                if let Some(seq_num) = lot.seq_num {
+                    seq_nums.push(seq_num);
+                }
+            }
 
             if lot.unconfirmed_amount < zero_threshold
                 && lot.ready_amount < zero_threshold
@@ -429,6 +481,12 @@ impl CollateralSide {
             lot.preauth_amount = preauth_balance;
             lot.spent_amount = spent_balance;
 
+            if zero_threshold < spent_amount {
+                if let Some(seq_num) = lot.seq_num {
+                    seq_nums.push(seq_num);
+                }
+            }
+
             tracing::info!(
                 lot_payment_id = %lot.payment_id,
                 %payment_id,
@@ -453,10 +511,16 @@ impl CollateralSide {
         let preauth_balance = safe!(self.preauth_balance - amount_paid)?;
         let spent_balance = safe!(self.spent_balance + amount_paid)?;
 
+        if spent_balance < -zero_threshold || preauth_balance < -zero_threshold {
+            tracing::warn!(
+                "Failed to spend collateral: Operation would result in negative balance"
+            );
+            None?;
+        }
         self.preauth_balance = preauth_balance;
         self.spent_balance = spent_balance;
 
-        Some(ConfirmStatus::Authorized)
+        Some(ConfirmStatus::Authorized(seq_nums))
     }
 }
 
@@ -496,10 +560,12 @@ impl CollateralPosition {
     pub fn deposit(
         &mut self,
         payment_id: PaymentId,
+        seq_num: Option<U256>,
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.side_cr.open_lot(payment_id, amount, timestamp)?;
+        self.side_cr
+            .open_lot(payment_id, seq_num, amount, timestamp)?;
         self.last_update_timestamp = timestamp;
         Ok(())
     }
@@ -510,9 +576,16 @@ impl CollateralPosition {
         amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<()> {
-        self.side_dr.open_lot(payment_id, amount, timestamp)?;
+        self.side_dr.open_lot(payment_id, None, amount, timestamp)?;
         self.last_update_timestamp = timestamp;
         Ok(())
+    }
+
+    pub fn get_side_mut(&mut self, side: Side) -> &mut CollateralSide {
+        match side {
+            Side::Buy => &mut self.side_cr,
+            Side::Sell => &mut self.side_dr,
+        }
     }
 
     pub fn add_ready(
@@ -522,13 +595,7 @@ impl CollateralPosition {
         timestamp: DateTime<Utc>,
         zero_threshold: Amount,
     ) -> Option<()> {
-        // Swap cr/dr for Sell - maybe it will work :)
-        let side_cr = match side {
-            Side::Buy => &mut self.side_cr,
-            Side::Sell => &mut self.side_dr,
-        };
-
-        side_cr.add_ready(amount, timestamp, zero_threshold)
+        self.get_side_mut(side).add_ready(amount, timestamp, zero_threshold)
     }
 
     pub fn preauth_payment(
@@ -540,18 +607,13 @@ impl CollateralPosition {
         zero_threshold: Amount,
         next_payment_id: impl Fn() -> PaymentId,
     ) -> Option<PreAuthStatus> {
-        // Swap cr/dr for Sell - maybe it will work :)
-        let side_cr = match side {
-            Side::Buy => &mut self.side_cr,
-            Side::Sell => &mut self.side_dr,
-        };
-
-        let balance_remaining = safe!(side_cr.ready_balance - amount_payable)?;
+        let side_mut = self.get_side_mut(side);
+        let balance_remaining = safe!(side_mut.ready_balance - amount_payable)?;
 
         if balance_remaining < -zero_threshold {
             Some(PreAuthStatus::NotEnoughFunds)
         } else {
-            side_cr.preauth_payment(
+            side_mut.preauth_payment(
                 client_order_id,
                 next_payment_id(),
                 timestamp,
@@ -569,23 +631,20 @@ impl CollateralPosition {
         amount_paid: Amount,
         zero_threshold: Amount,
     ) -> Option<ConfirmStatus> {
-        // Swap cr/dr for Sell - maybe it will work :)
-        let side_cr = match side {
-            Side::Buy => &mut self.side_cr,
-            Side::Sell => &mut self.side_dr,
-        };
-        let balance_remaining = safe!(side_cr.preauth_balance - amount_paid)?;
+        let side_mut = self.get_side_mut(side);
+        let balance_remaining = safe!(side_mut.preauth_balance - amount_paid)?;
 
         if balance_remaining < -zero_threshold {
             Some(ConfirmStatus::NotEnoughFunds)
         } else {
-            side_cr.confirm_payment(payment_id, timestamp, amount_paid, zero_threshold)
+            side_mut.confirm_payment(payment_id, timestamp, amount_paid, zero_threshold)
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use alloy_primitives::U256;
     use chrono::Utc;
     use rust_decimal::dec;
     use test_case::test_case;
@@ -695,7 +754,8 @@ mod test {
         // This operation creates unconfirmed lots of collateral. Normally routing
         // would perform transfer from source chain into final destination, and
         // once transfers are complete, then we move to next state, which is ready.
-        pos.deposit("P-01".into(), deposit, timestamp).unwrap();
+        pos.deposit("P-01".into(), Some(U256::ONE), deposit, timestamp)
+            .unwrap();
 
         test_asserts(&pos, post_deposit, false);
 
@@ -745,7 +805,7 @@ mod test {
             )
             .unwrap();
 
-        assert!(matches!(status, ConfirmStatus::Authorized));
+        assert!(matches!(status, ConfirmStatus::Authorized(_)));
 
         test_asserts(&pos, post_confirm, full_spend);
     }

@@ -1,0 +1,34 @@
+#!/bin/bash
+
+#####################################################################
+##                                                                 ##
+## !!! THIS IS NOT A PRODUCTION CONFIG !!! DEV TESTING ONLY !!!    ##
+##                                                                 ##
+## Copy this example into local directoy such as ~/.index-maker/   ##
+## and use copy FOR DEVELOPMENT ONLY.                              ##
+##                                                                 ##
+## NOTE: THESE ENVIRONMENT VARIABLES ARE COMPLEMENTARY TO COMMAND  ##
+## LINE AND REGULAR CONFIGURATION FILES.                           ##
+##                                                                 ##
+#####################################################################
+
+# Run local SSH agent in background for GIT access
+eval `ssh-agent -s`
+ssh-add
+
+# Set TTY commit signing using GPG
+export GPG_TTY=$(tty)
+
+# Setup Rust logging and backtrace
+export RUST_BACKTRACE=1
+export RUST_LOG=info,binance_sdk=off,hyper_util=off,binance=warn,axum=warn,market_data:warn
+
+# FIX Server Key (for signing responses)
+export SERVER_PRIVATE_KEY="0xac097... (in dev use one of the Anvil private keys)"
+
+# Index Managmenet Key (for deploying index and minting)
+export INDEX_MAKER_PRIVATE_KEY="0xac097... (in dev use one of the Anvil private keys)"
+
+# Custody Management Key (for collateral routing)
+export CUSTODY_AUTHORITY_PRIVATE_KEY="0xac097... (in dev use one of the Anvil private keys)"
+

@@ -136,6 +136,9 @@ pub struct SolverConfig {
     pub zero_threshold: Amount,
 
     #[builder(setter(into, strip_option))]
+    pub order_expiry_after: chrono::Duration,
+
+    #[builder(setter(into, strip_option))]
     pub client_order_wait_period: TimeDelta,
 
     #[builder(setter(into, strip_option))]
@@ -744,7 +747,7 @@ impl SolverConfig {
                             SolverStatus::ShuttingDown => {
                                 tracing::debug!("Solver is shutting down - waiting for batches to complete");
                             }
-                            SolverStatus::Running => {
+                            _ => {
                                 // Continue normal operation
                             }
                         }
@@ -832,7 +835,7 @@ impl SolverConfig {
                             SolverStatus::ShuttingDown => {
                                 tracing::debug!("Quotes solver is shutting down - waiting for batches to complete");
                             }
-                            SolverStatus::Running => {
+                            _ => {
                                 // Continue normal operation
                             }
                         }
@@ -851,6 +854,15 @@ impl SolverConfig {
     async fn stop_solver(&mut self) -> Result<()> {
         if let Some((stop_solver_tx, solver_stopped_rx)) = self.stopping_solver.take() {
             stop_solver_tx.send(())?;
+            solver_stopped_rx.await?;
+            Ok(())
+        } else {
+            Err(eyre!("Cannot stop solver: Not started"))
+        }
+    }
+
+    pub async fn check_solver_stopped(&mut self) -> Result<()> {
+        if let Some((_, solver_stopped_rx)) = &mut self.stopping_solver {
             solver_stopped_rx.await?;
             Ok(())
         } else {
@@ -889,7 +901,7 @@ impl SolverConfig {
         // 3. Stop dispatching server events
         self.stop_orders_backend().await?;
         self.stop_quotes_backend().await?;
-        
+
         // 4. Stop receiving market data
         self.stop_market_data().await?;
 
@@ -1032,6 +1044,7 @@ impl SolverConfigBuilder {
             persistence,
             config.max_batch_size,
             config.zero_threshold,
+            config.order_expiry_after,
             config.client_order_wait_period,
             config.client_quote_wait_period,
         ));

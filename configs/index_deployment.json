@@ -1,12 +1,12 @@
 {
     "chain_id": 8453,
-    "index_factory_address": "0x2F8F184e7507BeeD89F65c5e2500E85193bdABF1",
-    "custody_address": "0x0A16Da33cf7AC9e6cb7dff65f7755D766ACDB6FE",
-    "trade_route": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-    "withdraw_route": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "index_factory_address": "0x572B70b2Fa9c4AE8ECA56058ec5274f73a8D3B6e",
+    "custody_address": "0xF7F7d5C0d394f75307B4D981E8DE2Bab9639f90F",
+    "trade_route": "0x118ff5f1f972f59faf772c6099eac0e679204e0f",
+    "withdraw_route": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
     "indexes": [
         {
-            "name": "Top 100",
+            "name": "Top 100 Market-Cap Tokens",
             "symbol": "SY100",
             "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "collateral_token_precision": "6",
@@ -19,8 +19,8 @@
             "initial_price": "200000000000000000000000"
         },
         {
-            "name": "So 2",
-            "symbol": "SO2",
+            "name": "Andreessen Horowitz (a16z) Portfolio",
+            "symbol": "SYAZ",
             "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "collateral_token_precision": "6",
             "management_fee": "100",
@@ -32,8 +32,47 @@
             "initial_price": "5500000000000000000000"
         },
         {
-            "name": "So 3",
-            "symbol": "SO3",
+            "name": "Layer-2",
+            "symbol": "SYL2",
+            "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "collateral_token_precision": "6",
+            "management_fee": "100",
+            "performance_fee": "200",
+            "max_mint_per_block": "1000000000000000000000",
+            "max_redeem_per_block": "1000000000000000000000",
+            "vote_threshold": "51",
+            "vote_period": "86400",
+            "initial_price": "1150000000000000000"
+        },
+        {
+            "name": "Artificial Intelligence",
+            "symbol": "SYAI",
+            "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "collateral_token_precision": "6",
+            "management_fee": "100",
+            "performance_fee": "200",
+            "max_mint_per_block": "1000000000000000000000",
+            "max_redeem_per_block": "1000000000000000000000",
+            "vote_threshold": "51",
+            "vote_period": "86400",
+            "initial_price": "1150000000000000000"
+        },
+        {
+            "name": "Meme Tokens",
+            "symbol": "SYME",
+            "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "collateral_token_precision": "6",
+            "management_fee": "100",
+            "performance_fee": "200",
+            "max_mint_per_block": "1000000000000000000000",
+            "max_redeem_per_block": "1000000000000000000000",
+            "vote_threshold": "51",
+            "vote_period": "86400",
+            "initial_price": "1150000000000000000"
+        },
+        {
+            "name": "Decentralized Finance (DeFi)",
+            "symbol": "SYDF",
             "collateral_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "collateral_token_precision": "6",
             "management_fee": "100",

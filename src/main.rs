@@ -1,7 +1,9 @@
 use alloy::primitives::address;
 use alloy_chain_connector::{
     chain_connector::GasFeeCalculator, credentials::Credentials as AlloyCredentials,
+    multiprovider::SharedSessionData,
 };
+use alloy_primitives::U256;
 use binance_order_sending::{
     binance_order_sending::BinanceFeeCalculator, credentials::Credentials as BinanceCredentials,
 };
@@ -35,11 +37,11 @@ use index_maker::{
     server::server::ServerEvent,
     solver::mint_invoice_manager,
 };
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use otc_custody::custody_authority::CustodyAuthority;
 use parking_lot::RwLock;
 use rust_decimal::dec;
-use std::{env, sync::Arc};
+use std::{collections::VecDeque, env, process, sync::Arc};
 
 use symm_core::{
     core::{
@@ -79,8 +81,8 @@ struct Cli {
     #[arg(long, short)]
     query_bind_address: Option<String>,
 
-    #[arg(long)]
-    rpc_url: Option<String>,
+    #[arg(short, long, value_delimiter = ',')]
+    rpc_urls: Option<Vec<String>>,
 
     #[arg(long, short)]
     log_path: Option<String>,
@@ -243,7 +245,7 @@ enum ChainMode {
 impl ChainMode {
     async fn new_with_router(
         simulate_chain: bool,
-        rpc_url: Option<String>,
+        rpc_urls: Option<Vec<String>>,
         main_quote_currency: Symbol,
         index_symbols: Vec<Symbol>,
         market_data: &MarketDataConfig,
@@ -268,18 +270,26 @@ impl ChainMode {
                 chain_config: simple_chain_connector_config,
             }
         } else {
-            let chain_id = 8453;
-            let rpc_url = rpc_url.unwrap_or_else(|| String::from("http://127.0.0.1:8545"));
+            let shared_data = Arc::new(SharedSessionData {
+                chain_id: 8453,
+                rpc_urls: rpc_urls.unwrap_or_else(|| vec![String::from("http://127.0.0.1:8545")]),
+                poll_interval: std::time::Duration::from_secs(10),
+                poll_backoff_period: std::time::Duration::from_secs(10),
+                retry_backoff: vec![1, 2, 3, 5, 8, 13]
+                    .into_iter()
+                    .map(std::time::Duration::from_secs)
+                    .collect_vec(),
+                max_poll_failures: 10,
+            });
 
-            let index_operator_credentials = AlloyCredentials::new(
-                String::from("Chain-1"),
-                chain_id,
-                rpc_url,
+            let index_operator_credentials = vec![AlloyCredentials::new(
+                format!("{}", shared_data.chain_id),
+                shared_data.clone(),
                 Arc::new(|| {
                     env::var("INDEX_MAKER_PRIVATE_KEY")
                         .expect("INDEX_MAKER_PRIVATE_KEY environment variable must be defined")
                 }),
-            );
+            )];
 
             let index_operator_custody_auth = CustodyAuthority::new(|| {
                 env::var("CUSTODY_AUTHORITY_PRIVATE_KEY")
@@ -288,12 +298,13 @@ impl ChainMode {
 
             let gas_fee_calculator = GasFeeCalculator::new(
                 market_data.expect_price_tracker_exchange_rates_cloned(),
-                main_quote_currency,
+                main_quote_currency.clone(),
             );
 
             let chain_connector_config = RealChainConnectorConfig::builder()
                 .with_router(router_config.clone())
                 .with_credentials(index_operator_credentials)
+                .with_main_quote_currency(main_quote_currency)
                 .with_custody_authority(index_operator_custody_auth)
                 .with_config_file(config_file)
                 .with_gas_fee_calculator(gas_fee_calculator)
@@ -386,20 +397,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_levels = 5usize;
     let fee_factor = dec!(1.002);
     let max_order_volley_size = dec!(20.0);
-    let max_volley_size = dec!(100.0);
+    let max_volley_size = dec!(500.0);
     let min_asset_volley_size = dec!(5.0);
     let asset_volley_step_size = dec!(0.1);
     let max_total_volley_size = dec!(1000.0);
-    let min_total_volley_available = dec!(100.0);
+    let min_total_volley_available = dec!(200.0);
 
     let fill_threshold = dec!(0.9999);
     let mint_threshold = dec!(0.99);
     let mint_wait_period = TimeDelta::seconds(10);
 
-    let max_batch_size = 4usize;
-    let zero_threshold = dec!(0.000000000000000001);
-    let client_order_wait_period = TimeDelta::seconds(10);
-    let client_quote_wait_period = TimeDelta::seconds(1);
+    let max_batch_size = 16usize;
+    let collateral_zero_threshold = dec!(0.000_001);
+    let assets_zero_threshold = dec!(0.000_000_000_000_000_001);
+    let order_expiry_after = chrono::Duration::minutes(30);
+    let client_order_wait_period = TimeDelta::seconds(5);
+    let client_quote_wait_period = TimeDelta::milliseconds(500);
 
     let trading_enabled = env::var("BINANCE_TRADING_ENABLED")
         .map(|s| {
@@ -447,7 +460,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let asset_symbols = basket_manager_config.get_underlying_asset_symbols();
 
     let market_data_config = MarketDataConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(assets_zero_threshold)
         .subscriptions(
             asset_symbols
                 .iter()
@@ -478,7 +491,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let chain_mode = ChainMode::new_with_router(
         cli.simulate_chain,
-        cli.rpc_url,
+        cli.rpc_urls,
         main_quote_currency,
         index_symbols,
         &market_data_config,
@@ -492,7 +505,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build mint invoice manager config");
 
     let index_order_manager_config = IndexOrderManagerConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(collateral_zero_threshold)
         .with_server(app_mode.get_server_config())
         .with_invoice_manager(mint_invoice_manager_config.clone())
         .build()
@@ -504,7 +517,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build quote request manager");
 
     let batch_manager_config = BatchManagerConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(assets_zero_threshold)
         .fill_threshold(fill_threshold)
         .mint_threshold(mint_threshold)
         .mint_wait_period(mint_wait_period)
@@ -513,7 +526,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build batch manager");
 
     let collateral_manager_config = CollateralManagerConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(collateral_zero_threshold)
         .with_router(router_config)
         .build()
         .expect("Failed to build collateral manager");
@@ -545,8 +558,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to build simple solver");
 
     let mut solver_config = SolverConfig::builder()
-        .zero_threshold(zero_threshold)
+        .zero_threshold(collateral_zero_threshold)
         .max_batch_size(max_batch_size)
+        .order_expiry_after(order_expiry_after)
         .solver_tick_interval(Duration::milliseconds(100))
         .quotes_tick_interval(Duration::milliseconds(10))
         .client_order_wait_period(client_order_wait_period)
@@ -645,7 +659,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .publish_event(ChainNotification::Deposit {
                         chain_id: 1,
                         address: get_mock_address_1(),
+                        seq_num: U256::ONE,
                         amount: *collateral_amount,
+                        affiliate1: None,
+                        affiliate2: None,
                         timestamp: Utc::now(),
                     });
 
@@ -697,6 +714,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .publish_event(ChainNotification::Deposit {
                             chain_id,
                             address,
+                            seq_num: U256::ONE,
+                            affiliate1: None,
+                            affiliate2: None,
                             amount: *collateral_amount,
                             timestamp: Utc::now(),
                         });
@@ -717,6 +737,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sigquit = signal(SignalKind::quit())?;
 
     tokio::select! {
+        _ = solver_config.check_solver_stopped() => {
+            panic!("Solver terminated unexpectedly");
+        }
         _ = sigint.recv() => {
             tracing::info!("SIGINT received")
         }

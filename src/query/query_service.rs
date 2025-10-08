@@ -82,7 +82,7 @@ impl QueryService {
 async fn get_inventory(
     State(state): State<Arc<QueryServiceState>>,
 ) -> Result<Json<Arc<GetReconciledPositionsResponse>>, StatusCode> {
-    let positions = state.get_inventory_manager().read().get_snapshot().get();
+    let positions = state.get_inventory_snapshot();
     Ok(Json(positions))
 }
 
@@ -92,6 +92,11 @@ async fn get_collateral_position(
     State(state): State<Arc<QueryServiceState>>,
     Path((chain_id, address)): Path<(u32, Address)>,
 ) -> Result<Json<CollateralPosition>, StatusCode> {
+    state
+        .will_handle_request()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
     let manager = state
         .get_collateral_manager()
         .read()
@@ -111,6 +116,11 @@ async fn get_mint_invoice(
     State(state): State<Arc<QueryServiceState>>,
     Path((chain_id, address, client_order_id)): Path<(u32, Address, ClientOrderId)>,
 ) -> Result<Json<GetInvoiceData>, StatusCode> {
+    state
+        .will_handle_request()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
     if let Some(invoice) = state
         .get_invoice_manager()
         .read()
@@ -129,6 +139,11 @@ async fn get_mint_invoices_in_date_range(
     State(state): State<Arc<QueryServiceState>>,
     Path((from_date, to_date)): Path<(DateTime<Utc>, DateTime<Utc>)>,
 ) -> Result<Json<Vec<GetInvoicesData>>, StatusCode> {
+    state
+        .will_handle_request()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
     let invoices = state
         .get_invoice_manager()
         .read()

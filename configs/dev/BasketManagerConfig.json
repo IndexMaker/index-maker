@@ -1,0 +1,7 @@
+{
+    "index_files": [
+        {
+            "SY100": "configs/dev/indexes/SY100.json"
+        }
+    ]
+}

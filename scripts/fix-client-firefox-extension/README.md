@@ -1,5 +1,3 @@
-# Scripts
-
 ## Firefox Extension
 
 We deceloped Firefox extension as this allows for better organisation of app
@@ -13,9 +11,7 @@ Checkout my recordings on Loom 🎥
 
 - [Setting up Firefox extension and sending Index Quotes](https://www.loom.com/share/37c18d12627842de8adbba0a9581442b?sid=dfdeacb2-d933-4737-8bb1-c1f0a120c16a)
 
-- [Sending Index Orders](https://www.loom.com/share/adb2eb32ffc347e39e63c65bb44717b7?sid=262c8f74-637b-4b60-9dfe-459554ce6bab)
-
-- [Mint Invoices](https://www.loom.com/share/ddd229284d5249b8be49f08a9148985b?sid=82d77e8e-e67d-46cd-84c7-d2a3d325e90b)
+- [Anvil + Binance Demo](https://www.loom.com/share/55e2542df1db44c2b1e959184f9a271c?sid=7a143c26-5d72-45bb-ac7d-10d7be148682)
 
 ### Developer Mode
 

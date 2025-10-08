@@ -25,7 +25,8 @@ use axum_fix_server::{
     server_plugin::ServerPlugin as AxumFixServerPlugin,
 };
 use chrono::Utc;
-use eyre::{eyre, Result};
+use eyre::{eyre, Context, Result};
+use itertools::Itertools;
 use k256::elliptic_curve::generic_array::GenericArray;
 use k256::{
     ecdsa::{signature::DigestSigner, Signature, SigningKey},
@@ -180,36 +181,20 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let side = if side == "1"
-                        || side == "b"
-                        || side == "B"
-                        || side == "buy"
-                        || side == "Buy"
-                        || side == "BUY"
-                        || side == "bid"
-                        || side == "Bid"
-                        || side == "BID"
-                    {
-                        Side::Buy
-                    } else if side == "2"
-                        || side == "s"
-                        || side == "S"
-                        || side == "sell"
-                        || side == "Sell"
-                        || side == "SELL"
-                        || side == "ask"
-                        || side == "Ask"
-                        || side == "ASK"
-                    {
-                        Side::Sell
-                    } else {
-                        return Err(eyre!("Invalid side value"));
-                    };
-                    let collateral_amount = amount
-                        .parse()
-                        .ok()
-                        .and_then(Amount::from_f64_retain)
-                        .unwrap_or(Amount::ZERO);
+                    tracing::info!(
+                        %chain_id,
+                        %address,
+                        %client_order_id,
+                        %symbol,
+                        %side,
+                        %amount,
+                        "NewIndexOrderBody");
+
+                    let side: Side = side.parse().context("Failed to parse side")?;
+
+                    let collateral_amount: Amount =
+                        amount.parse().context("Failed to parse amount")?;
+
                     Ok(ServerEvent::NewIndexOrder {
                         chain_id,
                         address,
@@ -230,11 +215,9 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let collateral_amount = amount
-                        .parse()
-                        .ok()
-                        .and_then(Amount::from_f64_retain)
-                        .unwrap_or(Amount::ZERO);
+                    let collateral_amount: Amount =
+                        amount.parse().context("Failed to parse amount")?;
+
                     Ok(ServerEvent::CancelIndexOrder {
                         chain_id,
                         address,
@@ -255,36 +238,11 @@ impl ServerPlugin {
                     amount,
                 } = request.body
                 {
-                    let side = if side == "1"
-                        || side == "b"
-                        || side == "B"
-                        || side == "buy"
-                        || side == "Buy"
-                        || side == "BUY"
-                        || side == "bid"
-                        || side == "Bid"
-                        || side == "BID"
-                    {
-                        Side::Buy
-                    } else if side == "2"
-                        || side == "s"
-                        || side == "S"
-                        || side == "sell"
-                        || side == "Sell"
-                        || side == "SELL"
-                        || side == "ask"
-                        || side == "Ask"
-                        || side == "ASK"
-                    {
-                        Side::Sell
-                    } else {
-                        return Err(eyre!("Invalid side value"));
-                    };
-                    let collateral_amount = amount
-                        .parse()
-                        .ok()
-                        .and_then(Amount::from_f64_retain)
-                        .unwrap_or(Amount::ZERO);
+                    let side: Side = side.parse().context("Failed to parse side")?;
+
+                    let collateral_amount: Amount =
+                        amount.parse().context("Failed to parse amount")?;
+
                     Ok(ServerEvent::NewQuoteRequest {
                         chain_id,
                         address,
@@ -467,6 +425,7 @@ impl ServerPlugin {
                     ResponseBody::MintInvoiceBody {
                         client_order_id: mi.client_order_id.to_string(),
                         payment_id: mi.payment_id.to_string(),
+                        seq_num: mi.seq_num.to_string(),
                         symbol: mi.symbol.to_string(),
                         filled_quantity: mi.filled_quantity.to_string(),
                         total_amount: mi.total_amount.to_string(),

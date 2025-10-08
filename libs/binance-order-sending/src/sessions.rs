@@ -11,10 +11,10 @@ use symm_core::{
     core::{bits::Symbol, functional::SingleObserver},
     order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{
-    binance_order_sending::BinanceFeeCalculator, credentials::Credentials, session::Session, session_completion::SessionCompletionResult
+    binance_order_sending::BinanceFeeCalculator, command::Command, credentials::Credentials, session::{self, Session}, session_completion::SessionCompletionResult
 };
 
 pub struct Sessions {
@@ -34,12 +34,13 @@ impl Sessions {
         symbols: Vec<Symbol>,
         fee_calculator: BinanceFeeCalculator,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
-    ) -> Result<()> {
+    ) -> Result<&mut Session> {
         match self.sessions.entry(credentials.into_session_id()) {
             Entry::Vacant(entry) => {
                 let (tx, rx) = unbounded_channel();
                 let session = entry.insert(Session::new(tx));
-                session.start(rx, observer, credentials, symbols, fee_calculator)
+                session.start(rx, observer, credentials, symbols, fee_calculator)?;
+                Ok(session)
             }
             Entry::Occupied(_) => Err(eyre!("Session already started")),
         }
@@ -57,10 +58,12 @@ impl Sessions {
         self.sessions.drain().map(|(_k, v)| v).collect_vec()
     }
 
-    pub async fn stop_all(mut sessions: Vec<Session>) -> Result<Vec<SessionCompletionResult>> {
+    pub async fn stop_all(
+        mut sessions: Vec<Session>,
+    ) -> Vec<(UnboundedReceiver<Command>, SessionCompletionResult)> {
         let stop_futures = sessions.iter_mut().map(|sess| sess.stop()).collect_vec();
 
-        let (completion_results, failures): (Vec<_>, Vec<_>) =
+        let (results, failures): (Vec<_>, Vec<_>) =
             join_all(stop_futures).await.into_iter().partition_result();
 
         if !failures.is_empty() {
@@ -70,23 +73,26 @@ impl Sessions {
             );
         }
 
-        Ok(completion_results)
+        results
     }
 
-    pub async fn stop_session(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Option<SessionCompletionResult> {
-        if let Some(mut session) = self.remove_session(session_id) {
-            match session.stop().await {
-                Ok(res) => Some(res),
-                Err(err) => {
-                    tracing::warn!("Error stopping session {}: {:?}", session_id, err);
-                    None
-                }
+    pub fn check_stopped(&mut self) -> Result<Vec<Session>> {
+        let mut lost = Vec::new();
+
+        self.sessions.retain(|session_id, session| {
+            if session.has_stopped() {
+                lost.push(session_id.clone());
+                false
+            } else {
+                true
             }
-        } else {
-            None
-        }
+        });
+
+        let lost = lost
+            .into_iter()
+            .filter_map(|k| self.sessions.remove(&k))
+            .collect_vec();
+
+        Ok(lost)
     }
 }

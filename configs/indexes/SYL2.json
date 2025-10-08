@@ -1,0 +1,162 @@
+[
+  {
+    "id": 1,
+    "pair": "ARBUSDC",
+    "listing": "Binance",
+    "assetname": "Arbitrum",
+    "sector": "Smart Contract Platform",
+    "market_cap": 2856417946,
+    "weights": "3.13",
+    "quantity": 1033.3025723737082
+  },
+  {
+    "id": 2,
+    "pair": "POLUSDC",
+    "listing": "Binance",
+    "assetname": "POL (ex-MATIC)",
+    "sector": "Smart Contract Platform",
+    "market_cap": 2835520215,
+    "weights": "3.13",
+    "quantity": 1808.7050938607113
+  },
+  {
+    "id": 3,
+    "pair": "OPUSDC",
+    "listing": "Binance",
+    "assetname": "Optimism",
+    "sector": "Smart Contract Platform",
+    "market_cap": 1424595667,
+    "weights": "3.13",
+    "quantity": 439.0272804556186
+  },
+  {
+    "id": 4,
+    "pair": "STXUSDC",
+    "listing": "Binance",
+    "assetname": "Stacks",
+    "sector": "Infrastructure",
+    "market_cap": 1226211523,
+    "weights": "3.13",
+    "quantity": 622.0054800890802
+  },
+  {
+    "id": 6,
+    "pair": "STRKUSDC",
+    "listing": "Binance",
+    "assetname": "Starknet",
+    "sector": "Infrastructure",
+    "market_cap": 554043537,
+    "weights": "3.13",
+    "quantity": 2186.5227034976147
+  },
+  {
+    "id": 7,
+    "pair": "ZKUSDC",
+    "listing": "Binance",
+    "assetname": "ZKsync",
+    "sector": "Smart Contract Platform",
+    "market_cap": 444533351,
+    "weights": "3.13",
+    "quantity": 5423.867423120351
+  },
+  {
+    "id": 8,
+    "pair": "MOVEUSDC",
+    "listing": "Binance",
+    "assetname": "Movement",
+    "sector": "Smart Contract Platform",
+    "market_cap": 353536444,
+    "weights": "3.13",
+    "quantity": 860.2216927023761
+  },
+  {
+    "id": 9,
+    "pair": "CKBUSDC",
+    "listing": "Binance",
+    "assetname": "Nervos Network",
+    "sector": "Smart Contract Platform",
+    "market_cap": 250114642,
+    "weights": "3.13",
+    "quantity": 77211.59657971535
+  },
+  {
+    "id": 13,
+    "pair": "ALTUSDC",
+    "listing": "Binance",
+    "assetname": "AltLayer",
+    "sector": "Smart Contract Platform",
+    "market_cap": 149148478,
+    "weights": "3.13",
+    "quantity": 10788.619165783266
+  },
+  {
+    "id": 17,
+    "pair": "MANTAUSDC",
+    "listing": "Binance",
+    "assetname": "Manta Network",
+    "sector": "Smart Contract Platform",
+    "market_cap": 97574742,
+    "weights": "3.12",
+    "quantity": 1426.8159461513696
+  },
+  {
+    "id": 19,
+    "pair": "CYBERUSDC",
+    "listing": "Binance",
+    "assetname": "CYBER",
+    "sector": "Smart Contract Platform",
+    "market_cap": 90263384,
+    "weights": "3.12",
+    "quantity": 274.5864471671557
+  },
+  {
+    "id": 20,
+    "pair": "PHAUSDC",
+    "listing": "Binance",
+    "assetname": "PHALA",
+    "sector": "Artificial Intelligence (AI)",
+    "market_cap": 90035942,
+    "weights": "3.12",
+    "quantity": 3141.0686115665517
+  },
+  {
+    "id": 23,
+    "pair": "TONUSDC",
+    "listing": "Binance",
+    "assetname": "Tokamak Network",
+    "sector": "Infrastructure",
+    "market_cap": 69311472,
+    "weights": "3.12",
+    "quantity": 324.5442540921605
+  },
+  {
+    "id": 24,
+    "pair": "MAGICUSDC",
+    "listing": "Binance",
+    "assetname": "Treasure",
+    "sector": "Artificial Intelligence (AI)",
+    "market_cap": 68332425,
+    "weights": "3.12",
+    "quantity": 2534.1659424596573
+  },
+  {
+    "id": 26,
+    "pair": "EPICUSDC",
+    "listing": "Binance",
+    "assetname": "Epic Chain",
+    "sector": "Smart Contract Platform",
+    "market_cap": 62229008,
+    "weights": "3.12",
+    "quantity": 275.53239367952216
+  },
+  {
+    "id": 30,
+    "pair": "BBUSDC",
+    "listing": "Binance",
+    "assetname": "BitBoard",
+    "sector": "Smart Contract Platform",
+    "market_cap": 23308312,
+    "weights": "3.12",
+    "quantity": 3353613.2671277677
+  }
+]

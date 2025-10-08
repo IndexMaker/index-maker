@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "pair": "BTCUSDC",
+    "listing": "Binance",
+    "assetname": "Bitcoin",
+    "sector": "Smart Contract Platform",
+    "market_cap": 2309138172974,
+    "weights": "21.00",
+    "quantity": 0.580688535578385
+  },
+  {
+    "id": 2,
+    "pair": "ETHUSDC",
+    "listing": "Binance",
+    "assetname": "Ethereum",
+    "sector": "Smart Contract Platform",
+    "market_cap": 558162143043,
+    "weights": "1.00",
+    "quantity": 0.6999696770692475
+  },
+  {
+    "id": 3,
+    "pair": "XRPUSDC",
+    "listing": "Binance",
+    "assetname": "XRP",
+    "sector": "FTX Holdings",
+    "market_cap": 182939958664,
+    "weights": "1.00",
+    "quantity": 1092.4467975133418
+  },
+  {
+    "id": 4,
+    "pair": "SOLUSDC",
+    "listing": "Binance",
+    "assetname": "Solana",
+    "sector": "Smart Contract Platform",
+    "market_cap": 130552151621,
+    "weights": "1.00",
+    "quantity": 14.93138202541886
+  },
+  {
+    "id": 5,
+    "pair": "BNBUSDC",
+    "listing": "Binance",
+    "assetname": "BNB",
+    "sector": "Smart Contract Platform",
+    "market_cap": 127748675376,
+    "weights": "1.00",
+    "quantity": 3.550391841849497
+  },
+  {
+    "id": 6,
+    "pair": "DOGEUSDC",
+    "listing": "Binance",
+    "assetname": "Dogecoin",
+    "sector": "Smart Contract Platform",
+    "market_cap": 40858564078,
+    "weights": "1.00",
+    "quantity": 14433.393133216876
+  }
+]

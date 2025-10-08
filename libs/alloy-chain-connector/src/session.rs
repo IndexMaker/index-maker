@@ -7,19 +7,16 @@ use index_core::blockchain::chain_connector::ChainNotification;
 use itertools::Either;
 use otc_custody::{custody_client::CustodyClient, index::index::IndexInstance};
 use parking_lot::RwLock as AtomicLock;
-use symm_core::{
-    core::{
-        async_loop::AsyncLoop,
-        bits::{Address, Symbol},
-        functional::{PublishSingle, SingleObserver},
-    },
-    market_data::exchange_rates::ExchangeRates,
+use symm_core::core::{
+    async_loop::AsyncLoop,
+    bits::{Address, Symbol},
+    functional::{OneShotPublishSingle, PublishSingle, SingleObserver},
 };
-use tokio::task::JoinError;
 use tokio::{
     select,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
+use tokio::{sync::mpsc::unbounded_channel, task::JoinError};
 
 use crate::{
     command::{Command, CommandVariant},
@@ -67,6 +64,7 @@ impl Session {
         credentials: Credentials,
         baggage: SessionBaggage,
     ) -> Result<()> {
+        let account_name = credentials.get_account_name();
         let chain_id = credentials.get_chain_id();
         let signer_address = credentials.get_signer_address()?;
 
@@ -82,9 +80,9 @@ impl Session {
                     });
             };
 
-            tracing::info!(%chain_id, %signer_address, "Session loop started");
+            tracing::info!(%account_name, %chain_id, %signer_address, "Session loop starting...");
 
-            let provider = match credentials.connect().await {
+            let providers = match credentials.connect_any().await {
                 Ok(ok) => ok,
                 Err(err) => {
                     on_error(format!("Failed to connect session: {:?}", err));
@@ -92,7 +90,7 @@ impl Session {
                 }
             };
 
-            let public_provider = match credentials.connect_public().await {
+            let ws_providers = match credentials.connect_any_ws().await {
                 Ok(ok) => ok,
                 Err(err) => {
                     on_error(format!("Failed to connect public session: {:?}", err));
@@ -100,12 +98,20 @@ impl Session {
                 }
             };
 
-            let rpc_basic_session = RpcBasicSession::new(provider.clone());
+            let public_providers =  {
+                match credentials.connect_any_public().await {
+                    Ok(ok) => ok,
+                    Err(err) => {
+                        on_error(format!("Failed to connect public session: {:?}", err));
+                        return credentials;
+                    }
+                }
+            };
 
-            let rpc_issuer_session = RpcIssuerSession::new(provider.clone());
-            let rpc_custody_session = RpcCustodySession::new(provider.clone());
+            let mut rpc_basic_session = RpcBasicSession::new(account_name.clone(), providers.clone());
 
-            let mut rpc_issuer_stream = RpcIssuerStream::new(public_provider);
+            let mut rpc_issuer_session = RpcIssuerSession::new(account_name.clone(), providers.clone());
+            let mut rpc_custody_session = RpcCustodySession::new(account_name.clone(), providers.clone());
 
             observer
                 .read()
@@ -114,13 +120,38 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
-            if let Err(err) = rpc_issuer_stream
-                .subscribe(chain_id, baggage.indexes_by_address, observer.clone())
-                .await
-            {
-                on_error(format!("Failed to subscribe to RPC events: {:?}", err));
-                return credentials;
-            }
+            let rpc_issuer_stream_ws = if !ws_providers.is_empty() {
+                let mut s = RpcIssuerStream::new(account_name.clone(), ws_providers);
+
+                tracing::info!(%account_name, %chain_id, %signer_address, "Subscribing websocket...");
+                if let Err(err) = s.subscribe_streaming(
+                        chain_id, baggage.indexes_by_address.clone(), observer.clone()
+                    ).await
+                {
+                    on_error(format!("Failed to subscribe to RPC events: {:?}", err));
+                    return credentials;
+                }
+                Some(s)
+            } else {
+                None
+            };
+
+            let (mut rpc_issuer_stream_http, poll_tx) = {
+                let (poll_tx, poll_rx) = unbounded_channel();
+                let mut s = RpcIssuerStream::new(account_name.clone(), public_providers);
+
+                tracing::info!(%account_name, %chain_id, %signer_address, "Subscribing http...");
+                if let Err(err) = s.subscribe_polling(
+                        chain_id, poll_rx, baggage.indexes_by_address, observer.clone()
+                    ).await
+                {
+                    on_error(format!("Failed to subscribe to RPC events: {:?}", err));
+                    return credentials;
+                }
+                (s, poll_tx)
+            };
+            
+            tracing::info!(%account_name, %chain_id, %signer_address, "Session loop started");
 
             loop {
                 select! {
@@ -149,15 +180,28 @@ impl Session {
                                     Err(eyre!("Custody not found: {}", custody_id))
                                 }
                             }
+                            CommandVariant::PollIssuerEvent {chain_id, address, symbol} => {
+                                tracing::info!("Poll issuer event");
+                                if let Err(err) = poll_tx.send((chain_id, address, symbol)) {
+                                    tracing::warn!("Failed to send poll request: {:?}", err);
+                                }
+                                Ok(())
+                            }
                         } {
-                            tracing::warn!("Command failed: {:?}", err);
-                            command.error_observer.publish_single(err);
+                            tracing::warn!(%account_name, "Command failed: {:?}", err);
+                            command.error_observer.one_shot_publish_single(err);
                         }
                     },
                 }
             }
 
-            if let Err(err) = rpc_issuer_stream.unsubscribe().await {
+            if let Some(mut rpc_issuer_stream) = rpc_issuer_stream_ws {
+                if let Err(err) = rpc_issuer_stream.unsubscribe().await {
+                    tracing::warn!("Failed to unsubscribe from RPC events: {:?}", err);
+                }
+            }
+
+            if let Err(err) = rpc_issuer_stream_http.unsubscribe().await {
                 tracing::warn!("Failed to unsubscribe from RPC events: {:?}", err);
             }
 
@@ -169,7 +213,7 @@ impl Session {
                     timestamp: Utc::now(),
                 });
 
-            tracing::info!(%chain_id, %signer_address, "Session loop exited");
+            tracing::info!(%account_name, %chain_id, %signer_address, "Session loop exited");
             credentials
         });
 

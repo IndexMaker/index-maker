@@ -8,11 +8,16 @@ use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
 use symm_core::{
     core::{
-        self, bits::{self, Amount, SingleOrder, Symbol}, decimal_ext::DecimalExt, functional::{
+        self,
+        bits::{self, Amount, SingleOrder, Symbol},
+        decimal_ext::DecimalExt,
+        functional::{
             self, IntoObservableSingleArc, IntoObservableSingleVTable, NotificationHandlerOnce,
             OneShotSingleObserver, SingleObserver,
-        }
-    }, market_data::exchange_rates::ExchangeRates, order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId}
+        },
+    },
+    market_data::exchange_rates::ExchangeRates,
+    order_sender::order_connector::{OrderConnector, OrderConnectorNotification, SessionId},
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
@@ -49,7 +54,6 @@ impl BinanceFeeCalculator {
         Ok(quote_amount)
     }
 }
-
 
 pub struct BinanceOrderSending {
     observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
@@ -120,17 +124,25 @@ impl OrderConnector for BinanceOrderSending {
             .get_session(&session_id)
             .ok_or_else(|| eyre!("Cannot find session: {}", session_id))?;
 
-        session.send_command(Command::NewOrder(order.clone()))
+        session
+            .send_command(Command::NewOrder(order.clone()))
+            .map_err(|_| eyre!("Failed to send new order"))
     }
 
-    fn get_balances(&self, session_id: SessionId, observer: OneShotSingleObserver<HashMap<Symbol, Amount>>) -> Result<()> {
+    fn get_balances(
+        &self,
+        session_id: SessionId,
+        observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
+    ) -> Result<()> {
         tracing::debug!("Send to: {} command: Get Balances", session_id);
         let sessions = self.sessions.read();
         let session = sessions
             .get_session(&session_id)
             .ok_or_else(|| eyre!("Cannot find session: {}", session_id))?;
 
-        session.send_command(Command::GetBalances(observer))
+        session
+            .send_command(Command::GetBalances(observer))
+            .map_err(|_| eyre!("Failed to send new order"))
     }
 }
 

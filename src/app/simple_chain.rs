@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock as ComponentLock};
 
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::{OptionExt, Result};
 
@@ -42,6 +43,9 @@ impl IntoObservableSingleVTable<ChainNotification> for SimpleChainConnector {
 }
 
 impl ChainConnector for SimpleChainConnector {
+    fn poll_once(&self, chain_id: u32, address: Address, symbol: Symbol) {
+    }
+
     fn solver_weights_set(&self, symbol: Symbol, basket: Arc<Basket>) {
         tracing::info!("SolverWeightsSet: {}", symbol);
     }
@@ -52,6 +56,7 @@ impl ChainConnector for SimpleChainConnector {
         symbol: Symbol,
         quantity: Amount,
         receipient: Address,
+        seq_num: U256,
         execution_price: Amount,
         execution_time: DateTime<Utc>,
     ) {

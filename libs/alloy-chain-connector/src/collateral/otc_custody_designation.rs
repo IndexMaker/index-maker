@@ -1,26 +1,24 @@
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 use alloy_primitives::B256;
 use crossbeam::channel::bounded;
-use eyre::{eyre, OptionExt};
 use index_core::collateral::collateral_router::CollateralDesignation;
 use symm_core::core::{
     bits::{Address, Amount, Symbol},
-    functional::SingleObserver,
+    functional::OneShotSingleObserver,
 };
 
 use crate::{
-    chain_connector::RealChainConnector,
+    chain_connector_sender::RealChainConnectorSender,
     command::{Command, CommandVariant, CustodyCommand},
 };
 
 pub struct OTCCustodyCollateralDesignation {
+    sender: Arc<RealChainConnectorSender>,
     designation_type: Symbol,
     name: Symbol,
     collateral_symbol: Symbol,
     full_name: Symbol,
-    chain_connector_weak: Weak<RwLock<RealChainConnector>>,
-    account_name: String,
     chain_id: u32,
     contract_address: Address,
     token_address: Address,
@@ -29,11 +27,10 @@ pub struct OTCCustodyCollateralDesignation {
 
 impl OTCCustodyCollateralDesignation {
     pub fn new(
+        sender: Arc<RealChainConnectorSender>,
         designation_type: Symbol,
         name: Symbol,
         collateral_symbol: Symbol,
-        chain_connector: Arc<RwLock<RealChainConnector>>,
-        account_name: String,
         chain_id: u32,
         contract_address: Address,
         token_address: Address,
@@ -44,12 +41,11 @@ impl OTCCustodyCollateralDesignation {
             designation_type, name, collateral_symbol
         ));
         Self {
+            sender,
             designation_type,
             name,
             collateral_symbol,
             full_name,
-            chain_connector_weak: Arc::downgrade(&chain_connector),
-            account_name,
             chain_id,
             contract_address,
             token_address,
@@ -73,18 +69,9 @@ impl OTCCustodyCollateralDesignation {
         &self,
         destination: Address,
         amount: Amount,
-        observer: SingleObserver<Amount>,
-        error_observer: SingleObserver<eyre::Report>,
+        observer: OneShotSingleObserver<Amount>,
+        error_observer: OneShotSingleObserver<eyre::Report>,
     ) -> eyre::Result<()> {
-        let chain_connector = self
-            .chain_connector_weak
-            .upgrade()
-            .ok_or_eyre("Chain connector is gone")?;
-
-        let chain_connector = chain_connector
-            .read()
-            .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
-
         let command = Command {
             command: CommandVariant::Custody {
                 custody_id: self.custody_id,
@@ -98,28 +85,17 @@ impl OTCCustodyCollateralDesignation {
             error_observer,
         };
 
-        chain_connector.send_command_to_session(&self.account_name, command)?;
-
-        Ok(())
+        self.sender.send_command(command)
     }
 
     pub fn address_to_custody(
         &self,
         source: Address,
         amount: Amount,
-        observer: SingleObserver<Amount>,
-        error_observer: SingleObserver<eyre::Report>,
+        observer: OneShotSingleObserver<Amount>,
+        error_observer: OneShotSingleObserver<eyre::Report>,
     ) -> eyre::Result<()> {
         let _ = source;
-
-        let chain_connector = self
-            .chain_connector_weak
-            .upgrade()
-            .ok_or_eyre("Chain connector is gone")?;
-
-        let chain_connector = chain_connector
-            .read()
-            .map_err(|err| eyre!("Failed to read chain connector: {:?}", err))?;
 
         let command = Command {
             command: CommandVariant::Custody {
@@ -130,9 +106,7 @@ impl OTCCustodyCollateralDesignation {
             error_observer,
         };
 
-        chain_connector.send_command_to_session(&self.account_name, command)?;
-
-        Ok(())
+        self.sender.send_command(command)
     }
 }
 
@@ -165,13 +139,6 @@ impl CollateralDesignation for OTCCustodyCollateralDesignation {
         // - Function is blocking but timeout is hard-coded atm.
         // ? Consider using observer callback instead
 
-        let chain_connector = self
-            .chain_connector_weak
-            .upgrade()
-            .expect("Failed to upgrade weak chain connector");
-
-        let chain_connector = chain_connector.write().expect("Failed to obtain lock");
-
         let (balance_tx, balance_rx) = bounded(1);
         let (err_tx, err_rx) = bounded(1);
 
@@ -180,14 +147,14 @@ impl CollateralDesignation for OTCCustodyCollateralDesignation {
                 custody_id: self.custody_id,
                 token: self.token_address,
                 command: CustodyCommand::GetCustodyBalances {
-                    observer: SingleObserver::new_from(balance_tx),
+                    observer: OneShotSingleObserver::new_from(balance_tx),
                 },
             },
-            error_observer: SingleObserver::new_from(err_tx),
+            error_observer: OneShotSingleObserver::new_from(err_tx),
         };
 
-        chain_connector
-            .send_command_to_session(&self.account_name, command)
+        self.sender
+            .send_command(command)
             .expect("Failed to send get balance");
 
         let timeout = std::time::Duration::from_secs(3);

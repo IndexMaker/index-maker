@@ -12,11 +12,11 @@ use symm_core::{
     },
     order_sender::order_connector::{OrderConnectorNotification, SessionId},
 };
-use tokio::task::JoinError;
 use tokio::{
     select,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
+use tokio::{task::JoinError, time::sleep};
 use tokio_util::sync::CancellationToken;
 
 use crate::credentials::Credentials;
@@ -25,7 +25,7 @@ use crate::session_error::SessionError;
 use crate::trading_session::{TradingSession, TradingSessionBuilder, TradingUserData};
 use crate::{binance_order_sending::BinanceFeeCalculator, command::Command};
 
-struct SessionSetupState {
+struct SessionState {
     trading_session: Option<TradingSession>,
     user_data: Option<TradingUserData>,
     credentials: Credentials,
@@ -35,7 +35,7 @@ struct SessionSetupState {
     fee_calculator: BinanceFeeCalculator,
 }
 
-impl SessionSetupState {
+impl SessionState {
     fn new(
         credentials: Credentials,
         observer: Arc<AtomicLock<SingleObserver<OrderConnectorNotification>>>,
@@ -115,51 +115,53 @@ impl SessionSetupState {
                 timestamp: Utc::now(),
             });
     }
-}
 
-async fn run_main_loop(
-    setup_state: &mut SessionSetupState,
-    command_rx: UnboundedReceiver<Command>,
-    cancel_token: CancellationToken,
-) -> Option<SessionError> {
-    let mut command_rx = command_rx;
-    if let (Some(ref mut ts), Some(ref ud)) =
-        (&mut setup_state.trading_session, &setup_state.user_data)
-    {
-        ud.subscribe(
-            setup_state.fee_calculator.clone(),
-            setup_state.observer.clone(),
-        );
-        tracing::info!("Session {} entering main loop", setup_state.session_id);
+    async fn run_main_loop(
+        &mut self,
+        mut command_rx: UnboundedReceiver<Command>,
+        cancel_token: CancellationToken,
+    ) -> Result<UnboundedReceiver<Command>, (SessionError, UnboundedReceiver<Command>)> {
+        // TODO: Configure me, move me to SessiontSetupState
+        let ping_period = std::time::Duration::from_secs(3);
 
-        loop {
-            select! {
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("Session {} cancelled", setup_state.session_id);
-                    break;
-                }
-                Some(command) = command_rx.recv() => {
-                    if let Err(err) = ts.send_command(command, &setup_state.observer).await {
-                        tracing::warn!("Command failed in session {}: {}", setup_state.session_id, err);
+        if let (Some(ref mut ts), Some(ref ud)) = (&mut self.trading_session, &self.user_data) {
+            ud.subscribe(self.fee_calculator.clone(), self.observer.clone());
 
-                        if err.should_reconnect() {
-                            return Some(err);
+            tracing::info!("Session {} entering main loop", self.session_id);
+
+            loop {
+                select! {
+                    _ = cancel_token.cancelled() => {
+                        tracing::info!("Session {} cancelled", self.session_id);
+                        break;
+                    }
+                    _ = sleep(ping_period) => {
+                        if let Err(err) = ts.ping_connection().await {
+                            tracing::warn!("Session connection lost");
+                            return Err((err, command_rx));
+                        }
+                    }
+                    Some(command) = command_rx.recv() => {
+                        if let Err(err) = ts.send_command(command, &self.observer).await {
+                            tracing::warn!("Command failed in session {}: {}", self.session_id, err);
                         }
                     }
                 }
             }
+
+            tracing::debug!("Unsubscribing from user data stream");
+            ud.unsubscribe().await;
         }
 
-        tracing::debug!("Unsubscribing from user data stream");
-        ud.unsubscribe().await;
+        // Command receiver must be returned, and passed over to reconnection
+        // or alternatively all commands need to be replied with cancelled!
+        Ok(command_rx)
     }
-
-    None
 }
 
 pub struct Session {
     command_tx: UnboundedSender<Command>,
-    session_loop: AsyncLoop<SessionCompletionResult>,
+    session_loop: AsyncLoop<(UnboundedReceiver<Command>, SessionCompletionResult)>,
 }
 
 impl Session {
@@ -170,14 +172,19 @@ impl Session {
         }
     }
 
-    pub fn send_command(&self, command: Command) -> Result<()> {
-        self.command_tx
-            .send(command)
-            .map_err(|err| eyre!("Failed to send command to session {}", err))
+    pub fn send_command(&self, command: Command) -> Result<(), Command> {
+        self.command_tx.send(command).map_err(|e| e.0)
     }
 
-    pub async fn stop(&mut self) -> Result<SessionCompletionResult, Either<JoinError, Report>> {
+    pub async fn stop(
+        &mut self,
+    ) -> Result<(UnboundedReceiver<Command>, SessionCompletionResult), Either<JoinError, Report>>
+    {
         self.session_loop.stop().await
+    }
+
+    pub fn has_stopped(&self) -> bool {
+        self.session_loop.has_stopped()
     }
 
     pub fn start(
@@ -192,15 +199,15 @@ impl Session {
             tracing::info!("Session loop started");
             let session_id_clone = credentials.into_session_id();
 
-            let mut setup_state =
-                SessionSetupState::new(credentials, observer, symbols, fee_calculator);
+            let mut session_state =
+                SessionState::new(credentials, observer, symbols, fee_calculator);
 
             // Attempt to setup the session - early return on first error
             let setup_result = async {
-                setup_state.build_trading_session().await?;
-                setup_state.perform_logon().await?;
-                setup_state.get_exchange_info().await?;
-                setup_state.get_user_data().await?;
+                session_state.build_trading_session().await?;
+                session_state.perform_logon().await?;
+                session_state.get_exchange_info().await?;
+                session_state.get_user_data().await?;
                 Ok::<(), SessionError>(())
             }
             .await;
@@ -208,39 +215,45 @@ impl Session {
             match setup_result {
                 Ok(()) => {
                     // Setup succeeded, run main loop
-                    match run_main_loop(&mut setup_state, command_rx, cancel_token).await {
-                        Some(error) => {
+                    match session_state.run_main_loop(command_rx, cancel_token).await {
+                        Err((error, command_rx)) => {
                             let should_return_credentials = error.should_reconnect();
                             tracing::warn!(
                                 "Session {} completed with error: {} (reconnect: {})",
-                                setup_state.session_id,
+                                session_state.session_id,
                                 error,
                                 should_return_credentials
                             );
 
-                            SessionCompletionResult::error(
-                                error,
-                                if should_return_credentials {
-                                    Some(setup_state.credentials)
-                                } else {
-                                    None
-                                },
-                                setup_state.session_id,
+                            (
+                                command_rx,
+                                SessionCompletionResult::error(
+                                    error,
+                                    if should_return_credentials {
+                                        Some(session_state.credentials)
+                                    } else {
+                                        None
+                                    },
+                                    session_state.session_id,
+                                ),
                             )
                         }
-                        None => {
+                        Ok(command_rx) => {
                             tracing::info!(
                                 "Session {} completed successfully",
-                                setup_state.session_id
+                                session_state.session_id
                             );
-                            setup_state.observer.read().publish_single(
+                            session_state.observer.read().publish_single(
                                 OrderConnectorNotification::SessionLogout {
                                     session_id: session_id_clone,
                                     reason: String::from("Session ended gracefully"),
                                     timestamp: Utc::now(),
                                 },
                             );
-                            SessionCompletionResult::success(setup_state.credentials)
+                            (
+                                command_rx,
+                                SessionCompletionResult::success(session_state.credentials),
+                            )
                         }
                     }
                 }
@@ -254,14 +267,17 @@ impl Session {
                         should_return_credentials
                     );
 
-                    SessionCompletionResult::error(
-                        error,
-                        if should_return_credentials {
-                            Some(setup_state.credentials)
-                        } else {
-                            None
-                        },
-                        session_id_clone,
+                    (
+                        command_rx,
+                        SessionCompletionResult::error(
+                            error,
+                            if should_return_credentials {
+                                Some(session_state.credentials)
+                            } else {
+                                None
+                            },
+                            session_id_clone,
+                        ),
                     )
                 }
             }
@@ -276,17 +292,9 @@ mod tests {
     use super::*;
     use crate::credentials::Credentials;
     use parking_lot::RwLock as AtomicLock;
-    use rust_decimal::dec;
     use std::{collections::HashMap, sync::Arc};
     use symm_core::{
-        core::{
-            bits::Amount,
-            functional::SingleObserver,
-            test_util::{
-                get_mock_asset_name_1, get_mock_asset_name_2, get_mock_atomic_bool_pair,
-                get_mock_index_name_2, test_mock_atomic_bool,
-            },
-        },
+        core::{functional::SingleObserver, test_util::get_mock_asset_name_1},
         market_data::exchange_rates::FixedExchangeRates,
     };
     use tokio::sync::mpsc::unbounded_channel;
@@ -342,10 +350,7 @@ mod tests {
         let result = session.send_command(test_command);
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to send command"));
+        assert!(matches!(result, Err(_)));
     }
 
     #[test]
@@ -356,8 +361,7 @@ mod tests {
         let exchange_rates = Arc::new(FixedExchangeRates::new(HashMap::new()));
         let fee_calculator = BinanceFeeCalculator::new(exchange_rates, get_mock_asset_name_1());
 
-        let setup_state =
-            SessionSetupState::new(credentials, observer, symbols.clone(), fee_calculator);
+        let setup_state = SessionState::new(credentials, observer, symbols.clone(), fee_calculator);
 
         // Verify initial state
         assert!(setup_state.trading_session.is_none());

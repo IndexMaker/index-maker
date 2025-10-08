@@ -3,8 +3,9 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::U256;
 use chrono::{DateTime, TimeDelta, Utc};
-use eyre::{ensure, eyre, OptionExt, Result};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use safe_math::safe;
@@ -12,11 +13,13 @@ use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::{
-    assets::asset::get_base_asset_symbol_workaround, core::{
+    assets::asset::get_base_asset_symbol_workaround,
+    core::{
         bits::{Address, Amount, ClientOrderId, PaymentId, Side, Symbol},
         decimal_ext::DecimalExt,
         telemetry::{TracingData, WithTracingData},
-    }, order_sender::position::{LotAssignment, LotId}
+    },
+    order_sender::position::{LotAssignment, LotId},
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -74,6 +77,9 @@ pub struct SolverOrder {
     /// Quantity filled by subsequent batch order fills
     pub filled_quantity: Amount,
 
+    /// Time when order created
+    pub created_timestamp: DateTime<Utc>,
+
     /// Time when last updated
     pub timestamp: DateTime<Utc>,
 
@@ -101,10 +107,10 @@ impl SolverOrder {
             // want it to be the value after the assignment.
             lot.remaining_quantity =
                 safe!(lot.remaining_quantity - lot.assigned_quantity).ok_or_eyre("Math problem")?;
-            
+
             // W/a remove quote currency from symbol, keep only base
             lot.symbol = get_base_asset_symbol_workaround(&lot.symbol);
-            
+
             // We want to compress multiple assignments of each lot, to single
             // assigment per lot
             match map.entry((lot.symbol.clone(), lot.lot_id.clone())) {
@@ -118,7 +124,7 @@ impl SolverOrder {
                     current.assigned_quantity =
                         safe!(current.assigned_quantity + lot.assigned_quantity)
                             .ok_or_eyre("Math problem")?;
-                    
+
                     // Sum assigned fees
                     current.assigned_fee = safe!(current.assigned_fee + lot.assigned_fee)
                         .ok_or_eyre("Math problem")?;
@@ -145,7 +151,10 @@ impl SolverOrder {
     }
 
     // Collect lot assignments for Inventory Manager
-    pub fn collect_lot_assignments(&self) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
+    pub fn collect_lot_assignments(
+        &self,
+        seq_num: U256,
+    ) -> HashMap<(Symbol, LotId), Vec<Arc<LotAssignment>>> {
         self.lots
             .iter()
             .map(|lot| {
@@ -154,6 +163,7 @@ impl SolverOrder {
                     Arc::new(LotAssignment {
                         chain_id: self.chain_id,
                         address: self.address,
+                        seq_num,
                         client_order_id: self.client_order_id.clone(),
                         side: self.side,
                         assigned_quantity: lot.assigned_quantity,
@@ -259,6 +269,34 @@ impl SolverClientOrders {
         self.client_orders.len()
     }
 
+    pub fn peek_next_client_order(
+        &self,
+        chain_id: u32,
+        address: Address,
+        timestamp: DateTime<Utc>,
+    ) -> Option<Arc<RwLock<SolverOrder>>> {
+        let ready_timestamp = timestamp - self.client_wait_period;
+        let check_ready = move |x: &SolverOrder| x.timestamp <= ready_timestamp;
+
+        if let Some(queue) = self.client_order_queues.get(&(chain_id, address)) {
+            let mut i = queue.iter();
+            let _ = i.next();
+            if let Some(client_order_id) = i.next().cloned() {
+                if let Some(solver_order) = self
+                    .client_orders
+                    .get(&(chain_id, address, client_order_id))
+                    .cloned()
+                {
+                    if check_ready(&solver_order.read()) {
+                        return Some(solver_order)
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn get_next_client_order(
         &mut self,
         timestamp: DateTime<Utc>,
@@ -290,13 +328,18 @@ impl SolverClientOrders {
         None
     }
 
-    pub fn put_back(&mut self, solver_order: Arc<RwLock<SolverOrder>>, timestamp: DateTime<Utc>) {
+    pub fn put_back(
+        &mut self,
+        solver_order: Arc<RwLock<SolverOrder>>,
+        status: SolverOrderStatus,
+        timestamp: DateTime<Utc>,
+    ) {
         let mut order_upread = solver_order.upgradable_read();
         let chain_id = order_upread.chain_id;
         let address = order_upread.address;
 
         order_upread.with_upgraded(|order_write| {
-            order_write.status = SolverOrderStatus::Ready;
+            order_write.status = status;
             order_write.timestamp = timestamp;
         });
 
@@ -339,6 +382,7 @@ impl SolverClientOrders {
                     collateral_routed: Amount::ZERO,
                     collateral_spent: Amount::ZERO,
                     filled_quantity: Amount::ZERO,
+                    created_timestamp: timestamp,
                     timestamp,
                     status: SolverOrderStatus::Open,
                     lots: Vec::new(),
@@ -379,48 +423,10 @@ impl SolverClientOrders {
             // will pick order from the queue above at next tick.
             self.client_notify_queue.push_back((chain_id, address));
         }
-        tracing::info!(
-            %chain_id,
-            %address,
-            %client_order_id,
-            %symbol,
-            client_order_queue = %json!(
-                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
-            ),
-            client_notify_queue = %json!(
-                self.client_notify_queue
-            ),
-            "Client Orders");
+
+        self.write_trace_single_queue(chain_id, address, &client_order_id, "Add Order");
 
         Ok(())
-    }
-
-    pub fn write_trace_all_queues(&self, message: &str) {
-        for ((chain_id, address, ..), x) in self.client_orders.iter() {
-            tracing::info!(
-            %message,
-            client_order_queue = %json!(
-                self.client_order_queues.get(&(*chain_id, *address)).iter().map(|x| x).collect_vec()
-            ),
-            client_notify_queue = %json!(
-                self.client_notify_queue
-            ),
-            "Client Orders");
-        }
-    }
-
-    pub fn write_trace_one_queue(&self, chain_id: u32, address: Address, message: &str) {
-        tracing::info!(
-            %chain_id,
-            %address,
-            %message,
-            client_order_queue = %json!(
-                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
-            ),
-            client_notify_queue = %json!(
-                self.client_notify_queue
-            ),
-            "Client Orders");
     }
 
     pub fn cancel_client_order(
@@ -479,6 +485,8 @@ impl SolverClientOrders {
         if notify {
             self.client_notify_queue.push_back((chain_id, address));
         }
+
+        self.write_trace_single_queue(chain_id, address, &client_order_id, "Cancel Order");
         Ok(())
     }
 
@@ -493,7 +501,7 @@ impl SolverClientOrders {
         let mut cleanup = false;
         if let Some(order) = self
             .client_orders
-            .get(&(chain_id, address, client_order_id))
+            .get(&(chain_id, address, client_order_id.clone()))
         {
             let mut order_write = order.write();
 
@@ -545,7 +553,44 @@ impl SolverClientOrders {
                 }
             }
         }
+
+        self.write_trace_single_queue(chain_id, address, &client_order_id, "Update Order");
         Ok(())
+    }
+
+    pub fn write_trace_single_queue(
+        &self,
+        chain_id: u32,
+        address: Address,
+        client_order_id: &ClientOrderId,
+        message: &str,
+    ) {
+        tracing::info!(
+            %message,
+            %chain_id,
+            %address,
+            %client_order_id,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(chain_id, address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+    }
+
+    pub fn write_trace_all_queues(&self, message: &str) {
+        for (chain_id, address, ..) in self.client_orders.keys() {
+            tracing::info!(
+            %message,
+            client_order_queue = %json!(
+                self.client_order_queues.get(&(*chain_id, *address)).iter().map(|x| x).collect_vec()
+            ),
+            client_notify_queue = %json!(
+                self.client_notify_queue
+            ),
+            "Client Orders");
+        }
     }
 }
 
@@ -558,6 +603,8 @@ mod test {
         bits::Side,
         test_util::{get_mock_address_1, get_mock_asset_name_1},
     };
+
+    use crate::solver::solver_order::solver_order::SolverOrderStatus;
 
     use super::SolverClientOrders;
 
@@ -648,7 +695,7 @@ mod test {
         assert!(matches!(order, Some(..)));
 
         // Put order back into the queue
-        solver_orders.put_back(order.unwrap(), timestamp);
+        solver_orders.put_back(order.unwrap(), SolverOrderStatus::Ready, timestamp);
         timestamp += client_wait_period;
 
         // Should give an order of second user back

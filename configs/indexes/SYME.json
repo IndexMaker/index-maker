@@ -1,0 +1,232 @@
+[
+  {
+    "id": 1,
+    "pair": "DOGEUSDC",
+    "listing": "Binance",
+    "assetname": "Dogecoin",
+    "sector": "Smart Contract Platform",
+    "market_cap": 40858564078,
+    "weights": "2.13",
+    "quantity": 161496.47664712256
+  },
+  {
+    "id": 2,
+    "pair": "SHIBUSDC",
+    "listing": "Binance",
+    "assetname": "Shiba Inu",
+    "sector": "Meme",
+    "market_cap": 8062915464,
+    "weights": "2.13",
+    "quantity": 2142820004.7950184
+  },
+  {
+    "id": 3,
+    "pair": "PEPEUSDC",
+    "listing": "Binance",
+    "assetname": "Pepe",
+    "sector": "BNB Chain Ecosystem",
+    "market_cap": 4769123408,
+    "weights": "2.13",
+    "quantity": 3903743605.500788
+  },
+  {
+    "id": 4,
+    "pair": "PENGUUSDC",
+    "listing": "Binance",
+    "assetname": "Pudgy Penguins",
+    "sector": "Solana Ecosystem",
+    "market_cap": 2275529778,
+    "weights": "2.13",
+    "quantity": 5478723.466930131
+  },
+  {
+    "id": 5,
+    "pair": "BONKUSDC",
+    "listing": "Binance",
+    "assetname": "Bonk",
+    "sector": "BNB Chain Ecosystem",
+    "market_cap": 1979004387,
+    "weights": "2.13",
+    "quantity": 2391437246.420998
+  },
+  {
+    "id": 6,
+    "pair": "TRUMPUSDC",
+    "listing": "Binance",
+    "assetname": "Official Trump",
+    "sector": "Solana Ecosystem",
+    "market_cap": 1799590350,
+    "weights": "2.13",
+    "quantity": 2768.1432292845784
+  },
+  {
+    "id": 8,
+    "pair": "FLOKIUSDC",
+    "listing": "Binance",
+    "assetname": "FLOKI",
+    "sector": "Gaming (GameFi)",
+    "market_cap": 999608818,
+    "weights": "2.13",
+    "quantity": 477439683.21861386
+  },
+  {
+    "id": 9,
+    "pair": "WIFUSDC",
+    "listing": "Binance",
+    "assetname": "dogwifhat",
+    "sector": "Solana Ecosystem",
+    "market_cap": 946178571,
+    "weights": "2.13",
+    "quantity": 68202.70052779918
+  },
+  {
+    "id": 12,
+    "pair": "TURBOUSDC",
+    "listing": "Binance",
+    "assetname": "Turbo",
+    "sector": "Meme",
+    "market_cap": 306085391,
+    "weights": "2.13",
+    "quantity": 14972841.15899589
+  },
+  {
+    "id": 15,
+    "pair": "PNUTUSDC",
+    "listing": "Binance",
+    "assetname": "Peanut the Squirrel",
+    "sector": "Solana Ecosystem",
+    "market_cap": 264599542,
+    "weights": "2.13",
+    "quantity": 179016.13990306697
+  },
+  {
+    "id": 16,
+    "pair": "NOTUSDC",
+    "listing": "Binance",
+    "assetname": "Notcoin",
+    "sector": "Gaming (GameFi)",
+    "market_cap": 197290983,
+    "weights": "2.13",
+    "quantity": 12609426.79683791
+  },
+  {
+    "id": 18,
+    "pair": "NEIROUSDC",
+    "listing": "Binance",
+    "assetname": "Neiro",
+    "sector": "Meme",
+    "market_cap": 166100130,
+    "weights": "2.13",
+    "quantity": 145476011.2856651
+  },
+  {
+    "id": 20,
+    "pair": "BOMEUSDC",
+    "listing": "Binance",
+    "assetname": "BOOK OF MEME",
+    "sector": "Solana Ecosystem",
+    "market_cap": 153421263,
+    "weights": "2.13",
+    "quantity": 23042234.8111685
+  },
+  {
+    "id": 21,
+    "pair": "MEMEUSDC",
+    "listing": "Binance",
+    "assetname": "Memecoin",
+    "sector": "NFT",
+    "market_cap": 149485292,
+    "weights": "2.13",
+    "quantity": 14053762.180409107
+  },
+  {
+    "id": 24,
+    "pair": "AIXBTUSDC",
+    "listing": "Binance",
+    "assetname": "aixbt",
+    "sector": "Solana Ecosystem",
+    "market_cap": 119416501,
+    "weights": "2.13",
+    "quantity": 322967.89387128083
+  },
+  {
+    "id": 25,
+    "pair": "PEOPLEUSDC",
+    "listing": "Binance",
+    "assetname": "ConstitutionDAO",
+    "sector": "Meme",
+    "market_cap": 109972392,
+    "weights": "2.13",
+    "quantity": 2027713.796596282
+  },
+  {
+    "id": 27,
+    "pair": "ANIMEUSDC",
+    "listing": "Binance",
+    "assetname": "Animecoin",
+    "sector": "NFT",
+    "market_cap": 90468131,
+    "weights": "2.13",
+    "quantity": 1572252.4538081014
+  },
+  {
+    "id": 30,
+    "pair": "DOGSUSDC",
+    "listing": "Binance",
+    "assetname": "Dogs",
+    "sector": "Meme",
+    "market_cap": 74800331,
+    "weights": "2.13",
+    "quantity": 204554418.5740014
+  },
+  {
+    "id": 33,
+    "pair": "BANANAS31USDC",
+    "listing": "Binance",
+    "assetname": "Banana For Scale",
+    "sector": "BNB Chain Ecosystem",
+    "market_cap": 61705019,
+    "weights": "2.13",
+    "quantity": 4661751.6009564875
+  },
+  {
+    "id": 34,
+    "pair": "TUTUSDC",
+    "listing": "Binance",
+    "assetname": "Tutorial",
+    "sector": "BNB Chain Ecosystem",
+    "market_cap": 56260902,
+    "weights": "2.13",
+    "quantity": 1166242.5785263036
+  },
+  {
+    "id": 38,
+    "pair": "ACTUSDC",
+    "listing": "Binance",
+    "assetname": "Act I The AI Prophecy",
+    "sector": "Solana Ecosystem",
+    "market_cap": 39213502,
+    "weights": "2.12",
+    "quantity": 422814.5438229719
+  },
+  {
+    "id": 39,
+    "pair": "MUBARAKUSDC",
+    "listing": "Binance",
+    "assetname": "Mubarak",
+    "sector": "BNB Chain Ecosystem",
+    "market_cap": 32838528,
+    "weights": "2.12",
+    "quantity": 690493.1826414834
+  },
+  {
+    "id": 41,
+    "pair": "TSTUSDC",
+    "listing": "Binance",
+    "assetname": "Test",
+    "sector": "BNB Chain Ecosystem",
+    "market_cap": 26916712,
+    "weights": "2.12",
+    "quantity": 371177.857542905
+  }
+]

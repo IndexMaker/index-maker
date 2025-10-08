@@ -1,0 +1,77 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
+  <diagram name="Page-1" id="jh5zgXB2ApuEn3dxrwDF">
+    <mxGraphModel dx="1230" dy="1616" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Kz7p3PBmYIackSTujqLT-40" value="5. Update Records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-3" target="Kz7p3PBmYIackSTujqLT-21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-3" value="Index Order&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="320" y="240" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-29" value="1. Solve Batch" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-8" target="Kz7p3PBmYIackSTujqLT-20">
+          <mxGeometry x="-0.625" y="20" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-36" value="6. Add Engagement" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-8" target="Kz7p3PBmYIackSTujqLT-35">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-39" value="4. Engage Orders" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-8" target="Kz7p3PBmYIackSTujqLT-3">
+          <mxGeometry x="0.6667" y="-10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-8" value="Solver" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="240" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-31" value="2. Get Prices" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-20" target="Kz7p3PBmYIackSTujqLT-24">
+          <mxGeometry x="0.0979" y="6" relative="1" as="geometry">
+            <mxPoint x="-1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-32" value="3. Get Liquidity" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-20" target="Kz7p3PBmYIackSTujqLT-30">
+          <mxGeometry x="-0.1503" y="23" relative="1" as="geometry">
+            <mxPoint x="-1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-20" value="Solver&lt;br&gt;Strategy" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="840" y="240" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-21" value="Index Order&lt;div&gt;Records&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="390" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-24" value="Prices&lt;div&gt;Tracker&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="700" y="384" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-26" value="&lt;font style=&quot;font-size: 36px;&quot;&gt;Phase 3. Batch Creation&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="445" y="-140" width="410" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-33" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-28" target="Kz7p3PBmYIackSTujqLT-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-34" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-28" target="Kz7p3PBmYIackSTujqLT-30">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-28" value="Market&lt;div&gt;Data Feed&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="840" y="520" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-30" value="Order Book&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="980" y="384" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-38" value="7. Update Records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;align=left;" edge="1" parent="1" source="Kz7p3PBmYIackSTujqLT-35" target="Kz7p3PBmYIackSTujqLT-37">
+          <mxGeometry x="0.8333" y="-20" relative="1" as="geometry">
+            <mxPoint x="-1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-35" value="Batch&lt;div&gt;Manager&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="60" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Kz7p3PBmYIackSTujqLT-37" value="Batch&amp;nbsp;&lt;span style=&quot;background-color: initial;&quot;&gt;Position&lt;/span&gt;&lt;div&gt;Records&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="320" y="60" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

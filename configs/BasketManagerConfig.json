@@ -1,13 +1,22 @@
 {
     "index_files": [
         {
-            "SO2": "indexes/SO2_Latest_rebalance.json"
+            "SY100": "configs/indexes/SY100.json"
         },
         {
-            "SO3": "indexes/SO3_Latest_rebalance.json"
+            "SYAI": "configs/indexes/SYAI.json"
         },
         {
-            "SY100": "indexes/SY100_edited.json"
+            "SYAZ": "configs/indexes/SYAZ.json"
+        },
+        {
+            "SYDF": "configs/indexes/SYDF.json"
+        },
+        {
+            "SYL2": "configs/indexes/SYL2.json"
+        },
+        {
+            "SYME": "configs/indexes/SYME.json"
         }
     ]
 }

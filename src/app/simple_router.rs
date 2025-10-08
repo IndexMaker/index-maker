@@ -17,9 +17,9 @@ use symm_core::core::{
 };
 
 use eyre::{OptionExt, Result};
-use index_core::collateral::collateral_router::{
-    CollateralBridge, CollateralDesignation, CollateralRouterEvent,
-};
+use index_core::collateral::{self, collateral_router::{
+    self, CollateralBridge, CollateralDesignation, CollateralRouterEvent, CollateralRoutingStatus
+}};
 
 struct SimpleDesignation {
     type_: Symbol,
@@ -135,6 +135,7 @@ impl CollateralBridge for SimpleBridge {
                 route_to,
                 amount,
                 fee: cumulative_fee,
+                status: CollateralRoutingStatus::Success
             });
         Ok(())
     }

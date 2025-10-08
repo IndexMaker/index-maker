@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
@@ -227,6 +228,16 @@ impl IndexOrderManager {
         collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<NewIndexOrderNakReason>> {
+        // Allow up to 6 decimal places for collateral
+        let collateral_amount = collateral_amount.normalize();
+        if collateral_amount.scale() > 6 {
+            return Err(ServerResponseReason::User(
+                NewIndexOrderNakReason::OtherReason {
+                    detail: "Too much precision".to_string(),
+                },
+            ));
+        }
+
         // Temporary sell side block
         if side == Side::Sell {
             return Err(ServerResponseReason::User(
@@ -369,9 +380,45 @@ impl IndexOrderManager {
         address: Address,
         client_order_id: ClientOrderId,
         symbol: Symbol,
-        collateral_amount: Amount,
+        _collateral_amount: Amount,
         timestamp: DateTime<Utc>,
     ) -> Result<(), ServerResponseReason<CancelIndexOrderNakReason>> {
+        let index_order = self
+            .index_orders
+            .get_mut(&(chain_id, address))
+            .and_then(|map| map.get_mut(&symbol))
+            .ok_or_else(|| {
+                ServerResponseReason::Server(ServerError::OtherReason {
+                    detail: String::from("Cannot find index order"),
+                })
+            })?;
+
+        index_order.solver_cancel(&client_order_id, &format!("Cancelled by the user"));
+
+        tracing::info!(
+            remaining_collateral = %index_order.remaining_collateral,
+            collateral_spent = %index_order.collateral_spent,
+            orders = %json!(
+                index_order.order_updates.iter()
+                    .map(|u| (
+                        json!(u.client_order_id),
+                        u.collateral_spent,
+                        u.remaining_collateral,
+                        u.filled_quantity))
+                    .collect_vec()
+            ),
+            "User Index Orders"
+        );
+
+        self.observer
+            .publish_single(IndexOrderEvent::CancelIndexOrder {
+                chain_id,
+                address,
+                client_order_id,
+                timestamp,
+            });
+
+        /*
         let user_orders = self
             .index_orders
             .get_mut(&(chain_id, address))
@@ -420,6 +467,7 @@ impl IndexOrderManager {
                     });
             }
         }
+        */
         Ok(())
     }
 
@@ -699,6 +747,7 @@ impl IndexOrderManager {
         client_order_id: &ClientOrderId,
         symbol: &Symbol,
         payment_id: &PaymentId,
+        seq_num: U256,
         filled_quantity: Amount,
         amount_paid: Amount,
         lots: Vec<SolverOrderAssetLot>,
@@ -736,6 +785,7 @@ impl IndexOrderManager {
                 index_order,
                 &update,
                 payment_id,
+                seq_num,
                 filled_quantity,
                 amount_paid,
                 lots,
@@ -759,15 +809,21 @@ impl IndexOrderManager {
         };
 
         match maybe_removed_index_order {
-            Some(mut index_order) => process(&mut index_order),
+            Some(mut index_order) => process(&mut index_order)?,
             None => {
                 let index_order = self
                     .find_index_order_mut(chain_id, address, symbol)
                     .ok_or_eyre("cannot find index order")?;
 
-                process(index_order)
+                process(index_order)?;
             }
         }
+
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store index order manager: {:?}", err);
+        }
+
+        Ok(())
     }
 
     /// provide a method to fill index order request
@@ -1019,6 +1075,10 @@ impl IndexOrderManager {
                 engaged_orders: engage_result,
                 timestamp: Utc::now(),
             });
+
+        if let Err(err) = self.store() {
+            tracing::warn!("❗️ Failed to store index order manager: {:?}", err);
+        }
 
         Ok(())
     }

@@ -1,14 +1,16 @@
 use std::{
     collections::{HashMap, VecDeque},
+    isize,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, RwLock as ComponentLock,
     },
 };
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Duration, TimeDelta, Utc};
 use eyre::{eyre, Context, OptionExt, Result};
 use itertools::Itertools;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use parking_lot::{Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
@@ -131,11 +133,14 @@ pub trait OrderIdProvider {
 }
 
 /// Status of the Solver
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
 pub enum SolverStatus {
-    Running,
-    ShuttingDown,
-    Stopped,
+    Created = 0,
+    WarmingUp = 1,
+    Running = 2,
+    ShuttingDown = 3,
+    Stopped = 4,
 }
 
 /// Status of the BatchManager
@@ -228,8 +233,9 @@ pub struct Solver {
     // parameters
     max_batch_size: usize,
     zero_threshold: Amount,
+    order_expiry_after: Duration,
     // status management
-    status: Arc<AtomicU8>, // 0=Running, 1=ShuttingDown, 2=Stopped
+    status: AtomicU8,
 }
 impl Solver {
     pub fn new(
@@ -247,6 +253,7 @@ impl Solver {
         persistence: Arc<dyn Persistence + Send + Sync + 'static>,
         max_batch_size: usize,
         zero_threshold: Amount,
+        order_expiry_after: Duration,
         client_order_wait_period: TimeDelta,
         client_quote_wait_period: TimeDelta,
     ) -> Self {
@@ -273,26 +280,78 @@ impl Solver {
             // parameters
             max_batch_size,
             zero_threshold,
+            order_expiry_after,
             // status management
-            status: Arc::new(AtomicU8::new(0)), // Start as Running
+            status: AtomicU8::new(SolverStatus::Created.into()),
         }
     }
 
     /// Initiate graceful shutdown by blocking new orders and engagement
     /// Get current solver status
     pub fn get_status(&self) -> SolverStatus {
-        match self.status.load(Ordering::SeqCst) {
-            0 => SolverStatus::Running,
-            1 => SolverStatus::ShuttingDown,
-            2 => SolverStatus::Stopped,
-            _ => SolverStatus::Running, // Default fallback
+        let current_status = self.status.load(Ordering::SeqCst);
+        current_status
+            .try_into()
+            .expect("Programming error: Invalid Solver status")
+    }
+
+    fn begin_warming_up(&self) -> Result<()> {
+        tracing::info!("☑️ Solver started.");
+
+        self.status
+            .store(SolverStatus::WarmingUp.into(), Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn complete_warming_up(&self) -> Result<()> {
+        let assets = self.basket_manager.read().get_all_assets();
+        let symbols = assets.into_iter().map(|a| a.ticker.clone()).collect_vec();
+        let prices = self
+            .price_tracker
+            .read()
+            .get_prices(PriceType::MidPoint, &symbols);
+
+        if prices.missing_symbols.is_empty() {
+            tracing::info!("✅ Solver is running");
+            self.status
+                .store(SolverStatus::Running.into(), Ordering::SeqCst);
         }
+
+        Ok(())
     }
 
     /// Initiate graceful shutdown by setting status to ShuttingDown
     pub fn initiate_shutdown(&self) {
-        self.status.store(1, Ordering::SeqCst); // ShuttingDown
+        self.status.store(SolverStatus::ShuttingDown.into(), Ordering::SeqCst);
         tracing::info!("Solver shutdown initiated - status set to ShuttingDown");
+    }
+
+    fn complete_shutdown(&self, timestamp: DateTime<Utc>) {
+        // During shutdown, only process batches to completion
+        let batch_status = match self
+            .batch_manager
+            .write()
+            .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
+            .and_then(|mut x| x.process_batches(self, timestamp))
+        {
+            Ok(status) => status,
+            Err(err) => {
+                tracing::warn!("Error while processing batches during shutdown: {:?}", err);
+                BatchManagerStatus::Idle // Assume idle on error
+            }
+        };
+
+        // Check if we can transition to Stopped
+        match batch_status {
+            BatchManagerStatus::Idle => {
+                tracing::info!("All batches completed - transitioning to Stopped");
+            }
+            BatchManagerStatus::ActiveBatches(count) => {
+                tracing::trace!("Still waiting for {} active batches to complete", count);
+            }
+        }
+        self.status
+            .store(SolverStatus::Stopped.into(), Ordering::SeqCst);
     }
 
     /// Check if the solver is accepting new orders
@@ -324,9 +383,11 @@ impl Solver {
                             "Missing prices for order",
                         );
                     })(&failed_order.read());
-                    self.client_orders
-                        .write()
-                        .put_back(failed_order.clone(), timestamp);
+                    self.client_orders.write().put_back(
+                        failed_order.clone(),
+                        SolverOrderStatus::Ready,
+                        timestamp,
+                    );
                 }
                 _ => {
                     let o = failed_order.read();
@@ -378,7 +439,11 @@ impl Solver {
             match self.strategy.solve_engagements(self, order_batch.clone()) {
                 Err(err) => {
                     order_batch.iter().for_each(|x| {
-                        self.client_orders.write().put_back(x.clone(), timestamp);
+                        self.client_orders.write().put_back(
+                            x.clone(),
+                            SolverOrderStatus::Ready,
+                            timestamp,
+                        );
                     });
                     return Err(err);
                 }
@@ -441,21 +506,22 @@ impl Solver {
                     .write()
                     .map(|mut manager| {
                         for order in unusable_orders {
-                            let o_upread = order.read();
+                            let o_read = order.read();
                             tracing::warn!(
-                                chain_id = %o_upread.chain_id,
-                                address = %o_upread.address,
-                                client_order_id = %o_upread.client_order_id,
-                                engaged_collateral = %o_upread.engaged_collateral,
-                                "Unusable order");
+                                chain_id = %o_read.chain_id,
+                                address = %o_read.address,
+                                client_order_id = %o_read.client_order_id,
+                                engaged_collateral = %o_read.engaged_collateral,
+                                status = ?o_read.status,
+                                "⚠️ Unusable order");
 
                             let _ = manager
                                 .order_failed(
-                                    o_upread.chain_id,
-                                    &o_upread.address,
-                                    &o_upread.client_order_id,
-                                    &o_upread.symbol,
-                                    o_upread.status,
+                                    o_read.chain_id,
+                                    &o_read.address,
+                                    &o_read.client_order_id,
+                                    &o_read.symbol,
+                                    o_read.status,
                                     timestamp,
                                 )
                                 .inspect_err(|err| {
@@ -545,14 +611,14 @@ impl Solver {
     fn serve_more_clients(&self, timestamp: DateTime<Utc>) -> Result<()> {
         while let Some(solver_order) = self.client_orders.write().get_next_client_order(timestamp) {
             let (chain_id, address, client_order_id, symbol, timestamp, status) = {
-                let order_upread = solver_order.read();
+                let order_read = solver_order.read();
                 (
-                    order_upread.chain_id,
-                    order_upread.address.clone(),
-                    order_upread.client_order_id.clone(),
-                    order_upread.symbol.clone(),
-                    order_upread.timestamp,
-                    order_upread.status,
+                    order_read.chain_id,
+                    order_read.address.clone(),
+                    order_read.client_order_id.clone(),
+                    order_read.symbol.clone(),
+                    order_read.timestamp,
+                    order_read.status,
                 )
             };
             tracing::info!(
@@ -570,10 +636,10 @@ impl Solver {
                     self.ready_orders.lock().push_back(solver_order.clone());
                     Ok(())
                 }
-                _ => Err(eyre!(
-                    "Programming error: Expected either Open | Ready order status"
-                ))
-                .unwrap(),
+                s => Err(eyre!(
+                    "Programming error: Expected either Open | Ready order status, got: {:?}",
+                    s
+                )),
             };
 
             if let Err(err) = result {
@@ -677,6 +743,22 @@ impl Solver {
         let current_status = self.get_status();
 
         match current_status {
+            SolverStatus::Created => {
+                tracing::trace!("\nBegin warming up...");
+
+                if let Err(err) = self.begin_warming_up() {
+                    tracing::error!("Failed to begin warming up Solver: {:?}", err);
+                    self.initiate_shutdown();
+                }
+            }
+            SolverStatus::WarmingUp => {
+                tracing::trace!("\nWarming up...");
+
+                if let Err(err) = self.complete_warming_up() {
+                    tracing::error!("Failed to complete warming up Solver: {:?}", err);
+                    self.initiate_shutdown();
+                }
+            }
             SolverStatus::Running => {
                 tracing::trace!("\nBegin solve");
 
@@ -706,7 +788,7 @@ impl Solver {
                 }
 
                 tracing::trace!("* Process batches");
-                let batch_status = match self
+                let _ = match self
                     .batch_manager
                     .write()
                     .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
@@ -725,43 +807,16 @@ impl Solver {
                 }
 
                 tracing::trace!("End solve\n");
-                SolverStatus::Running
             }
             SolverStatus::ShuttingDown => {
                 tracing::trace!("Solver shutting down - processing batches only");
-
-                // During shutdown, only process batches to completion
-                let batch_status = match self
-                    .batch_manager
-                    .write()
-                    .map_err(|e| eyre!("Failed to access batch manager: {:?}", e))
-                    .and_then(|mut x| x.process_batches(self, timestamp))
-                {
-                    Ok(status) => status,
-                    Err(err) => {
-                        tracing::warn!("Error while processing batches during shutdown: {:?}", err);
-                        BatchManagerStatus::Idle // Assume idle on error
-                    }
-                };
-
-                // Check if we can transition to Stopped
-                match batch_status {
-                    BatchManagerStatus::Idle => {
-                        tracing::info!("All batches completed - transitioning to Stopped");
-                        self.status.store(2, Ordering::SeqCst); // Stopped
-                        SolverStatus::Stopped
-                    }
-                    BatchManagerStatus::ActiveBatches(count) => {
-                        tracing::debug!("Still waiting for {} active batches to complete", count);
-                        SolverStatus::ShuttingDown
-                    }
-                }
+                self.complete_shutdown(timestamp);
             }
             SolverStatus::Stopped => {
                 tracing::trace!("Solver stopped - no processing");
-                SolverStatus::Stopped
             }
         }
+        current_status
     }
 
     pub fn solve_quotes(&self, timestamp: DateTime<Utc>) {
@@ -814,13 +869,16 @@ impl Solver {
             ChainNotification::Deposit {
                 chain_id,
                 address,
+                seq_num,
+                affiliate1: _,
+                affiliate2: _,
                 amount,
                 timestamp,
             } => self
                 .collateral_manager
                 .write()
                 .map_err(|e| eyre!("Failed to access collateral manager {}", e))?
-                .handle_deposit(self, chain_id, address, amount, timestamp),
+                .handle_deposit(self, chain_id, address, seq_num, amount, timestamp),
             ChainNotification::WithdrawalRequest {
                 chain_id,
                 address,
@@ -867,9 +925,15 @@ impl Solver {
                         .collect_vec()),
                     "Batch Complete");
 
-                // Batch completion is now tracked via BatchManager status
+                let is_last_batch = continued_orders.is_empty();
 
                 self.ready_orders.lock().extend(continued_orders);
+
+                if is_last_batch {
+                    if let Err(err) = self.inventory_manager.write().update_snapshot() {
+                        tracing::warn!("Failed to update inventory snapshot: {:?}", err);
+                    }
+                }
                 Ok(())
             }
             BatchEvent::BatchMintable { mintable_orders } => {
@@ -910,7 +974,7 @@ impl Solver {
 
                 match status {
                     RoutingStatus::Ready { fee } => {
-                        tracing::info!(%chain_id, %address, %collateral_amount, %fee, "CollateralReady");
+                        tracing::info!(%chain_id, %address, %collateral_amount, %fee, "✅ CollateralReady: Ready");
 
                         // TODO: Figure out: should collateral manager have already paid for the order?
                         // or CollateralEvent is only to tell us that collateral reached sub-accounts?
@@ -949,8 +1013,55 @@ impl Solver {
                                 timestamp,
                             )?;
                     }
+                    RoutingStatus::CheckLater => {
+                        tracing::info!(%chain_id, %address, %collateral_amount, "⏱️ CollateralReady CheckLater");
+
+                        let (symbol, status, created_timestamp) =
+                            (|o: &SolverOrder| (o.symbol.clone(), o.status, o.created_timestamp))(
+                                &order.read(),
+                            );
+
+                        let pending_order = self
+                            .client_orders
+                            .read()
+                            .peek_next_client_order(chain_id, address, timestamp);
+
+                        if matches!(pending_order, None)
+                            && (timestamp - created_timestamp < self.order_expiry_after)
+                        {
+                            self.client_orders.write().put_back(
+                                order,
+                                SolverOrderStatus::Open,
+                                timestamp,
+                            );
+
+                            self.chain_connector
+                                .write()
+                                .map_err(|e| eyre!("Failed to access chain connector {}", e))?
+                                .poll_once(chain_id, address, symbol);
+                        } else {
+                            tracing::warn!(%chain_id, %address, %collateral_amount, "⚠️ Order Expired");
+
+                            self.set_order_status(
+                                &mut order.write(),
+                                SolverOrderStatus::InvalidCollateral,
+                            );
+
+                            self.index_order_manager
+                                .write()
+                                .map_err(|e| eyre!("Failed to access index order manager {}", e))?
+                                .order_failed(
+                                    chain_id,
+                                    &address,
+                                    &client_order_id,
+                                    &symbol,
+                                    status,
+                                    timestamp,
+                                )?;
+                        }
+                    }
                     RoutingStatus::NotReady => {
-                        tracing::warn!(%chain_id, %address, %collateral_amount, "CollateralReady NotReady");
+                        tracing::warn!(%chain_id, %address, %collateral_amount, "⚠️ CollateralReady NotReady");
 
                         self.set_order_status(
                             &mut order.write(),
@@ -1034,7 +1145,7 @@ impl Solver {
                 status,
                 position,
             } => match status {
-                ConfirmStatus::Authorized => {
+                ConfirmStatus::Authorized(seq_nums) => {
                     let order = self.client_orders.read().get_client_order(
                         chain_id,
                         address,
@@ -1044,6 +1155,7 @@ impl Solver {
                     if let Some(order) = order {
                         tracing::info!(%payment_id, "Payment authorized");
                         let mut order_write = order.write();
+                        let last_seq_num = seq_nums.last().cloned().unwrap_or_default();
                         self.chain_connector
                             .write()
                             .map_err(|e| eyre!("Failed to access chain connector {}", e))?
@@ -1052,6 +1164,7 @@ impl Solver {
                                 order_write.symbol.clone(),
                                 order_write.filled_quantity,
                                 order_write.address,
+                                last_seq_num,
                                 amount_paid,
                                 timestamp,
                             );
@@ -1060,7 +1173,7 @@ impl Solver {
                             .compress_lots()
                             .context("Failed to compress lots")?;
 
-                        let lot_assignments = order_write.collect_lot_assignments();
+                        let lot_assignments = order_write.collect_lot_assignments(last_seq_num);
                         self.inventory_manager
                             .write()
                             .assign_lots(lot_assignments)
@@ -1076,6 +1189,7 @@ impl Solver {
                                 &client_order_id,
                                 &order_write.symbol,
                                 &payment_id,
+                                last_seq_num,
                                 order_write.filled_quantity,
                                 amount_paid,
                                 lots,
@@ -1416,7 +1530,7 @@ impl Solver {
                 quantity_cancelled,
                 original_quantity,
                 quantity_remaining,
-                is_cancelled,
+                cancel_status,
                 cancel_timestamp,
             } => {
                 tracing::debug!(
@@ -1427,10 +1541,17 @@ impl Solver {
                     %quantity_cancelled,
                     %original_quantity,
                     %quantity_remaining,
-                    %is_cancelled,
+                    %cancel_status,
                     %cancel_timestamp,
                     "Handle Inventory Event Cancel",
                 );
+                if cancel_status.is_rejected() {
+                    // TODO: We must stop sending batches
+                    // Figure out better approach. ATM we just stop, otherwise
+                    // we can get banned for sending too many bad orders.
+                    tracing::error!("General system failure: Shutting down...");
+                    self.initiate_shutdown();
+                }
                 self.batch_manager
                     .read()
                     .map_err(|e| eyre!("Failed to access batch manager {}", e))?
@@ -1440,7 +1561,7 @@ impl Solver {
                         symbol,
                         side,
                         quantity_cancelled,
-                        is_cancelled,
+                        cancel_status.is_cancelled_or_rejected(),
                         cancel_timestamp,
                     )
             }
@@ -1789,6 +1910,10 @@ impl Persist for Solver {
 
         self.inventory_manager.write().store()?;
 
+        self.client_orders
+            .read()
+            .write_trace_all_queues("Before Store");
+
         // Create solver state snapshot
         let solver_state = self.create_solver_state_snapshot()?;
 
@@ -1936,6 +2061,7 @@ mod test {
         let max_batch_size = 4;
         let tolerance = dec!(0.0001);
         let mint_wait_period = TimeDelta::new(10, 0).unwrap();
+        let order_expiry = chrono::Duration::seconds(60);
         let client_order_wait_period = TimeDelta::new(10, 0).unwrap();
         let client_quote_wait_period = TimeDelta::new(1, 0).unwrap();
 
@@ -2107,10 +2233,16 @@ mod test {
 
         let basket_manager = Arc::new(RwLock::new(BasketManager::new()));
 
+        let expected_batch_size = 2;
+        let expected_num_batches = 7;
+        let expected_num_order_ids = expected_batch_size * expected_num_batches;
+
         let order_id_provider = Arc::new(RwLock::new(MockOrderIdProvider {
-            order_ids: VecDeque::from_iter((1..7).map(|n| OrderId::from(format!("O-{:02}", n)))),
+            order_ids: VecDeque::from_iter(
+                (1..expected_num_order_ids + 1).map(|n| OrderId::from(format!("O-{:02}", n))),
+            ),
             batch_order_ids: VecDeque::from_iter(
-                (1..4).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
+                (1..expected_num_batches + 1).map(|n| BatchOrderId::from(format!("B-{:02}", n))),
             ),
             payment_ids: VecDeque::from_iter(
                 (1..4).map(|n| PaymentId::from(format!("P-{:02}", n))),
@@ -2156,6 +2288,7 @@ mod test {
             solver_persistence.clone(),
             max_batch_size,
             tolerance,
+            order_expiry,
             client_order_wait_period,
             client_quote_wait_period,
         ));
@@ -2687,6 +2820,10 @@ mod test {
 
         let mut timestamp = Utc::now();
 
+        solver_tick(timestamp);
+        flush_events();
+        heading("Solver initiated");
+
         // connect to exchange
         order_connector.write().connect();
         order_connector
@@ -2791,6 +2928,10 @@ mod test {
         // necessary to wait until all market data events are ingested
         flush_events();
         heading("Market data sent");
+
+        solver_tick(timestamp);
+        flush_events();
+        heading("Solver received market data");
 
         // define basket
         let basket_definition = BasketDefinition::try_new(vec![
@@ -2986,43 +3127,8 @@ mod test {
             }
         }
 
-        for _ in 0..2 {
-            let fix_response = mock_fix_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Failed to receive ServerResponse");
-
-            assert!(matches!(
-                fix_response,
-                ServerResponse::IndexOrderFill {
-                    chain_id: _,
-                    address: _,
-                    client_order_id: _,
-                    filled_quantity: _,
-                    collateral_remaining: _,
-                    collateral_spent: _,
-                    fill_rate: _,
-                    status: _,
-                    timestamp: _
-                }
-            ));
-
-            tracing::info!(" -> FIX response received");
-        }
-
-        for _ in 0..2 {
-            solver_tick(timestamp);
-            flush_events();
-            heading("Next order batch engaged");
-
-            solver_tick(timestamp);
-            flush_events();
-            heading("Next order batch filled");
-
-            for _ in 0..2 {
-                let fix_response = mock_fix_receiver
-                    .recv_timeout(Duration::from_secs(1))
-                    .expect("Failed to receive ServerResponse");
-
+        let maybe_filled = || {
+            if let Ok(fix_response) = mock_fix_receiver.recv_timeout(Duration::from_millis(1)) {
                 assert!(matches!(
                     fix_response,
                     ServerResponse::IndexOrderFill {
@@ -3039,6 +3145,24 @@ mod test {
                 ));
 
                 tracing::info!(" -> FIX response received");
+            }
+        };
+
+        for _ in 0..expected_batch_size {
+            maybe_filled();
+        }
+
+        for batch_number in 2..expected_num_batches + 1 {
+            solver_tick(timestamp);
+            flush_events();
+            heading(&format!("Next order batch (#{}) engaged", batch_number));
+
+            solver_tick(timestamp);
+            flush_events();
+            heading(&format!("Next order batch (#{}) filled", batch_number));
+
+            for _ in 0..expected_batch_size {
+                maybe_filled();
             }
         }
 
