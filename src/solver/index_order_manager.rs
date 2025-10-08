@@ -801,7 +801,9 @@ impl IndexOrderManager {
                 ServerResponse::MintInvoice {
                     chain_id,
                     address: *address,
+                    client_order_id: client_order_id.clone(),
                     mint_invoice,
+                    timestamp,
                 }
             });
 

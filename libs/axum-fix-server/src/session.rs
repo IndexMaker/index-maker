@@ -1,18 +1,8 @@
-use std::sync::Arc;
-
-use axum::extract::ws::{Message, WebSocket};
-use chrono::Utc;
 use eyre::{eyre, Result};
-use futures_util::TryFutureExt;
-use itertools::Itertools;
-use tokio::{
-    select,
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
-    time::sleep,
-};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
-use crate::{messages::SessionId, server_plugin::ServerPlugin, server_state::ServerState};
+use crate::messages::SessionId;
 
 /// Session
 ///

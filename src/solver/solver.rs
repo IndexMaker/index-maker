@@ -2608,7 +2608,9 @@ mod test {
                     ServerResponse::MintInvoice {
                         chain_id,
                         address,
+                        client_order_id: _,
                         mint_invoice,
+                        timestamp: _,
                     } => {
                         tracing::info!(
                             "(mock) FIX Mint Invoice: [{}:{}] {} {} {:0.5} {:0.5} {:0.5} {:0.5}",

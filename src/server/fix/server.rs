@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use axum_fix_server::server::Server as AxumFixServer;
 use eyre::Result;
-use symm_core::core::functional::{IntoObservableManyVTable, NotificationHandler};
+use symm_core::core::{
+    functional::{IntoObservableManyVTable, NotificationHandler},
+    telemetry::{TraceableEvent, WithTracingContext},
+};
 
 use crate::server::{
     fix::rate_limit_config::FixRateLimitConfig,
@@ -11,7 +14,7 @@ use crate::server::{
 };
 
 pub struct Server {
-    inner: AxumFixServer<ServerResponse, ServerPlugin>,
+    inner: AxumFixServer<TraceableEvent<ServerResponse>, ServerPlugin>,
 }
 
 impl Server {
@@ -37,13 +40,17 @@ impl Server {
 impl IntoObservableManyVTable<Arc<ServerEvent>> for Server {
     fn add_observer(&mut self, observer: Box<dyn NotificationHandler<Arc<ServerEvent>>>) {
         self.inner
-            .with_plugin_mut(|plugin| plugin.add_observer(observer))
+            .with_plugin(|plugin| plugin.add_observer(observer))
     }
 }
 
 impl ServerInterface for Server {
     fn respond_with(&mut self, response: ServerResponse) {
-        if let Err(err) = self.inner.send_response(response) {
+        let mut traceable_response = TraceableEvent::new(response);
+        traceable_response.inject_baggage();
+        traceable_response.inject_current_context();
+
+        if let Err(err) = self.inner.send_response(traceable_response) {
             tracing::warn!("Failed to respond with: {:?}", err);
         }
     }

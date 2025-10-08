@@ -159,12 +159,7 @@ mod tests {
         // Test ACK response
         let ack_response = FixResponse::create_ack(&user_id, &session_id, 123);
 
-        assert_eq!(
-            axum_fix_server::plugins::rate_limit_plugin::WithRateLimitPlugin::get_user_id(
-                &ack_response
-            ),
-            user_id
-        );
+        assert_eq!(WithRateLimitPlugin::get_user_id(&ack_response), user_id);
         assert_eq!(
             ack_response.get_rate_limit_key(),
             RateLimitKey::User(user_id.0, user_id.1)
@@ -180,12 +175,7 @@ mod tests {
             "Rate limit exceeded".to_string(),
         );
 
-        assert_eq!(
-            axum_fix_server::plugins::rate_limit_plugin::WithRateLimitPlugin::get_user_id(
-                &nak_response
-            ),
-            user_id
-        );
+        assert_eq!(WithRateLimitPlugin::get_user_id(&nak_response), user_id);
         assert_eq!(
             nak_response.get_rate_limit_key(),
             RateLimitKey::User(user_id.0, user_id.1)

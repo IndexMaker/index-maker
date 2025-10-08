@@ -1,11 +1,15 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     marker::PhantomData,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
+use parking_lot::RwLock;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{messages::SessionId, server_plugin::ServerPlugin, session::Session};
@@ -31,9 +35,9 @@ impl Sessions {
 
 pub struct ServerState<Response, Plugin> {
     _phantom_response: PhantomData<Response>,
-    sessions: Sessions,
+    sessions: RwLock<Sessions>,
     plugin: Plugin,
-    accept_connections: bool,
+    accept_connections: AtomicBool,
 }
 
 impl<Response, Plugin> ServerState<Response, Plugin>
@@ -45,18 +49,18 @@ where
         Self {
             _phantom_response: PhantomData::default(),
 
-            sessions: Sessions::new(),
+            sessions: RwLock::new(Sessions::new()),
             plugin,
-            accept_connections: true,
+            accept_connections: AtomicBool::new(true),
         }
     }
 
     pub fn is_accepting_connections(&self) -> bool {
-        self.accept_connections
+        self.accept_connections.load(Ordering::Relaxed)
     }
 
-    pub fn close(&mut self) {
-        self.accept_connections = false;
+    pub fn close(&self) {
+        self.accept_connections.store(false, Ordering::Relaxed);
     }
 
     pub fn get_plugin(&self) -> &Plugin {
@@ -68,12 +72,13 @@ where
     }
 
     pub fn get_session_ids(&self) -> Vec<SessionId> {
-        self.sessions.sessions.keys().cloned().collect_vec()
+        self.sessions.read().sessions.keys().cloned().collect_vec()
     }
-    pub fn create_session(&mut self) -> Result<(UnboundedReceiver<String>, Arc<Session>)> {
-        let session_id = self.sessions.gen_next_session_id();
+    pub fn create_session(&self) -> Result<(UnboundedReceiver<String>, Arc<Session>)> {
+        let mut sessions_write = self.sessions.write();
+        let session_id = sessions_write.gen_next_session_id();
 
-        match self.sessions.sessions.entry(session_id.clone()) {
+        match sessions_write.sessions.entry(session_id.clone()) {
             Entry::Occupied(_) => Err(eyre!("Session {} already exists", session_id)),
             Entry::Vacant(vacant_entry) => {
                 let (tx, rx) = unbounded_channel();
@@ -86,10 +91,12 @@ where
         }
     }
 
-    pub fn close_session(&mut self, session_id: SessionId) -> Result<Arc<Session>> {
+    pub fn close_session(&self, session_id: SessionId) -> Result<Arc<Session>> {
         self.plugin.destroy_session(&session_id)?;
+
         let session = self
             .sessions
+            .write()
             .sessions
             .remove(&session_id)
             .ok_or_eyre("Session no longer exists")?;
@@ -98,7 +105,7 @@ where
         Ok(session)
     }
 
-    pub fn close_all_sessions(&mut self) -> Result<Vec<Arc<Session>>> {
+    pub fn close_all_sessions(&self) -> Result<Vec<Arc<Session>>> {
         let (good, bad): (Vec<_>, Vec<_>) = self
             .get_session_ids()
             .into_iter()
@@ -128,8 +135,10 @@ where
             .map(|(sid, resp)| {
                 let session = self
                     .sessions
+                    .read()
                     .sessions
                     .get(&sid)
+                    .cloned()
                     .ok_or_else(|| eyre!("Session {} not found", sid))?;
 
                 session.send_response(resp)

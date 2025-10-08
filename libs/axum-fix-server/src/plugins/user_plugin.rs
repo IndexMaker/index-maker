@@ -19,7 +19,7 @@ impl UserPlugin {
         }
     }
 
-    pub fn add_add_user_session(&self, user_id: &(u32, Address), session_id: &SessionId) {
+    pub fn add_user_session(&self, user_id: &(u32, Address), session_id: &SessionId) {
         let mut write_lock = self.users_sessions.write().unwrap();
         write_lock
             .entry(*user_id)
