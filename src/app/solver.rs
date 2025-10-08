@@ -612,7 +612,7 @@ impl SolverConfig {
         let (basket_event_tx, basket_event_rx) = unbounded::<BasketNotification>();
 
         let (batch_event_tx, batch_event_rx) = unbounded::<BatchEvent>();
-        let (chain_event_tx, chain_event_rx) = unbounded::<ChainNotification>();
+        let (chain_event_tx, chain_event_rx) = unbounded_traceable::<ChainNotification>();
 
         let basket_manager = self.with_basket_manager.try_get_basket_manager_cloned()?;
         let batch_manager = self.with_batch_manager.try_get_batch_manager_cloned()?;
@@ -725,10 +725,12 @@ impl SolverConfig {
                     },
                     recv(chain_event_rx) -> res => match res {
                         Ok(event) => {
-                            tracing::trace!("Chain event");
-                            if let Err(err) = solver.handle_chain_event(event) {
-                                tracing::warn!("Failed to handle chain event: {:?}", err);
-                            }
+                            event.with_tracing(|notification| {
+                                tracing::trace!("Chain event");
+                                if let Err(err) = solver.handle_chain_event(notification) {
+                                    tracing::warn!("Failed to handle chain event: {:?}", err);
+                                }
+                            })
                         },
                         Err(err) => {
                             tracing::warn!("Failed to receive chain event: {:?}", err);
