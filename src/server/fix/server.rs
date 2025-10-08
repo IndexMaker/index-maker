@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use axum_fix_server::server::Server as AxumFixServer;
 use eyre::Result;
-use symm_core::core::functional::{IntoObservableManyVTable, NotificationHandler};
+use symm_core::core::{
+    functional::{IntoObservableManyVTable, NotificationHandler},
+    telemetry::{TraceableEvent, TracingData, WithBaggage, WithTracingContext},
+};
 
 use crate::server::{
     fix::rate_limit_config::FixRateLimitConfig,
@@ -43,42 +46,17 @@ impl IntoObservableManyVTable<Arc<ServerEvent>> for Server {
 
 impl ServerInterface for Server {
     fn respond_with(&mut self, response: ServerResponse) {
-        // Pull identifiers in one place
-        let (chain_id_opt, address_opt, client_order_id_opt, client_quote_id_opt) =
-            response.telemetry_ids();
+        // Inject OTLP context and baggage
+        let mut traceable_response = TraceableEvent::new(response);
+        traceable_response.inject_baggage();
+        traceable_response.inject_current_context();
 
-        // Materialize owned strings so &str borrows are stable during the event! macro
-        let chain_attr: i64 = chain_id_opt.map(|v| v as i64).unwrap_or(-1);
-
-        let address_str: String = match &address_opt {
-            Some(a) => format!("{}", a),
-            None => String::from("none"),
-        };
-
-        let client_order_id_str: String = match &client_order_id_opt {
-            Some(coid) => String::from(coid.as_str()),
-            None => String::from("none"),
-        };
-
-        let client_quote_id_str: String = match &client_quote_id_opt {
-            Some(cqid) => String::from(cqid.as_str()),
-            None => String::from("none"),
-        };
-
-        // Emit the OTLP-friendly event with stable &str borrows
-        tracing::event!(
-            tracing::Level::INFO,
-            otlp_kind = "fix_response",
-            chain_id = chain_attr,
-            address = address_str.as_str(),
-            client_order_id = client_order_id_str.as_str(),
-            client_quote_id = client_quote_id_str.as_str()
-        );
-
-        // Send the FIX response; warn (don't panic) on failure
-        if let Err(err) = self.inner.send_response(response) {
-            tracing::warn!("Failed to respond with: {:?}", err);
-        }
+        traceable_response.with_tracing(|response| {
+            // Send the FIX response; warn (don't panic) on failure
+            if let Err(err) = self.inner.send_response(response) {
+                tracing::warn!("Failed to respond with: {:?}", err);
+            }
+        });
     }
 
     fn initialize_shutdown(&mut self) {
