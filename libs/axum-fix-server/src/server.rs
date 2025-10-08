@@ -14,7 +14,6 @@ use axum::{
 use eyre::{eyre, Result};
 use futures_util::future::join_all;
 use itertools::Itertools;
-use parking_lot::RwLock;
 use std::net::SocketAddr;
 
 /// Server
@@ -25,7 +24,7 @@ use std::net::SocketAddr;
 /// The `Plugin` consumes the message and is responsible for deserialization,
 /// message validation (fields, seqnum, signatures), publishing to application, etc.
 pub struct Server<Response, Plugin> {
-    server_state: Arc<RwLock<ServerState<Response, Plugin>>>,
+    server_state: Arc<ServerState<Response, Plugin>>,
 }
 
 impl<Response, Plugin> Server<Response, Plugin>
@@ -39,18 +38,12 @@ where
     /// Initializes the session ID counter to start from 1.
     pub fn new(plugin: Plugin) -> Self {
         Self {
-            server_state: Arc::new(RwLock::new(ServerState::new(plugin))),
+            server_state: Arc::new(ServerState::new(plugin)),
         }
     }
 
     pub fn with_plugin<Ret>(&self, cb: impl FnOnce(&Plugin) -> Ret) -> Ret {
-        let state = self.server_state.read();
-        cb(state.get_plugin())
-    }
-
-    pub fn with_plugin_mut<Ret>(&self, cb: impl FnOnce(&mut Plugin) -> Ret) -> Ret {
-        let mut state = self.server_state.write();
-        cb(state.get_plugin_mut())
+        cb(self.server_state.get_plugin())
     }
 
     /// start_server
@@ -82,14 +75,14 @@ where
     ///
     /// Closes server for new connections
     pub fn close_server(&self) {
-        self.server_state.write().close();
+        self.server_state.close();
     }
 
     /// close_server
     ///
     /// Closes all sessions
     pub async fn stop_server(&self) -> Result<()> {
-        let sessions = self.server_state.write().close_all_sessions()?;
+        let sessions = self.server_state.close_all_sessions()?;
         let stop_futures = sessions.iter().map(|s| s.wait_stopped()).collect_vec();
 
         let (_, failures): (Vec<_>, Vec<_>) =
@@ -110,7 +103,7 @@ where
     /// Sends a response to the appropriate client session based on the session ID in the response.
     /// Returns a `Result` indicating success or failure if the session is not found.
     pub fn send_response(&self, response: Response) -> Result<()> {
-        self.server_state.write().process_outgoing(response)
+        self.server_state.process_outgoing(response)
     }
 }
 
@@ -122,7 +115,7 @@ where
 /// session is closed by the client, the loop is broken and the session destroyed.
 async fn ws_handler<Response, Plugin>(
     ws: WebSocketUpgrade,
-    State(server_state): State<Arc<RwLock<ServerState<Response, Plugin>>>>,
+    State(server_state): State<Arc<ServerState<Response, Plugin>>>,
 ) -> impl IntoResponse
 where
     Response: Send + Sync + 'static,
@@ -131,11 +124,11 @@ where
     let timeout = std::time::Duration::from_secs(10);
 
     ws.on_upgrade(async move |mut ws: WebSocket| {
-        if !server_state.read().is_accepting_connections() {
+        if !server_state.is_accepting_connections() {
             return;
         }
 
-        let (mut rx, session) = match server_state.write().create_session() {
+        let (mut rx, session) = match server_state.create_session() {
             Err(err) => {
                 tracing::warn!("Failed to create session: {:?}", err);
                 return;
@@ -165,9 +158,7 @@ where
                 }
             };
 
-            let maybe_message = server_state
-                .read()
-                .process_incoming(incoming_message, &session_id);
+            let maybe_message = server_state.process_incoming(incoming_message, &session_id);
 
             match maybe_message {
                 Ok(result) => {
@@ -195,7 +186,7 @@ where
 
         tracing::info!(%session_id, "Closing session");
 
-        if let Err(err) = server_state.write().close_session(session_id) {
+        if let Err(err) = server_state.close_session(session_id) {
             tracing::warn!("Failed to close session: {:?}", err);
         }
     })

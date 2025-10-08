@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use crate::server::{
@@ -26,22 +26,23 @@ use axum_fix_server::{
 };
 use chrono::Utc;
 use eyre::{eyre, Context, Result};
-use itertools::Itertools;
 use k256::elliptic_curve::generic_array::GenericArray;
 use k256::{
     ecdsa::{signature::DigestSigner, Signature, SigningKey},
     FieldBytes,
 };
+use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, ClientQuoteId, Side, Symbol},
     functional::{IntoObservableManyVTable, NotificationHandler},
+    telemetry::TraceableEvent,
 };
 use tracing::warn;
 
 // A composite plugin that can wrap other plugins and delegate functionality.
 pub struct ServerPlugin {
-    observer_plugin: ObserverPlugin<Arc<ServerEvent>>,
+    observer_plugin: RwLock<ObserverPlugin<Arc<ServerEvent>>>,
     serde_plugin: SerdePlugin<FixRequest, FixResponse>,
     seq_num_plugin: SeqNumPlugin<FixRequest, FixResponse>,
     user_plugin: UserPlugin,
@@ -53,7 +54,7 @@ pub struct ServerPlugin {
 impl ServerPlugin {
     pub fn new(rate_limit_config: FixRateLimitConfig) -> Self {
         Self {
-            observer_plugin: ObserverPlugin::new(),
+            observer_plugin: RwLock::new(ObserverPlugin::new()),
             serde_plugin: SerdePlugin::new(),
             seq_num_plugin: SeqNumPlugin::new(),
             user_plugin: UserPlugin::new(),
@@ -63,23 +64,15 @@ impl ServerPlugin {
     }
 
     fn remember_comp_ids(&self, session_id: &SessionId, sender: &str, target: &str) -> Result<()> {
-        self.session_comp_ids
-            .write()
-            .map_err(|e| eyre!("Failed to access session comp IDs: {:?}", e))?
-            .insert(
-                session_id.clone(),
-                (String::from(sender), String::from(target)),
-            );
+        self.session_comp_ids.write().insert(
+            session_id.clone(),
+            (String::from(sender), String::from(target)),
+        );
         Ok(())
     }
 
     fn apply_swapped_comp_ids(&self, header: &mut FixHeader, session_id: &SessionId) -> Result<()> {
-        let guard = self
-            .session_comp_ids
-            .read()
-            .map_err(|e| eyre!("Failed to access session comp IDs: {:?}", e))?;
-
-        if let Some((sender, target)) = guard.get(session_id).cloned() {
+        if let Some((sender, target)) = self.session_comp_ids.read().get(session_id).cloned() {
             header.add_sender(sender);
             header.add_target(target);
         } else {
@@ -93,11 +86,7 @@ impl ServerPlugin {
         self.rate_limit_plugin.destroy_session(session_id)?;
         self.user_plugin.remove_session(session_id);
         self.seq_num_plugin.destroy_session(session_id)?;
-        if let Ok(mut guard) = self.session_comp_ids.write() {
-            guard.remove(session_id);
-        } else {
-            warn!("Failed to access session comp IDs : {:?}", session_id);
-        }
+        self.session_comp_ids.write().remove(session_id);
         Ok(())
     }
 
@@ -633,15 +622,13 @@ impl ServerPlugin {
             standard_trailer: trailer,
         })
     }
-}
 
-impl IntoObservableManyVTable<Arc<ServerEvent>> for ServerPlugin {
-    fn add_observer(&mut self, observer: Box<dyn NotificationHandler<Arc<ServerEvent>>>) {
-        self.observer_plugin.add_observer(observer);
+    pub fn add_observer(&self, observer: Box<dyn NotificationHandler<Arc<ServerEvent>>>) {
+        self.observer_plugin.write().add_observer(observer);
     }
 }
 
-impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
+impl AxumFixServerPlugin<TraceableEvent<ServerResponse>> for ServerPlugin {
     fn process_incoming(&self, message: String, session_id: &SessionId) -> Result<String> {
         // pre-process rate limit check
         if let Err(rate_error) = self.rate_limit_plugin.check_rate_limits(
@@ -691,7 +678,7 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                 }
                 // end verification part
 
-                self.user_plugin.add_add_user_session(&user_id, session_id);
+                self.user_plugin.add_user_session(&user_id, session_id);
 
                 if let Err(e) = self.remember_comp_ids(
                     session_id,
@@ -722,9 +709,17 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
                             error_msg.unwrap_or_else(|_| "Failed to process error".to_string())
                         )
                     })?;
-                    self.observer_plugin.publish_request(&Arc::new(event));
-                    self.process_ack(&user_id, session_id)
-                        .map_err(|e| eyre::eyre!("Process ACK failed: {}", e))
+                    // We immediatelly produce ACK
+                    let ack = self.process_ack(&user_id, session_id)
+                        .map_err(|e| eyre::eyre!("Process ACK failed: {}", e));
+
+                    // And we defer application processing for later time
+                    self.observer_plugin
+                        .read()
+                        .publish_request(&Arc::new(event));
+                    
+                    // We return ACK in all cases, and observer can Cancel if error happens
+                    ack
                 } else {
                     let error_msg = format!(
                         "Invalid sequence number: {}; Last valid: {}",
@@ -743,38 +738,44 @@ impl AxumFixServerPlugin<ServerResponse> for ServerPlugin {
         }
     }
 
-    fn process_outgoing(&self, response: ServerResponse) -> Result<HashSet<(SessionId, String)>> {
-        let mut result: HashSet<(SessionId, String)>;
-        result = HashSet::new();
+    fn process_outgoing(
+        &self,
+        response: TraceableEvent<ServerResponse>,
+    ) -> Result<HashSet<(SessionId, String)>> {
+        response.with_tracing(|response| {
+            let mut result: HashSet<(SessionId, String)>;
+            result = HashSet::new();
 
-        let fix_response =
-            self.server_response_to_fix_response(&response, &SessionId::from("S-proto"))?;
-        let user_id = WithUserPlugin::get_user_id(&fix_response);
+            let fix_response =
+                self.server_response_to_fix_response(&response, &SessionId::from("S-proto"))?;
+            let user_id = WithUserPlugin::get_user_id(&fix_response);
 
-        if let Ok(sessions) = self.user_plugin.get_user_sessions(&user_id) {
-            for session in sessions {
-                let mut fix_response = self.server_response_to_fix_response(&response, &session)?;
-                fix_response.set_seq_num(self.seq_num_plugin.next_seq_num(&session));
+            if let Ok(sessions) = self.user_plugin.get_user_sessions(&user_id) {
+                for session in sessions {
+                    let mut fix_response =
+                        self.server_response_to_fix_response(&response, &session)?;
+                    fix_response.set_seq_num(self.seq_num_plugin.next_seq_num(&session));
+
+                    if let Ok(message) = self.serde_plugin.process_outgoing(fix_response) {
+                        result.insert((session, message));
+                    } else {
+                        return Err(eyre::eyre!("Cannot serialize response."));
+                    }
+                }
+            } else {
+                let session_id = fix_response.get_session_id();
+                let mut fix_response =
+                    self.server_response_to_fix_response(&response, &session_id.clone())?;
+                fix_response.set_seq_num(self.seq_num_plugin.next_seq_num(&session_id.clone()));
 
                 if let Ok(message) = self.serde_plugin.process_outgoing(fix_response) {
-                    result.insert((session, message));
+                    result.insert((session_id.clone(), message));
                 } else {
                     return Err(eyre::eyre!("Cannot serialize response."));
                 }
             }
-        } else {
-            let session_id = fix_response.get_session_id();
-            let mut fix_response =
-                self.server_response_to_fix_response(&response, &session_id.clone())?;
-            fix_response.set_seq_num(self.seq_num_plugin.next_seq_num(&session_id.clone()));
-
-            if let Ok(message) = self.serde_plugin.process_outgoing(fix_response) {
-                result.insert((session_id.clone(), message));
-            } else {
-                return Err(eyre::eyre!("Cannot serialize response."));
-            }
-        }
-        return Ok(result);
+            return Ok(result);
+        })
     }
 
     fn create_session(&self, session_id: &SessionId) -> Result<()> {

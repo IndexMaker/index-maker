@@ -77,7 +77,7 @@ where
         match self.serde_plugin.process_incoming(message, session_id) {
             Ok(result) => {
                 let user_id = &result.get_user_id();
-                self.user_plugin.add_add_user_session(&user_id, session_id);
+                self.user_plugin.add_user_session(&user_id, session_id);
 
                 let seq_num = result.get_seq_num(); // Ensure R has this method or adjust accordingly
                 if self.seq_num_plugin.valid_seq_num(seq_num, session_id) {
