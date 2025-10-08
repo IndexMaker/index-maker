@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock as ComponentLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
@@ -10,11 +7,12 @@ use eyre::{eyre, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use symm_core::core::functional::IntoObservableSingleVTableRef;
 use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Side, Symbol},
-    functional::{IntoObservableSingle, IntoObservableSingleVTable, PublishSingle, SingleObserver},
+    functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
 #[derive(Debug)]
@@ -104,13 +102,13 @@ pub trait CollateralDesignation: Send + Sync {
 }
 
 pub trait CollateralBridge:
-    IntoObservableSingleVTable<CollateralRouterEvent> + Send + Sync
+    IntoObservableSingleVTableRef<CollateralRouterEvent> + Send + Sync
 {
     /// e.g. EVM:ARBITRUM:USDC
-    fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
+    fn get_source(&self) -> Arc<dyn CollateralDesignation>;
 
     /// e.g. BINANCE:1:USDT
-    fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>>;
+    fn get_destination(&self) -> Arc<dyn CollateralDesignation>;
 
     /// Transfer funds from this designation to target designation
     ///
@@ -142,7 +140,7 @@ pub trait CollateralBridge:
 
 pub struct CollateralRouter {
     observer: SingleObserver<CollateralTransferEvent>,
-    bridges: HashMap<(Symbol, Symbol), Arc<ComponentLock<dyn CollateralBridge>>>,
+    bridges: HashMap<(Symbol, Symbol), Arc<dyn CollateralBridge>>,
     routes: Vec<Vec<Symbol>>,
     chain_sources: HashMap<(u32, Symbol), Symbol>,
     default_destination: Option<Symbol>,
@@ -159,24 +157,11 @@ impl CollateralRouter {
         }
     }
 
-    pub fn add_bridge(&mut self, bridge: Arc<ComponentLock<dyn CollateralBridge>>) -> Result<()> {
-        let key = (|| -> Result<(Symbol, Symbol)> {
-            let bridge = bridge
-                .read()
-                .map_err(|e| eyre!("Failed to access bridge {}", e))?;
-            Ok((
-                bridge
-                    .get_source()
-                    .read()
-                    .map_err(|e| eyre!("Failed to access source {}", e))?
-                    .get_full_name(),
-                bridge
-                    .get_destination()
-                    .read()
-                    .map_err(|e| eyre!("Failed to access destination {}", e))?
-                    .get_full_name(),
-            ))
-        })()?;
+    pub fn add_bridge(&mut self, bridge: Arc<dyn CollateralBridge>) -> Result<()> {
+        let key = (
+            bridge.get_source().get_full_name(),
+            bridge.get_destination().get_full_name(),
+        );
         self.bridges
             .insert(key, bridge)
             .is_none()
@@ -184,7 +169,7 @@ impl CollateralRouter {
             .ok_or_eyre("Duplicate designation ID")
     }
 
-    pub fn get_bridges(&self) -> Vec<Arc<ComponentLock<dyn CollateralBridge>>> {
+    pub fn get_bridges(&self) -> Vec<Arc<dyn CollateralBridge>> {
         self.bridges.values().cloned().collect_vec()
     }
 
@@ -246,18 +231,15 @@ impl CollateralRouter {
 
         let first_hop = self.next_hop(transfer_from, transfer_from, &transfer_to)?;
 
-        first_hop
-            .write()
-            .map_err(|e| eyre!("Failed to access next hop {}", e))?
-            .transfer_funds(
-                chain_id,
-                address,
-                client_order_id,
-                transfer_from.clone(),
-                transfer_to.clone(),
-                amount,
-                Amount::ZERO, // we could charge some initial fee too!
-            )
+        first_hop.transfer_funds(
+            chain_id,
+            address,
+            client_order_id,
+            transfer_from.clone(),
+            transfer_to.clone(),
+            amount,
+            Amount::ZERO, // we could charge some initial fee too!
+        )
     }
 
     fn next_hop(
@@ -265,7 +247,7 @@ impl CollateralRouter {
         source: &Symbol,
         route_from: &Symbol,
         route_to: &Symbol,
-    ) -> Result<&Arc<ComponentLock<dyn CollateralBridge>>> {
+    ) -> Result<&Arc<dyn CollateralBridge>> {
         let route = self
             .routes
             .iter()
@@ -302,13 +284,13 @@ impl CollateralRouter {
         Ok(next_hop)
     }
 
-    pub fn process_routing(&mut self, timestamp: DateTime<Utc>) -> Result<()> {
+    pub fn process_routing(&self, timestamp: DateTime<Utc>) -> Result<()> {
         let _ = timestamp;
         // TODO: Opportunity to implement retry logic for failed routes
         Ok(())
     }
 
-    pub fn handle_collateral_router_event(&mut self, event: CollateralRouterEvent) -> Result<()> {
+    pub fn handle_collateral_router_event(&self, event: CollateralRouterEvent) -> Result<()> {
         match event {
             CollateralRouterEvent::HopComplete {
                 chain_id,
@@ -364,14 +346,11 @@ impl CollateralRouter {
                     Ok(())
                 } else {
                     let next_hop = self.next_hop(&destination, &route_from, &route_to)?;
-                    let next_hop = next_hop
-                        .write()
-                        .map_err(|e| eyre!("Failed to access next hop {}", e))?;
 
                     tracing::info!(%chain_id, %address, %client_order_id, %route_from, %route_to,
                         %source,
-                        next_source = %next_hop.get_source().read().map(|x| x.get_full_name()).unwrap_or_default(),
-                        next_destination = %next_hop.get_destination().read().map(|x| x.get_full_name()).unwrap_or_default(),
+                        next_source = %next_hop.get_source().get_full_name(),
+                        next_destination = %next_hop.get_destination().get_full_name(),
                         %amount,
                         %fee,
                         "Route Hop");
@@ -401,17 +380,17 @@ pub mod test_util {
     use chrono::{DateTime, Utc};
     use eyre::Result;
     use itertools::Itertools;
+    use parking_lot::RwLock;
     use rust_decimal::dec;
     use std::{
         collections::HashMap,
-        sync::{mpsc::Sender, Arc, RwLock as ComponentLock},
+        sync::{mpsc::Sender, Arc},
     };
 
     use symm_core::core::{
         bits::{Address, Amount, ClientOrderId, Symbol},
         functional::{
-            IntoObservableSingle, IntoObservableSingleVTable, NotificationHandlerOnce,
-            PublishSingle, SingleObserver,
+            IntoObservableSingleFunRef, IntoObservableSingleVTableRef, NotificationHandlerOnce, PublishSingle, SingleObserver
         },
         test_util::{get_mock_index_name_1, get_mock_index_name_2, get_mock_index_name_3},
     };
@@ -460,20 +439,20 @@ pub mod test_util {
     }
 
     pub struct MockCollateralBridge {
-        observer: SingleObserver<CollateralRouterEvent>,
-        pub implementor: SingleObserver<MockCollateralBridgeInternalEvent>,
-        pub source: Arc<ComponentLock<MockCollateralDesignation>>,
-        pub destination: Arc<ComponentLock<MockCollateralDesignation>>,
+        observer: RwLock<SingleObserver<CollateralRouterEvent>>,
+        pub implementor: RwLock<SingleObserver<MockCollateralBridgeInternalEvent>>,
+        pub source: Arc<MockCollateralDesignation>,
+        pub destination: Arc<MockCollateralDesignation>,
     }
 
     impl MockCollateralBridge {
         pub fn new(
-            source: Arc<ComponentLock<MockCollateralDesignation>>,
-            destination: Arc<ComponentLock<MockCollateralDesignation>>,
+            source: Arc<MockCollateralDesignation>,
+            destination: Arc<MockCollateralDesignation>,
         ) -> Self {
             Self {
-                observer: SingleObserver::new(),
-                implementor: SingleObserver::new(),
+                observer: RwLock::new(SingleObserver::new()),
+                implementor: RwLock::new(SingleObserver::new()),
                 source,
                 destination,
             }
@@ -491,13 +470,14 @@ pub mod test_util {
             fee: Amount,
         ) {
             self.observer
+                .read()
                 .publish_single(CollateralRouterEvent::HopComplete {
                     chain_id,
                     address,
                     client_order_id,
                     timestamp,
-                    source: self.source.read().unwrap().get_full_name(),
-                    destination: self.destination.read().unwrap().get_full_name(),
+                    source: self.source.get_full_name(),
+                    destination: self.destination.get_full_name(),
                     route_from,
                     route_to,
                     amount,
@@ -507,28 +487,19 @@ pub mod test_util {
         }
     }
 
-    impl IntoObservableSingle<CollateralRouterEvent> for MockCollateralBridge {
-        fn get_single_observer_mut(&mut self) -> &mut SingleObserver<CollateralRouterEvent> {
-            &mut self.observer
-        }
-    }
-
-    impl IntoObservableSingleVTable<CollateralRouterEvent> for MockCollateralBridge {
-        fn set_observer(
-            &mut self,
-            observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>,
-        ) {
-            self.get_single_observer_mut().set_observer(observer);
+    impl IntoObservableSingleVTableRef<CollateralRouterEvent> for MockCollateralBridge {
+        fn set_observer(&self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
+            self.observer.write().set_observer(observer);
         }
     }
 
     impl CollateralBridge for MockCollateralBridge {
-        fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
-            (self.source).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
+        fn get_source(&self) -> Arc<dyn CollateralDesignation> {
+            (self.source).clone() as Arc<dyn CollateralDesignation>
         }
 
-        fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
-            (self.destination).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
+        fn get_destination(&self) -> Arc<dyn CollateralDesignation> {
+            (self.destination).clone() as Arc<dyn CollateralDesignation>
         }
 
         fn transfer_funds(
@@ -541,8 +512,8 @@ pub mod test_util {
             amount: Amount,
             cumulative_fee: Amount,
         ) -> Result<()> {
-            self.implementor
-                .publish_single(MockCollateralBridgeInternalEvent::TransferFunds {
+            self.implementor.read().publish_single(
+                MockCollateralBridgeInternalEvent::TransferFunds {
                     chain_id,
                     address,
                     client_order_id,
@@ -550,101 +521,87 @@ pub mod test_util {
                     route_to,
                     amount,
                     cumulative_fee,
-                });
+                },
+            );
             Ok(())
         }
     }
 
     /// Make mocked designation
-    pub fn make_mock_designation(full_name: &str) -> Arc<ComponentLock<MockCollateralDesignation>> {
+    pub fn make_mock_designation(full_name: &str) -> Arc<MockCollateralDesignation> {
         let (t, n, c) = full_name.split(":").collect_tuple().unwrap();
-        Arc::new(ComponentLock::new(MockCollateralDesignation {
+        Arc::new(MockCollateralDesignation {
             type_: t.to_owned().into(),
             name: n.to_owned().into(),
             collateral_symbol: c.to_owned().into(),
             full_name: full_name.to_owned().into(),
             balance: dec!(0.0),
-        }))
+        })
     }
 
     /// Make mocked bridge w/o implementation
     pub fn make_mock_bridge(
-        from: &Arc<ComponentLock<MockCollateralDesignation>>,
-        to: &Arc<ComponentLock<MockCollateralDesignation>>,
-    ) -> Arc<ComponentLock<MockCollateralBridge>> {
-        Arc::new(ComponentLock::new(MockCollateralBridge::new(
-            from.clone(),
-            to.clone(),
-        )))
+        from: &Arc<MockCollateralDesignation>,
+        to: &Arc<MockCollateralDesignation>,
+    ) -> Arc<MockCollateralBridge> {
+        Arc::new(MockCollateralBridge::new(from.clone(), to.clone()))
     }
 
     /// Implement mocked bridge using fee calculation function
     pub fn implement_mock_bridge(
         tx: &Sender<Box<dyn FnOnce() + Send + Sync>>,
-        bridge: &Arc<ComponentLock<MockCollateralBridge>>,
-        router: &Arc<ComponentLock<CollateralRouter>>,
+        bridge: &Arc<MockCollateralBridge>,
+        router: &Arc<RwLock<CollateralRouter>>,
         calculate_fee: &Arc<dyn Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync>,
     ) {
         // Send bridge events into router
         let tx_clone = tx.clone();
         let router_weak = Arc::downgrade(&router);
-        bridge
-            .write()
-            .unwrap()
-            .get_single_observer_mut()
-            .set_observer_fn(move |e| {
-                let router = router_weak.upgrade().unwrap();
-                tx_clone
-                    .send(Box::new(move || {
-                        router
-                            .write()
-                            .unwrap()
-                            .handle_collateral_router_event(e)
-                            .unwrap();
-                    }))
-                    .unwrap();
-            });
+        bridge.set_observer_fn(move |e| {
+            let router = router_weak.upgrade().unwrap();
+            tx_clone
+                .send(Box::new(move || {
+                    router.read().handle_collateral_router_event(e).unwrap();
+                }))
+                .unwrap();
+        });
 
         // Implement bridge
         let tx_clone = tx.clone();
         let bridge_weak = Arc::downgrade(bridge);
         let calculate_fee = calculate_fee.clone();
-        bridge
-            .write()
-            .unwrap()
-            .implementor
-            .set_observer_fn(move |e| {
-                let bridge = bridge_weak.upgrade().unwrap();
-                let calculate_fee = calculate_fee.clone();
-                tx_clone
-                    .send(Box::new(move || match e {
-                        MockCollateralBridgeInternalEvent::TransferFunds {
+        bridge.implementor.write().set_observer_fn(move |e| {
+            let bridge = bridge_weak.upgrade().unwrap();
+            let calculate_fee = calculate_fee.clone();
+            tx_clone
+                .send(Box::new(move || match e {
+                    MockCollateralBridgeInternalEvent::TransferFunds {
+                        chain_id,
+                        address,
+                        client_order_id,
+                        route_from,
+                        route_to,
+                        amount,
+                        cumulative_fee,
+                    } => {
+                        let (amount, cumulative_fee) = calculate_fee(amount, cumulative_fee);
+                        bridge.notify_collateral_router_event(
                             chain_id,
                             address,
                             client_order_id,
+                            Utc::now(),
                             route_from,
                             route_to,
                             amount,
                             cumulative_fee,
-                        } => {
-                            let (amount, cumulative_fee) = calculate_fee(amount, cumulative_fee);
-                            bridge.write().unwrap().notify_collateral_router_event(
-                                chain_id,
-                                address,
-                                client_order_id,
-                                Utc::now(),
-                                route_from,
-                                route_to,
-                                amount,
-                                cumulative_fee,
-                            );
-                        }
-                    }))
-                    .unwrap();
-            });
+                        );
+                    }
+                }))
+                .unwrap();
+        });
 
         // Add bridge to the router
-        router.write().unwrap().add_bridge(bridge.clone()).unwrap();
+        router.write().add_bridge(bridge.clone()).unwrap();
     }
 
     /// Create mocked router for unit-tests
@@ -656,7 +613,7 @@ pub mod test_util {
         source_chain_map: &[(u32, &str)],
         default_designation: &str,
         calculate_fee: impl Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync + 'static,
-    ) -> Arc<ComponentLock<CollateralRouter>> {
+    ) -> Arc<RwLock<CollateralRouter>> {
         let designations: HashMap<String, _> = HashMap::from_iter(
             designations
                 .iter()
@@ -670,7 +627,7 @@ pub mod test_util {
             })
             .collect_vec();
 
-        let router = Arc::new(ComponentLock::new(CollateralRouter::new()));
+        let router = Arc::new(RwLock::new(CollateralRouter::new()));
 
         let calculate_fee: Arc<dyn Fn(Amount, Amount) -> (Amount, Amount) + Send + Sync + 'static> =
             Arc::new(calculate_fee);
@@ -689,7 +646,6 @@ pub mod test_util {
             for symbol in &index_symbols {
                 router
                     .write()
-                    .unwrap()
                     .add_chain_source(*chain_id, symbol.clone(), source.to_owned().into())
                     .unwrap();
             }
@@ -697,7 +653,6 @@ pub mod test_util {
 
         router
             .write()
-            .unwrap()
             .set_default_destination(default_designation.to_owned().into())
             .unwrap();
 
@@ -707,7 +662,7 @@ pub mod test_util {
                 .map(|n| n.to_owned())
                 .map(Symbol::from)
                 .collect_vec();
-            router.write().unwrap().add_route(&route).unwrap();
+            router.write().add_route(&route).unwrap();
         }
 
         router
@@ -774,7 +729,6 @@ mod test {
 
         router
             .write()
-            .unwrap()
             .get_single_observer_mut()
             .set_observer_fn(move |e| match e {
                 CollateralTransferEvent::TransferComplete {
@@ -815,8 +769,7 @@ mod test {
         // It will be coming from given Chain ID, and
         // it will be routed to final designation.
         router
-            .write()
-            .unwrap()
+            .read()
             .transfer_collateral(
                 expected_chain_id,
                 get_mock_address_1(),

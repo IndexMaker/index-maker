@@ -2,8 +2,8 @@ use alloy::primitives::B256;
 use eyre::{OptionExt, Result};
 use parking_lot::RwLock as AtomicLock;
 use safe_math::safe;
-use std::sync::{Arc, RwLock as ComponentLock};
-use symm_core::core::functional::{IntoObservableSingleVTable, NotificationHandlerOnce};
+use std::sync::Arc;
+use symm_core::core::functional::{IntoObservableSingleVTable, IntoObservableSingleVTableRef, NotificationHandlerOnce};
 
 use crate::chain_operations::ChainOperations;
 use crate::commands::ChainCommand;
@@ -22,8 +22,8 @@ use symm_core::core::{
 
 pub struct Erc20CollateralBridge {
     observer: Arc<AtomicLock<SingleObserver<CollateralRouterEvent>>>,
-    source: Arc<ComponentLock<EvmCollateralDesignation>>,
-    destination: Arc<ComponentLock<EvmCollateralDesignation>>,
+    source: Arc<EvmCollateralDesignation>,
+    destination: Arc<EvmCollateralDesignation>,
 
     // Shared chain_operations injected by EvmConnector
     chain_operations: Arc<AtomicLock<ChainOperations>>,
@@ -32,34 +32,32 @@ pub struct Erc20CollateralBridge {
 impl Erc20CollateralBridge {
     /// Constructor that accepts shared chain_operations from EvmConnector
     pub fn new_with_shared_operations(
-        source: Arc<ComponentLock<EvmCollateralDesignation>>,
-        destination: Arc<ComponentLock<EvmCollateralDesignation>>,
+        source: Arc<EvmCollateralDesignation>,
+        destination: Arc<EvmCollateralDesignation>,
         chain_operations: Arc<AtomicLock<ChainOperations>>,
-    ) -> Arc<ComponentLock<Self>> {
-        Arc::new({
-            ComponentLock::new(Self {
-                observer: Arc::new(AtomicLock::new(SingleObserver::new())),
-                source,
-                destination,
-                chain_operations,
-            })
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            observer: Arc::new(AtomicLock::new(SingleObserver::new())),
+            source,
+            destination,
+            chain_operations,
         })
     }
 }
 
-impl IntoObservableSingleVTable<CollateralRouterEvent> for Erc20CollateralBridge {
-    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
+impl IntoObservableSingleVTableRef<CollateralRouterEvent> for Erc20CollateralBridge {
+    fn set_observer(&self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
         self.observer.write().set_observer(observer);
     }
 }
 
 impl CollateralBridge for Erc20CollateralBridge {
-    fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
-        (self.source).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
+    fn get_source(&self) -> Arc<dyn CollateralDesignation> {
+        (self.source).clone() as Arc<dyn CollateralDesignation>
     }
 
-    fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
-        (self.destination).clone() as Arc<ComponentLock<dyn CollateralDesignation>>
+    fn get_destination(&self) -> Arc<dyn CollateralDesignation> {
+        (self.destination).clone() as Arc<dyn CollateralDesignation>
     }
 
     fn transfer_funds(
@@ -73,12 +71,12 @@ impl CollateralBridge for Erc20CollateralBridge {
         cumulative_fee: Amount,
     ) -> Result<()> {
         let observer = self.observer.clone();
-        let source = self.source.read().unwrap().get_full_name();
-        let destination = self.destination.read().unwrap().get_full_name();
+        let source = self.source.get_full_name();
+        let destination = self.destination.get_full_name();
 
         // Get designation details
-        let source_designation = self.source.read().unwrap();
-        let destination_designation = self.destination.read().unwrap();
+        let source_designation = &self.source;
+        let destination_designation = &self.destination;
 
         // Use direct chain_operations.execute_command() for simple ERC20 transfer
         let command = ChainCommand::Erc20Transfer {
@@ -93,19 +91,19 @@ impl CollateralBridge for Erc20CollateralBridge {
                 let timestamp = Utc::now();
                 // Callback receives the original routing amounts passed through from chain operation
                 /*observer
-                    .read()
-                    .publish_single(CollateralRouterEvent::HopComplete {
-                        chain_id,
-                        address,
-                        client_order_id: client_order_id.clone(),
-                        timestamp,
-                        source: source.clone(),
-                        destination: destination.clone(),
-                        route_from: route_from.clone(),
-                        route_to: route_to.clone(),
-                        amount: total_transferred, // Now receives original_amount from chain operation
-                        fee: fee_deducted, // Now receives original_cumulative_fee from chain operation
-                    });*/
+                .read()
+                .publish_single(CollateralRouterEvent::HopComplete {
+                    chain_id,
+                    address,
+                    client_order_id: client_order_id.clone(),
+                    timestamp,
+                    source: source.clone(),
+                    destination: destination.clone(),
+                    route_from: route_from.clone(),
+                    route_to: route_to.clone(),
+                    amount: total_transferred, // Now receives original_amount from chain operation
+                    fee: fee_deducted, // Now receives original_cumulative_fee from chain operation
+                });*/
                 Ok(())
             }),
         };

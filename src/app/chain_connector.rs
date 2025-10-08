@@ -5,7 +5,6 @@ use std::{
 
 use alloy_chain_connector::{
     chain_connector::{GasFeeCalculator, RealChainConnector},
-    chain_connector_sender::RealChainConnectorSender,
     collateral::{
         otc_custody_designation::OTCCustodyCollateralDesignation,
         otc_custody_to_wallet_bridge::OTCCustodyToWalletCollateralBridge,
@@ -206,20 +205,19 @@ impl RealChainConnectorConfigBuilder {
                 .map(|x| x.deployment_data.index_deploy_data.collateral_token)
                 .ok_or_eyre("Configuration contains no indexes")?;
 
-            let trading_custody = Arc::new(ComponentLock::new(WalletCollateralDesignation::new(
+            let trading_custody = Arc::new(WalletCollateralDesignation::new(
                 Symbol::from("TradeRoute"),
                 Symbol::from(trade_route.to_string()),
                 main_quote_currency.clone(),
                 chain_id,
                 trade_route,
                 collateral_token,
-            )));
+            ));
 
-            let trading_custody_name = trading_custody.read().unwrap().get_full_name();
+            let trading_custody_name = trading_custody.get_full_name();
 
             router
                 .write()
-                .unwrap()
                 .set_default_destination(trading_custody_name.clone())?;
 
             tracing::info!("✅ Set default trading custody");
@@ -265,28 +263,26 @@ impl RealChainConnectorConfigBuilder {
 
                 tracing::info!("✅ Added Index to RPC handlers");
 
-                let index_custody =
-                    Arc::new(ComponentLock::new(OTCCustodyCollateralDesignation::new(
-                        sender.clone(),
-                        Symbol::from("OTCCustody"),
-                        Symbol::from(index_address.to_string()),
-                        main_quote_currency.clone(),
-                        chain_id,
-                        custody_address,
-                        collateral_token,
-                        custody_id,
-                    )));
+                let index_custody = Arc::new(OTCCustodyCollateralDesignation::new(
+                    sender.clone(),
+                    Symbol::from("OTCCustody"),
+                    Symbol::from(index_address.to_string()),
+                    main_quote_currency.clone(),
+                    chain_id,
+                    custody_address,
+                    collateral_token,
+                    custody_id,
+                ));
 
-                let bridge_to_trading =
-                    Arc::new(ComponentLock::new(OTCCustodyToWalletCollateralBridge::new(
-                        index_custody.clone(),
-                        trading_custody.clone(),
-                        gas_fee_calculator.clone(),
-                    )));
+                let bridge_to_trading = Arc::new(OTCCustodyToWalletCollateralBridge::new(
+                    index_custody.clone(),
+                    trading_custody.clone(),
+                    gas_fee_calculator.clone(),
+                ));
 
-                let mut router_write = router.write().unwrap();
+                let mut router_write = router.write();
 
-                let index_custody_name = index_custody.read().unwrap().get_full_name();
+                let index_custody_name = index_custody.get_full_name();
 
                 router_write.add_bridge(bridge_to_trading)?;
 

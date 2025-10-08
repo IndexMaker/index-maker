@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock as ComponentLock};
+use std::sync::Arc;
 
 use crate::app::collateral_router::CollateralRouterConfig;
 
@@ -6,20 +6,21 @@ use super::config::ConfigBuildError;
 use derive_builder::Builder;
 
 use chrono::Utc;
+use parking_lot::RwLock;
 use rust_decimal::dec;
 use safe_math::safe;
 use symm_core::core::{
     bits::{Address, Amount, ClientOrderId, Symbol},
     decimal_ext::DecimalExt,
     functional::{
-        IntoObservableSingleVTable, NotificationHandlerOnce, PublishSingle, SingleObserver,
+        IntoObservableSingleVTableRef, NotificationHandlerOnce, PublishSingle, SingleObserver,
     },
 };
 
 use eyre::{OptionExt, Result};
-use index_core::collateral::{self, collateral_router::{
-    self, CollateralBridge, CollateralDesignation, CollateralRouterEvent, CollateralRoutingStatus
-}};
+use index_core::collateral::collateral_router::{
+    CollateralBridge, CollateralDesignation, CollateralRouterEvent, CollateralRoutingStatus,
+};
 
 struct SimpleDesignation {
     type_: Symbol,
@@ -77,35 +78,33 @@ impl CollateralDesignation for SimpleDesignation {
 }
 
 struct SimpleBridge {
-    observer: SingleObserver<CollateralRouterEvent>,
-    source: Arc<ComponentLock<SimpleDesignation>>,
-    destination: Arc<ComponentLock<SimpleDesignation>>,
+    observer: RwLock<SingleObserver<CollateralRouterEvent>>,
+    source: Arc<SimpleDesignation>,
+    destination: Arc<SimpleDesignation>,
 }
 
 impl SimpleBridge {
     fn new(source: &str, symbol: &str, destination: &str) -> Self {
         Self {
-            observer: SingleObserver::new(),
-            source: Arc::new(ComponentLock::new(SimpleDesignation::new_with_symbol(
-                source, symbol,
-            ))),
-            destination: Arc::new(ComponentLock::new(SimpleDesignation::new(destination))),
+            observer: RwLock::new(SingleObserver::new()),
+            source: Arc::new(SimpleDesignation::new_with_symbol(source, symbol)),
+            destination: Arc::new(SimpleDesignation::new(destination)),
         }
     }
 }
 
-impl IntoObservableSingleVTable<CollateralRouterEvent> for SimpleBridge {
-    fn set_observer(&mut self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
-        self.observer.set_observer(observer);
+impl IntoObservableSingleVTableRef<CollateralRouterEvent> for SimpleBridge {
+    fn set_observer(&self, observer: Box<dyn NotificationHandlerOnce<CollateralRouterEvent>>) {
+        self.observer.write().set_observer(observer);
     }
 }
 
 impl CollateralBridge for SimpleBridge {
-    fn get_source(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
+    fn get_source(&self) -> Arc<dyn CollateralDesignation> {
         self.source.clone()
     }
 
-    fn get_destination(&self) -> Arc<ComponentLock<dyn CollateralDesignation>> {
+    fn get_destination(&self) -> Arc<dyn CollateralDesignation> {
         self.destination.clone()
     }
 
@@ -124,18 +123,19 @@ impl CollateralBridge for SimpleBridge {
         let amount = safe!(amount - fee).ok_or_eyre("Math problem")?;
         let cumulative_fee = safe!(cumulative_fee + fee).ok_or_eyre("Math problem")?;
         self.observer
+            .read()
             .publish_single(CollateralRouterEvent::HopComplete {
                 chain_id,
                 address,
                 client_order_id,
                 timestamp: Utc::now(),
-                source: self.source.read().unwrap().get_full_name(),
-                destination: self.destination.read().unwrap().get_full_name(),
+                source: self.source.get_full_name(),
+                destination: self.destination.get_full_name(),
                 route_from,
                 route_to,
                 amount,
                 fee: cumulative_fee,
-                status: CollateralRoutingStatus::Success
+                status: CollateralRoutingStatus::Success,
             });
         Ok(())
     }
@@ -179,41 +179,30 @@ impl SimpleCollateralRouterConfigBuilder {
 
         let collateral_router = config.try_get_collateral_router_cloned()?;
 
-        if let Ok(mut router) = collateral_router.write() {
-            let chain_id = simple_config.chain_id;
-            let destination = simple_config.destination;
+        let mut router_write = collateral_router.write();
 
-            for symbol in simple_config.index_symbols {
-                let bridge = Arc::new(ComponentLock::new(SimpleBridge::new(
-                    simple_config.source.as_str(),
-                    &symbol,
-                    &destination,
-                )));
+        let chain_id = simple_config.chain_id;
+        let destination = simple_config.destination;
 
-                // should never panic.
-                let source = bridge
-                    .read()
-                    .unwrap()
-                    .get_source()
-                    .read()
-                    .unwrap()
-                    .get_full_name()
-                    .to_string();
+        for symbol in simple_config.index_symbols {
+            let bridge = Arc::new(SimpleBridge::new(
+                simple_config.source.as_str(),
+                &symbol,
+                &destination,
+            ));
 
-                router.add_bridge(bridge)?;
-                router.add_chain_source(chain_id, symbol, Symbol::from(source.as_str()))?;
-                router.add_route(&[
-                    Symbol::from(source.as_str()),
-                    Symbol::from(destination.as_str()),
-                ])?;
-            }
+            // should never panic.
+            let source = bridge.get_source().get_full_name().to_string();
 
-            router.set_default_destination(Symbol::from(destination))?;
-        } else {
-            Err(ConfigBuildError::Other(String::from(
-                "Failed to obtain lock on collateral router",
-            )))?;
+            router_write.add_bridge(bridge)?;
+            router_write.add_chain_source(chain_id, symbol, Symbol::from(source.as_str()))?;
+            router_write.add_route(&[
+                Symbol::from(source.as_str()),
+                Symbol::from(destination.as_str()),
+            ])?;
         }
+
+        router_write.set_default_destination(Symbol::from(destination))?;
 
         Ok(config)
     }
