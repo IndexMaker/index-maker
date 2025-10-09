@@ -6140,6 +6140,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "solver_lambda"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "axum",
+ "axum-server",
+ "chrono",
+ "clap",
+ "crossbeam",
+ "eyre",
+ "hex",
+ "index-core",
+ "parking_lot 0.12.4",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "symm-core",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "spki"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
