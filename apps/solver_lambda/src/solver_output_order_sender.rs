@@ -37,7 +37,7 @@ impl OrderConnector for SolverOutputOrderSender {
         _session_id: SessionId,
         _observer: OneShotSingleObserver<HashMap<Symbol, Amount>>,
     ) -> eyre::Result<()> {
-        unimplemented!()
+        Ok(())
     }
 }
 

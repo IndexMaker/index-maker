@@ -46,9 +46,11 @@ async fn solver_tick(
     State(service): State<Arc<SolverService>>,
     Json(input): Json<SolverInput>,
 ) -> Result<Json<SolverOutput>, StatusCode> {
-    if let Ok(output) = service.solve(input).await {
-        Ok(Json(output))
-    } else {
-        Err(StatusCode::INTERNAL_SERVER_ERROR)
+    match service.solve(input).await {
+        Ok(output) => Ok(Json(output)),
+        Err(err) => {
+            tracing::warn!("Failed to handle request: {:?}", err);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }

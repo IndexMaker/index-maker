@@ -2,7 +2,7 @@ use eyre::{eyre, Report, Result};
 use itertools::Itertools;
 use rust_decimal::Decimal;
 use safe_math::safe;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use symm_core::{
@@ -114,9 +114,23 @@ pub struct BasketAsset {
 ///
 /// The struct is intended to be used for Read-Only purpose, and to make an update this
 /// struct needs to be burned, and new struct needs to be created.
-#[derive(Serialize)]
 pub struct Basket {
     pub basket_assets: Vec<BasketAsset>,
+}
+
+impl Serialize for Basket {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.basket_assets.len()))?;
+
+        for asset in &self.basket_assets {
+            seq.serialize_element(asset)?;
+        }
+
+        seq.end()
+    }
 }
 
 impl<'de> Deserialize<'de> for Basket {

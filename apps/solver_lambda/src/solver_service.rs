@@ -7,13 +7,14 @@ use chrono::TimeDelta;
 use crossbeam::channel::unbounded;
 use eyre::Context;
 use index_core::{
-    blockchain::chain_connector, collateral::collateral_router::CollateralRouter,
+    blockchain::chain_connector,
+    collateral::collateral_router::{CollateralBridge, CollateralRouter},
     index::basket_manager::BasketManager,
 };
 use index_maker::{
     app::{
         basket_manager, batch_manager, collateral_manager, index_order_manager,
-        quote_request_manager,
+        quote_request_manager, simple_router::SimpleBridge,
     },
     collateral::collateral_manager::CollateralManager,
     solver::{
@@ -28,6 +29,7 @@ use rust_decimal::dec;
 
 use symm_core::{
     core::{
+        bits::Symbol,
         functional::{IntoObservableSingle, IntoObservableSingleFun},
         persistence::{self, util::InMemoryPersistence, Persist, Persistence},
     },
@@ -38,6 +40,7 @@ use symm_core::{
     },
     order_sender::{
         inventory_manager::{self, InventoryManager},
+        order_connector::{OrderConnectorNotification, SessionId},
         order_tracker::OrderTracker,
     },
 };
@@ -54,7 +57,7 @@ use crate::{
 };
 
 pub struct SolverService {
-    config_path: String,
+    pub config_path: String,
 }
 
 impl SolverService {
@@ -86,7 +89,7 @@ impl SolverService {
         let client_order_wait_period = TimeDelta::seconds(5);
         let client_quote_wait_period = TimeDelta::milliseconds(500);
 
-        tracing::info!("Loding state...");
+        tracing::info!("Loading state...");
 
         //
         // Market data part
@@ -105,6 +108,11 @@ impl SolverService {
             order_sender.clone(),
             assets_zero_threshold,
         )));
+        let (tracked_order_tx, tracked_order_rx) = unbounded();
+        order_tracker
+            .write()
+            .get_single_observer_mut()
+            .set_observer_from(tracked_order_tx);
 
         let inventory_manager_persistence = Arc::new(InMemoryPersistence::new());
         if let Some(inventory_state) = input.state.inventory {
@@ -203,12 +211,6 @@ impl SolverService {
         }));
 
         let basket_manager = Arc::new(AtomicLock::new(BasketManager::new()));
-        {
-            let mut basket_manager_write = basket_manager.write();
-            for index_definition in input.state.indexes {
-                basket_manager_write.set_basket(&index_definition.symbol, &index_definition.basket);
-            }
-        }
         let (basket_tx, basket_rx) = unbounded();
         basket_manager
             .write()
@@ -264,7 +266,7 @@ impl SolverService {
                 collateral_manager.clone(),
                 index_order_manager.clone(),
                 quote_request_manager,
-                inventory_manager,
+                inventory_manager.clone(),
                 solver_persistence.clone(),
                 max_batch_size,
                 collateral_zero_threshold,
@@ -285,7 +287,6 @@ impl SolverService {
         // Flusher
 
         let flush_events = {
-            let order_tracker = order_tracker.clone();
             let solver = solver.clone();
 
             move || -> eyre::Result<bool> {
@@ -318,6 +319,12 @@ impl SolverService {
                                 .and_then(|e| solver.handle_batch_event(e))?;
                         }
 
+                        recv(tracked_order_rx) -> res => {
+                            res
+                                .context("Failed to receive tracked order event")
+                                .and_then(|e| inventory_manager.write().handle_fill_report(e))?;
+                        }
+
                         recv(collateral_router_rx) -> res => {
                             let e = res.context("Failed to receive collateral router event")?;
                             let mut c = collateral_manager.write()
@@ -334,23 +341,82 @@ impl SolverService {
             }
         };
 
+        let next_step = {
+            let solver = solver.clone();
+
+            move || -> eyre::Result<()> {
+                loop {
+                    // Poke solver
+                    solver.solve(input.timestamp);
+
+                    // Flush all internal events
+                    if !flush_events()? {
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        // TODO: Temporary routing filler
+        {
+            let route_symbol = Symbol::from("SO2");
+            let chain_id = 8453;
+
+            let simple_bridge = Arc::new(SimpleBridge::new(
+                &Symbol::from("Start::USDC"),
+                &route_symbol,
+                &Symbol::from("End::USDC"),
+            ));
+
+            let route_start = simple_bridge.get_source().get_full_name();
+            let route_end = simple_bridge.get_destination().get_full_name();
+
+            collateral_router
+                .write()
+                .add_route(&[route_start.clone(), route_end.clone()])?;
+
+            collateral_router
+                .write()
+                .add_bridge(simple_bridge as Arc<dyn CollateralBridge>)?;
+
+            collateral_router.write().add_chain_source(
+                chain_id,
+                route_symbol,
+                route_start.clone(),
+            )?;
+
+            collateral_router
+                .write()
+                .set_default_destination(route_end.clone())?;
+        }
+
+        // Temporary session filler
+        {
+            order_tracker.write().handle_order_notification(
+                OrderConnectorNotification::SessionLogon {
+                    session_id: SessionId::from("S1"),
+                    timestamp: input.timestamp,
+                },
+            )?;
+        }
+
         //
         // Feed external events
+
+        for index_definition in input.state.indexes {
+            basket_manager
+                .write()
+                .set_basket(&index_definition.symbol, &index_definition.basket);
+        }
+
+        next_step()?;
 
         for event in input.market_data_events {
             price_tracker.write().handle_market_data(&event);
             order_book_manager.write().handle_market_data(&event);
         }
 
-        for event in input.order_events {
-            order_tracker.write().handle_order_notification(event)?;
-        }
-
-        for event in input.router_events {
-            collateral_router
-                .read()
-                .handle_collateral_router_event(event)?;
-        }
+        next_step()?;
 
         for event in input.server_events {
             index_order_manager
@@ -359,15 +425,27 @@ impl SolverService {
                 .handle_server_message(&event)?;
         }
 
-        loop {
-            // Poke solver
-            solver.solve(input.timestamp);
+        next_step()?;
 
-            // Flush all internal events
-            if !flush_events()? {
-                break;
-            }
+        for event in input.chain_events {
+            solver.handle_chain_event(event)?;
         }
+
+        next_step()?;
+
+        for event in input.router_events {
+            collateral_router
+                .read()
+                .handle_collateral_router_event(event)?;
+        }
+
+        next_step()?;
+
+        for event in input.order_events {
+            order_tracker.write().handle_order_notification(event)?;
+        }
+
+        next_step()?;
 
         tracing::info!("Storing state...");
 
@@ -385,9 +463,9 @@ impl SolverService {
             })
             .collect_vec();
 
-        let order_ids =  Vec::from_iter(order_id_provider.write().order_ids.drain(..));
-        let batch_ids=  Vec::from_iter(order_id_provider.write().batch_order_ids.drain(..));
-        let payment_ids= Vec::from_iter(order_id_provider.write().payment_ids.drain(..));
+        let order_ids = Vec::from_iter(order_id_provider.write().order_ids.drain(..));
+        let batch_ids = Vec::from_iter(order_id_provider.write().batch_order_ids.drain(..));
+        let payment_ids = Vec::from_iter(order_id_provider.write().payment_ids.drain(..));
 
         let chain_commands = Vec::from_iter(
             chain_connector
