@@ -6152,6 +6152,8 @@ dependencies = [
  "eyre",
  "hex",
  "index-core",
+ "index-maker",
+ "itertools 0.14.0",
  "parking_lot 0.12.4",
  "rust_decimal",
  "serde",

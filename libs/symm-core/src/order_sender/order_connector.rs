@@ -19,7 +19,7 @@ use opentelemetry::propagation::Injector;
 string_id!(SessionId);
 
 /// abstract, allow sending orders and cancels, receiving acks, naks, executions
-#[derive(Debug, WithBaggage)]
+#[derive(Serialize, Deserialize, Debug, WithBaggage)]
 pub enum OrderConnectorNotification {
     SessionLogon {
         #[baggage]

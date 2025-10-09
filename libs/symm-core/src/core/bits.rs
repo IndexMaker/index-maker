@@ -20,7 +20,7 @@ pub enum PriceType {
     VolumeWeighted,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LastPriceEntry {
     pub sequence_number: u64,
     pub best_bid_price: Option<Amount>,
@@ -57,7 +57,7 @@ impl LastPriceEntry {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PricePointEntry {
     pub price: Amount,
     pub quantity: Amount,
@@ -116,7 +116,7 @@ impl FromStr for Side {
 }
 
 /// Single leg of a Batch Order
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AssetOrder {
     /// An internal ID we assign to order
     pub order_id: OrderId,
@@ -141,7 +141,7 @@ pub struct AssetOrder {
 /// quantites of Asset Orders are sent as Single Orders into -> Order Tracker, which
 /// then gets them send to exchange using Order Connector (-> Binance).
 ///
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BatchOrder {
     /// An order ID from FIX message, one per IndexOrder
     pub batch_order_id: BatchOrderId,
@@ -153,7 +153,7 @@ pub struct BatchOrder {
     pub created_timestamp: DateTime<Utc>,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SingleOrder {
     /// An internal ID we assign to order
     pub order_id: OrderId,

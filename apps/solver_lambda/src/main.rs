@@ -12,18 +12,20 @@ struct Cli {
     #[arg(short, long)]
     bind_address: Option<String>,
 
-    /* TODO: put service configuration parameters */
+    #[arg(long, short)]
+    config_path: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
+    let address = cli.bind_address.unwrap_or(String::from("127.0.0.1:3099"));
+    let config_path = cli.config_path.unwrap_or("configs".into());
+
     init_log!();
 
-    let service = Arc::new(SolverService::new(/* TODO: use configuration parameters */));
-
-    let address = cli.bind_address.unwrap_or(String::from("127.0.0.1:3099"));
+    let service = Arc::new(SolverService::new(config_path));
 
     let addr: SocketAddr = address.parse().expect(&format!(
         "Server failed to start: Invalid address ({})",

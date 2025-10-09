@@ -47,6 +47,10 @@ impl BasketManager {
             .collect_vec()
     }
 
+    pub fn get_baskets(&self) -> &HashMap<Symbol, Arc<Basket>> {
+        &self.baskets
+    }
+
     pub fn notify_baskets(&self) -> Result<()> {
         if self.observer.has_observer() {
             for (symbol, basket) in &self.baskets {

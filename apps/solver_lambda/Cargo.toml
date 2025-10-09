@@ -13,6 +13,8 @@ crossbeam = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 index-core = { workspace = true }
+index-maker = { workspace = true }
+itertools = { workspace = true }
 parking_lot = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
