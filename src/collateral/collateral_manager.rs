@@ -176,38 +176,49 @@ impl CollateralManager {
                 });
         }
 
-        let failures = ready_to_route
-            .into_iter()
-            .filter_map(|request| {
+        let (successes, failures): (Vec<_>, Vec<_>) = ready_to_route
+            .iter()
+            .map(|request| {
                 request.add_span_context_link();
-                match self.router.read().transfer_collateral(
-                    request.chain_id,
-                    request.address,
-                    request.client_order_id.clone(),
-                    request.symbol.clone(),
-                    request.side,
-                    request.collateral_amount,
-                ) {
-                    Ok(()) => None,
-                    Err(err) => Some((err, request)),
-                }
+                self.router
+                    .read()
+                    .transfer_collateral(
+                        request.chain_id,
+                        request.address,
+                        request.client_order_id.clone(),
+                        request.symbol.clone(),
+                        request.side,
+                        request.collateral_amount,
+                    )
+                    .map_err(|err| (err, request))
+                    .map(|_| request)
             })
-            .collect_vec();
+            .partition_result();
+
+        for request in successes {
+            self.observer
+                .publish_single(CollateralEvent::CollateralReady {
+                    chain_id: request.chain_id,
+                    address: request.address,
+                    client_order_id: request.client_order_id.clone(),
+                    timestamp,
+                    collateral_amount: request.collateral_amount,
+                    status: RoutingStatus::EnRoute,
+                });
+        }
 
         if !failures.is_empty() {
             tracing::warn!(
                 "Errors in processing: {}",
                 failures
                     .iter()
-                    .map(|(err, request)| {
-                        format!(
-                            "\n in {} {} {}: {:?}",
-                            request.chain_id,
-                            request.address,
-                            request.client_order_id.clone(),
-                            err
-                        )
-                    })
+                    .map(|(err, request)| format!(
+                        "\n in {} {} {}: {:?}",
+                        request.chain_id,
+                        request.address,
+                        request.client_order_id.clone(),
+                        err
+                    ))
                     .join(", ")
             );
             for (_, request) in failures {
@@ -215,7 +226,7 @@ impl CollateralManager {
                     .publish_single(CollateralEvent::CollateralReady {
                         chain_id: request.chain_id,
                         address: request.address,
-                        client_order_id: request.client_order_id,
+                        client_order_id: request.client_order_id.clone(),
                         timestamp,
                         collateral_amount: request.collateral_amount,
                         status: RoutingStatus::NotReady,
@@ -881,6 +892,12 @@ mod test {
                     RoutingStatus::CheckLater => {
                         tracing::warn!(
                             "Collateral Ready Event {:0.5} CheckLater",
+                            collateral_amount,
+                        );
+                    }
+                    RoutingStatus::EnRoute => {
+                        tracing::info!(
+                            "Collateral Ready Event {:0.5} EnRoute",
                             collateral_amount,
                         );
                     }

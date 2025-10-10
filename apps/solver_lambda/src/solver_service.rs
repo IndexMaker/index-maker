@@ -50,6 +50,9 @@ use crate::{
     solver_input::SolverInput,
     solver_output::SolverOutput,
     solver_output_chain_connector::SolverOutputChainConnector,
+    solver_output_collateral_bridge::{
+        SolverOutputCollateralBridge, SolverOutputCollateralDesignation,
+    },
     solver_output_order_sender::SolverOutputOrderSender,
     solver_output_server::SolverOutputServer,
     solver_state::{IndexDefinition, SolverState},
@@ -358,37 +361,29 @@ impl SolverService {
         };
 
         // TODO: Temporary routing filler
-        {
-            let route_symbol = Symbol::from("SO2");
-            let chain_id = 8453;
+        let bridge = Arc::new(SolverOutputCollateralBridge::new(
+            Arc::new(SolverOutputCollateralDesignation::new("Start:SO2:USDC")),
+            Arc::new(SolverOutputCollateralDesignation::new("End:SO2:USDC")),
+        ));
 
-            let simple_bridge = Arc::new(SimpleBridge::new(
-                &Symbol::from("Start::USDC"),
-                &route_symbol,
-                &Symbol::from("End::USDC"),
-            ));
+        let route_start = bridge.get_source().get_full_name();
+        let route_end = bridge.get_destination().get_full_name();
 
-            let route_start = simple_bridge.get_source().get_full_name();
-            let route_end = simple_bridge.get_destination().get_full_name();
+        collateral_router
+            .write()
+            .add_route(&[route_start.clone(), route_end.clone()])?;
 
-            collateral_router
-                .write()
-                .add_route(&[route_start.clone(), route_end.clone()])?;
+        collateral_router
+            .write()
+            .add_bridge(bridge.clone() as Arc<dyn CollateralBridge>)?;
 
-            collateral_router
-                .write()
-                .add_bridge(simple_bridge as Arc<dyn CollateralBridge>)?;
+        collateral_router
+            .write()
+            .add_chain_source(8453, Symbol::from("SO2"), route_start.clone())?;
 
-            collateral_router.write().add_chain_source(
-                chain_id,
-                route_symbol,
-                route_start.clone(),
-            )?;
-
-            collateral_router
-                .write()
-                .set_default_destination(route_end.clone())?;
-        }
+        collateral_router
+            .write()
+            .set_default_destination(route_end.clone())?;
 
         // Temporary session filler
         {
@@ -476,10 +471,13 @@ impl SolverService {
                 .drain(..),
         );
 
+        let bridge_commands = Vec::from_iter(bridge.commands.write().drain(..));
+
         let output = SolverOutput {
             orders: Vec::from_iter(order_sender.write().orders.drain(..)),
             server_responses: Vec::from_iter(server.write().responses.drain(..)),
             chain_commands,
+            bridge_commands,
             state: SolverState {
                 order_ids,
                 batch_ids,

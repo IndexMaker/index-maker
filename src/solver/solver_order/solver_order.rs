@@ -26,6 +26,7 @@ use symm_core::{
 pub enum SolverOrderStatus {
     Open,
     ManageCollateral,
+    RouteCollateral,
     Ready,
     Engaged,
     PartlyMintable,

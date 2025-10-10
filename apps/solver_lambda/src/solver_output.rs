@@ -5,7 +5,7 @@ use index_maker::server::server::ServerResponse;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use symm_core::{
-    core::bits::{Address, Amount, SingleOrder, Symbol},
+    core::bits::{Address, Amount, ClientOrderId, SingleOrder, Symbol},
     order_sender::order_connector::SessionId,
 };
 
@@ -47,9 +47,25 @@ pub enum ChainCommand {
 }
 
 #[derive(Serialize, Deserialize)]
+pub enum BridgeCommand {
+    TransferFunds {
+        chain_id: u32,
+        address: Address,
+        client_order_id: ClientOrderId,
+        source: Symbol,
+        destination: Symbol,
+        route_from: Symbol,
+        route_to: Symbol,
+        amount: Amount,
+        cumulative_fee: Amount,
+    },
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct SolverOutput {
     pub orders: Vec<(SessionId, Arc<SingleOrder>)>,
     pub server_responses: Vec<ServerResponse>,
     pub chain_commands: Vec<ChainCommand>,
+    pub bridge_commands: Vec<BridgeCommand>,
     pub state: SolverState,
 }

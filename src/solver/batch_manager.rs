@@ -119,6 +119,7 @@ impl BatchAssetLot {
 /// positions in out inventory, for us to know what is our absolute position at
 /// any given moment. The BatchAssetPosition is different kind of position, in
 /// which we aggregate position over all lots for a batch created by Solver.
+#[derive(Serialize, Deserialize)]
 struct BatchAssetPosition {
     /// Symbol of an asset
     symbol: Symbol,
@@ -229,6 +230,7 @@ impl BatchAssetPosition {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct BatchOrderStatus {
     // ID of the batch order
     batch_order_id: BatchOrderId,
@@ -731,6 +733,7 @@ impl BatchManager {
         match index_order_write.status {
             SolverOrderStatus::Open
             | SolverOrderStatus::ManageCollateral
+            | SolverOrderStatus::RouteCollateral
             | SolverOrderStatus::Ready
             | SolverOrderStatus::Minted
             | SolverOrderStatus::InvalidSymbol
@@ -1389,6 +1392,7 @@ impl BatchManager {
                 }
                 SolverOrderStatus::Open
                 | SolverOrderStatus::ManageCollateral
+                | SolverOrderStatus::RouteCollateral
                 | SolverOrderStatus::Ready
                 | SolverOrderStatus::InvalidSymbol
                 | SolverOrderStatus::InvalidOrder

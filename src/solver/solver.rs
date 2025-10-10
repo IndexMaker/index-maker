@@ -1014,6 +1014,14 @@ impl Solver {
                                 timestamp,
                             )?;
                     }
+                    RoutingStatus::EnRoute => {
+                        tracing::info!(%chain_id, %address, %collateral_amount, "🚚 CollateralReady EnRoute");
+
+                        self.set_order_status(
+                            &mut order.write(),
+                            SolverOrderStatus::RouteCollateral,
+                        );
+                    }
                     RoutingStatus::CheckLater => {
                         tracing::info!(%chain_id, %address, %collateral_amount, "⏱️ CollateralReady CheckLater");
 
