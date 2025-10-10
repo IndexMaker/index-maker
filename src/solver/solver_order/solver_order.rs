@@ -26,6 +26,7 @@ use symm_core::{
 pub enum SolverOrderStatus {
     Open,
     ManageCollateral,
+    RouteCollateral,
     Ready,
     Engaged,
     PartlyMintable,
@@ -90,6 +91,7 @@ pub struct SolverOrder {
     pub lots: Vec<SolverOrderAssetLot>,
 
     /// Telemetry data
+    #[serde(skip)]
     pub tracing_data: TracingData,
 }
 

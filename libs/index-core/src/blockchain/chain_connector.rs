@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use serde::{Deserialize, Serialize};
 use symm_core::core::telemetry::{TracingData, WithBaggage};
 
 use symm_core::core::{
@@ -18,7 +19,7 @@ use crate::index::basket::{Basket, BasketDefinition};
 /// call blockchain methods, receive blockchain events
 
 /// On-chain event
-#[derive(WithBaggage)]
+#[derive(Serialize, Deserialize, WithBaggage)]
 pub enum ChainNotification {
     CuratorWeightsSet(Symbol, BasketDefinition), // ...more
     Deposit {

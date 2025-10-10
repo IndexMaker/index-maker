@@ -1,7 +1,9 @@
 use crate::core::bits::{Amount, PricePointEntry, Symbol};
 use eyre::Result;
+use serde::{Deserialize, Serialize};
 
 /// abstract, connect to receive market data (live or mock)
+#[derive(Serialize, Deserialize)]
 pub enum MarketDataEvent {
     TopOfBook {
         symbol: Symbol,
