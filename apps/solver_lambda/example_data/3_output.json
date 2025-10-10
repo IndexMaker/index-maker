@@ -1,0 +1,389 @@
+{
+  "orders": [
+    [
+      "S1",
+      {
+        "order_id": "O2",
+        "batch_order_id": "B1",
+        "symbol": "BTCUSDC",
+        "side": "Buy",
+        "price": "50510.100",
+        "quantity": "0.0000989901029695051088792143",
+        "created_timestamp": "2025-10-09T13:28:20Z"
+      }
+    ],
+    [
+      "S1",
+      {
+        "order_id": "O1",
+        "batch_order_id": "B1",
+        "symbol": "ETHUSDC",
+        "side": "Buy",
+        "price": "5060.100",
+        "quantity": "0.0009881227643722456077943124",
+        "created_timestamp": "2025-10-09T13:28:20Z"
+      }
+    ]
+  ],
+  "server_responses": [
+    {
+      "IndexOrderFill": {
+        "chain_id": 8453,
+        "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+        "client_order_id": "C1",
+        "filled_quantity": "0",
+        "collateral_spent": "0.00",
+        "collateral_remaining": "0.1",
+        "fill_rate": "0",
+        "status": "collateral ready",
+        "timestamp": "2025-10-09T13:28:20Z"
+      }
+    }
+  ],
+  "chain_commands": [
+    {
+      "SolverWeightsSet": {
+        "symbol": "SO2",
+        "basket": [
+          {
+            "pair": "BTCUSDC",
+            "listing": "",
+            "weight": "0.5",
+            "quantity": "0.01"
+          },
+          {
+            "pair": "ETHUSDC",
+            "listing": "",
+            "weight": "0.5",
+            "quantity": "0.1"
+          }
+        ]
+      }
+    }
+  ],
+  "bridge_commands": [],
+  "state": {
+    "order_ids": [
+      "O3",
+      "O4",
+      "O5",
+      "O6"
+    ],
+    "batch_ids": [
+      "B2",
+      "B3"
+    ],
+    "payment_ids": [],
+    "indexes": [
+      {
+        "symbol": "SO2",
+        "basket": [
+          {
+            "pair": "BTCUSDC",
+            "listing": "",
+            "weight": "0.5",
+            "quantity": "0.01"
+          },
+          {
+            "pair": "ETHUSDC",
+            "listing": "",
+            "weight": "0.5",
+            "quantity": "0.1"
+          }
+        ]
+      }
+    ],
+    "index_orders": {
+      "index_orders": [
+        [
+          [
+            8453,
+            "0xc0d3c9e530ca6d71469bb678e6592274154d9cad"
+          ],
+          {
+            "SO2": {
+              "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+              "chain_id": 8453,
+              "closed_updates": [],
+              "collateral_spent": "0.00",
+              "created_timestamp": "2025-10-09T13:28:00Z",
+              "engaged_collateral": "0.1000000000000000000000000404",
+              "engaged_side": "Buy",
+              "engaged_updates": [
+                {
+                  "client_order_id": "C1",
+                  "collateral_spent": "0.00",
+                  "engaged_collateral": "0.1",
+                  "filled_quantity": "0",
+                  "original_collateral_amount": "0.1",
+                  "remaining_collateral": "0.0",
+                  "side": "Buy",
+                  "timestamp": "2025-10-09T13:28:20Z",
+                  "update_fee": "0.00"
+                }
+              ],
+              "fees": "0.00",
+              "filled_quantity": "0",
+              "last_update_timestamp": "2025-10-09T13:28:20Z",
+              "order_updates": [],
+              "remaining_collateral": "-0.0000000000000000000000000404",
+              "side": "Buy",
+              "symbol": "SO2"
+            }
+          }
+        ]
+      ]
+    },
+    "invoices": {
+      "invoices": []
+    },
+    "collateral": {
+      "client_funds": [
+        [
+          [
+            8453,
+            "0xc0d3c9e530ca6d71469bb678e6592274154d9cad"
+          ],
+          {
+            "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+            "chain_id": 8453,
+            "created_timestamp": "2025-10-09T13:28:00Z",
+            "last_update_timestamp": "2025-10-09T13:28:00Z",
+            "side_cr": {
+              "closed_lots": [],
+              "created_timestamp": "2025-10-09T13:28:00Z",
+              "last_update_timestamp": "2025-10-09T13:28:20Z",
+              "open_lots": [
+                {
+                  "created_timestamp": "2025-10-09T13:28:00Z",
+                  "last_update_timestamp": "2025-10-09T13:28:20Z",
+                  "payment_id": "P1",
+                  "preauth_amount": "0.10",
+                  "ready_amount": "0",
+                  "seq_num": "0x1",
+                  "spends": [
+                    {
+                      "client_order_id": "C1",
+                      "payment_id": "Charges",
+                      "preauth_amount": "0",
+                      "spent_amount": "0.00",
+                      "timestamp": "2025-10-09T13:28:20Z"
+                    },
+                    {
+                      "client_order_id": "C1",
+                      "payment_id": "P2",
+                      "preauth_amount": "0.10",
+                      "spent_amount": "0",
+                      "timestamp": "2025-10-09T13:28:20Z"
+                    }
+                  ],
+                  "spent_amount": "0.00",
+                  "unconfirmed_amount": "0"
+                }
+              ],
+              "preauth_balance": "0.10",
+              "ready_balance": "0.00",
+              "spent_balance": "0.00",
+              "unconfirmed_balance": "0.00"
+            },
+            "side_dr": {
+              "closed_lots": [],
+              "created_timestamp": "2025-10-09T13:28:00Z",
+              "last_update_timestamp": "2025-10-09T13:28:00Z",
+              "open_lots": [],
+              "preauth_balance": "0",
+              "ready_balance": "0",
+              "spent_balance": "0",
+              "unconfirmed_balance": "0"
+            }
+          }
+        ]
+      ]
+    },
+    "inventory": {
+      "positions": {}
+    },
+    "batch": {
+      "batches": {
+        "B1": {
+          "batch_order_id": "B1",
+          "fee": "0",
+          "filled_fraction": "0",
+          "filled_volley": "0",
+          "is_cancelled": false,
+          "last_update_timestamp": "2025-10-09T13:28:20Z",
+          "positions": [
+            [
+              [
+                "BTCUSDC",
+                "Buy"
+              ],
+              {
+                "closed_lots": [],
+                "fee": "0",
+                "is_cancelled": false,
+                "last_update_timestamp": "2025-10-09T13:28:20Z",
+                "open_lots": [],
+                "order_quantity": "0.0000989901029695051088792143",
+                "position": "0",
+                "quantity_cancelled": "0",
+                "realized_value": "0",
+                "side": "Buy",
+                "symbol": "BTCUSDC",
+                "volley_size": "5.0000000000000000000000022144"
+              }
+            ],
+            [
+              [
+                "ETHUSDC",
+                "Buy"
+              ],
+              {
+                "closed_lots": [],
+                "fee": "0",
+                "is_cancelled": false,
+                "last_update_timestamp": "2025-10-09T13:28:20Z",
+                "open_lots": [],
+                "order_quantity": "0.0009881227643722456077943124",
+                "position": "0",
+                "quantity_cancelled": "0",
+                "realized_value": "0",
+                "side": "Buy",
+                "symbol": "ETHUSDC",
+                "volley_size": "5.0000000000000000000000001752"
+              }
+            ]
+          ],
+          "realized_value": "0",
+          "volley_size": "10.000000000000000000000002390"
+        }
+      },
+      "carry_overs": [],
+      "engagements": {
+        "B1": {
+          "batch_order_id": "B1",
+          "engaged_buys": {
+            "asset_price_limits": {
+              "BTCUSDC": "50510.100",
+              "ETHUSDC": "5060.100"
+            },
+            "asset_quantities": {
+              "BTCUSDC": "0.0000989901029695051088792143",
+              "ETHUSDC": "0.0009881227643722456077943124"
+            },
+            "engaged_orders": [
+              {
+                "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+                "asset_contribution_fractions": {
+                  "BTCUSDC": "1",
+                  "ETHUSDC": "1"
+                },
+                "asset_quantity_contributions": {
+                  "BTCUSDC": "0.0000009870370236462347495698",
+                  "ETHUSDC": "0.0000098703702364623474956979"
+                },
+                "chain_id": 8453,
+                "client_order_id": "C1",
+                "engaged_collateral": "0.1000000000000000000000000404",
+                "engaged_price": "1011.11100",
+                "engaged_quantity": "0.0000987037023646234749569786",
+                "engaged_side": "Buy",
+                "filled_quantity": "0",
+                "new_engaged_collateral": "0.1000000000000000000000000404",
+                "symbol": "SO2"
+              }
+            ]
+          }
+        }
+      },
+      "total_volley_size": "10.000000000000000000000002390"
+    },
+    "orders": {
+      "orders": {
+        "O1": {
+          "order": {
+            "batch_order_id": "B1",
+            "created_timestamp": "2025-10-09T13:28:20Z",
+            "order_id": "O1",
+            "price": "5060.100",
+            "quantity": "0.0009881227643722456077943124",
+            "side": "Buy",
+            "symbol": "ETHUSDC"
+          },
+          "session_id": "S1",
+          "status": {
+            "Sent": {
+              "order_quantity": "0.0009881227643722456077943124"
+            }
+          }
+        },
+        "O2": {
+          "order": {
+            "batch_order_id": "B1",
+            "created_timestamp": "2025-10-09T13:28:20Z",
+            "order_id": "O2",
+            "price": "50510.100",
+            "quantity": "0.0000989901029695051088792143",
+            "side": "Buy",
+            "symbol": "BTCUSDC"
+          },
+          "session_id": "S1",
+          "status": {
+            "Sent": {
+              "order_quantity": "0.0000989901029695051088792143"
+            }
+          }
+        }
+      }
+    },
+    "solver": {
+      "client_orders": {
+        "client_notify_queue": [],
+        "client_order_queues": [
+          [
+            [
+              8453,
+              "0xc0d3c9e530ca6d71469bb678e6592274154d9cad"
+            ],
+            [
+              "C1"
+            ]
+          ]
+        ],
+        "client_orders": [
+          [
+            [
+              8453,
+              "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+              "C1"
+            ],
+            {
+              "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+              "chain_id": 8453,
+              "client_order_id": "C1",
+              "collateral_carried": "0",
+              "collateral_routed": "0.10",
+              "collateral_spent": "0.00",
+              "created_timestamp": "2025-10-09T13:28:00Z",
+              "engaged_collateral": "0.1000000000000000000000000404",
+              "filled_quantity": "0",
+              "lots": [],
+              "payment_id": "P2",
+              "remaining_collateral": "0.0",
+              "side": "Buy",
+              "status": "Engaged",
+              "symbol": "SO2",
+              "timestamp": "2025-10-10T18:52:12.111660Z"
+            }
+          ]
+        ],
+        "client_wait_period": [
+          5,
+          0
+        ]
+      },
+      "ready_mints": [],
+      "ready_orders": []
+    }
+  }
+}

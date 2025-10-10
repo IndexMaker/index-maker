@@ -1,0 +1,123 @@
+{
+  "market_data_events": [
+    {
+      "TopOfBook": {
+        "symbol": "BTCUSDC",
+        "sequence_number": 1,
+        "best_bid_price": "50000.0",
+        "best_ask_price": "50010.0",
+        "best_bid_quantity": "0.01",
+        "best_ask_quantity": "0.02"
+      }
+    },
+    {
+      "TopOfBook": {
+        "symbol": "ETHUSDC",
+        "sequence_number": 1,
+        "best_bid_price": "5000.0",
+        "best_ask_price": "5010.0",
+        "best_bid_quantity": "0.05",
+        "best_ask_quantity": "0.09"
+      }
+    },
+    {
+      "OrderBookSnapshot": {
+        "symbol": "BTCUSDC",
+        "sequence_number": 1,
+        "bid_updates": [
+          {
+            "price": "50000.0",
+            "quantity": "0.01"
+          }
+        ],
+        "ask_updates": [
+          {
+            "price": "50010.0",
+            "quantity": "0.02"
+          }
+        ]
+      }
+    },
+    {
+      "OrderBookSnapshot": {
+        "symbol": "ETHUSDC",
+        "sequence_number": 1,
+        "bid_updates": [
+          {
+            "price": "5000.0",
+            "quantity": "0.05"
+          }
+        ],
+        "ask_updates": [
+          {
+            "price": "5010.0",
+            "quantity": "0.09"
+          }
+        ]
+      }
+    }
+  ],
+  "order_events": [],
+  "server_events": [
+    {
+      "NewIndexOrder": {
+        "chain_id": 8453,
+        "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+        "client_order_id": "C1",
+        "symbol": "SO2",
+        "side": "Buy",
+        "collateral_amount": "0.10",
+        "timestamp": "2025-10-09T13:28:00.000Z"
+      }
+    }
+  ],
+  "chain_events": [
+    {
+      "Deposit": {
+        "chain_id": 8453,
+        "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+        "seq_num": "0x1",
+        "amount": "0.10",
+        "timestamp": "2025-10-09T13:28:00.000Z"
+      }
+    }
+  ],
+  "router_events": [],
+  "state": {
+    "order_ids": [
+      "O1",
+      "O2",
+      "O3",
+      "O4",
+      "O5",
+      "O6"
+    ],
+    "payment_ids": [
+      "P1",
+      "P2"
+    ],
+    "batch_ids": [
+      "B1",
+      "B2",
+      "B3"
+    ],
+    "indexes": [
+      {
+        "symbol": "SO2",
+        "basket": [
+          {
+            "pair": "BTCUSDC",
+            "weight": "0.5",
+            "quantity": "0.01"
+          },
+          {
+            "pair": "ETHUSDC",
+            "weight": "0.5",
+            "quantity": "0.1"
+          }
+        ]
+      }
+    ]
+  },
+  "timestamp": "2025-10-09T13:28:00.000Z"
+}
