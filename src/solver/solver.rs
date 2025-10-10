@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    isize,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, RwLock as ComponentLock,
@@ -161,6 +160,17 @@ struct SolverPersistedState {
 pub trait SetSolverOrderStatus {
     fn set_order_status(&self, order: &mut SolverOrder, status: SolverOrderStatus);
     fn set_quote_status(&self, order: &mut SolverQuote, status: SolverQuoteStatus);
+}
+
+pub trait FetchSolverOrder {
+    fn fetch_client_order(
+        &self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+    ) -> Option<Arc<RwLock<SolverOrder>>>;
+
+    fn fetch_basket(&self, symbol: &Symbol) -> Option<Arc<Basket>>;
 }
 
 pub trait SolverStrategyHost: SetSolverOrderStatus {
@@ -1781,6 +1791,23 @@ impl SetSolverOrderStatus for Solver {
     }
 }
 
+impl FetchSolverOrder for Solver {
+    fn fetch_client_order(
+        &self,
+        chain_id: u32,
+        address: &Address,
+        client_order_id: &ClientOrderId,
+    ) -> Option<Arc<RwLock<SolverOrder>>> {
+        self.client_orders
+            .read()
+            .get_client_order(chain_id, *address, client_order_id.clone())
+    }
+
+    fn fetch_basket(&self, symbol: &Symbol) -> Option<Arc<Basket>> {
+        self.basket_manager.read().get_basket(symbol).cloned()
+    }
+}
+
 impl SolverStrategyHost for Solver {
     fn get_next_batch_order_id(&self) -> BatchOrderId {
         self.order_id_provider.write().next_batch_order_id()
@@ -1872,7 +1899,12 @@ impl CollateralManagerHost for Solver {
 
 impl Persist for Solver {
     fn load(&mut self) -> Result<()> {
-        // First load all dependent components
+        if let Some(value) = self.persistence.load_value()? {
+            self.load_solver_state(value)?;
+        } else {
+            tracing::info!("No persisted solver state found, starting with empty state");
+        }
+
         self.index_order_manager
             .write()
             .map_err(|err| eyre!("Failed to access index order manager: {:?}", err))?
@@ -1883,19 +1915,12 @@ impl Persist for Solver {
             .map_err(|err| eyre!("Failed to access collateral manager: {:?}", err))?
             .load()?;
 
+        self.inventory_manager.write().load()?;
+
         self.batch_manager
             .write()
             .map_err(|err| eyre!("Failed to access batch manager: {:?}", err))?
-            .load()?;
-
-        self.inventory_manager.write().load()?;
-
-        // Load solver-specific state
-        if let Some(value) = self.persistence.load_value()? {
-            self.load_solver_state(value)?;
-        } else {
-            tracing::info!("No persisted solver state found, starting with empty state");
-        }
+            .load(self)?;
 
         Ok(())
     }

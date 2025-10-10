@@ -80,6 +80,7 @@ rust_decimal_macros = { workspace = true }
 safe-math = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_with = { workspace = true }
 sha2 = { workspace = true }
 statrs = { workspace = true }
 string_cache = { workspace = true }
@@ -157,6 +158,7 @@ rust_decimal_macros = "1"
 safe-math = { path = "./proc-macros/safe-math" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+serde_with = { version = "3.15.0", features = ["macros"] }
 sha2 = "0.10"
 statrs = "0.16"
 string_cache = "0.8.9"

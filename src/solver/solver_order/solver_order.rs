@@ -91,6 +91,7 @@ pub struct SolverOrder {
     pub lots: Vec<SolverOrderAssetLot>,
 
     /// Telemetry data
+    #[serde(skip)]
     pub tracing_data: TracingData,
 }
 

@@ -45,6 +45,7 @@ pub mod server {
 
 pub mod solver {
     pub mod batch_manager;
+    pub mod batch_manager_serde;
     pub mod index_order;
     pub mod index_order_manager;
     pub mod index_quote;

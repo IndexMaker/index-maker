@@ -82,7 +82,7 @@ pub enum CollateralEvent {
     },
 }
 
-pub trait CollateralManagerHost: SetSolverOrderStatus {
+pub trait CollateralManagerHost {
     fn get_next_payment_id(&self) -> PaymentId;
 }
 

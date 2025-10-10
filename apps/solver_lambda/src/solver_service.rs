@@ -220,6 +220,12 @@ impl SolverService {
             .get_single_observer_mut()
             .set_observer_from(basket_tx);
 
+        for index_definition in input.state.indexes {
+            basket_manager
+                .write()
+                .set_basket(&index_definition.symbol, &index_definition.basket);
+        }
+
         let solver_strategy = Arc::new(SimpleSolver::new(
             price_threshold,
             max_levels,
@@ -377,9 +383,11 @@ impl SolverService {
             .write()
             .add_bridge(bridge.clone() as Arc<dyn CollateralBridge>)?;
 
-        collateral_router
-            .write()
-            .add_chain_source(8453, Symbol::from("SO2"), route_start.clone())?;
+        collateral_router.write().add_chain_source(
+            8453,
+            Symbol::from("SO2"),
+            route_start.clone(),
+        )?;
 
         collateral_router
             .write()
@@ -397,12 +405,6 @@ impl SolverService {
 
         //
         // Feed external events
-
-        for index_definition in input.state.indexes {
-            basket_manager
-                .write()
-                .set_basket(&index_definition.symbol, &index_definition.basket);
-        }
 
         next_step()?;
 
