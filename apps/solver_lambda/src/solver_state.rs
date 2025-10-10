@@ -23,5 +23,6 @@ pub struct SolverState {
     pub collateral: Option<serde_json::Value>,
     pub inventory: Option<serde_json::Value>,
     pub batch: Option<serde_json::Value>,
+    pub orders: Option<serde_json::Value>,
     pub solver: Option<serde_json::Value>,
 }

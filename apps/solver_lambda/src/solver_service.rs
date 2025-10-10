@@ -41,7 +41,7 @@ use symm_core::{
     order_sender::{
         inventory_manager::{self, InventoryManager},
         order_connector::{OrderConnectorNotification, SessionId},
-        order_tracker::OrderTracker,
+        order_tracker::{self, OrderTracker},
     },
 };
 use tracing::event;
@@ -111,6 +111,11 @@ impl SolverService {
             order_sender.clone(),
             assets_zero_threshold,
         )));
+        let order_tracker_persistence = InMemoryPersistence::new();
+        if let Some(orders) = input.state.orders {
+            order_tracker_persistence.store_value(orders)?;
+            order_tracker.write().load_from(&order_tracker_persistence)?;
+        }
         let (tracked_order_tx, tracked_order_rx) = unbounded();
         order_tracker
             .write()
@@ -475,6 +480,8 @@ impl SolverService {
 
         let bridge_commands = Vec::from_iter(bridge.commands.write().drain(..));
 
+        order_tracker.read().store_into(&order_tracker_persistence)?;
+
         let output = SolverOutput {
             orders: Vec::from_iter(order_sender.write().orders.drain(..)),
             server_responses: Vec::from_iter(server.write().responses.drain(..)),
@@ -490,6 +497,7 @@ impl SolverService {
                 collateral: collateral_persistence.load_value()?,
                 inventory: inventory_manager_persistence.load_value()?,
                 batch: batch_manager_persistence.load_value()?,
+                orders: order_tracker_persistence.load_value()?,
                 solver: solver_persistence.load_value()?,
             },
         };

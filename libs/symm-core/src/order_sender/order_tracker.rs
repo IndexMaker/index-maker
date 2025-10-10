@@ -1,9 +1,12 @@
 use std::fmt::{self, write};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use eyre::{eyre, OptionExt, Result};
+use itertools::Itertools;
 use safe_math::safe;
+use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::Entry, HashMap};
 
 use crossbeam::atomic::AtomicCell;
@@ -11,6 +14,7 @@ use parking_lot::RwLock;
 
 use crate::core::functional::{IntoObservableSingle, OneShotSingleObserver, PublishSingle};
 
+use crate::core::persistence::{Persist, Persistence};
 use crate::core::telemetry::{TracingData, WithBaggage};
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
@@ -113,7 +117,7 @@ pub enum OrderTrackerNotification {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum OrderStatus {
     Sent { order_quantity: Amount },
     Live { quantity_remaining: Amount },
@@ -144,6 +148,31 @@ impl OrderEntry {
 
     pub fn get_status(&self) -> OrderStatus {
         self.status.load()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct StoredOrderEntry {
+    pub session_id: SessionId,
+    pub order: Arc<SingleOrder>,
+    status: OrderStatus,
+}
+
+impl StoredOrderEntry {
+    pub fn new(entry: &OrderEntry) -> Self {
+        Self {
+            session_id: entry.session_id.clone(),
+            order: entry.order.clone(),
+            status: entry.status.load(),
+        }
+    }
+
+    pub fn to_live(self) -> OrderEntry {
+        OrderEntry {
+            session_id: self.session_id,
+            order: self.order,
+            status: AtomicCell::new(self.status),
+        }
     }
 }
 
@@ -449,6 +478,39 @@ impl OrderTracker {
             .read()
             .get_balances(session_id, observer)?;
 
+        Ok(())
+    }
+
+    pub fn load_from(&mut self, persistence: &impl Persistence) -> Result<()> {
+        let Some(mut value) = persistence.load_value()? else {
+            return Ok(());
+        };
+
+        if let Some(orders) = value.get_mut("orders") {
+            let orders: HashMap<OrderId, StoredOrderEntry> = serde_json::from_value(orders.take())
+                .map_err(|err| eyre::eyre!("Failed to deserialised orders: {:?}", err))?;
+
+            self.orders = orders
+                .into_iter()
+                .map(|(k, v)| (k, Arc::new(v.to_live())))
+                .collect();
+        }
+
+        Ok(())
+    }
+
+    pub fn store_into(&self, persistence: &impl Persistence) -> Result<()> {
+        let orders: HashMap<_, _> = self
+            .orders
+            .iter()
+            .map(|(k, v)| (k.to_owned(), StoredOrderEntry::new(v)))
+            .collect();
+
+        let value = serde_json::json!({
+            "orders": orders
+        });
+
+        persistence.store_value(value)?;
         Ok(())
     }
 }
