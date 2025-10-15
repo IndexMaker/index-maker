@@ -1,272 +1,236 @@
 [
   {
-    "id": 1,
-    "pair": "NEARUSDC",
-    "listing": "Binance",
-    "assetname": "NEAR Protocol",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 3454102008,
-    "weights": "1.76",
-    "quantity": 136.2158242520333
-  },
-  {
-    "id": 2,
+    "id": 18,
     "pair": "TAOUSDC",
     "listing": "Binance",
     "assetname": "Bittensor",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 3420219088,
-    "weights": "1.76",
-    "quantity": 0.8582792519512782
+    "market_cap": 4056446474,
+    "weights": "3.86",
+    "quantity": 1.8801297961692838
   },
   {
-    "id": 4,
+    "id": 3,
+    "pair": "NEARUSDC",
+    "listing": "Binance",
+    "assetname": "NEAR Protocol",
+    "market_cap": 2952413765,
+    "weights": "3.86",
+    "quantity": 298.3917289201167
+  },
+  {
+    "id": 26,
     "pair": "ICPUSDC",
     "listing": "Binance",
     "assetname": "Internet Computer",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 2649571019,
-    "weights": "1.76",
-    "quantity": 63.79096182242545
+    "market_cap": 1810988358,
+    "weights": "3.86",
+    "quantity": 139.7392372889933
   },
   {
-    "id": 5,
+    "id": 24,
     "pair": "RENDERUSDC",
     "listing": "Binance",
     "assetname": "Render",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 2085882748,
-    "weights": "1.76",
-    "quantity": 83.95531010373745
+    "market_cap": 1403300881,
+    "weights": "3.86",
+    "quantity": 183.9108655065442
   },
   {
-    "id": 6,
+    "id": 16,
     "pair": "FETUSDC",
     "listing": "Binance",
     "assetname": "Artificial Superintelligence Alliance",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 1763819450,
-    "weights": "1.76",
-    "quantity": 439.9577951995727
+    "market_cap": 782191248,
+    "weights": "3.86",
+    "quantity": 963.7629686737625
   },
   {
-    "id": 7,
+    "id": 20,
     "pair": "GRTUSDC",
     "listing": "Binance",
     "assetname": "The Graph",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 1047603068,
-    "weights": "1.76",
-    "quantity": 3533.683465342833
+    "market_cap": 701149135,
+    "weights": "3.86",
+    "quantity": 7740.8181058988675
   },
   {
-    "id": 8,
-    "pair": "VIRTUALUSDC",
-    "listing": "Binance",
-    "assetname": "Virtuals Protocol",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 863530428,
-    "weights": "1.76",
-    "quantity": 172.4065785015736
-  },
-  {
-    "id": 9,
+    "id": 21,
     "pair": "THETAUSDC",
     "listing": "Binance",
     "assetname": "Theta Network",
-    "sector": "Smart Contract Platform",
-    "market_cap": 840666323,
-    "weights": "1.76",
-    "quantity": 427.0697645858853
+    "market_cap": 555605687,
+    "weights": "3.86",
+    "quantity": 935.5307000786096
   },
   {
-    "id": 10,
+    "id": 25,
+    "pair": "VIRTUALUSDC",
+    "listing": "Binance",
+    "assetname": "Virtuals Protocol",
+    "market_cap": 509864150,
+    "weights": "3.86",
+    "quantity": 377.67048959818965
+  },
+  {
+    "id": 11,
     "pair": "ARUSDC",
     "listing": "Binance",
     "assetname": "Arweave",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 484770174,
-    "weights": "1.76",
-    "quantity": 52.9357395505138
+    "market_cap": 281967842,
+    "weights": "3.86",
+    "quantity": 115.95999901536429
   },
   {
-    "id": 12,
-    "pair": "ARKMUSDC",
-    "listing": "Binance",
-    "assetname": "Arkham",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 312316954,
-    "weights": "1.76",
-    "quantity": 629.2175963500728
-  },
-  {
-    "id": 13,
+    "id": 6,
     "pair": "KAITOUSDC",
     "listing": "Binance",
     "assetname": "KAITO",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 298565371,
-    "weights": "1.76",
-    "quantity": 192.9979400426301
+    "market_cap": 267046537,
+    "weights": "3.86",
+    "quantity": 422.77752473741526
+  },
+  {
+    "id": 8,
+    "pair": "ARKMUSDC",
+    "listing": "Binance",
+    "assetname": "Arkham",
+    "market_cap": 190504476,
+    "weights": "3.86",
+    "quantity": 1378.351799233456
   },
   {
     "id": 19,
     "pair": "NMRUSDC",
     "listing": "Binance",
     "assetname": "Numeraire",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 141576644,
-    "weights": "1.76",
-    "quantity": 39.88240334831433
+    "market_cap": 111520249,
+    "weights": "3.86",
+    "quantity": 87.36561522084189
   },
   {
-    "id": 20,
+    "id": 4,
     "pair": "VANAUSDC",
     "listing": "Binance",
     "assetname": "Vana",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 137874160,
-    "weights": "1.76",
-    "quantity": 50.70551878781753
+    "market_cap": 87474362,
+    "weights": "3.86",
+    "quantity": 111.07452089335713
   },
   {
-    "id": 21,
+    "id": 1,
     "pair": "IOUSDC",
     "listing": "Binance",
     "assetname": "io.net",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 132585239,
-    "weights": "1.76",
-    "quantity": 435.4368621912313
+    "market_cap": 76289020,
+    "weights": "3.86",
+    "quantity": 953.8595009665524
   },
   {
-    "id": 24,
-    "pair": "AIXBTUSDC",
-    "listing": "Binance",
-    "assetname": "aixbt",
-    "sector": "Solana Ecosystem",
-    "market_cap": 119416501,
-    "weights": "1.76",
-    "quantity": 1836.6213492260083
-  },
-  {
-    "id": 29,
-    "pair": "CYBERUSDC",
-    "listing": "Binance",
-    "assetname": "CYBER",
-    "sector": "Smart Contract Platform",
-    "market_cap": 90263384,
-    "weights": "1.75",
-    "quantity": 288.05415022554524
-  },
-  {
-    "id": 30,
-    "pair": "PHAUSDC",
-    "listing": "Binance",
-    "assetname": "PHALA",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 90035942,
-    "weights": "1.75",
-    "quantity": 2663.8782764464113
-  },
-  {
-    "id": 32,
-    "pair": "COOKIEUSDC",
-    "listing": "Binance",
-    "assetname": "Cookie DAO",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 86767134,
-    "weights": "1.75",
-    "quantity": 1522.850516748809
-  },
-  {
-    "id": 33,
-    "pair": "FLUXUSDC",
-    "listing": "Binance",
-    "assetname": "Flux",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 86502806,
-    "weights": "1.75",
-    "quantity": 1489.7389096589502
-  },
-  {
-    "id": 34,
-    "pair": "CGPTUSDC",
-    "listing": "Binance",
-    "assetname": "ChainGPT",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 85401394,
-    "weights": "1.75",
-    "quantity": 3101.432207505084
-  },
-  {
-    "id": 37,
-    "pair": "SAGAUSDC",
-    "listing": "Binance",
-    "assetname": "Saga",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 79362000,
-    "weights": "1.75",
-    "quantity": 1144.6261728732595
-  },
-  {
-    "id": 40,
+    "id": 17,
     "pair": "LAUSDC",
     "listing": "Binance",
     "assetname": "Lagrange",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 70656362,
-    "weights": "1.75",
-    "quantity": 231.9748011189802
+    "market_cap": 71726468,
+    "weights": "3.83",
+    "quantity": 508.1594767118953
   },
   {
-    "id": 41,
-    "pair": "MAGICUSDC",
-    "listing": "Binance",
-    "assetname": "Treasure",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 68332425,
-    "weights": "1.75",
-    "quantity": 2543.304844060159
-  },
-  {
-    "id": 42,
+    "id": 13,
     "pair": "NILUSDC",
     "listing": "Binance",
     "assetname": "Nillion",
-    "sector": "Infrastructure",
-    "market_cap": 62174192,
-    "weights": "1.75",
-    "quantity": 785.8013414558528
+    "market_cap": 70825897,
+    "weights": "3.83",
+    "quantity": 1721.3610984794145
   },
   {
-    "id": 43,
+    "id": 5,
+    "pair": "AIXBTUSDC",
+    "listing": "Binance",
+    "assetname": "aixbt",
+    "market_cap": 62681593,
+    "weights": "3.86",
+    "quantity": 4023.266920538901
+  },
+  {
+    "id": 23,
+    "pair": "CYBERUSDC",
+    "listing": "Binance",
+    "assetname": "CYBER",
+    "market_cap": 57962245,
+    "weights": "3.83",
+    "quantity": 631.0058055324101
+  },
+  {
+    "id": 9,
+    "pair": "COOKIEUSDC",
+    "listing": "Binance",
+    "assetname": "Cookie DAO",
+    "market_cap": 56617578,
+    "weights": "3.83",
+    "quantity": 3335.9266522427356
+  },
+  {
+    "id": 2,
+    "pair": "PHAUSDC",
+    "listing": "Binance",
+    "assetname": "PHALA",
+    "market_cap": 56273460,
+    "weights": "3.83",
+    "quantity": 5835.439816969138
+  },
+  {
+    "id": 14,
+    "pair": "FLUXUSDC",
+    "listing": "Binance",
+    "assetname": "Flux",
+    "market_cap": 52187006,
+    "weights": "3.83",
+    "quantity": 3263.3930113010956
+  },
+  {
+    "id": 15,
+    "pair": "CGPTUSDC",
+    "listing": "Binance",
+    "assetname": "ChainGPT",
+    "market_cap": 51883682,
+    "weights": "3.83",
+    "quantity": 6793.93692772198
+  },
+  {
+    "id": 7,
+    "pair": "MAGICUSDC",
+    "listing": "Binance",
+    "assetname": "Treasure",
+    "market_cap": 44457621,
+    "weights": "3.83",
+    "quantity": 5571.314006703525
+  },
+  {
+    "id": 10,
+    "pair": "SAGAUSDC",
+    "listing": "Binance",
+    "assetname": "Saga",
+    "market_cap": 40268854,
+    "weights": "3.83",
+    "quantity": 2507.3957784737345
+  },
+  {
+    "id": 22,
     "pair": "VANRYUSDC",
     "listing": "Binance",
     "assetname": "Vanar Chain",
-    "sector": "Smart Contract Platform",
-    "market_cap": 59147400,
-    "weights": "1.75",
-    "quantity": 10220.35746012167
+    "market_cap": 36512692,
+    "weights": "3.83",
+    "quantity": 22388.515794351963
   },
   {
-    "id": 48,
+    "id": 12,
     "pair": "SHELLUSDC",
     "listing": "Binance",
     "assetname": "MyShell",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 38639740,
-    "weights": "1.75",
-    "quantity": 2081.125240968214
-  },
-  {
-    "id": 56,
-    "pair": "TUSDC",
-    "listing": "Binance",
-    "assetname": "Talos",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 9819313,
-    "weights": "1.75",
-    "quantity": 2140.6776697137034
+    "market_cap": 25675709,
+    "weights": "3.83",
+    "quantity": 4558.872378900797
   }
 ]
