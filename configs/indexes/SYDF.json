@@ -1,542 +1,515 @@
 [
   {
-    "id": 1,
+    "id": 33,
     "pair": "LINKUSDC",
     "listing": "Binance",
     "assetname": "Chainlink",
-    "sector": "Business Services",
-    "market_cap": 16813304318,
-    "weights": "1.13",
-    "quantity": 55.513570934370954
+    "market_cap": 12649549613,
+    "weights": "1.76",
+    "quantity": 86.61814781459033
   },
   {
-    "id": 3,
+    "id": 27,
     "pair": "UNIUSDC",
     "listing": "Binance",
     "assetname": "Uniswap",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 6075797220,
-    "weights": "1.13",
-    "quantity": 96.22428780416168
+    "market_cap": 3946088525,
+    "weights": "1.76",
+    "quantity": 150.13931628048314
   },
   {
-    "id": 4,
-    "pair": "ENAUSDC",
-    "listing": "Binance",
-    "assetname": "Ethena",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 5267940736,
-    "weights": "1.13",
-    "quantity": 2485.882934012695
-  },
-  {
-    "id": 5,
+    "id": 3,
     "pair": "AAVEUSDC",
     "listing": "Binance",
     "assetname": "Aave",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 4827858862,
-    "weights": "1.13",
-    "quantity": 2.569142892135262
-  },
-  {
-    "id": 6,
-    "pair": "ONDOUSDC",
-    "listing": "Binance",
-    "assetname": "Ondo",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 3467168745,
-    "weights": "1.13",
-    "quantity": 935.2322829844628
-  },
-  {
-    "id": 8,
-    "pair": "SEIUSDC",
-    "listing": "Binance",
-    "assetname": "Sei",
-    "sector": "Smart Contract Platform",
-    "market_cap": 2048954132,
-    "weights": "1.13",
-    "quantity": 4138.269629486582
-  },
-  {
-    "id": 9,
-    "pair": "JUPUSDC",
-    "listing": "Binance",
-    "assetname": "Jupiter",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 1745845633,
-    "weights": "1.13",
-    "quantity": 1789.0546276222146
-  },
-  {
-    "id": 10,
-    "pair": "INJUSDC",
-    "listing": "Binance",
-    "assetname": "Injective",
-    "sector": "Smart Contract Platform",
-    "market_cap": 1411122025,
-    "weights": "1.13",
-    "quantity": 63.37946202548855
-  },
-  {
-    "id": 11,
-    "pair": "CRVUSDC",
-    "listing": "Binance",
-    "assetname": "Curve DAO",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 1172281270,
-    "weights": "1.13",
-    "quantity": 1205.4385278646955
-  },
-  {
-    "id": 12,
-    "pair": "LDOUSDC",
-    "listing": "Binance",
-    "assetname": "Lido DAO",
-    "sector": "Infrastructure",
-    "market_cap": 1167756378,
-    "weights": "1.13",
-    "quantity": 898.3240080480248
+    "market_cap": 3723677310,
+    "weights": "1.76",
+    "quantity": 4.008648606857951
   },
   {
     "id": 14,
-    "pair": "PYTHUSDC",
+    "pair": "ENAUSDC",
     "listing": "Binance",
-    "assetname": "Pyth Network",
-    "sector": "Business Services",
-    "market_cap": 1019281902,
-    "weights": "1.13",
-    "quantity": 6893.382411693759
+    "assetname": "Ethena",
+    "market_cap": 3103164771,
+    "weights": "1.76",
+    "quantity": 3878.7376096312914
   },
   {
-    "id": 15,
-    "pair": "RAYUSDC",
+    "id": 44,
+    "pair": "ONDOUSDC",
     "listing": "Binance",
-    "assetname": "Raydium",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 984814664,
-    "weights": "1.13",
-    "quantity": 350.2564721758244
-  },
-  {
-    "id": 16,
-    "pair": "CAKEUSDC",
-    "listing": "Binance",
-    "assetname": "PancakeSwap",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 891336270,
-    "weights": "1.13",
-    "quantity": 298.0134994826542
-  },
-  {
-    "id": 17,
-    "pair": "PENDLEUSDC",
-    "listing": "Binance",
-    "assetname": "Pendle",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 888824351,
-    "weights": "1.13",
-    "quantity": 194.4220894082268
-  },
-  {
-    "id": 18,
-    "pair": "IOTAUSDC",
-    "listing": "Binance",
-    "assetname": "IOTA",
-    "sector": "Internet of Things (IOT)",
-    "market_cap": 792268956,
-    "weights": "1.13",
-    "quantity": 4329.587495627609
-  },
-  {
-    "id": 19,
-    "pair": "JTOUSDC",
-    "listing": "Binance",
-    "assetname": "Jito",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 742990605,
-    "weights": "1.13",
-    "quantity": 364.24406033628287
-  },
-  {
-    "id": 21,
-    "pair": "ETHFIUSDC",
-    "listing": "Binance",
-    "assetname": "Ether.fi",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 673166332,
-    "weights": "1.13",
-    "quantity": 671.223116802609
-  },
-  {
-    "id": 22,
-    "pair": "SYRUPUSDC",
-    "listing": "Binance",
-    "assetname": "Maple Finance",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 535976260,
-    "weights": "1.13",
-    "quantity": 1537.4378175352897
-  },
-  {
-    "id": 23,
-    "pair": "DYDXUSDC",
-    "listing": "Binance",
-    "assetname": "dYdX",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 520884148,
-    "weights": "1.13",
-    "quantity": 1415.1958237909023
-  },
-  {
-    "id": 24,
-    "pair": "RSRUSDC",
-    "listing": "Binance",
-    "assetname": "Reserve Rights",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 482859087,
-    "weights": "1.13",
-    "quantity": 115768.09629528403
-  },
-  {
-    "id": 25,
-    "pair": "RUNEUSDC",
-    "listing": "Binance",
-    "assetname": "THORChain",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 459167162,
-    "weights": "1.13",
-    "quantity": 492.3960586817815
-  },
-  {
-    "id": 26,
-    "pair": "COMPUSDC",
-    "listing": "Binance",
-    "assetname": "Compound",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 429651182,
-    "weights": "1.13",
-    "quantity": 13.299357111320033
-  },
-  {
-    "id": 30,
-    "pair": "BERAUSDC",
-    "listing": "Binance",
-    "assetname": "Berachain",
-    "sector": "Smart Contract Platform",
-    "market_cap": 296699959,
-    "weights": "1.13",
-    "quantity": 356.398223614123
-  },
-  {
-    "id": 35,
-    "pair": "COWUSDC",
-    "listing": "Binance",
-    "assetname": "CoW Protocol",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 185122898,
-    "weights": "1.12",
-    "quantity": 2098.028617001325
-  },
-  {
-    "id": 36,
-    "pair": "KMNOUSDC",
-    "listing": "Binance",
-    "assetname": "Kamino",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 182129809,
-    "weights": "1.12",
-    "quantity": 12483.555930196331
-  },
-  {
-    "id": 38,
-    "pair": "TUSDC",
-    "listing": "Binance",
-    "assetname": "Threshold Network",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 167579371,
-    "weights": "1.12",
-    "quantity": 51900.09524624217
+    "assetname": "Ondo",
+    "market_cap": 2433375928,
+    "weights": "1.76",
+    "quantity": 1459.2483741370922
   },
   {
     "id": 39,
-    "pair": "SUSHIUSDC",
+    "pair": "SEIUSDC",
     "listing": "Binance",
-    "assetname": "Sushi",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 163859604,
-    "weights": "1.12",
-    "quantity": 1157.219736114518
-  },
-  {
-    "id": 40,
-    "pair": "GMXUSDC",
-    "listing": "Binance",
-    "assetname": "GMX",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 155923277,
-    "weights": "1.12",
-    "quantity": 48.60448474875886
-  },
-  {
-    "id": 41,
-    "pair": "ORCAUSDC",
-    "listing": "Binance",
-    "assetname": "Orca",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 146830220,
-    "weights": "1.12",
-    "quantity": 326.35375928683925
-  },
-  {
-    "id": 42,
-    "pair": "RPLUSDC",
-    "listing": "Binance",
-    "assetname": "Rocket Pool",
-    "sector": "Business Services",
-    "market_cap": 142676239,
-    "weights": "1.12",
-    "quantity": 114.4589278061583
-  },
-  {
-    "id": 43,
-    "pair": "NMRUSDC",
-    "listing": "Binance",
-    "assetname": "Numeraire",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 141559740,
-    "weights": "1.12",
-    "quantity": 96.13990334521536
-  },
-  {
-    "id": 45,
-    "pair": "BABYUSDC",
-    "listing": "Binance",
-    "assetname": "Babylon",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 133829154,
-    "weights": "1.12",
-    "quantity": 12723.617970654965
-  },
-  {
-    "id": 46,
-    "pair": "OSMOUSDC",
-    "listing": "Binance",
-    "assetname": "Osmosis",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 128726015,
-    "weights": "1.12",
-    "quantity": 4164.358375103297
-  },
-  {
-    "id": 47,
-    "pair": "API3USDC",
-    "listing": "Binance",
-    "assetname": "Api3",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 128236550,
-    "weights": "1.12",
-    "quantity": 1088.3707524158715
-  },
-  {
-    "id": 49,
-    "pair": "UMAUSDC",
-    "listing": "Binance",
-    "assetname": "UMA",
-    "sector": "Business Services",
-    "market_cap": 126202483,
-    "weights": "1.12",
-    "quantity": 580.2894955860702
-  },
-  {
-    "id": 52,
-    "pair": "LAYERUSDC",
-    "listing": "Binance",
-    "assetname": "Solayer",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 118088630,
-    "weights": "1.12",
-    "quantity": 1049.412298109625
-  },
-  {
-    "id": 54,
-    "pair": "HOMEUSDC",
-    "listing": "Binance",
-    "assetname": "HOME",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 104871177,
-    "weights": "1.12",
-    "quantity": 25285.307929297713
+    "assetname": "Sei",
+    "market_cap": 1352739485,
+    "weights": "1.76",
+    "quantity": 6456.966187371791
   },
   {
     "id": 55,
-    "pair": "TRBUSDC",
+    "pair": "JUPUSDC",
     "listing": "Binance",
-    "assetname": "Tellor Tributes",
-    "sector": "Business Services",
-    "market_cap": 104620163,
-    "weights": "1.12",
-    "quantity": 17.500438746583466
+    "assetname": "Jupiter",
+    "market_cap": 1153776423,
+    "weights": "1.76",
+    "quantity": 2791.4723476707977
   },
   {
-    "id": 60,
-    "pair": "CGPTUSDC",
+    "id": 51,
+    "pair": "CAKEUSDC",
     "listing": "Binance",
-    "assetname": "ChainGPT",
-    "sector": "Artificial Intelligence (AI)",
-    "market_cap": 85401394,
-    "weights": "1.12",
-    "quantity": 7934.657253818841
+    "assetname": "PancakeSwap",
+    "market_cap": 1075818786,
+    "weights": "1.76",
+    "quantity": 464.9921976636826
   },
   {
-    "id": 61,
-    "pair": "PUNDIXUSDC",
+    "id": 18,
+    "pair": "MORPHOUSDC",
     "listing": "Binance",
-    "assetname": "Pundi X",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 85326577,
-    "weights": "1.12",
-    "quantity": 2485.429518240308
+    "assetname": "Morpho",
+    "market_cap": 1010422571,
+    "weights": "1.76",
+    "quantity": 778.7950916145205
   },
   {
-    "id": 63,
-    "pair": "CETUSUSDC",
+    "id": 52,
+    "pair": "INJUSDC",
     "listing": "Binance",
-    "assetname": "Cetus Protocol",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 82170155,
-    "weights": "1.12",
-    "quantity": 7177.138572782875
+    "assetname": "Injective",
+    "market_cap": 889565616,
+    "weights": "1.76",
+    "quantity": 98.89134346308089
   },
   {
-    "id": 64,
-    "pair": "USUALUSDC",
+    "id": 32,
+    "pair": "LDOUSDC",
     "listing": "Binance",
-    "assetname": "Usual",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 73944962,
-    "weights": "1.12",
-    "quantity": 7453.749459685997
+    "assetname": "Lido DAO",
+    "market_cap": 844922714,
+    "weights": "1.76",
+    "quantity": 1401.6601779497967
   },
   {
-    "id": 66,
-    "pair": "SSVUSDC",
+    "id": 49,
+    "pair": "CRVUSDC",
     "listing": "Binance",
-    "assetname": "SSV Network",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 68804459,
-    "weights": "1.12",
-    "quantity": 79.55100251665422
+    "assetname": "Curve DAO",
+    "market_cap": 784574605,
+    "weights": "1.76",
+    "quantity": 1880.8527506080436
   },
   {
-    "id": 67,
-    "pair": "DOLOUSDC",
+    "id": 45,
+    "pair": "PYTHUSDC",
     "listing": "Binance",
-    "assetname": "Dolomite",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 68593338,
-    "weights": "1.12",
-    "quantity": 20925.69037811055
+    "assetname": "Pyth Network",
+    "market_cap": 679039452,
+    "weights": "1.76",
+    "quantity": 10755.784696042687
   },
   {
-    "id": 70,
-    "pair": "AUCTIONUSDC",
+    "id": 16,
+    "pair": "SNXUSDC",
     "listing": "Binance",
-    "assetname": "Bounce",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 64994939,
-    "weights": "1.12",
-    "quantity": 76.52290798257505
+    "assetname": "Synthetix",
+    "market_cap": 622145059,
+    "weights": "1.76",
+    "quantity": 1881.3834257795074
   },
   {
-    "id": 71,
+    "id": 30,
+    "pair": "ETHFIUSDC",
+    "listing": "Binance",
+    "assetname": "Ether.fi",
+    "market_cap": 609009477,
+    "weights": "1.76",
+    "quantity": 1047.3133356258525
+  },
+  {
+    "id": 6,
+    "pair": "IOTAUSDC",
+    "listing": "Binance",
+    "assetname": "IOTA",
+    "market_cap": 596803751,
+    "weights": "1.76",
+    "quantity": 6755.480567370273
+  },
+  {
+    "id": 19,
+    "pair": "PENDLEUSDC",
+    "listing": "Binance",
+    "assetname": "Pendle",
+    "market_cap": 574138264,
+    "weights": "1.76",
+    "quantity": 303.357917628689
+  },
+  {
+    "id": 25,
+    "pair": "RAYUSDC",
+    "listing": "Binance",
+    "assetname": "Raydium",
+    "market_cap": 513499951,
+    "weights": "1.76",
+    "quantity": 546.5072120078395
+  },
+  {
+    "id": 11,
+    "pair": "SYRUPUSDC",
+    "listing": "Binance",
+    "assetname": "Maple Finance",
+    "market_cap": 497306222,
+    "weights": "1.76",
+    "quantity": 2398.8731744972524
+  },
+  {
+    "id": 54,
+    "pair": "JTOUSDC",
+    "listing": "Binance",
+    "assetname": "Jito",
+    "market_cap": 446106871,
+    "weights": "1.76",
+    "quantity": 568.3321272215366
+  },
+  {
+    "id": 53,
+    "pair": "RSRUSDC",
+    "listing": "Binance",
+    "assetname": "Reserve Rights",
+    "market_cap": 392104578,
+    "weights": "1.76",
+    "quantity": 180633.63441298803
+  },
+  {
+    "id": 57,
+    "pair": "COMPUSDC",
+    "listing": "Binance",
+    "assetname": "Compound",
+    "market_cap": 345633123,
+    "weights": "1.76",
+    "quantity": 20.75106430226249
+  },
+  {
+    "id": 36,
+    "pair": "RUNEUSDC",
+    "listing": "Binance",
+    "assetname": "THORChain",
+    "market_cap": 311685777,
+    "weights": "1.76",
+    "quantity": 768.28843607705
+  },
+  {
+    "id": 37,
+    "pair": "DYDXUSDC",
+    "listing": "Binance",
+    "assetname": "dYdX",
+    "market_cap": 286502507,
+    "weights": "1.76",
+    "quantity": 2208.1382802167295
+  },
+  {
+    "id": 47,
+    "pair": "BERAUSDC",
+    "listing": "Binance",
+    "assetname": "Berachain",
+    "market_cap": 237142670,
+    "weights": "1.76",
+    "quantity": 556.0902225216461
+  },
+  {
+    "id": 17,
+    "pair": "KMNOUSDC",
+    "listing": "Binance",
+    "assetname": "Kamino",
+    "market_cap": 186475422,
+    "weights": "1.75",
+    "quantity": 19478.164971440674
+  },
+  {
+    "id": 56,
+    "pair": "TUSDC",
+    "listing": "Binance",
+    "assetname": "Threshold Network",
+    "market_cap": 136695204,
+    "weights": "1.75",
+    "quantity": 80980.02066818872
+  },
+  {
+    "id": 41,
+    "pair": "COWUSDC",
+    "listing": "Binance",
+    "assetname": "CoW Protocol",
+    "market_cap": 128160277,
+    "weights": "1.75",
+    "quantity": 3273.5662615093215
+  },
+  {
+    "id": 1,
+    "pair": "GMXUSDC",
+    "listing": "Binance",
+    "assetname": "GMX",
+    "market_cap": 113966655,
+    "weights": "1.75",
+    "quantity": 75.83786042870781
+  },
+  {
+    "id": 34,
+    "pair": "NMRUSDC",
+    "listing": "Binance",
+    "assetname": "Numeraire",
+    "market_cap": 111520249,
+    "weights": "1.75",
+    "quantity": 150.00765071807663
+  },
+  {
+    "id": 10,
+    "pair": "SUSHIUSDC",
+    "listing": "Binance",
+    "assetname": "Sushi",
+    "market_cap": 107513209,
+    "weights": "1.75",
+    "quantity": 1805.6166892097324
+  },
+  {
+    "id": 23,
+    "pair": "BABYUSDC",
+    "listing": "Binance",
+    "assetname": "Babylon",
+    "market_cap": 98770765,
+    "weights": "1.75",
+    "quantity": 19852.735170315118
+  },
+  {
+    "id": 7,
+    "pair": "ORCAUSDC",
+    "listing": "Binance",
+    "assetname": "Orca",
+    "market_cap": 98189576,
+    "weights": "1.75",
+    "quantity": 509.21166997478406
+  },
+  {
+    "id": 2,
+    "pair": "UMAUSDC",
+    "listing": "Binance",
+    "assetname": "UMA",
+    "market_cap": 96353091,
+    "weights": "1.75",
+    "quantity": 905.429077213403
+  },
+  {
+    "id": 24,
+    "pair": "OSMOUSDC",
+    "listing": "Binance",
+    "assetname": "Osmosis",
+    "market_cap": 95689226,
+    "weights": "1.75",
+    "quantity": 6497.672608992503
+  },
+  {
+    "id": 4,
+    "pair": "API3USDC",
+    "listing": "Binance",
+    "assetname": "Api3",
+    "market_cap": 89457523,
+    "weights": "1.75",
+    "quantity": 1698.1912192477316
+  },
+  {
+    "id": 8,
     "pair": "LISTAUSDC",
     "listing": "Binance",
     "assetname": "Lista DAO",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 57126400,
-    "weights": "1.12",
-    "quantity": 3622.26572698648
+    "market_cap": 88189139,
+    "weights": "1.75",
+    "quantity": 5651.842295188763
   },
   {
-    "id": 75,
-    "pair": "KERNELUSDC",
+    "id": 5,
+    "pair": "HOMEUSDC",
     "listing": "Binance",
-    "assetname": "KernelDAO",
-    "sector": "BNB Chain Ecosystem",
-    "market_cap": 48058422,
-    "weights": "1.12",
-    "quantity": 6088.814560873256
+    "assetname": "HOME",
+    "market_cap": 81742502,
+    "weights": "1.75",
+    "quantity": 39452.81312107615
   },
   {
-    "id": 76,
+    "id": 38,
+    "pair": "RPLUSDC",
+    "listing": "Binance",
+    "assetname": "Rocket Pool",
+    "market_cap": 79380826,
+    "weights": "1.75",
+    "quantity": 178.5909312001221
+  },
+  {
+    "id": 35,
+    "pair": "PUNDIXUSDC",
+    "listing": "Binance",
+    "assetname": "Pundi X",
+    "market_cap": 77162110,
+    "weights": "1.75",
+    "quantity": 3878.030142362782
+  },
+  {
+    "id": 21,
+    "pair": "TRBUSDC",
+    "listing": "Binance",
+    "assetname": "Tellor Tributes",
+    "market_cap": 68944581,
+    "weights": "1.75",
+    "quantity": 27.306036427810046
+  },
+  {
+    "id": 46,
+    "pair": "AEVOUSDC",
+    "listing": "Binance",
+    "assetname": "Aevo",
+    "market_cap": 62920224,
+    "weights": "1.75",
+    "quantity": 12926.542826401566
+  },
+  {
+    "id": 26,
+    "pair": "LAYERUSDC",
+    "listing": "Binance",
+    "assetname": "Solayer",
+    "market_cap": 62858500,
+    "weights": "1.75",
+    "quantity": 1637.404116257801
+  },
+  {
+    "id": 28,
+    "pair": "CGPTUSDC",
+    "listing": "Binance",
+    "assetname": "ChainGPT",
+    "market_cap": 51883682,
+    "weights": "1.75",
+    "quantity": 12380.491892368293
+  },
+  {
+    "id": 43,
     "pair": "HUMAUSDC",
     "listing": "Binance",
     "assetname": "Huma Finance",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 46934156,
-    "weights": "1.12",
-    "quantity": 18205.640838903964
+    "market_cap": 51195629,
+    "weights": "1.75",
+    "quantity": 28406.367356692084
   },
   {
-    "id": 77,
-    "pair": "RESOLVUSDC",
+    "id": 48,
+    "pair": "CETUSUSDC",
     "listing": "Binance",
-    "assetname": "Resolv",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 45749221,
-    "weights": "1.12",
-    "quantity": 2738.457888675269
+    "assetname": "Cetus Protocol",
+    "market_cap": 42658298,
+    "weights": "1.75",
+    "quantity": 11198.531085634064
   },
   {
-    "id": 80,
-    "pair": "PARTIUSDC",
+    "id": 22,
+    "pair": "AUCTIONUSDC",
     "listing": "Binance",
-    "assetname": "Particle Network",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 42407484,
-    "weights": "1.12",
-    "quantity": 3234.5143570294376
+    "assetname": "Bounce",
+    "market_cap": 42350784,
+    "weights": "1.75",
+    "quantity": 119.39913868399908
   },
   {
-    "id": 83,
+    "id": 31,
+    "pair": "KERNELUSDC",
+    "listing": "Binance",
+    "assetname": "KernelDAO",
+    "market_cap": 41929561,
+    "weights": "1.75",
+    "quantity": 9500.412795870267
+  },
+  {
+    "id": 40,
+    "pair": "SSVUSDC",
+    "listing": "Binance",
+    "assetname": "SSV Network",
+    "market_cap": 38786279,
+    "weights": "1.75",
+    "quantity": 124.12389220885348
+  },
+  {
+    "id": 29,
+    "pair": "DOLOUSDC",
+    "listing": "Binance",
+    "assetname": "Dolomite",
+    "market_cap": 35658450,
+    "weights": "1.75",
+    "quantity": 32650.476483243165
+  },
+  {
+    "id": 13,
+    "pair": "USUALUSDC",
+    "listing": "Binance",
+    "assetname": "Usual",
+    "market_cap": 34841220,
+    "weights": "1.75",
+    "quantity": 11630.128662327967
+  },
+  {
+    "id": 12,
     "pair": "THEUSDC",
     "listing": "Binance",
     "assetname": "Thena",
-    "sector": "Decentralized Exchange (DEX)",
-    "market_cap": 40657302,
-    "weights": "1.12",
-    "quantity": 3036.6558162036335
+    "market_cap": 34146262,
+    "weights": "1.75",
+    "quantity": 4738.11174317933
   },
   {
-    "id": 85,
+    "id": 9,
     "pair": "REZUSDC",
     "listing": "Binance",
     "assetname": "Renzo",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 31835573,
-    "weights": "1.12",
-    "quantity": 77153.12012536102
+    "market_cap": 33032165,
+    "weights": "1.75",
+    "quantity": 120382.46235818535
   },
   {
-    "id": 86,
+    "id": 20,
+    "pair": "RESOLVUSDC",
+    "listing": "Binance",
+    "assetname": "Resolv",
+    "market_cap": 22804189,
+    "weights": "1.75",
+    "quantity": 4272.8317813625645
+  },
+  {
+    "id": 50,
+    "pair": "PARTIUSDC",
+    "listing": "Binance",
+    "assetname": "Particle Network",
+    "market_cap": 20913282,
+    "weights": "1.75",
+    "quantity": 5046.831575954808
+  },
+  {
+    "id": 42,
     "pair": "DFUSDC",
     "listing": "Binance",
     "assetname": "dForce",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 29268071,
-    "weights": "1.12",
-    "quantity": 18185.508836382916
+    "market_cap": 20068398,
+    "weights": "1.75",
+    "quantity": 28374.955275991433
   },
   {
-    "id": 87,
+    "id": 15,
     "pair": "HAEDALUSDC",
     "listing": "Binance",
     "assetname": "Haedal Protocol",
-    "sector": "Decentralized Finance (DeFi)",
-    "market_cap": 28586622,
-    "weights": "1.12",
-    "quantity": 6931.116250897608
+    "market_cap": 19262296,
+    "weights": "1.75",
+    "quantity": 10814.661024961157
   }
 ]

@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "pair": "ETHUSDC",
+    "listing": "Binance",
+    "assetname": "Ethereum",
+    "sector": "Smart Contract Platform",
+    "market_cap": 558162143043,
+    "weights": "4.17",
+    "quantity": 8.194522194686833
+  },
+  {
+    "id": 2,
+    "pair": "XRPUSDC",
+    "listing": "Binance",
+    "assetname": "XRP",
+    "sector": "FTX Holdings",
+    "market_cap": 182939958664,
+    "weights": "4.17",
+    "quantity": 6918.275360003926
+  },
+  {
+    "id": 3,
+    "pair": "SOLUSDC",
+    "listing": "Binance",
+    "assetname": "Solana",
+    "sector": "Smart Contract Platform",
+    "market_cap": 130741446436,
+    "weights": "4.17",
+    "quantity": 126.35894375739608
+  },
+  {
+    "id": 4,
+    "pair": "SUIUSDC",
+    "listing": "Binance",
+    "assetname": "Sui",
+    "sector": "Smart Contract Platform",
+    "market_cap": 13112658288,
+    "weights": "4.17",
+    "quantity": 6920.290009071453
+  },
+  {
+    "id": 5,
+    "pair": "AVAXUSDC",
+    "listing": "Binance",
+    "assetname": "Avalanche",
+    "sector": "Smart Contract Platform",
+    "market_cap": 12078134788,
+    "weights": "4.17",
+    "quantity": 832.8407318402769
+  },
+  {
+    "id": 6,
+    "pair": "UNIUSDC",
+    "listing": "Binance",
+    "assetname": "Uniswap",
+    "sector": "Decentralized Exchange (DEX)",
+    "market_cap": 6075797220,
+    "weights": "4.17",
+    "quantity": 2491.34583186278
+  },
+  {
+    "id": 7,
+    "pair": "NEARUSDC",
+    "listing": "Binance",
+    "assetname": "NEAR Protocol",
+    "sector": "Artificial Intelligence (AI)",
+    "market_cap": 3454102008,
+    "weights": "4.17",
+    "quantity": 6115.763925352139
+  },
+  {
+    "id": 8,
+    "pair": "WLDUSDC",
+    "listing": "Binance",
+    "assetname": "Worldcoin",
+    "sector": "Smart Contract Platform",
+    "market_cap": 3234318416,
+    "weights": "4.17",
+    "quantity": 18907.16045836709
+  },
+  {
+    "id": 9,
+    "pair": "APTUSDC",
+    "listing": "Binance",
+    "assetname": "Aptos",
+    "sector": "Smart Contract Platform",
+    "market_cap": 3160934091,
+    "weights": "4.17",
+    "quantity": 2915.6335675271903
+  },
+  {
+    "id": 10,
+    "pair": "ICPUSDC",
+    "listing": "Binance",
+    "assetname": "Internet Computer",
+    "sector": "Artificial Intelligence (AI)",
+    "market_cap": 2649571019,
+    "weights": "4.17",
+    "quantity": 2721.6125220095523
+  },
+  {
+    "id": 11,
+    "pair": "OPUSDC",
+    "listing": "Binance",
+    "assetname": "Optimism",
+    "sector": "Smart Contract Platform",
+    "market_cap": 1424595667,
+    "weights": "4.17",
+    "quantity": 18154.19460001447
+  },
+  {
+    "id": 12,
+    "pair": "LDOUSDC",
+    "listing": "Binance",
+    "assetname": "Lido DAO",
+    "sector": "Infrastructure",
+    "market_cap": 1167756378,
+    "weights": "4.17",
+    "quantity": 16656.78432438244
+  },
+  {
+    "id": 14,
+    "pair": "DYDXUSDC",
+    "listing": "Binance",
+    "assetname": "dYdX",
+    "sector": "Decentralized Exchange (DEX)",
+    "market_cap": 520525942,
+    "weights": "4.17",
+    "quantity": 24613.277729983893
+  },
+  {
+    "id": 15,
+    "pair": "APEUSDC",
+    "listing": "Binance",
+    "assetname": "ApeCoin",
+    "sector": "Gaming (GameFi)",
+    "market_cap": 492617879,
+    "weights": "4.17",
+    "quantity": 30100.44902890534
+  },
+  {
+    "id": 16,
+    "pair": "ARUSDC",
+    "listing": "Binance",
+    "assetname": "Arweave",
+    "sector": "Artificial Intelligence (AI)",
+    "market_cap": 484770174,
+    "weights": "4.17",
+    "quantity": 2307.8335898164596
+  },
+  {
+    "id": 17,
+    "pair": "AXSUSDC",
+    "listing": "Binance",
+    "assetname": "Axie Infinity",
+    "sector": "Gaming (GameFi)",
+    "market_cap": 435509210,
+    "weights": "4.16",
+    "quantity": 4682.0135405933215
+  },
+  {
+    "id": 18,
+    "pair": "ROSEUSDC",
+    "listing": "Binance",
+    "assetname": "Oasis",
+    "sector": "Smart Contract Platform",
+    "market_cap": 216965549,
+    "weights": "4.16",
+    "quantity": 485156.2745604141
+  },
+  {
+    "id": 20,
+    "pair": "YGGUSDC",
+    "listing": "Binance",
+    "assetname": "Yield Guild Games",
+    "sector": "Gaming (GameFi)",
+    "market_cap": 120861633,
+    "weights": "4.16",
+    "quantity": 78891.83002064937
+  }
+]
