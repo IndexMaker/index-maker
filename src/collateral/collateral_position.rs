@@ -19,6 +19,7 @@ pub enum RoutingStatus {
     Ready { fee: Amount },
     NotReady,
     CheckLater,
+    EnRoute,
 }
 
 pub enum PreAuthStatus {

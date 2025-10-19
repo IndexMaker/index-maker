@@ -77,14 +77,14 @@ impl CollateralDesignation for SimpleDesignation {
     }
 }
 
-struct SimpleBridge {
+pub struct SimpleBridge {
     observer: RwLock<SingleObserver<CollateralRouterEvent>>,
     source: Arc<SimpleDesignation>,
     destination: Arc<SimpleDesignation>,
 }
 
 impl SimpleBridge {
-    fn new(source: &str, symbol: &str, destination: &str) -> Self {
+    pub fn new(source: &str, symbol: &str, destination: &str) -> Self {
         Self {
             observer: RwLock::new(SingleObserver::new()),
             source: Arc::new(SimpleDesignation::new_with_symbol(source, symbol)),

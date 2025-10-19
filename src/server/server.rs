@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use derive_with_baggage::WithBaggage;
@@ -15,7 +15,7 @@ use symm_core::core::{
 
 use crate::solver::mint_invoice::MintInvoice;
 
-#[derive(Serialize, WithBaggage)]
+#[derive(Serialize, Deserialize, WithBaggage)]
 pub enum ServerEvent {
     NewIndexOrder {
         #[baggage]
@@ -78,7 +78,7 @@ pub enum ServerEvent {
     CustodyToAccount,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum NewIndexOrderNakReason {
     #[error("Duplicate client order ID: {detail:?}")]
     DuplicateClientOrderId { detail: String },
@@ -90,7 +90,7 @@ pub enum NewIndexOrderNakReason {
     OtherReason { detail: String },
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum CancelIndexOrderNakReason {
     #[error("Index order not found: {detail:?}")]
     IndexOrderNotFound { detail: String },
@@ -98,7 +98,7 @@ pub enum CancelIndexOrderNakReason {
     OtherReason { detail: String },
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum NewIndexQuoteNakReason {
     #[error("Duplicate client quote ID: {detail:?}")]
     DuplicateIndexQuoteId { detail: String },
@@ -113,7 +113,7 @@ pub enum NewIndexQuoteNakReason {
     OtherReason { detail: String },
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum CancelIndexQuoteNakReason {
     #[error("Quote not found: {detail:?}")]
     IndexQuoteNotFound { detail: String },
@@ -125,7 +125,7 @@ pub enum CancelIndexQuoteNakReason {
     OtherReason { detail: String },
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum ServerError {
     // #[error("Sequence number out of order: {detail:?}")]
     // TODO: SequenceNumberOutOfOrder { detail: String }, //< example of known server errors
@@ -135,7 +135,7 @@ pub enum ServerError {
     OtherReason { detail: String },
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum ServerResponseReason<T> {
     #[error("{0:?}")]
     User(T),
@@ -143,7 +143,7 @@ pub enum ServerResponseReason<T> {
     Server(ServerError),
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum NewQuoteRequestNakReason {
     #[error("Duplicate client quote ID: {detail:?}")]
     DuplicateClientQuoteId { detail: String },
@@ -155,7 +155,7 @@ pub enum NewQuoteRequestNakReason {
     OtherReason { detail: String },
 }
 
-#[derive(Error, Debug, WithBaggage)]
+#[derive(Error, Debug, WithBaggage, Serialize, Deserialize)]
 pub enum ServerResponse {
     // ──────── Orders ────────
     #[error("NewIndexOrder: ACK [{chain_id}:{address}] {client_order_id} {timestamp}")]

@@ -10,6 +10,7 @@ use parking_lot::{Mutex, RwLock};
 use safe_math::safe;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_with::serde_as;
 use tracing::{info_span, span, Level};
 
 use symm_core::{
@@ -24,6 +25,11 @@ use symm_core::{
         telemetry::WithTracingContext,
     },
     order_sender::position::LotId,
+};
+
+use crate::solver::{
+    batch_manager_serde::{StoredEngagedSolverOrders, StoredSolverOrderEngagement},
+    solver::FetchSolverOrder,
 };
 
 use super::{
@@ -119,6 +125,7 @@ impl BatchAssetLot {
 /// positions in out inventory, for us to know what is our absolute position at
 /// any given moment. The BatchAssetPosition is different kind of position, in
 /// which we aggregate position over all lots for a batch created by Solver.
+#[derive(Serialize, Deserialize)]
 struct BatchAssetPosition {
     /// Symbol of an asset
     symbol: Symbol,
@@ -229,6 +236,8 @@ impl BatchAssetPosition {
     }
 }
 
+#[serde_as]
+#[derive(Serialize, Deserialize)]
 struct BatchOrderStatus {
     // ID of the batch order
     batch_order_id: BatchOrderId,
@@ -236,6 +245,7 @@ struct BatchOrderStatus {
     /// Positions of individual assets in this batch
     /// Note: These aren't our absolute positions, these are only positions
     /// of assets acquired/disposed in this batch
+    #[serde_as(as = "Vec<(_, _)>")]
     positions: HashMap<(Symbol, Side), BatchAssetPosition>,
 
     /// Volley size (value of all orders in the batch)
@@ -731,6 +741,7 @@ impl BatchManager {
         match index_order_write.status {
             SolverOrderStatus::Open
             | SolverOrderStatus::ManageCollateral
+            | SolverOrderStatus::RouteCollateral
             | SolverOrderStatus::Ready
             | SolverOrderStatus::Minted
             | SolverOrderStatus::InvalidSymbol
@@ -1389,6 +1400,7 @@ impl BatchManager {
                 }
                 SolverOrderStatus::Open
                 | SolverOrderStatus::ManageCollateral
+                | SolverOrderStatus::RouteCollateral
                 | SolverOrderStatus::Ready
                 | SolverOrderStatus::InvalidSymbol
                 | SolverOrderStatus::InvalidOrder
@@ -1415,30 +1427,104 @@ impl BatchManager {
 
         Ok(())
     }
-}
 
-impl Persist for BatchManager {
-    fn load(&mut self) -> Result<()> {
-        if let Some(value) = self.persistence.load_value()? {
-            if let Some(carry_overs_value) = value.get("carry_overs") {
-                let loaded_carry_overs: Vec<((Symbol, Side), BatchCarryOver)> =
-                    serde_json::from_value(carry_overs_value.clone())
-                        .map_err(|err| eyre!("Failed to deserialize carry_overs: {:?}", err))?;
-                *self.carry_overs.lock() = loaded_carry_overs.into_iter().collect();
-                tracing::info!(
-                    "Loaded {} carry-over positions from persistence",
-                    self.carry_overs.lock().len()
-                );
-            }
+    fn load_engagements(
+        &mut self,
+        engagements: serde_json::Value,
+        parent: &dyn FetchSolverOrder,
+    ) -> Result<()> {
+        let engagements: HashMap<BatchOrderId, StoredEngagedSolverOrders> =
+            serde_json::from_value(engagements)?;
+
+        let (engagements, failures): (HashMap<_, _>, Vec<_>) = engagements
+            .into_iter()
+            .map(|(k, v)| -> Result<(_, _)> { Ok((k, v.to_live(parent)?)) })
+            .map_ok(|(k, v)| (k, Arc::new(RwLock::new(v))))
+            .partition_result();
+
+        if !failures.is_empty() {
+            Err(eyre::eyre!(
+                "Failed to deserialise engagements: {:?}",
+                failures
+            ))?;
         }
+
+        self.engagements = engagements;
+
         Ok(())
     }
 
-    fn store(&self) -> Result<()> {
-        let carry_overs_for_serialization = self.carry_overs.lock().clone();
+    pub fn load(&mut self, parent: &dyn FetchSolverOrder) -> Result<()> {
+        let Some(mut value) = self.persistence.load_value()? else {
+            return Ok(());
+        };
+
+        if let Some(carry_overs) = value.get_mut("carry_overs") {
+            let carry_overs: Vec<((Symbol, Side), BatchCarryOver)> =
+                serde_json::from_value(carry_overs.take())
+                    .map_err(|err| eyre!("Failed to deserialize carry_overs: {:?}", err))?;
+
+            *self.carry_overs.lock() = carry_overs.into_iter().collect();
+
+            tracing::info!(
+                "Loaded {} carry-over positions from persistence",
+                self.carry_overs.lock().len()
+            );
+        }
+
+        if let Some(batches) = value.get_mut("batches") {
+            let batches: HashMap<BatchOrderId, BatchOrderStatus> =
+                serde_json::from_value(batches.take())
+                    .map_err(|err| eyre!("Failed to deserialize batches: {:?}", err))?;
+
+            self.batches = batches
+                .into_iter()
+                .map(|(k, v)| (k, Arc::new(RwLock::new(v))))
+                .collect();
+        }
+
+        if let Some(engagements) = value.get_mut("engagements") {
+            self.load_engagements(engagements.take(), parent)
+                .map_err(|err| eyre!("Failed to deserialize engagements: {:?}", err))?;
+        }
+
+        if let Some(total_volley_size) = value.get_mut("total_volley_size") {
+            *self.total_volley_size.write() = serde_json::from_value(total_volley_size.take())
+                .map_err(|err| eyre!("Failed to deserialize total volley size: {:?}", err))?;
+        }
+
+        Ok(())
+    }
+
+    pub fn store(&self) -> Result<()> {
+        let batches: HashMap<_, _> = self
+            .batches
+            .iter()
+            .map(|(k, v)| (k.to_string(), json!(&*v.read())))
+            .collect();
+
+        let engagements: HashMap<_, _> = self
+            .engagements
+            .iter()
+            .map(|(k, v)| (k.to_string(), StoredEngagedSolverOrders::new(&v.read())))
+            .collect();
+
+        let carry_overs = self
+            .carry_overs
+            .lock()
+            .iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect_vec();
+
+        let total_volley_size = *self.total_volley_size.read();
+
         let data = json!({
-            "carry_overs": carry_overs_for_serialization.into_iter().collect_vec()
+            "batches": batches,
+            "engagements": engagements,
+            "carry_overs": carry_overs,
+            "total_volley_size": total_volley_size
         });
+
         self.persistence
             .store_value(data)
             .map_err(|err| eyre!("Failed to store BatchManager state: {:?}", err))
@@ -1486,7 +1572,7 @@ mod test {
 
     use index_core::index::basket::{AssetWeight, Basket, BasketDefinition};
 
-    use crate::{app::timestamp_ids, solver::{
+    use crate::solver::{
         batch_manager::BatchEvent,
         index_order_manager::EngagedIndexOrder,
         solver::{
@@ -1495,7 +1581,7 @@ mod test {
         },
         solver_order::solver_order::{SolverOrder, SolverOrderAssetLot, SolverOrderStatus},
         solver_quote::{SolverQuote, SolverQuoteStatus},
-    }};
+    };
 
     use super::{BatchAssetLot, BatchAssetPosition, BatchManager, BatchManagerHost};
 

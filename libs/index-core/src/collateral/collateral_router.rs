@@ -7,6 +7,7 @@ use eyre::{eyre, OptionExt, Result};
 
 use derive_with_baggage::WithBaggage;
 use opentelemetry::propagation::Injector;
+use serde::{Deserialize, Serialize};
 use symm_core::core::functional::IntoObservableSingleVTableRef;
 use symm_core::core::telemetry::{TracingData, WithBaggage};
 
@@ -15,7 +16,7 @@ use symm_core::core::{
     functional::{IntoObservableSingle, PublishSingle, SingleObserver},
 };
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum CollateralRoutingStatus {
     Success,
     Failure { reason: String },
@@ -60,7 +61,7 @@ pub enum CollateralTransferEvent {
     },
 }
 
-#[derive(WithBaggage)]
+#[derive(Serialize, Deserialize, WithBaggage)]
 pub enum CollateralRouterEvent {
     HopComplete {
         #[baggage]
