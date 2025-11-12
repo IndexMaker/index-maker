@@ -166,7 +166,7 @@ test-case = "*"
 thiserror = "2.0.12"
 tokio = { version = "1.46.1", features = ["full"] }
 tokio-stream = "0.1.17"
-tokio-util = "0.7.15"
+tokio-util = { version = "0.7.15", features = ["time"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-appender = "0.2.3"
