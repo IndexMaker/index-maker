@@ -16,6 +16,7 @@ members = [
     "apps/anvil_orchestrator",
     "apps/anvil_provisioner",
     "apps/index_deployer",
+    "apps/migrate_persistence",
     "apps/tracker",
     "_deprecated/liquidity_tracker",
     "_deprecated/alloy-evm-connector",
