@@ -4213,6 +4213,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "migrate_persistence"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "eyre",
+ "index-maker",
+ "serde",
+ "serde_json",
+ "symm-core",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

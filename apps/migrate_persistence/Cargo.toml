@@ -1,0 +1,12 @@
+[package]
+name = "migrate_persistence"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eyre = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true}
+index-maker = { workspace = true }
+symm-core = { workspace = true }
