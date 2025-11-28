@@ -1,12 +1,7 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    ops::Deref,
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use symm_core::core::{
@@ -14,9 +9,7 @@ use symm_core::core::{
     persistence::{Persist, Persistence},
 };
 
-use crate::{
-    collateral::collateral_position::CollateralPosition, solver::mint_invoice::MintInvoice,
-};
+use crate::solver::mint_invoice::MintInvoice;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InvoiceMetadata {
