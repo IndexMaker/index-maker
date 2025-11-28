@@ -1,0 +1,55 @@
+{
+  "metadata": [
+    {
+      "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+      "amount_paid": "0.010",
+      "amount_remaining": "0.0000000201692423536161167180",
+      "assets_value": "0.0089954820897127899888888376",
+      "chain_id": 8453,
+      "client_order_id": "JYA-NIF-EYJ-9644",
+      "exchange_fee": "0.0000044977410448563949944445",
+      "fill_rate": "0.9999977589730718204314757778",
+      "filled_quantity": "0.0000001310933459504349211202",
+      "management_fee": "0.001",
+      "payment_id": "P-1763134390189",
+      "seq_num": "0x21050000000002467758c0d3c9e530ca6d71469bb678e6592274154d9cad",
+      "symbol": "SY100",
+      "timestamp": "2025-11-14T15:33:10.783466856Z",
+      "total_amount": "0.01"
+    },
+    {
+      "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+      "amount_paid": "0.0100000000000000000000000000",
+      "amount_remaining": "-0.0010526830005014490310057145",
+      "assets_value": "0.0107718962448164820064416708",
+      "chain_id": 8453,
+      "client_order_id": "IZE-KYW-IHL-3516",
+      "exchange_fee": "0.0000053859481224082410032209",
+      "fill_rate": "1.1082495000225913925807482659",
+      "filled_quantity": "0.0000001569814610135035622395",
+      "management_fee": "0.0002754008075625587835608228",
+      "payment_id": "P-1763682580557",
+      "seq_num": "0x210500000000024aa600c0d3c9e530ca6d71469bb678e6592274154d9cad",
+      "symbol": "SY100",
+      "timestamp": "2025-11-20T23:49:40.900802807Z",
+      "total_amount": "0.01"
+    },
+    {
+      "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+      "amount_paid": "0.010",
+      "amount_remaining": "-0.0014574117666911317796647744",
+      "assets_value": "0.0104521856738542046773261113",
+      "chain_id": 8453,
+      "client_order_id": "UJQ-RQJ-DAT-2626",
+      "exchange_fee": "0.0000052260928369271023386631",
+      "fill_rate": "1.1619346407434590866294193778",
+      "filled_quantity": "0.0000001523222411890208624175",
+      "management_fee": "0.001",
+      "payment_id": "P-1763742738347",
+      "seq_num": "0x210500000000024b1b81c0d3c9e530ca6d71469bb678e6592274154d9cad",
+      "symbol": "SY100",
+      "timestamp": "2025-11-21T16:32:18.659951420Z",
+      "total_amount": "0.01"
+    }
+  ]
+}

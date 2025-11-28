@@ -1,0 +1,168 @@
+{
+  "amount_paid": "0.0100000000000000000000000000",
+  "amount_remaining": "-0.0010526830005014490310057145",
+  "assets_value": "0.0107718962448164820064416708",
+  "client_order_id": "IZE-KYW-IHL-3516",
+  "exchange_fee": "0.0000053859481224082410032209",
+  "fill_rate": "1.1082495000225913925807482659",
+  "filled_quantity": "0.0000001569814610135035622395",
+  "lots": [
+    {
+      "assigned_fee": "0.0000044041467545647197440242",
+      "assigned_quantity": "0.0000000911573347088867211024",
+      "assigned_timestamp": "2025-11-20T23:49:40.787995229Z",
+      "created_timestamp": "2025-11-14T15:33:10.426032788Z",
+      "lot_id": "O-1763134390429-L-1",
+      "original_fee": "0.0024999999999999999999999998",
+      "original_quantity": "0.0000517451732361131219860377",
+      "price": "96627.37000000",
+      "remaining_quantity": "0.0000515778914983202066030796",
+      "symbol": "BTC"
+    },
+    {
+      "assigned_fee": "0.0000002576748500608423446179",
+      "assigned_quantity": "0.0000005573456985039579183861",
+      "assigned_timestamp": "2025-11-20T23:49:40.787995229Z",
+      "created_timestamp": "2025-11-14T15:33:10.426032788Z",
+      "lot_id": "O-1763134390428-L-0",
+      "original_fee": "0.0025000000000000000000000000",
+      "original_quantity": "0.0054074514681230735954144812",
+      "price": "924.65000000",
+      "remaining_quantity": "0.0054064286896785864595576436",
+      "symbol": "BNB"
+    },
+    {
+      "assigned_fee": "0.0000001846040296483885199411",
+      "assigned_quantity": "0.0022657751414346550468374020",
+      "assigned_timestamp": "2025-11-20T23:49:40.787995229Z",
+      "created_timestamp": "2025-11-14T15:33:10.426032788Z",
+      "lot_id": "O-1763134390427-L-2",
+      "original_fee": "0.0025000000000000000000000000",
+      "original_quantity": "30.684258975145750230131942314",
+      "price": "0.16295000",
+      "remaining_quantity": "30.680101078205064143335748874",
+      "symbol": "DOGE"
+    },
+    {
+      "assigned_fee": "0.0000001975866903790019190870",
+      "assigned_quantity": "0.0001714938943531674860799337",
+      "assigned_timestamp": "2025-11-20T23:49:40.787995229Z",
+      "created_timestamp": "2025-11-14T15:33:10.426032788Z",
+      "lot_id": "O-1763134390430-L-3",
+      "original_fee": "0.0025000000000000000000000000",
+      "original_quantity": "2.1698563555092652866380245628",
+      "price": "2.30430000",
+      "remaining_quantity": "2.1695416491089532579074317000",
+      "symbol": "XRP"
+    },
+    {
+      "assigned_fee": "0.0000001758786482945378109736",
+      "assigned_quantity": "0.0000001098822625714807548207",
+      "assigned_timestamp": "2025-11-20T23:49:40.787995229Z",
+      "created_timestamp": "2025-11-14T15:33:10.426032788Z",
+      "lot_id": "O-1763134390431-L-5",
+      "original_fee": "0.0025000000000000000000000000",
+      "original_quantity": "0.0015619045239002630247218248",
+      "price": "3201.22000000",
+      "remaining_quantity": "0.0015617028802706606908907844",
+      "symbol": "ETH"
+    },
+    {
+      "assigned_fee": "0.0000001660571494607506645771",
+      "assigned_quantity": "0.0000023439501653010186262565",
+      "assigned_timestamp": "2025-11-20T23:49:40.787995229Z",
+      "created_timestamp": "2025-11-14T15:33:10.426032788Z",
+      "lot_id": "O-1763134390426-L-4",
+      "original_fee": "0.0025000000000000000000000000",
+      "original_quantity": "0.0352883054555720234314348225",
+      "price": "141.69000000",
+      "remaining_quantity": "0.0352840041005773460725275348",
+      "symbol": "SOL"
+    }
+  ],
+  "management_fee": "0.0002754008075625587835608228",
+  "payment_id": "P-1763682580557",
+  "position": {
+    "address": "0xc0d3c9e530ca6d71469bb678e6592274154d9cad",
+    "chain_id": 8453,
+    "created_timestamp": "2025-11-14T15:32:57.575189603Z",
+    "last_update_timestamp": "2025-11-20T23:49:25.727853438Z",
+    "side_cr": {
+      "closed_lots": [
+        {
+          "created_timestamp": "2025-11-14T15:32:57.575189603Z",
+          "last_update_timestamp": "2025-11-14T15:33:10.783466856Z",
+          "payment_id": "P-1763134377575",
+          "preauth_amount": "0.000000",
+          "ready_amount": "0",
+          "seq_num": "0x21050000000002467758c0d3c9e530ca6d71469bb678e6592274154d9cad",
+          "spends": [
+            {
+              "client_order_id": "JYA-NIF-EYJ-9644",
+              "payment_id": "Charges",
+              "preauth_amount": "0",
+              "spent_amount": "0.001",
+              "timestamp": "2025-11-14T15:33:10.184452230Z"
+            },
+            {
+              "client_order_id": "JYA-NIF-EYJ-9644",
+              "payment_id": "P-1763134390189",
+              "preauth_amount": "0",
+              "spent_amount": "0.009000",
+              "timestamp": "2025-11-14T15:33:10.783466856Z"
+            }
+          ],
+          "spent_amount": "0.010000",
+          "unconfirmed_amount": "0"
+        },
+        {
+          "created_timestamp": "2025-11-20T23:49:25.727853438Z",
+          "last_update_timestamp": "2025-11-20T23:49:40.900802807Z",
+          "payment_id": "P-1763682565728",
+          "preauth_amount": "0.0000000000000000000000000000",
+          "ready_amount": "0",
+          "seq_num": "0x210500000000024aa600c0d3c9e530ca6d71469bb678e6592274154d9cad",
+          "spends": [
+            {
+              "client_order_id": "IZE-KYW-IHL-3516",
+              "payment_id": "Charges",
+              "preauth_amount": "0",
+              "spent_amount": "0.0002754008075625587835608228",
+              "timestamp": "2025-11-20T23:49:40.551382709Z"
+            },
+            {
+              "client_order_id": "IZE-KYW-IHL-3516",
+              "payment_id": "P-1763682580557",
+              "preauth_amount": "0",
+              "spent_amount": "0.0097245991924374412164391772",
+              "timestamp": "2025-11-20T23:49:40.900802807Z"
+            }
+          ],
+          "spent_amount": "0.0100000000000000000000000000",
+          "unconfirmed_amount": "0"
+        }
+      ],
+      "created_timestamp": "2025-11-14T15:32:57.575189603Z",
+      "last_update_timestamp": "2025-11-20T23:49:40.551382709Z",
+      "open_lots": [],
+      "preauth_balance": "0.0000000000000000000000000000",
+      "ready_balance": "0.0000000000000000000000000000",
+      "spent_balance": "0.0200000000000000000000000000",
+      "unconfirmed_balance": "0.0000000000000000000000000000"
+    },
+    "side_dr": {
+      "closed_lots": [],
+      "created_timestamp": "2025-11-14T15:32:57.575189603Z",
+      "last_update_timestamp": "2025-11-14T15:32:57.575189603Z",
+      "open_lots": [],
+      "preauth_balance": "0",
+      "ready_balance": "0",
+      "spent_balance": "0",
+      "unconfirmed_balance": "0"
+    }
+  },
+  "seq_num": "0x210500000000024aa600c0d3c9e530ca6d71469bb678e6592274154d9cad",
+  "symbol": "SY100",
+  "timestamp": "2025-11-20T23:49:40.900802807Z",
+  "total_amount": "0.01"
+}
