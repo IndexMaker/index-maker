@@ -17,6 +17,9 @@ RUN cargo build --release --target=x86_64-unknown-linux-musl --features alpine-d
 # Build tracker
 RUN cargo build --release -p tracker --target=x86_64-unknown-linux-musl --features alpine-deploy
 
+# Build migrate_persistence
+RUN cargo build --release -p migrate_persistence --target=x86_64-unknown-linux-musl --features alpine-deploy
+
 # Stage 2: Create the final, minimal runtime image
 FROM --platform=linux/amd64 alpine:3.22
 
@@ -26,6 +29,7 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/index-maker ./
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/tracker ./
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/migrate_persistence ./
 COPY --from=builder /app/configs ./configs
 
 CMD ["./index-maker", "-b", "0.0.0.0:3000", "-c", "configs", "quote-server"]

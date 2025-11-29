@@ -4219,6 +4219,7 @@ dependencies = [
  "clap",
  "eyre",
  "index-maker",
+ "openssl",
  "serde",
  "serde_json",
  "symm-core",

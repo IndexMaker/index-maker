@@ -96,6 +96,21 @@ services:
 
     restart: unless-stopped 
 
+
+#  migrate-persistence:
+#    platform: linux/amd64
+#    image: ${DOCKER_IMAGE_NAME}
+#    ports: []
+#
+#    command: ["./migrate_persistence", "--file", "persistence/InvoiceManager.json" ]
+#
+#    environment:
+#      RUST_LOG: ${RUST_LOG}
+#    
+#    volumes:
+#      - ./persistence_migration:/app/persistence
+#    
+
 #  index-maker-tracker:
 #    platform: linux/amd64
 #    image: ${DOCKER_IMAGE_NAME}

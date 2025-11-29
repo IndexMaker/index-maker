@@ -3,10 +3,14 @@ name = "migrate_persistence"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+alpine-deploy = ["openssl/vendored"]
+
 [dependencies]
+clap = { workspace = true}
 eyre = { workspace = true }
+index-maker = { workspace = true }
+openssl = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-clap = { workspace = true}
-index-maker = { workspace = true }
 symm-core = { workspace = true }
